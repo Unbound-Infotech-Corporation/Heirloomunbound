@@ -1,4 +1,6 @@
 """Dashboard stats: capture progress, counts, suggested next topics."""
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends
 
 from deps import db, get_current_user
@@ -50,6 +52,38 @@ async def stats(user: dict = Depends(get_current_user)):
     heirs = await db.heirs.count_documents({"user_id": user_id})
     skills = await db.skills.count_documents({"user_id": user_id})
 
+    # Live Assistant — Today snapshot
+    from datetime import datetime as _dt, timezone as _tz
+    now = _dt.now(_tz.utc)
+    end_of_day = now.replace(hour=23, minute=59, second=59).isoformat()
+    overdue_count = await db.reminders.count_documents({
+        "user_id": user_id, "status": "open",
+        "due_at": {"$ne": None, "$lt": now.isoformat()},
+    })
+    today_count = await db.reminders.count_documents({
+        "user_id": user_id, "status": "open",
+        "due_at": {"$gte": now.isoformat(), "$lte": end_of_day},
+    })
+    open_count = await db.reminders.count_documents({"user_id": user_id, "status": "open"})
+
+    # Streak: consecutive UTC days with at least one new entry, walking back from today.
+    streak = 0
+    cur = now
+    while True:
+        day_start = cur.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = cur.replace(hour=23, minute=59, second=59, microsecond=999000)
+        exists = await db.entries.count_documents({
+            "user_id": user_id,
+            "created_at": {"$gte": day_start.isoformat(), "$lte": day_end.isoformat()},
+        })
+        if exists:
+            streak += 1
+            cur = cur - timedelta(days=1)
+            if streak >= 365:
+                break
+        else:
+            break
+
     # Suggested topics user hasn't covered — match by tag/title heuristic
     suggested = []
     for topic in TOPIC_PROMPTS:
@@ -83,4 +117,8 @@ async def stats(user: dict = Depends(get_current_user)):
         "skills": skills,
         "completeness": completeness,
         "suggested_topics": suggested,
+        "streak_days": streak,
+        "reminders_open": open_count,
+        "reminders_today": today_count,
+        "reminders_overdue": overdue_count,
     }

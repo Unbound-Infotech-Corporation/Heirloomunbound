@@ -3,11 +3,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel
 
 from deps import db, get_current_user
 from storage import APP_PREFIX, get_object, put_object
+from utils import detect_image_mime, make_photo_signature, verify_photo_signature
 
 router = APIRouter(prefix="/photos", tags=["photos"])
 
@@ -43,6 +44,10 @@ async def upload_photo(
         raise HTTPException(status_code=400, detail="Empty file")
     if len(data) > 12 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Image too large (12MB max)")
+    # Security: validate magic bytes — Content-Type alone is forgeable
+    detected = detect_image_mime(data[:32])
+    if not detected:
+        raise HTTPException(status_code=400, detail="File does not look like a real image")
 
     ext = EXT_BY_MIME.get(file.content_type.lower(), "bin")
     photo_id = f"ph_{uuid.uuid4().hex[:12]}"
@@ -107,31 +112,53 @@ async def delete_photo(photo_id: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
-@router.get("/{photo_id}/file")
-async def download_photo(
-    photo_id: str,
-    authorization: Optional[str] = Header(None),
-    auth: Optional[str] = Query(None),
-):
-    """Serve photo bytes. Accepts Bearer header OR ?auth= query token for <img src>."""
-    # Resolve token
-    token = None
-    if authorization and authorization.lower().startswith("bearer "):
-        token = authorization.split(" ", 1)[1].strip()
-    elif auth:
-        token = auth
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing auth token")
-
-    session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
-    if not session:
-        raise HTTPException(status_code=401, detail="Invalid session")
+@router.post("/{photo_id}/signed-url")
+async def signed_url(photo_id: str, user: dict = Depends(get_current_user)):
+    """Issue a short-lived (5 min) signed query for embedding the photo in <img src>."""
     photo = await db.photos.find_one(
-        {"photo_id": photo_id, "user_id": session["user_id"], "is_deleted": False},
-        {"_id": 0},
+        {"photo_id": photo_id, "user_id": user["user_id"], "is_deleted": False}, {"_id": 0}
     )
     if not photo:
         raise HTTPException(status_code=404, detail="Photo not found")
+    sig, exp = make_photo_signature(photo_id, user["user_id"])
+    return {"sig": sig, "exp": exp, "user_id": user["user_id"]}
+
+
+@router.get("/{photo_id}/file")
+async def download_photo(
+    photo_id: str,
+    request: Request,
+    sig: Optional[str] = Query(None),
+    exp: Optional[int] = Query(None),
+    uid: Optional[str] = Query(None),
+):
+    """Serve photo bytes.
+
+    Auth options (security SEC-002 — never accept session_token in URL):
+      1) Authenticated request via cookie / Bearer header (preferred — used by the React app).
+      2) Short-lived signed URL via ?sig=&exp=&uid= (HMAC over photo_id+user_id+exp, 5 min TTL),
+         for `<img src>` embedding where you can't send headers/cookies cleanly.
+    """
+    photo = await db.photos.find_one({"photo_id": photo_id, "is_deleted": False}, {"_id": 0})
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    authorized = False
+    if sig and exp and uid:
+        if uid == photo["user_id"] and verify_photo_signature(photo_id, uid, exp, sig):
+            authorized = True
+    if not authorized:
+        # Try session auth (cookie or Bearer) — reuse the same middleware
+        try:
+            session_user = await get_current_user(request)
+            if session_user["user_id"] == photo["user_id"]:
+                authorized = True
+        except HTTPException:
+            pass
+
+    if not authorized:
+        raise HTTPException(status_code=401, detail="Not authorized for this photo")
+
     try:
         data, ctype = get_object(photo["storage_path"])
     except Exception as exc:  # noqa: BLE001

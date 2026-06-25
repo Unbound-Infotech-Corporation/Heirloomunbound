@@ -15,6 +15,8 @@ import Twin from "@/pages/Twin";
 import Skills from "@/pages/Skills";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
+import Today from "@/pages/Today";
+import Reminders from "@/pages/Reminders";
 import Settings from "@/pages/Settings";
 import { Toaster } from "sonner";
 
@@ -35,6 +37,8 @@ function AppRouter() {
         }
       >
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/today" element={<Today />} />
+        <Route path="/reminders" element={<Reminders />} />
         <Route path="/interviewer" element={<Interviewer />} />
         <Route path="/journal" element={<Journal />} />
         <Route path="/library" element={<Library />} />

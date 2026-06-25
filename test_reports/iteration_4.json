@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 4 — Phase 4 (Security + Live Assistant) verification. 38/39 backend tests PASS. ONE CRITICAL backend bug found: POST /api/twin/message returns 500 because routers/twin.py calls _archive_blob(user_id, query_hint=payload.message) but the function signature is _archive_blob(user_id, limit=120) — TypeError. Smart Twin retrieval is entirely broken. All other features verified: SEC-001 CORS allowlist (correct at FastAPI layer; preview ingress override noted), SEC-002 signed-URL + magic-bytes, SEC-003 SSRF block (169.254/127/10/192.168/ftp all 400), SEC-004 rate limiting + Retry-After, ReDoS guard, capture (reminder/memory/question), reminders CRUD, dashboard streak, companion poll delivery + delivered_at gate, regression on auth/archive/heirs/photos/voice-clone. Frontend smoke pass: /today greeting+streak+quick-capture, /reminders filter pills, /library still works, /twin page loads (but sending a message will 500 due to bug above).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/twin/message", "issue": "TypeError: _archive_blob() got an unexpected keyword argument 'query_hint'. routers/twin.py line 116 calls _archive_blob(user_id, query_hint=msg) but the function (line 85) is async def _archive_blob(user_id, limit=120). Every twin reply 500s. The 'retrieval upgrade' described in the PR was not implemented in _archive_blob — it still does plain sort-by-created_at limit 120 with no token search.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "ALL /api/*", "issue": "Preview-environment ingress overrides FastAPI CORS headers: every response includes 'access-control-allow-origin: *' AND 'access-control-allow-credentials: true' regardless of Origin. The application-layer SEC-001 fix is correctly coded (verified by hitting http://localhost:8001/api/* directly — evil origin gets no ACAO; allowed origin gets exact echo). But in the deployed preview, the ingress masks it. Browsers will refuse to send cookies because '*' + credentials=true is spec-invalid, so the practical exploit is hard, but the header set is wrong. May be a platform-level setting outside server.py."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Twin chat", "issue": "Sending any message to the twin will surface an SSE error (or no reply) because backend /api/twin/message returns 500 due to the _archive_blob bug above. Did not retest twin chat in UI after discovery; library/today/reminders/quick-capture all working.", "affected_selectors": []}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase4.py",
+    "/app/test_reports/pytest/iteration_4_results.xml"
+  ],
+  "action_items": [
+    "URGENT: Fix /app/backend/routers/twin.py — update _archive_blob signature to accept query_hint and implement the promised retrieval (top-k token search of query against title/content/tags, plus the recent 20). Currently it raises TypeError on every call.",
+    "Investigate the preview ingress CORS override (ACAO=* + credentials=true). Probably a Kubernetes ingress annotation that needs to be removed so FastAPI's headers reach the client.",
+    "Optional: Magic-byte check on upload uses file.content_type for the extension before validating the actual detected MIME — if a user uploads a real PNG but with content_type='image/heic', it stores it with the wrong ext (.heic). Consider using `detected` for ext lookup."
+  ],
+  "critical_code_review_comments": [
+    "routers/twin.py:116 — _archive_blob(user_id, query_hint=...) call breaks. The retrieval upgrade described in the PR was missed in implementation; only the call site was updated, not the function. HIGH priority fix.",
+    "utils.validate_outbound_url — Solid. Resolves DNS, blocks private/loopback/link-local/multicast/reserved/169.254/fd00:ec2:. Good. One nit: it does NOT bind the resolved IP into the actual HTTP request, so a DNS rebinding attack (TTL=0) could still slip past. For higher security, consider passing the resolved IP into httpx with a Host header, or re-validating right before connect.",
+    "utils.rate_limit — In-memory sliding window keyed by (bucket, user_id). Single-pod only — won't share across workers. Fine for current single-uvicorn deployment, document the assumption.",
+    "routers/photos.py — signed-URL flow correct. uid param is named user_id in /signed-url response but uid in /file query — confusing. Verified by tests that both interpretations work because we look up `d.get('user_id') or d.get('uid')`.",
+    "routers/capture.py — Good Claude classifier prompt with current UTC anchor. _strip_fences handles ```json fences gracefully. Tokenized OR-search drops stopwords and short tokens — won't ReDoS.",
+    "routers/companion.py — delivered_at gate works. /poll merges queued commands + due reminders. One nit: reminder commands use cmd_id=f'cmd_r_{reminder_id}' — colliding across redeliveries is fine because delivered_at prevents that, but if a user manually re-opens (status open) and resets delivered_at=None it'd re-fire. Document.",
+    "server.py CORS — correct allowlist + regex. Ingress overrides it (env limitation)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase4.py (new — 39 test cases)"
+  ],
+  "success_rate": {
+    "backend": "97% (38/39 — only TestTwinRetrieval fails due to real bug)",
+    "frontend": "100% smoke (today/reminders/library/twin pages load; quick-capture submits; nav works)"
+  },
+  "test_credentials": "Phase-4 SESSION_TOKEN=p4_sess_1782377069570  USER_ID=p4-user-1782377069570  DEVICE_TOKEN=comp_p4_1782377069570. Use as Authorization: Bearer <token> or session_token cookie.",
+  "seed_data_creation": "Inserted 1 user + 1 user_session + 1 companion_device. Test runs added ~30 capture entries (rlx_*, fishing memory, reminders). Pre-existing rate-limit window may take a minute to clear.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The single backend bug to verify is in /app/backend/routers/twin.py — _archive_blob must accept query_hint and implement top-k retrieval (the PR claims tokenized search over title/content/tags, top-k + recent 20). Once that lands, re-run TestTwinRetrieval in test_phase4.py to confirm twin replies stream successfully. All other Phase 4 features are verified working. CORS at FastAPI level is correct; the preview ingress override (ACAO=*) is an environment artifact — verify on production deploy.",
+  "rca of the issue": "Root cause: PR description for Smart Twin retrieval says '_archive_blob now uses top-k by tokenized search' but the implementation only changed the call site (routers/twin.py:116 added query_hint kwarg) — the function itself (line 85) was never updated to accept or use the kwarg. Result: every /api/twin/message → TypeError → 500. Reproduction: POST /api/twin/start → POST /api/twin/message {conversation_id, message:'anything'} → 500. Mitigation: rewrite _archive_blob(user_id, query_hint=None, limit_recent=20, limit_relevant=15) so it pulls (a) the 20 most recent entries always, and (b) up to 15 token-matched entries (use the same tokenization logic as routers/capture._search_archive). Concatenate, de-dupe by entry_id, render the blob. Verify with the existing TestTwinRetrieval test."
+}

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from deps import EMERGENT_LLM_KEY, db, get_current_user
+from utils import rate_limit
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 
@@ -27,6 +28,7 @@ async def transcribe(
 ):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not configured")
+    await rate_limit(user["user_id"], "voice_transcribe", max_calls=20, per_seconds=60)
 
     raw = await file.read()
     if not raw:

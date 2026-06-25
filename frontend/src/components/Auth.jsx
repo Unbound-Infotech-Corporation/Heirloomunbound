@@ -45,7 +45,7 @@ export function AuthCallback() {
         setUser(data);
         // Strip the hash before navigating
         window.history.replaceState(null, "", window.location.pathname);
-        navigate("/dashboard", { replace: true, state: { user: data } });
+        navigate("/today", { replace: true, state: { user: data } });
       })
       .catch((err) => {
         setError(err.message || "Auth failed");

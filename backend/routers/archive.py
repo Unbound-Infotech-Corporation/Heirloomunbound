@@ -1,4 +1,5 @@
 """Archive (memories / stories / values / advice / quotes / chapters) CRUD."""
+import re as _re
 import uuid
 from datetime import datetime, timezone
 from typing import Literal, Optional
@@ -60,10 +61,11 @@ async def list_entries(
     if type:
         query["type"] = type
     if q:
+        safe = _re.escape(q)  # SECURITY: prevent ReDoS / operator injection
         query["$or"] = [
-            {"title": {"$regex": q, "$options": "i"}},
-            {"content": {"$regex": q, "$options": "i"}},
-            {"tags": {"$regex": q, "$options": "i"}},
+            {"title": {"$regex": safe, "$options": "i"}},
+            {"content": {"$regex": safe, "$options": "i"}},
+            {"tags": {"$regex": safe, "$options": "i"}},
         ]
     cursor = db.entries.find(query, {"_id": 0}).sort("created_at", -1).limit(limit)
     return await cursor.to_list(length=limit)

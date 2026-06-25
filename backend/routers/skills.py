@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from deps import db, get_current_user
+from utils import validate_outbound_url
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
@@ -81,8 +82,11 @@ async def invoke_skill(skill_id: str, user: dict = Depends(get_current_user)):
     )
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found or disabled")
+    # Security (SEC-003): block SSRF — only public http(s) destinations
+    validate_outbound_url(skill["webhook_url"])
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        # follow_redirects=False prevents bouncing to internal targets via 30x
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
             r = await client.request(
                 skill.get("method", "POST"),
                 skill["webhook_url"],
@@ -94,5 +98,7 @@ async def invoke_skill(skill_id: str, user: dict = Depends(get_current_user)):
             "status": r.status_code,
             "body": r.text[:2000],
         }
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "status": 0, "error": str(exc)}

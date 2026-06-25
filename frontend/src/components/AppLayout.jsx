@@ -2,24 +2,30 @@ import { motion } from "framer-motion";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   BookOpen,
+  Calendar,
   Compass,
   Feather,
   Headphones,
   Home,
   Image as ImageIcon,
   LogOut,
+  ListTodo,
   MessageCircleHeart,
   MonitorSpeaker,
   Settings as SettingsIcon,
   Sparkles,
+  Sunrise,
   Upload,
   Users,
   Wrench,
 } from "lucide-react";
+import QuickCapture from "./QuickCapture";
 import { useAuth } from "../lib/auth";
 
 const navItems = [
+  { to: "/today", label: "Today", icon: Sunrise, tid: "nav-today" },
   { to: "/dashboard", label: "Archive", icon: Home, tid: "nav-dashboard" },
+  { to: "/reminders", label: "Reminders", icon: ListTodo, tid: "nav-reminders" },
   { to: "/interviewer", label: "Interviewer", icon: MessageCircleHeart, tid: "nav-interviewer" },
   { to: "/journal", label: "Voice journal", icon: Feather, tid: "nav-journal" },
   { to: "/library", label: "Library", icon: BookOpen, tid: "nav-library" },
@@ -127,6 +133,18 @@ export default function AppLayout() {
         transition={{ duration: 0.6, ease: "easeOut" }}
         className="flex-1 overflow-y-auto"
       >
+        {/* Sticky Quick Capture — the heart of the Live Assistant */}
+        <div
+          className="sticky top-0 z-20 px-10 lg:px-16 pt-5 pb-4 backdrop-blur"
+          style={{
+            background: "rgba(18,17,16,0.85)",
+            borderBottom: "1px solid var(--border-default)",
+          }}
+        >
+          <div className="max-w-5xl">
+            <QuickCapture />
+          </div>
+        </div>
         <Outlet />
       </motion.main>
     </div>

@@ -1,18 +1,35 @@
 """FastAPI entrypoint for the Digital Heirloom / AI Twin app."""
 import logging
 import os
+import re
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 
 from deps import db  # noqa: F401  -- ensures Mongo client is initialised early
-from routers import archive, auth, companion, dashboard, heirs, interviewer, photos, skills, social_import, twin, voice, voice_clone
+from routers import (
+    archive,
+    auth,
+    capture,
+    companion,
+    dashboard,
+    heirs,
+    interviewer,
+    photos,
+    reminders,
+    skills,
+    social_import,
+    twin,
+    voice,
+    voice_clone,
+)
 from storage import init_storage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Digital Heirloom — AI Twin", version="0.2.0")
+app = FastAPI(title="Digital Heirloom — AI Twin", version="0.3.0")
 
 
 @app.on_event("startup")
@@ -40,13 +57,39 @@ api_router.include_router(heirs.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(photos.router)
 api_router.include_router(companion.router)
+api_router.include_router(capture.router)
+api_router.include_router(reminders.router)
 
 app.include_router(api_router)
+
+
+# -------- CORS: explicit allowlist + regex (security: SEC-001) --------
+def _cors_allowed_origins() -> list[str]:
+    """Build a strict origin allowlist from env. Never returns '*' when credentials are enabled."""
+    raw = os.environ.get("CORS_ORIGINS", "")
+    items = [o.strip() for o in raw.split(",") if o.strip() and o.strip() != "*"]
+    # Always derive from PUBLIC_BACKEND_URL (since the app is single-origin: frontend = backend host)
+    public = os.environ.get("PUBLIC_BACKEND_URL", "").strip().rstrip("/")
+    if public and public not in items:
+        items.append(public)
+    return items
+
+
+def _cors_origin_regex() -> str | None:
+    """Allow Emergent preview/sub-domain origins via regex without baking exact URLs."""
+    # Permit https://<anything>.emergentagent.com and http(s)://localhost:* for dev
+    return r"^(https://[a-zA-Z0-9-]+\.emergentagent\.com|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?)$"
+
+
+_allowed = _cors_allowed_origins()
+if _allowed:
+    logger.info(f"CORS allowed origins (exact): {_allowed}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origins=_allowed,
+    allow_origin_regex=_cors_origin_regex(),
     allow_methods=["*"],
     allow_headers=["*"],
 )

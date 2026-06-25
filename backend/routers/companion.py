@@ -109,7 +109,7 @@ async def list_commands(user: dict = Depends(get_current_user), limit: int = 50)
 # ---------- Companion-side polling + result reporting ----------
 @router.get("/poll")
 async def poll(ctx: dict = Depends(get_device_user)):
-    """Companion polls every few seconds for queued commands."""
+    """Companion polls every few seconds for queued commands AND due reminders."""
     user = ctx["user"]
     cursor = db.companion_commands.find(
         {"user_id": user["user_id"], "status": "queued"}, {"_id": 0}
@@ -120,7 +120,42 @@ async def poll(ctx: dict = Depends(get_device_user)):
         await db.companion_commands.update_many(
             {"cmd_id": {"$in": cmd_ids}}, {"$set": {"status": "dispatched"}}
         )
-    return {"commands": pending, "server_time": datetime.now(timezone.utc).isoformat()}
+
+    # Deliver due reminders as 'say' commands so the companion speaks them aloud once.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    due_cursor = db.reminders.find(
+        {
+            "user_id": user["user_id"],
+            "status": "open",
+            "delivered_at": None,
+            "due_at": {"$ne": None, "$lte": now_iso},
+        },
+        {"_id": 0},
+    ).limit(5)
+    due = await due_cursor.to_list(length=5)
+    reminder_commands = []
+    for rem in due:
+        cmd = {
+            "cmd_id": f"cmd_r_{rem['reminder_id']}",
+            "user_id": user["user_id"],
+            "kind": "say",
+            "payload": {"text": f"Reminder: {rem['text']}"},
+            "status": "dispatched",
+            "result": None,
+            "created_at": now_iso,
+            "completed_at": None,
+            "reminder_id": rem["reminder_id"],
+        }
+        reminder_commands.append(cmd)
+        # Mark delivered so we don't repeat-fire
+        await db.reminders.update_one(
+            {"reminder_id": rem["reminder_id"]},
+            {"$set": {"delivered_at": now_iso}},
+        )
+    return {
+        "commands": pending + reminder_commands,
+        "server_time": now_iso,
+    }
 
 
 class CompanionResult(BaseModel):
@@ -230,10 +265,10 @@ Your personality archive:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"LLM failed: {exc!s}") from exc
 
-    # 4) Parse action lines
+    # 4) Parse action lines — SECURITY: do NOT auto-invoke. Return as PROPOSALS for the user to confirm.
     lines = reply_text.splitlines()
     clean_lines = []
-    invoked = []
+    proposed = []
     for line in lines:
         s = line.strip()
         if s.startswith("::ACTION") and "skill_id=" in s:
@@ -242,24 +277,11 @@ Your personality archive:
                 {"skill_id": sid, "user_id": user["user_id"], "enabled": True}, {"_id": 0}
             )
             if skill:
-                invoked.append({"skill_id": sid, "name": skill.get("name")})
-                # Queue invocation by hitting it inline (best-effort)
-                try:
-                    import httpx
-                    async with httpx.AsyncClient(timeout=10.0) as h:
-                        r = await h.request(
-                            skill.get("method", "POST"),
-                            skill["webhook_url"],
-                            headers=skill.get("headers") or {},
-                            content=skill.get("body_template") or None,
-                        )
-                    invoked[-1]["status"] = r.status_code
-                except Exception as exc:  # noqa: BLE001
-                    invoked[-1]["status"] = 0
-                    invoked[-1]["error"] = str(exc)
+                proposed.append({"skill_id": sid, "name": skill.get("name")})
         else:
             clean_lines.append(line)
     spoken_reply = "\n".join(clean_lines).strip() or reply_text
+    invoked = proposed  # name kept for response-schema compatibility — these are PROPOSED, not executed
 
     # 5) Persist turns
     now_iso = datetime.now(timezone.utc).isoformat()

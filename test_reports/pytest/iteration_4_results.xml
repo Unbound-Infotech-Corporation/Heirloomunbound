@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="9" skipped="0" tests="39" time="189.467" timestamp="2026-06-25T08:45:51.099420+00:00" hostname="agent-env-43062f40-4ac6-412b-9a4b-e2b3ff7e5c95"><testcase classname="backend.tests.test_phase4.TestCORS" name="test_evil_origin_not_echoed" time="0.103"><failure message="AssertionError: CORS wildcard exposed&#10;assert '*' != '*'">backend/tests/test_phase4.py:66: in test_evil_origin_not_echoed
+    assert acao != "*", "CORS wildcard exposed"
+E   AssertionError: CORS wildcard exposed
+E   assert '*' != '*'</failure></testcase><testcase classname="backend.tests.test_phase4.TestCORS" name="test_allowed_emergent_origin" time="0.070"><failure message="AssertionError: expected ACAO=https://voice-clone-hub-20.preview.emergentagent.com, got '*'&#10;assert '*' == 'https://voic...gentagent.com'&#10;  &#10;  - https://voice-clone-hub-20.preview.emergentagent.com&#10;  + *">backend/tests/test_phase4.py:80: in test_allowed_emergent_origin
+    assert acao == origin, f"expected ACAO={origin}, got {acao!r}"
+E   AssertionError: expected ACAO=https://voice-clone-hub-20.preview.emergentagent.com, got '*'
+E   assert '*' == 'https://voic...gentagent.com'
+E     
+E     - https://voice-clone-hub-20.preview.emergentagent.com
+E     + *</failure></testcase><testcase classname="backend.tests.test_phase4.TestCORS" name="test_unknown_origin_rejected" time="0.065" /><testcase classname="backend.tests.test_phase4.TestAuthMe" name="test_auth_me" time="0.139" /><testcase classname="backend.tests.test_phase4.TestPhotos" name="test_upload_fake_image_rejected" time="0.111" /><testcase classname="backend.tests.test_phase4.TestPhotos" name="test_upload_real_png_ok" time="0.602" /><testcase classname="backend.tests.test_phase4.TestPhotos" name="test_upload_real_jpg_ok" time="0.650" /><testcase classname="backend.tests.test_phase4.TestPhotos" name="test_file_bearer_auth_works" time="0.398" /><testcase classname="backend.tests.test_phase4.TestPhotos" name="test_signed_url_flow" time="0.446" /><testcase classname="backend.tests.test_phase4.TestPhotos" name="test_tampered_sig_unauthorized" time="0.217" /><testcase classname="backend.tests.test_phase4.TestPhotos" name="test_expired_sig_unauthorized" time="0.204" /><testcase classname="backend.tests.test_phase4.TestPhotos" name="test_no_auth_no_sig_unauthorized" time="0.130" /><testcase classname="backend.tests.test_phase4.TestPhotos" name="test_session_token_query_no_longer_works" time="0.097" /><testcase classname="backend.tests.test_phase4.TestSSRF" name="test_invoke_blocks_internal_or_bad_scheme[http://169.254.169.254/latest/meta-data/]" time="0.286" /><testcase classname="backend.tests.test_phase4.TestSSRF" name="test_invoke_blocks_internal_or_bad_scheme[http://127.0.0.1/]" time="0.333" /><testcase classname="backend.tests.test_phase4.TestSSRF" name="test_invoke_blocks_internal_or_bad_scheme[http://10.0.0.1/]" time="0.310" /><testcase classname="backend.tests.test_phase4.TestSSRF" name="test_invoke_blocks_internal_or_bad_scheme[http://192.168.1.1/]" time="0.297" /><testcase classname="backend.tests.test_phase4.TestSSRF" name="test_invoke_blocks_internal_or_bad_scheme[ftp://example.com/file]" time="0.289" /><testcase classname="backend.tests.test_phase4.TestSSRF" name="test_invoke_public_url_ok" time="15.514" /><testcase classname="backend.tests.test_phase4.TestRedos" name="test_regex_bomb_safe" time="0.105" /><testcase classname="backend.tests.test_phase4.TestRedos" name="test_open_bracket_safe" time="0.096" /><testcase classname="backend.tests.test_phase4.TestCapture" name="test_capture_reminder" time="2.094" /><testcase classname="backend.tests.test_phase4.TestCapture" name="test_capture_memory" time="2.908" /><testcase classname="backend.tests.test_phase4.TestCapture" name="test_capture_question" time="5.472" /><testcase classname="backend.tests.test_phase4.TestReminders" name="test_create" time="20.052"><failure message="requests.exceptions.ConnectTimeout: HTTPSConnectionPool(host='voice-clone-hub-20.preview.emergentagent.com', port=443): Max retries exceeded with url: /api/reminders (Caused by ConnectTimeoutError(&lt;HTTPSConnection(host='voice-clone-hub-20.preview.emergentagent.com', port=443) at 0xffaad3952250&gt;, 'Connection to voice-clone-hub-20.preview.emergentagent.com timed out. (connect timeout=10)'))">/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:204: in _new_conn
+    sock = connection.create_connection(
+/root/.venv/lib/python3.11/site-packages/urllib3/util/connection.py:85: in create_connection
+    raise err
+/root/.venv/lib/python3.11/site-packages/urllib3/util/connection.py:73: in create_connection
+    sock.connect(sa)
+E   TimeoutError: timed out
+
+The above exception was the direct cause of the following exception:
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:788: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:488: in _make_request
+    raise new_e
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:464: in _make_request
+    self._validate_conn(conn)
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:1106: in _validate_conn
+    conn.connect()
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:759: in connect
+    self.sock = sock = self._new_conn()
+                       ^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:213: in _new_conn
+    raise ConnectTimeoutError(
+E   urllib3.exceptions.ConnectTimeoutError: (&lt;HTTPSConnection(host='voice-clone-hub-20.preview.emergentagent.com', port=443) at 0xffaad3952250&gt;, 'Connection to voice-clone-hub-20.preview.emergentagent.com timed out. (connect timeout=10)')
+
+The above exception was the direct cause of the following exception:
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:696: in send
+    resp = conn.urlopen(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:842: in urlopen
+    retries = retries.increment(
+/root/.venv/lib/python3.11/site-packages/urllib3/util/retry.py:543: in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='voice-clone-hub-20.preview.emergentagent.com', port=443): Max retries exceeded with url: /api/reminders (Caused by ConnectTimeoutError(&lt;HTTPSConnection(host='voice-clone-hub-20.preview.emergentagent.com', port=443) at 0xffaad3952250&gt;, 'Connection to voice-clone-hub-20.preview.emergentagent.com timed out. (connect timeout=10)'))
+
+During handling of the above exception, another exception occurred:
+backend/tests/test_phase4.py:296: in test_create
+    r = requests.post(f"{API}/reminders", headers=H, json={
+/root/.venv/lib/python3.11/site-packages/requests/api.py:134: in post
+    return request("post", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/api.py:71: in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:651: in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:784: in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:717: in send
+    raise ConnectTimeout(e, request=request)
+E   requests.exceptions.ConnectTimeout: HTTPSConnectionPool(host='voice-clone-hub-20.preview.emergentagent.com', port=443): Max retries exceeded with url: /api/reminders (Caused by ConnectTimeoutError(&lt;HTTPSConnection(host='voice-clone-hub-20.preview.emergentagent.com', port=443) at 0xffaad3952250&gt;, 'Connection to voice-clone-hub-20.preview.emergentagent.com timed out. (connect timeout=10)'))</failure></testcase><testcase classname="backend.tests.test_phase4.TestReminders" name="test_list_open" time="10.124"><failure message="assert False&#10; +  where False = any(&lt;generator object TestReminders.test_list_open.&lt;locals&gt;.&lt;genexpr&gt; at 0xffaad3615630&gt;)">backend/tests/test_phase4.py:305: in test_list_open
+    assert any(x["reminder_id"] == TestReminders.rid for x in r.json())
+E   assert False
+E    +  where False = any(&lt;generator object TestReminders.test_list_open.&lt;locals&gt;.&lt;genexpr&gt; at 0xffaad3615630&gt;)</failure></testcase><testcase classname="backend.tests.test_phase4.TestReminders" name="test_today" time="2.198" /><testcase classname="backend.tests.test_phase4.TestReminders" name="test_patch" time="0.099"><failure message="AssertionError: {&quot;detail&quot;:&quot;Reminder not found&quot;}&#10;assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">backend/tests/test_phase4.py:318: in test_patch
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Reminder not found"}
+E   assert 404 == 200
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_phase4.TestReminders" name="test_complete" time="15.242"><failure message="AssertionError: {&quot;detail&quot;:&quot;Reminder not found&quot;}&#10;assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">backend/tests/test_phase4.py:323: in test_complete
+    assert r.status_code == 200, r.text
+E   AssertionError: {"detail":"Reminder not found"}
+E   assert 404 == 200
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_phase4.TestReminders" name="test_delete" time="5.245"><failure message="assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">backend/tests/test_phase4.py:327: in test_delete
+    assert r.status_code == 200
+E   assert 404 == 200
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_phase4.TestDashboard" name="test_dashboard_fields" time="0.117" /><testcase classname="backend.tests.test_phase4.TestTwinRetrieval" name="test_twin_streams_with_retrieval" time="0.258"><failure message="AssertionError: Internal Server Error&#10;assert 500 == 200&#10; +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code">backend/tests/test_phase4.py:363: in test_twin_streams_with_retrieval
+    assert resp.status_code == 200, resp.read().decode()
+E   AssertionError: Internal Server Error
+E   assert 500 == 200
+E    +  where 500 = &lt;Response [500 Internal Server Error]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_phase4.TestCompanionPoll" name="test_due_reminder_delivered_once" time="10.474" /><testcase classname="backend.tests.test_phase4.TestRateLimit" name="test_capture_429" time="93.888"><failure message="AssertionError: never got 429 after 35 hits&#10;assert False">backend/tests/test_phase4.py:431: in test_capture_429
+    assert got_429, f"never got 429 after {hits} hits"
+E   AssertionError: never got 429 after 35 hits
+E   assert False</failure></testcase><testcase classname="backend.tests.test_phase4.TestRegression" name="test_archive_list" time="0.122" /><testcase classname="backend.tests.test_phase4.TestRegression" name="test_archive_create_get_delete" time="0.198" /><testcase classname="backend.tests.test_phase4.TestRegression" name="test_heirs_list" time="0.094" /><testcase classname="backend.tests.test_phase4.TestRegression" name="test_voice_clone_settings" time="0.102" /><testcase classname="backend.tests.test_phase4.TestRegression" name="test_photos_list" time="0.102" /></testsuite></testsuites>

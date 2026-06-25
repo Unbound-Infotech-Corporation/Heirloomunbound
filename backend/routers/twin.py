@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from deps import EMERGENT_LLM_KEY, db, get_current_user
+from utils import rate_limit
 
 router = APIRouter(prefix="/twin", tags=["twin"])
 
@@ -111,7 +112,8 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    archive = await _archive_blob(user["user_id"])
+    await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
+    archive = await _archive_blob(user["user_id"], query_hint=payload.message)
     skills = await _skills_blob(user["user_id"])
     system = _build_twin_system(user.get("name", ""), archive, skills)
 

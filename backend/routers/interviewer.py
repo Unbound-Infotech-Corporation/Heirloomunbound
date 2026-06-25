@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from deps import EMERGENT_LLM_KEY, db, get_current_user
+from utils import rate_limit
 
 router = APIRouter(prefix="/interviewer", tags=["interviewer"])
 
@@ -114,6 +115,7 @@ async def send_message(payload: MessageRequest, user: dict = Depends(get_current
 
     context = await _gather_user_context(user["user_id"])
     system_message = INTERVIEWER_SYSTEM + ("\n\n" + context if context else "")
+    await rate_limit(user["user_id"], "interviewer", max_calls=20, per_seconds=60)
 
     # Replay prior turns so the biographer actually remembers what's been said.
     initial_messages = [{"role": "system", "content": system_message}]
