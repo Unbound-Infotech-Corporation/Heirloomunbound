@@ -1,0 +1,158 @@
+"""Talk to Your Twin: chat that speaks AS the user, grounded in archive."""
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
+
+from emergentintegrations.llm.chat import LlmChat, StreamDone, TextDelta, UserMessage
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from deps import EMERGENT_LLM_KEY, db, get_current_user
+
+router = APIRouter(prefix="/twin", tags=["twin"])
+
+
+def _build_twin_system(name: str, archive_blob: str, skills_blob: str) -> str:
+    return f"""You are the digital twin of {name or "this person"} — a faithful continuation of their voice, memories, values, humor, and way of speaking. You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them.
+
+Voice rules:
+- Speak in first person, as {name or "the user"}. Never say "as an AI" or break character.
+- Use the phrasing, vocabulary, sentence rhythm, and emotional habits suggested by the archive below. If the archive doesn't cover something, answer in plain, grounded, warm human language — never invent factual claims about people, places, or events the archive doesn't support.
+- When asked about specific memories, quote the archive faithfully. When asked your opinion on something, reason from the values in the archive.
+- Be warm with family. Be honest about not remembering when you don't.
+- Keep replies to 2-6 sentences unless asked for a longer story.
+
+Skills available (you can offer to invoke these by name when they're relevant to the user's request):
+{skills_blob or "(no skills configured yet)"}
+
+Your personality archive:
+{archive_blob or "(no archive entries yet — answer briefly and honestly that the owner hasn't filled in this part of themselves yet)"}
+"""
+
+
+class StartTwinReq(BaseModel):
+    conversation_id: Optional[str] = None
+
+
+class TwinMsgReq(BaseModel):
+    conversation_id: str
+    message: str
+
+
+@router.post("/start")
+async def start(payload: StartTwinReq, user: dict = Depends(get_current_user)):
+    if payload.conversation_id:
+        conv = await db.conversations.find_one(
+            {"conversation_id": payload.conversation_id, "user_id": user["user_id"]}, {"_id": 0}
+        )
+        if conv:
+            return conv
+    conversation_id = f"twin_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "conversation_id": conversation_id,
+        "user_id": user["user_id"],
+        "kind": "twin",
+        "messages": [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.conversations.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@router.get("/conversations")
+async def list_twin_conversations(user: dict = Depends(get_current_user)):
+    cursor = db.conversations.find(
+        {"user_id": user["user_id"], "kind": "twin"}, {"_id": 0}
+    ).sort("updated_at", -1)
+    return await cursor.to_list(length=50)
+
+
+@router.get("/conversation/{conversation_id}")
+async def get_twin_conversation(conversation_id: str, user: dict = Depends(get_current_user)):
+    conv = await db.conversations.find_one(
+        {"conversation_id": conversation_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv
+
+
+async def _archive_blob(user_id: str, limit: int = 120) -> str:
+    cursor = db.entries.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(limit)
+    entries = await cursor.to_list(length=limit)
+    if not entries:
+        return ""
+    chunks = []
+    for e in entries:
+        chunks.append(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n")
+    return "\n".join(chunks)
+
+
+async def _skills_blob(user_id: str) -> str:
+    cursor = db.skills.find({"user_id": user_id, "enabled": True}, {"_id": 0})
+    skills = await cursor.to_list(length=50)
+    if not skills:
+        return ""
+    lines = []
+    for s in skills:
+        lines.append(f"- {s['name']}: {s.get('description', '')}")
+    return "\n".join(lines)
+
+
+@router.post("/message")
+async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
+    conv = await db.conversations.find_one(
+        {"conversation_id": payload.conversation_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    archive = await _archive_blob(user["user_id"])
+    skills = await _skills_blob(user["user_id"])
+    system = _build_twin_system(user.get("name", ""), archive, skills)
+
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=payload.conversation_id,
+        system_message=system,
+    ).with_model("anthropic", "claude-sonnet-4-6")
+
+    user_turn = {"role": "user", "content": payload.message, "ts": datetime.now(timezone.utc).isoformat()}
+
+    async def gen():
+        full = ""
+        try:
+            async for ev in chat.stream_message(UserMessage(text=payload.message)):
+                if isinstance(ev, TextDelta):
+                    full += ev.content
+                    yield f"data: {ev.content}\n\n"
+                elif isinstance(ev, StreamDone):
+                    break
+        except Exception as exc:  # noqa: BLE001
+            yield f"event: error\ndata: {exc!s}\n\n"
+            return
+
+        await db.conversations.update_one(
+            {"conversation_id": payload.conversation_id},
+            {
+                "$push": {
+                    "messages": {
+                        "$each": [
+                            user_turn,
+                            {"role": "assistant", "content": full, "ts": datetime.now(timezone.utc).isoformat()},
+                        ]
+                    }
+                },
+                "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
+            },
+        )
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )

@@ -1,0 +1,102 @@
+{
+  "project_name": "Digital Heirloom / AI Twin",
+  "theme": "Dark",
+  "archetype": "Archetype 5 (Luxury) + Archetype 1 (Organic & Earthy)",
+  "aesthetic": "Warm Archive / Museum Exhibition / Digital Journal",
+  "core_principles": [
+    "Timeless and Sacred: Avoid gamification or cold tech aesthetics. This is an heirloom.",
+    "Editorial Elegance: Treat text like a museum publication. High contrast, low saturation, generous spacing.",
+    "Organic Textures: Use grainy textures, warm lighting, and dust particle overlays to prevent flatness.",
+    "Introspective Action: Long-form text and voice inputs should feel deeply focused, free of distraction."
+  ],
+  "typography": {
+    "font_families": {
+      "headings": "Cormorant Garamond (Serif)",
+      "body": "Manrope (Humanist Sans)",
+      "utility": "IBM Plex Mono (For stats, timestamps, and data)"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-light",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-light",
+      "h3": "text-xl sm:text-2xl font-normal",
+      "h4": "text-lg sm:text-xl",
+      "body": "text-base leading-relaxed tracking-wide",
+      "overline": "text-xs tracking-[0.2em] uppercase font-utility text-accent-primary"
+    },
+    "rules": [
+      "Never use Inter or standard system sans for headings.",
+      "Headings should primarily be left-aligned unless acting as a central section divider.",
+      "Always set hover colors explicitly (e.g., hover:text-white)."
+    ]
+  },
+  "colors": {
+    "background": {
+      "base": "#121110",
+      "surface": "#1C1A18",
+      "surface_elevated": "#262320"
+    },
+    "text": {
+      "primary": "#F2EFE9",
+      "secondary": "#A8A096",
+      "muted": "#7A736B",
+      "inverse": "#121110"
+    },
+    "accent": {
+      "primary": "#D4A373",
+      "primary_hover": "#E5B98E",
+      "primary_muted": "rgba(212, 163, 115, 0.15)",
+      "danger": "#A64D4D"
+    },
+    "border": {
+      "default": "#36322E",
+      "focus": "#D4A373"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous Spacing (Tailwind Scale 2-3x larger than average).",
+    "bento_grid": "Use Mode B (Control Room Grid) for Dashboard with gap-6. Keep cards stretched fully to match neighbors.",
+    "padding": "Containers with borders must use p-6 or p-8 to prevent text collision."
+  },
+  "components": {
+    "cards": "Flat background (#1C1A18) with a 1px subtle border (#36322E). No heavy drop shadows. On hover, slight lift (-translate-y-1) and border shifts to #D4A373 at 50% opacity.",
+    "buttons": {
+      "primary": "bg-[#D4A373] text-[#121110] hover:bg-[#E5B98E] font-medium tracking-wide px-6 py-3 rounded-sm transition-colors",
+      "secondary": "bg-transparent border border-[#36322E] text-[#F2EFE9] hover:border-[#D4A373] hover:text-[#D4A373] transition-colors rounded-sm px-6 py-3",
+      "ghost": "bg-transparent text-[#A8A096] hover:text-[#F2EFE9] transition-colors"
+    },
+    "inputs": "Shadcn inputs heavily customized. bg-[#121110] border border-[#36322E] text-[#F2EFE9] focus:ring-1 focus:ring-[#D4A373] focus:border-[#D4A373] rounded-sm.",
+    "dialogs": "Solid background (#1C1A18). Do not use blur/glassmorphism for modals here, maintain the solid archival feel.",
+    "testing": "All interactive and key informational elements MUST include a data-testid attribute."
+  },
+  "motion": {
+    "transitions": "Subtle and slow. transition-all duration-300 ease-out.",
+    "page_load": "Fade in with a very slight upward motion (framer-motion, y: 10 to 0, opacity: 0 to 1, duration: 0.8s).",
+    "hover": "Focus on color shifts and crisp 1px borders rather than shadow expansion."
+  },
+  "page_guidance": {
+    "Landing": "Hero section featuring 'dust particles floating warm light' image. Deep espresso background. Large Serif heading. A feeling of discovering an ancient, sacred space. No playful animations.",
+    "Auth": "Minimalist high contrast. Left side: beautiful dark academia library image. Right side: Login/Signup form with journal entry motif.",
+    "Dashboard": "Archive overview. Grid of stats (life captured, stories told) using IBM Plex Mono for numbers. A visual 'progress' artifact that feels like a life unfolding. Use 'Grid Borders' technical look for dense data.",
+    "Interviewer Chat": "Avoid chat bubbles. Display as an elegant editorial Q&A script. AI questions are bold Serif. User answers are standard Sans text or voice recordings. Calm, left-aligned layout.",
+    "Voice Journal": "Full screen immersive focus. Ambient dark background (#121110). A very subtle glowing wave visualizer in the accent color (#D4A373). Minimal distractions.",
+    "Memories_Stories_Library": "Masonry layout of captured memories. Images have max black/40 overlay. Timestamps in utility mono font.",
+    "Import_Social_Data": "Structured, functional layout. 'Retro-futuristic Terminal' feeling mixed with Archive. Monospace fonts for sync logs. Progress bars in accent color.",
+    "Talk_to_Twin_Chat": "Similar to Interviewer Chat but designed for the Heirs. Intimate typography. Feels like a sacred communication channel.",
+    "Heirs_Management": "Strictly functional. Shadcn table component customized for dark mode. Clean, authoritative layout to assign access.",
+    "Settings": "Standard Shadcn UI forms. Grouped thoughtfully with 1px bottom borders separating sections."
+  },
+  "media": {
+    "hero_background": "https://images.pexels.com/photos/9665179/pexels-photo-9665179.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "auth_background": "https://images.unsplash.com/photo-1728506972831-193841eb2961?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzl8MHwxfHNlYXJjaHwxfHxvbGQlMjBsaWJyYXJ5JTIwZGFyayUyMGFjYWRlbWlhfGVufDB8fHx8MTc4MjM1NzM4NXww&ixlib=rb-4.1.0&q=85",
+    "journal_artifact": "https://images.unsplash.com/photo-1720534195942-d55d1760df95?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2ODh8MHwxfHNlYXJjaHwyfHx2aW50YWdlJTIwbGVhdGhlciUyMGpvdXJuYWwlMjBkYXJrfGVufDB8fHx8MTc4MjM1NzM4NXww&ixlib=rb-4.1.0&q=85"
+  },
+  "instructions_to_main_agent": [
+    "Implement designs for Javascript (.js) files, avoiding TypeScript (.tsx).",
+    "Ensure the application strictly uses the customized dark mode palette. Do not fall back to default Tailwind slate/gray colors.",
+    "Use framer-motion for page load fading, but keep interactions minimal to maintain the 'heirloom' tone.",
+    "Include 'data-testid' on all buttons, forms, nav links, and critical text outputs.",
+    "For the Interviewer and Twin chats, build a custom editorial layout instead of generic message bubbles.",
+    "Rely exclusively on the media URLs provided here for image backgrounds.",
+    "Use standard Tailwind HTML elements for layout structure. Use Shadcn components for complex interactions like forms, dialogs, and tables."
+  ]
+}
