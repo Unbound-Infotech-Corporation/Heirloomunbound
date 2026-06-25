@@ -1,0 +1,52 @@
+{
+  "summary": "Re-verification of iteration_6's two HIGH frontend bugs. BUG #1 (Settings widget toggles) is FULLY FIXED — all 6 expected rows + checkboxes render with the correct testids, initial state matches GET /api/onboarding/state.dashboard_widgets, toggling fires PUT /api/onboarding/widgets returning 200 with widgets.reflection=false, the unchecked state persists across reload, /today hides the reflection block when off and shows it again after re-enabling. BUG #2 (Onboarding CTA occlusion by #emergent-badge) is NOT FIXED at desktop viewport (lg+): the new `pr-44 sm:pr-56` classes are overridden by `lg:px-20` because Tailwind's px-* shorthand sets BOTH paddingLeft and paddingRight at lg breakpoint. Confirmed via computed style: at 1920px footer paddingRight=80px (button right edge sits 80px from viewport right, badge is 16px from viewport right and 178px wide -> heavy overlap; elementFromPoint at button center returns the badge's <p>). At 768px paddingRight=224px and the button is clear. Bug #2 still blocks real desktop users from advancing the wizard with a normal (non-force) click. Backend regression: pytest test_phase6.py = 26/27 PASS; the 1 failure (TestOnboardingState.test_new_user_not_onboarded) is a stale-fixture artifact already flagged in iteration_6 (TOKEN_B was onboarded by previous run), NOT a code regression.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/onboarding/state (test_phase6.py::test_new_user_not_onboarded)", "issue": "Pre-existing test fixture is stale — TOKEN_B was onboarded during prior iteration runs, so the 'new user' assertion fails. Not a backend code bug; test should re-seed a fresh user. Flagged in iteration_6 context."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Onboarding wizard footer",
+        "issue": "Footer right-padding fix is INEFFECTIVE at viewport >= 1024px. Classes are `px-10 lg:px-20 py-6 pr-44 sm:pr-56`. At lg breakpoint, `lg:px-20` re-sets paddingRight to 5rem (80px), overriding `sm:pr-56` (14rem/224px) because Tailwind's `px-*` shorthand writes both PL+PR and the lg breakpoint cascades over sm. Result at 1920x1080: ob-next bounding box right edge = 80px from viewport-right; #emergent-badge bounding box right edge = 16px from viewport-right and is 178px wide → the button center (1775,1034) lies inside the badge (1726-1904, 1024-1064) and elementFromPoint returns the badge's <p>. Real desktop users cannot click ob-next or ob-finish normally — they receive clicks on the Emergent badge instead. Works correctly at tablet (768px) where paddingRight resolves to 224px. Fix: change `lg:px-20` to `lg:pl-20 lg:pr-56` (or larger) so right padding stays >= 200px at all breakpoints; or move the CTA out of the bottom-right column entirely.",
+        "selector": "[data-testid=\"ob-next\"], [data-testid=\"ob-finish\"]",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Onboarding wizard end-to-end (new user)",
+        "issue": "Could not complete the wizard at 1920px without force-clicks because ob-next is occluded at step 0 by the Emergent badge. Verified the API path itself remains intact — at 768px the same flow would proceed (confirmed btn_contains_el=true at sm). POST /api/onboarding/complete behavior was previously verified 200 in iteration_6 and is unchanged.",
+        "affected_selectors": ["[data-testid=\"ob-next\"]", "[data-testid=\"ob-finish\"]"]
+      }
+    ],
+    "design_issues": [
+      {"screen": "Onboarding footer (desktop)", "issues": ["Replace `lg:px-20` with split `lg:pl-20 lg:pr-56` (or pr-60) so the CTA column never overlaps the fixed #emergent-badge at large viewports. Current fix only protects sm/md."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase6.py",
+    "/app/test_reports/pytest/iteration_7_results.xml"
+  ],
+  "action_items": [
+    "Update /app/frontend/src/pages/Onboarding.jsx footer classes: replace `px-10 lg:px-20 py-6 pr-44 sm:pr-56` with `pl-10 lg:pl-20 py-6 pr-44 sm:pr-56 lg:pr-60` (or equivalent split-axis padding) so the right padding at lg+ is NOT clobbered by the px shorthand. Verify ob-next is clickable without force=true at 1920x1080.",
+    "(Optional, test hygiene) Make TestOnboardingState.test_new_user_not_onboarded re-seed a fresh USER_B inside the test instead of relying on the conftest-supplied token that gets mutated by other tests."
+  ],
+  "critical_code_review_comments": [
+    "frontend/src/pages/Settings.jsx — widget toggles section now correctly implemented (392 lines, has WIDGETS array, widget-row-{key} / widget-toggle-{key} testids, loadWidgets() on mount, toggleWidget() does PUT /onboarding/widgets with full map). Confirmed end-to-end. Good.",
+    "frontend/src/pages/Onboarding.jsx — Tailwind class ordering bug: `lg:px-20` overrides `sm:pr-56`. Use split-axis paddings when you need a different right padding at the largest breakpoint than the lg px shorthand provides.",
+    "backend/routers/onboarding.py — no regressions detected; 26/27 phase6 pass.",
+    "(observation) The widget-row uses a <label> wrapping the checkbox, so clicking anywhere on the row toggles the box. Good UX.",
+    "(observation) Settings widgets API only sends the toggled key map; backend filters unknown keys + bool-coerces — correct."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "96% (26/27 phase6 — 1 stale-fixture)", "frontend": "50% (1/2 fixes verified: Settings widgets PASS; Onboarding CTA occlusion FAIL at lg+)"},
+  "test_credentials": "TOKEN_A=p7_onb_1782383330707 / USER_A=p7-onb-1782383330707 (onboarded via POST /onboarding/complete during this run; widgets.reflection currently TRUE after the re-toggle test). TOKEN_B=p7_new_1782383330707 / USER_B=p7-new-1782383330707 (started as fresh zero-entry, NOW STALE — wizard was navigated to step 0 only; for next iteration's onboarding test, seed a fresh user.)",
+  "seed_data_creation": "Two users seeded via mongosh: USER_A (3 pre-seeded archive entries + completed /onboarding/complete during this run, used for Settings widget test) and USER_B (zero entries, used for Onboarding wizard test — only step 0 reached because of the occlusion bug, so still not fully onboarded but step state mutated).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Settings widget toggles flow is GREEN and reproducible — re-run with USER_A token to spot-check after any Settings.jsx edits. Onboarding CTA occlusion needs a real CSS fix: change the footer's padding so right padding stays >= ~200px at lg+ (Tailwind: prefer split-axis classes `lg:pl-20 lg:pr-60` over `lg:px-20`). To re-verify after fix, run a new mongosh seed for a fresh zero-entry user, set cookie session_token, navigate to /onboarding at 1920x1080, then evaluate the elementFromPoint test on the ob-next button center — it must return the button or its child, not the badge. Backend test_phase6 has one stale fixture (test_new_user_not_onboarded) — re-seed inside the test or rotate conftest TOKEN_B.",
+  "rca of the issue": "BUG #2 root cause: In /app/frontend/src/pages/Onboarding.jsx (line 264), the footer className is `px-10 lg:px-20 py-6 pr-44 sm:pr-56 flex justify-between items-center border-t`. Tailwind's `px-*` is a shorthand that emits BOTH `padding-left` AND `padding-right`. At viewport >= 1024px (lg), `lg:px-20` therefore sets paddingRight back to 5rem (80px), overriding the earlier `sm:pr-56` (14rem) because the lg breakpoint's selector has the same specificity but later/larger min-width in Tailwind's stylesheet so it cascades on top of sm. The fixed Emergent badge is positioned at right:16px with width≈178px; the CTA button is right-justified inside a footer with only 80px right padding, so the button (rect right ≈ x=1840 in a 1920px viewport) lies underneath the badge (rect 1726-1904). Mitigation: replace `lg:px-20` with two separate axes — `lg:pl-20 lg:pr-60` (or `lg:pr-56` if you trust the badge stays <=14rem). After patch, verify via document.elementFromPoint(btn.cx, btn.cy) === btn (or .contains(...)) at 1920x1080."
+}

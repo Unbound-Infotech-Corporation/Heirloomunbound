@@ -3,6 +3,15 @@ import { CheckCircle2, Loader2, Sparkles, Trash2, Upload } from "lucide-react";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
+const WIDGETS = [
+  { key: "reflection", label: "Daily reflection prompt" },
+  { key: "reminders", label: "Reminders on your plate" },
+  { key: "on_this_day", label: "On this day (past years)" },
+  { key: "suggested_topics", label: "Suggested capture topics" },
+  { key: "recent_journals", label: "Recent voice journals" },
+  { key: "last_twin_chat", label: "Last conversation with the Twin" },
+];
+
 export default function Settings() {
   const { user, logout } = useAuth();
   const [elSettings, setElSettings] = useState(null);
@@ -16,6 +25,7 @@ export default function Settings() {
   const [cloneDesc, setCloneDesc] = useState("");
   const [cloneFiles, setCloneFiles] = useState([]);
   const [cloning, setCloning] = useState(false);
+  const [widgets, setWidgets] = useState({});
 
   const loadSettings = async () => {
     const { data } = await api.get("/voice-clone/settings");
@@ -33,10 +43,21 @@ export default function Settings() {
       setVoicesLoading(false);
     }
   };
+  const loadWidgets = async () => {
+    const { data } = await api.get("/onboarding/state");
+    setWidgets(data.dashboard_widgets || {});
+  };
 
   useEffect(() => {
     loadSettings().then(() => loadVoices());
+    loadWidgets();
   }, []);
+
+  const toggleWidget = async (key) => {
+    const next = { ...widgets, [key]: !widgets[key] };
+    setWidgets(next);
+    await api.put("/onboarding/widgets", { widgets: next });
+  };
 
   const saveKey = async () => {
     setSaving(true);
@@ -76,10 +97,7 @@ export default function Settings() {
         credentials: "include",
         body: fd,
       });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t);
-      }
+      if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setCloneOpen(false);
       setCloneName("");
@@ -111,7 +129,34 @@ export default function Settings() {
         </div>
       </section>
 
-      {/* ElevenLabs voice */}
+      {/* Dashboard widget toggles */}
+      <section className="surface p-7 mb-6" data-testid="widgets-section">
+        <div className="overline mb-4">today dashboard</div>
+        <h2 className="font-serif text-2xl mb-2">What shows up on your Today page</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Pick what you want to see. Quick Capture and the stat strip always show.
+        </p>
+        <div className="space-y-3">
+          {WIDGETS.map((w) => (
+            <label
+              key={w.key}
+              className="flex items-center justify-between px-4 py-3 rounded-sm cursor-pointer"
+              style={{ border: "1px solid var(--border-default)" }}
+              data-testid={`widget-row-${w.key}`}
+            >
+              <span className="text-sm" style={{ color: "var(--text-primary)" }}>{w.label}</span>
+              <input
+                type="checkbox"
+                checked={!!widgets[w.key]}
+                onChange={() => toggleWidget(w.key)}
+                data-testid={`widget-toggle-${w.key}`}
+                className="h-4 w-4"
+              />
+            </label>
+          ))}
+        </div>
+      </section>
+
       <section className="surface p-7 mb-6" data-testid="elevenlabs-section">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -178,7 +223,6 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Voices */}
         <div className="mb-4">
           <div className="flex items-center justify-between mb-3">
             <div className="overline">available voices</div>
@@ -313,10 +357,10 @@ export default function Settings() {
       <section className="surface p-7 mb-6">
         <div className="overline mb-4">on the roadmap</div>
         <ul className="space-y-3 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-          <li>· Wake-word ("Hey Twin") on the local companion.</li>
-          <li>· Discord text-channel bot for passive personality capture.</li>
-          <li>· Scheduled "release after" workflow for heirs.</li>
-          <li>· Sealed letters auto-delivered to heirs on a future date.</li>
+          <li>· Wake-word ("Hey Twin") on the companion.</li>
+          <li>· OAuth Gmail + Drive (post Google verification).</li>
+          <li>· Sealed letters auto-delivered to heirs on a date you set.</li>
+          <li>· Heir release workflow.</li>
         </ul>
       </section>
 
