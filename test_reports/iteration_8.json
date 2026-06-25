@@ -1,0 +1,41 @@
+{
+  "summary": "Retest of the Onboarding CTA occlusion fix at 1920x1080. RESULT: FIX NOT APPLIED. The file /app/frontend/src/pages/Onboarding.jsx line 264 still contains the OLD className `px-10 lg:px-20 py-6 pr-44 sm:pr-56 flex justify-between items-center border-t` — not the prescribed `pl-10 lg:pl-20 py-6 pr-44 sm:pr-56 lg:pr-60`. Verified live against the deployed preview (HMR has clearly served the current file): footer computed paddingRight = 80px at 1920px; ob-next bounding rect right=1840 / center=(1775,1034); #emergent-badge rect (1726-1904, 1024-1064) fully covers the button center; document.elementFromPoint(1775,1034) returns a <P> (the badge's `Made with Emergent` text), elFromPoint_isButtonOrChild=false; non-force click on ob-next times out (4s). Visual screenshot confirms the orange CTA is occluded by the badge. Tablet 768x800 sanity passes — paddingRight resolves to 224px, ob-next center returns the BUTTON itself, isBtnOrChild=true (so tablet layout was never broken). Bug remains HIGH; needs the className edit to actually be saved/committed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Onboarding wizard footer",
+        "issue": "The fix described in the iteration_8 review request was NOT applied to /app/frontend/src/pages/Onboarding.jsx. Line 264 still reads `className=\"px-10 lg:px-20 py-6 pr-44 sm:pr-56 flex justify-between items-center border-t\"`. At lg+ viewports Tailwind's `lg:px-20` resets paddingRight to 80px, the CTA right edge sits at x=1840 in a 1920 viewport, and the fixed #emergent-badge (right:16px, width≈178px → spans 1726-1904) fully covers the button center (1775,1034). document.elementFromPoint at the button center returns the badge's <P>; isButtonOrChild=false; non-force click on [data-testid=\"ob-next\"] times out. Tablet (768) is unaffected (paddingRight=224px, elementFromPoint correctly returns the button). REQUIRED CHANGE (re-stated): replace `px-10 lg:px-20 py-6 pr-44 sm:pr-56` with `pl-10 lg:pl-20 py-6 pr-44 sm:pr-56 lg:pr-60` so the lg breakpoint stops clobbering the right padding.",
+        "selector": "[data-testid=\"ob-next\"], [data-testid=\"ob-finish\"]",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Onboarding wizard end-to-end (new user, desktop 1920)",
+        "issue": "Could not advance step 0 -> 1 with a normal click on ob-next at 1920x1080; subsequent steps and POST /api/onboarding/complete therefore could not be exercised in this iteration. Confirmed in iteration_6/7 that the API path itself is healthy; only the desktop CTA is unreachable.",
+        "affected_selectors": ["[data-testid=\"ob-next\"]", "[data-testid=\"ob-finish\"]"]
+      }
+    ],
+    "design_issues": [
+      {"screen": "Onboarding footer (desktop)", "issues": ["CTA column overlaps the fixed #emergent-badge at lg+ because lg:px-20 sets paddingRight back to 80px. Use split-axis padding so the right padding stays >= ~200px at every breakpoint."]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iter8_desktop_blocked.png"],
+  "action_items": [
+    "ACTUALLY save the className change in /app/frontend/src/pages/Onboarding.jsx line 264: from `px-10 lg:px-20 py-6 pr-44 sm:pr-56` to `pl-10 lg:pl-20 py-6 pr-44 sm:pr-56 lg:pr-60`. The current file on disk still has the old class — verify with `grep -n 'px-10 lg:px-20 py-6 pr-44 sm:pr-56' /app/frontend/src/pages/Onboarding.jsx` (should return nothing after the fix).",
+    "After editing, re-run the desktop verification: seed a fresh zero-entry user, set session_token cookie, navigate to /onboarding at 1920x1080, then assert document.elementFromPoint(btn.cx, btn.cy) === btn (or btn.contains(...)); click ob-next without force should advance to step 2; full wizard finish should land on /today with POST /api/onboarding/complete returning 200."
+  ],
+  "critical_code_review_comments": [
+    "/app/frontend/src/pages/Onboarding.jsx line 264 — fix from iteration_7 was reported in the review request but is not present in the source file. Either the edit was not saved, was reverted by a hot-reload conflict, or the iteration metadata was wrong. Re-apply and confirm via grep + computed-style probe before next handoff.",
+    "Recommend adding a Playwright regression test that asserts document.elementFromPoint(cx,cy) of [data-testid=\"ob-next\"] is the button (or its descendant) at viewport 1920x1080 — this would have caught the missing edit immediately."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "0% (Onboarding CTA occlusion fix NOT applied; tablet layout still OK)"},
+  "test_credentials": "Seeded fresh user for this iteration: SESSION_TOKEN=p8_onb_1782383610862 / USER_ID=p8-onb-1782383610862 (zero entries, not onboarded — wizard could not be advanced past step 0 at desktop due to the occlusion; this token can be reused at 768 to retest the tablet sanity or, after the fix, to retest desktop end-to-end).",
+  "seed_data_creation": "One zero-entry user inserted into test_database.users + test_database.user_sessions (user_id p8-onb-1782383610862, session_token p8_onb_1782383610862, 7-day expiry).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The iteration_7 RCA still applies verbatim — the source line 264 className was never changed. Once the main agent actually edits the file to `pl-10 lg:pl-20 py-6 pr-44 sm:pr-56 lg:pr-60`, retest with the seeded SESSION_TOKEN p8_onb_1782383610862 at 1920x1080: footer computed paddingRight must be >= 240px (15rem from lg:pr-60), and document.elementFromPoint of [data-testid=\"ob-next\"] center must equal the button or a descendant. Then walk all 7 steps and confirm POST /api/onboarding/complete -> 200 and /today navigation. Tablet (768x800) is already green and does not need re-verification unless padding utilities are touched again.",
+  "rca of the issue": "Same as iteration_7. Tailwind's `lg:px-20` is a shorthand setting BOTH padding-left and padding-right to 5rem at >=1024px, which cascades on top of `sm:pr-56` and resets the footer's right padding to 80px at desktop. The Emergent badge is fixed at right:16px with width ~178px (so it occupies 1726-1904 in a 1920 viewport), but the CTA button's right edge sits at x≈1840 because the footer only provides 80px right padding. The button is therefore drawn under the badge, and document.elementFromPoint at the button's geometric center returns the badge's <P> element rather than the button — meaning Playwright's normal click (and a real desktop user's click) hits the badge link instead of advancing the wizard. Mitigation: replace `lg:px-20` with split-axis classes `lg:pl-20 lg:pr-60` so the lg breakpoint cannot clobber the right padding. Confirmed working pattern at sm (which uses `pr-56` without an `lg:` overrider) — paddingRight=224px on tablet and the button is reachable."
+}
