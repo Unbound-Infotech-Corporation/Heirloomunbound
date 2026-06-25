@@ -9,9 +9,11 @@ import Dashboard from "@/pages/Dashboard";
 import Interviewer from "@/pages/Interviewer";
 import Journal from "@/pages/Journal";
 import Library from "@/pages/Library";
+import Photos from "@/pages/Photos";
 import Import from "@/pages/Import";
 import Twin from "@/pages/Twin";
 import Skills from "@/pages/Skills";
+import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import Settings from "@/pages/Settings";
 import { Toaster } from "sonner";
@@ -36,9 +38,11 @@ function AppRouter() {
         <Route path="/interviewer" element={<Interviewer />} />
         <Route path="/journal" element={<Journal />} />
         <Route path="/library" element={<Library />} />
+        <Route path="/photos" element={<Photos />} />
         <Route path="/import" element={<Import />} />
         <Route path="/twin" element={<Twin />} />
         <Route path="/skills" element={<Skills />} />
+        <Route path="/companion" element={<Companion />} />
         <Route path="/heirs" element={<Heirs />} />
         <Route path="/settings" element={<Settings />} />
       </Route>

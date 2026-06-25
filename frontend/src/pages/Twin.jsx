@@ -23,7 +23,15 @@ export default function Twin() {
   const speak = async (text, idx) => {
     setSpeakingIdx(idx);
     try {
-      const { data } = await api.post("/voice/speak", { text, voice: "onyx" });
+      // Try cloned voice first; fall back to default OpenAI TTS
+      let data;
+      try {
+        const r = await api.post("/voice-clone/speak", { text });
+        data = r.data;
+      } catch (err) {
+        const r = await api.post("/voice/speak", { text, voice: "onyx" });
+        data = r.data;
+      }
       const audio = new Audio(`data:${data.mime};base64,${data.audio_base64}`);
       audioRef.current = audio;
       audio.onended = () => setSpeakingIdx(null);
