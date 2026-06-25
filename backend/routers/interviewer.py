@@ -129,7 +129,7 @@ async def send_message(payload: MessageRequest, user: dict = Depends(get_current
             async for ev in chat.stream_message(UserMessage(text=payload.message)):
                 if isinstance(ev, TextDelta):
                     full += ev.content
-                    yield f"data: {ev.content}\n\n".replace("\n\n", "\n\n")
+                    yield f"data: {ev.content}\n\n"
                 elif isinstance(ev, StreamDone):
                     break
         except Exception as exc:  # noqa: BLE001
