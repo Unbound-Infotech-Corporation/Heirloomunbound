@@ -3,8 +3,29 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
+import { useRef } from "react";
+
 export function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
+  const [onboarded, setOnboarded] = useState(null); // null=unknown, true/false=resolved
+
+  useEffect(() => {
+    if (!user) {
+      setOnboarded(null);
+      return;
+    }
+    // Skip the check when we're already on /onboarding
+    if (location.pathname === "/onboarding") {
+      setOnboarded(true);
+      return;
+    }
+    api
+      .get("/onboarding/state")
+      .then(({ data }) => setOnboarded(Boolean(data.onboarded)))
+      .catch(() => setOnboarded(true)); // fail open — don't trap on error
+  }, [user, location.pathname]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-base)" }}>
@@ -13,12 +34,18 @@ export function ProtectedRoute({ children }) {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
+  if (onboarded === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-base)" }}>
+        <div className="overline">preparing your archive…</div>
+      </div>
+    );
+  }
+  if (onboarded === false && location.pathname !== "/onboarding") {
+    return <Navigate to="/onboarding" replace />;
+  }
   return children;
 }
-
-// AuthCallback: handles redirect from Emergent Auth (#session_id=...) -> exchanges for cookie -> dashboard
-// REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-import { useRef } from "react";
 
 export function AuthCallback() {
   const navigate = useNavigate();
@@ -43,8 +70,8 @@ export function AuthCallback() {
       .post("/auth/session", { session_id: sessionId })
       .then(({ data }) => {
         setUser(data);
-        // Strip the hash before navigating
         window.history.replaceState(null, "", window.location.pathname);
+        // After auth, ProtectedRoute will redirect to /onboarding if needed
         navigate("/today", { replace: true, state: { user: data } });
       })
       .catch((err) => {

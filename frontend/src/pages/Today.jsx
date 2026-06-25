@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlarmClock, ArrowRight, CheckCircle2, Circle, Clock, Flame, Sparkles } from "lucide-react";
+import { AlarmClock, ArrowRight, BookmarkPlus, Calendar, CheckCircle2, Circle, Clock, Feather, Flame, MessageCircle, Sparkles } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -12,6 +12,7 @@ const REFLECTIONS = [
   "What surprised you in the last 24 hours?",
   "What did you learn that you don't want to forget?",
   "What's a thought you've been turning over?",
+  "What did you do today that future-you will thank you for?",
 ];
 
 function pickGreeting() {
@@ -30,16 +31,44 @@ export default function Today() {
   const { user } = useAuth();
   const [data, setData] = useState({ overdue: [], today: [], no_date: [] });
   const [stats, setStats] = useState(null);
+  const [onthisday, setOnThisDay] = useState(null);
+  const [journals, setJournals] = useState([]);
+  const [lastTwin, setLastTwin] = useState(null);
+  const [widgets, setWidgets] = useState({
+    reflection: true,
+    reminders: true,
+    on_this_day: true,
+    suggested_topics: true,
+    recent_journals: false,
+    last_twin_chat: false,
+  });
 
   const load = async () => {
-    const [t, s] = await Promise.all([api.get("/reminders/today"), api.get("/dashboard")]);
+    const [t, s, ob] = await Promise.all([
+      api.get("/reminders/today"),
+      api.get("/dashboard"),
+      api.get("/onboarding/state"),
+    ]);
     setData(t.data);
     setStats(s.data);
+    if (ob.data?.dashboard_widgets) setWidgets((w) => ({ ...w, ...ob.data.dashboard_widgets }));
   };
 
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (widgets.on_this_day) {
+      api.get("/dashboard/on-this-day").then(({ data }) => setOnThisDay(data)).catch(() => {});
+    }
+    if (widgets.recent_journals) {
+      api.get("/dashboard/recent-journals").then(({ data }) => setJournals(data.entries || [])).catch(() => {});
+    }
+    if (widgets.last_twin_chat) {
+      api.get("/dashboard/last-twin-chat").then(({ data }) => setLastTwin(data)).catch(() => {});
+    }
+  }, [widgets.on_this_day, widgets.recent_journals, widgets.last_twin_chat]);
 
   const complete = async (id) => {
     await api.post(`/reminders/${id}/complete`);
@@ -61,7 +90,7 @@ export default function Today() {
         </h1>
       </header>
 
-      {/* Stats strip */}
+      {/* Always-on stat strip */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
         <StatPill icon={Flame} label="streak" value={`${stats?.streak_days ?? 0} ${stats?.streak_days === 1 ? "day" : "days"}`} tid="today-streak" />
         <StatPill icon={AlarmClock} label="open" value={stats?.reminders_open ?? 0} tid="today-open" />
@@ -69,62 +98,136 @@ export default function Today() {
         <StatPill icon={Sparkles} label="captured" value={stats?.total_entries ?? 0} tid="today-entries" />
       </section>
 
-      {/* Reflection prompt */}
-      <section className="surface p-7 mb-12 grain-overlay" data-testid="today-reflection">
-        <div className="overline mb-3">today's reflection</div>
-        <p
-          className="font-serif text-2xl lg:text-3xl leading-snug max-w-3xl mb-5"
-          style={{ color: "var(--text-primary)" }}
-        >
-          {reflection}
-        </p>
-        <Link
-          to={`/interviewer?topic=${encodeURIComponent(reflection)}&key=daily`}
-          data-testid="today-reflect-button"
-          className="inline-flex items-center gap-2 text-sm hover:text-[var(--accent)] transition-colors"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          sit with this question <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
-      </section>
+      {/* Reflection */}
+      {widgets.reflection && (
+        <section className="surface p-7 mb-12 grain-overlay" data-testid="today-reflection">
+          <div className="overline mb-3">today's reflection</div>
+          <p
+            className="font-serif text-2xl lg:text-3xl leading-snug max-w-3xl mb-5"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {reflection}
+          </p>
+          <Link
+            to={`/interviewer?topic=${encodeURIComponent(reflection)}&key=daily`}
+            data-testid="today-reflect-button"
+            className="inline-flex items-center gap-2 text-sm hover:text-[var(--accent)] transition-colors"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            sit with this question <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </section>
+      )}
 
       {/* Reminders */}
-      <section className="mb-12">
-        <div className="flex justify-between items-end mb-5">
-          <div>
-            <div className="overline mb-2">reminders</div>
-            <h2 className="font-serif text-2xl">On your plate</h2>
+      {widgets.reminders && (
+        <section className="mb-12">
+          <div className="flex justify-between items-end mb-5">
+            <div>
+              <div className="overline mb-2">reminders</div>
+              <h2 className="font-serif text-2xl">On your plate</h2>
+            </div>
+            <Link to="/reminders" data-testid="today-all-reminders" className="text-sm hover:text-[var(--accent)]" style={{ color: "var(--text-secondary)" }}>
+              see all →
+            </Link>
           </div>
-          <Link to="/reminders" data-testid="today-all-reminders" className="text-sm hover:text-[var(--accent)]" style={{ color: "var(--text-secondary)" }}>
-            see all →
-          </Link>
-        </div>
 
-        {total === 0 && (data.no_date?.length || 0) === 0 ? (
-          <div className="surface p-10 text-center" data-testid="today-empty">
-            <p className="font-serif text-xl" style={{ color: "var(--text-secondary)" }}>
-              Nothing on your plate. Use the capture bar to jot something down.
-            </p>
-          </div>
-        ) : (
+          {total === 0 && (data.no_date?.length || 0) === 0 ? (
+            <div className="surface p-10 text-center" data-testid="today-empty">
+              <p className="font-serif text-xl" style={{ color: "var(--text-secondary)" }}>
+                Nothing on your plate. Use the capture bar to jot something down.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {data.overdue?.map((r) => (
+                <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="overdue" />
+              ))}
+              {data.today?.map((r) => (
+                <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="today" />
+              ))}
+              {data.no_date?.map((r) => (
+                <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="someday" />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* On this day */}
+      {widgets.on_this_day && onthisday?.entries?.length > 0 && (
+        <section className="mb-12" data-testid="today-onthisday">
+          <div className="overline mb-2 flex items-center gap-2"><Calendar className="h-3.5 w-3.5" /> on this day</div>
+          <h2 className="font-serif text-2xl mb-6">A year ago, two years ago, you wrote this:</h2>
           <div className="space-y-3">
-            {data.overdue?.map((r) => (
-              <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="overdue" />
-            ))}
-            {data.today?.map((r) => (
-              <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="today" />
-            ))}
-            {data.no_date?.map((r) => (
-              <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="someday" />
+            {onthisday.entries.slice(0, 4).map((e) => (
+              <div key={e.entry_id} className="surface px-6 py-5" data-testid={`onthisday-${e.entry_id}`}>
+                <div className="flex justify-between items-baseline mb-1">
+                  <div className="overline">{e.type}</div>
+                  <div className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
+                    {new Date(e.created_at).getFullYear()}
+                  </div>
+                </div>
+                <div className="font-serif text-lg mb-1" style={{ color: "var(--text-primary)" }}>
+                  {e.title}
+                </div>
+                <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                  {e.content.slice(0, 240)}{e.content.length > 240 ? "…" : ""}
+                </p>
+              </div>
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
+
+      {/* Last twin chat tail */}
+      {widgets.last_twin_chat && lastTwin?.tail?.length > 0 && (
+        <section className="mb-12" data-testid="today-lasttwin">
+          <div className="overline mb-2 flex items-center gap-2"><MessageCircle className="h-3.5 w-3.5" /> last conversation with the twin</div>
+          <h2 className="font-serif text-2xl mb-6">Where you left off</h2>
+          <div className="surface p-6 space-y-4">
+            {lastTwin.tail.map((m, i) => (
+              <div key={i}>
+                <div className="overline mb-1">{m.role === "user" ? "you" : "the twin"}</div>
+                <p className="text-sm leading-relaxed" style={{ color: m.role === "user" ? "var(--text-secondary)" : "var(--text-primary)" }}>
+                  {m.content.slice(0, 280)}{m.content.length > 280 ? "…" : ""}
+                </p>
+              </div>
+            ))}
+            <Link to="/twin" className="inline-flex items-center gap-2 text-sm hover:text-[var(--accent)]" style={{ color: "var(--accent)" }}>
+              continue <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </section>
+      )}
+
+      {/* Recent voice journals */}
+      {widgets.recent_journals && journals.length > 0 && (
+        <section className="mb-12" data-testid="today-journals">
+          <div className="overline mb-2 flex items-center gap-2"><Feather className="h-3.5 w-3.5" /> recent voice journals</div>
+          <h2 className="font-serif text-2xl mb-6">Your voice, lately</h2>
+          <div className="space-y-3">
+            {journals.map((j) => (
+              <div key={j.entry_id} className="surface px-5 py-4" data-testid={`journal-${j.entry_id}`}>
+                <div className="flex justify-between items-baseline mb-1">
+                  <div className="font-serif text-base">{j.title}</div>
+                  <div className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
+                    {new Date(j.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+                <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                  {j.content.slice(0, 200)}{j.content.length > 200 ? "…" : ""}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Suggested capture */}
-      {stats?.suggested_topics?.length > 0 && (
-        <section>
-          <div className="overline mb-4">suggested capture</div>
+      {widgets.suggested_topics && stats?.suggested_topics?.length > 0 && (
+        <section data-testid="today-suggest">
+          <div className="overline mb-4 flex items-center gap-2"><BookmarkPlus className="h-3.5 w-3.5" /> suggested capture</div>
           <h2 className="font-serif text-2xl mb-6">A story you haven't told</h2>
           <div className="grid md:grid-cols-2 gap-4">
             {stats.suggested_topics.slice(0, 4).map((t) => (

@@ -17,6 +17,8 @@ import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import Today from "@/pages/Today";
 import Reminders from "@/pages/Reminders";
+import Onboarding from "@/pages/Onboarding";
+import Sources from "@/pages/Sources";
 import Settings from "@/pages/Settings";
 import { Toaster } from "sonner";
 
@@ -30,6 +32,14 @@ function AppRouter() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route
+        path="/onboarding"
+        element={
+          <ProtectedRoute>
+            <Onboarding />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         element={
           <ProtectedRoute>
             <AppLayout />
@@ -39,6 +49,7 @@ function AppRouter() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/today" element={<Today />} />
         <Route path="/reminders" element={<Reminders />} />
+        <Route path="/sources" element={<Sources />} />
         <Route path="/interviewer" element={<Interviewer />} />
         <Route path="/journal" element={<Journal />} />
         <Route path="/library" element={<Library />} />

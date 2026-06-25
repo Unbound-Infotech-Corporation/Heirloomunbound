@@ -1,0 +1,65 @@
+{
+  "summary": "Phase 6 (onboarding + sources + dashboard_extra + widgets + Unbound brand). Backend: 27/27 PASS in new test_phase6.py covering auto-onboard heuristic, manual onboarding+seeding, widget filtering, sources CRUD/sync/upload/.zip/.mbox/exe-reject/empty-reject/user-isolation/delete, on-this-day, recent-journals, last-twin-chat, plus light regression (auth/me, archive CRUD, dashboard streak, reminders, skills). Phase 4 regression also re-run: 42/42 PASS. Frontend: landing brand strings present (Unbound Infotech, Download for Windows, Built by Unbound), Sources page loads, Today page renders, ProtectedRoute redirects work in BOTH directions (auto-onboarded → /today, brand-new → /onboarding), and the 7-step onboarding UI completes end-to-end with POST /onboarding/complete returning 200 and seeding 5 entries. Two issues found: (1) Settings page is MISSING the entire 'today dashboard' widget-toggle section despite the review_request explicitly requiring data-testid widget-row-{key} / widget-toggle-{key}; (2) onboarding 'ob-next' button is occluded by the global #emergent-badge in the bottom-right corner — real users will be blocked from advancing the wizard.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Onboarding wizard footer",
+        "issue": "The fixed #emergent-badge ('Made with Emergent') at bottom-right intercepts pointer events for the 'continue' button (data-testid=ob-next) and the 'begin the archive' button (ob-finish). Reproduced 56× retries before Playwright gave up. Force-clicking bypasses it in tests but real users will see the button respond inconsistently or not at all when the wizard footer is in the same vertical band as the badge.",
+        "selector": "[data-testid=\"ob-next\"], [data-testid=\"ob-finish\"]",
+        "priority": "HIGH"
+      },
+      {
+        "component": "Settings page (/settings)",
+        "issue": "The new 'today dashboard' section with widget toggles is NOT rendered. Settings.jsx (344 lines) contains no 'dashboard_widgets', 'widget-toggle', 'widget-row' or 'today dashboard' references. Visible sections on page: account, your voice (ElevenLabs), on the roadmap. The review_request specifies data-testid widget-row-{key} and widget-toggle-{key} must be present and toggling must PUT /api/onboarding/widgets.",
+        "selector": "[data-testid^=\"widget-toggle-\"] (0 matches)",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Settings → PUT /api/onboarding/widgets",
+        "issue": "Cannot be exercised from UI — toggles do not exist on Settings page. Backend endpoint itself works (verified by direct PUT in test_phase6 TestWidgets — 200 with correct filtering/coercion).",
+        "affected_selectors": ["[data-testid=\"widget-toggle-reflection\"]", "[data-testid=\"widget-toggle-on_this_day\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Onboarding wizard",
+        "issues": ["Footer CTA sits in the same bottom band as the persistent Emergent badge; either raise the badge z-index ABOVE the wizard footer (and reposition footer) or push the footer's right padding so the CTA is clear of the badge column."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase6.py",
+    "/app/test_reports/pytest/iteration_6_results.xml"
+  ],
+  "action_items": [
+    "Add the 'today dashboard' section to /app/frontend/src/pages/Settings.jsx: read state.dashboard_widgets from GET /api/onboarding/state, render one row per known widget key (reflection, reminders, on_this_day, suggested_topics, recent_journals, last_twin_chat, photo_of_day, quote_of_day, sources_status) with data-testid='widget-row-{key}' and a checkbox/switch with data-testid='widget-toggle-{key}'. On change → PUT /api/onboarding/widgets with the full {widgets:{...}} map.",
+    "Fix onboarding footer/CTA stacking against the #emergent-badge — either bump pb on <footer> to clear ~64px, anchor the badge with lower z-index, or move the wizard's primary CTA away from the bottom-right corner so it isn't masked by the badge."
+  ],
+  "critical_code_review_comments": [
+    "backend/routers/onboarding.py — auto-onboard heuristic (>=3 entries) is implemented exactly as spec'd; widgets endpoint correctly filters unknown keys and bool-coerces values; happy.",
+    "backend/routers/sources.py — _extract_with_claude correctly strips ``` fences before json.parse, caps text at 14000 chars, dedupes type whitelist, caps 8 items/chunk and 20 chunks/upload — solid. SECURITY-NIT: file size cap 120MB is enforced but per-chunk LLM cost could still be high if user uploads a 119MB mbox with thousands of messages (mbox parser caps at 50 messages, so fine).",
+    "backend/routers/dashboard_extra.py — on-this-day uses regex '-MM-DDT' on created_at string; works but assumes ISO format. Acceptable.",
+    "frontend/src/pages/Settings.jsx — MISSING widget toggles UI (see action_items).",
+    "frontend/src/pages/Onboarding.jsx — wizard is well-built with all required data-testids; only environmental issue is the Emergent badge overlap.",
+    "frontend/src/pages/Sources.jsx — all required data-testids present, includes solid Takeout instructions card, file accept list matches backend whitelist."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase6.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (27/27 phase6 + 42/42 phase4 regression = 69/69)",
+    "frontend": "71% (5/7 UI flows passing: landing-brand, sources-loads, today-renders, both ProtectedRoute redirects, onboarding-7-steps once badge hidden — failing: settings-widget-toggles MISSING, onboarding-CTA badge-occlusion)"
+  },
+  "test_credentials": "TOKEN_A=p6_onb_1782382675611 / USER_A=p6-onb-1782382675611 (auto-onboard, 3 pre-seeded entries); TOKEN_B=p6_newer_1782382832969 / USER_B=p6-newer-1782382832969 (originally zero entries, now onboarded by test_complete_seeds_archive); TOKEN_C=p6_iso_1782382675611 / USER_C=p6-iso-1782382675611 (isolation tests); TOKEN_FE=p6_fe_new_1782382961037 / USER_FE=p6-fe-new-1782382961037 (browser-onboarded by phase6 frontend run, now onboarded).",
+  "seed_data_creation": "Four users seeded via mongosh: p6-onb (with 3 entries), p6-newer (zero entries, then onboarded by complete-seeds test), p6-iso (zero entries, isolation user), p6-fe-new (zero entries, used by frontend wizard test — now onboarded). Plus a couple of onboarding+source entries created during tests.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All backend Phase 6 endpoints are GREEN — re-run pytest /app/backend/tests/test_phase6.py to confirm regressions. NOTE: TestOnboardingState.test_new_user_not_onboarded depends on TOKEN_B being a fresh zero-entry user; the existing token is now onboarded — re-seed a new user before re-running and update conftest if you make it a fixture. Frontend: focus on whether main agent (a) wired up the dashboard-widget toggle section in Settings.jsx and (b) fixed the Emergent-badge overlap for the onboarding CTA. The onboarding API flow itself works perfectly when the badge is hidden via JS (POST returns 200 with 5 seeded items).",
+  "rca of the issue": "Frontend bug #1 (Settings widget toggles missing): The review_request's files_of_reference lists Settings.jsx as 'updated' with widget toggles, but the file as shipped contains no widget UI — implementation appears to have not been committed. Direct evidence: 'grep -c widget-toggle Settings.jsx' = 0. Add the section under a new '[overline] today dashboard' header. Frontend bug #2 (badge overlap): The wizard footer is sticky/full-width at the bottom of viewport; the global #emergent-badge is position:fixed bottom-right with high z-index. The 'continue' button is placed in the same bottom-right area. Either reposition the wizard CTA leftward (e.g. justify-content: flex-start or add right padding > badge width ~200px) or wrap the footer in a container with a higher z-index than the badge."
+}

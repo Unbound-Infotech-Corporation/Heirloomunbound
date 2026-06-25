@@ -14,12 +14,15 @@ from routers import (
     capture,
     companion,
     dashboard,
+    dashboard_extra,
     heirs,
     interviewer,
+    onboarding,
     photos,
     reminders,
     skills,
     social_import,
+    sources,
     twin,
     voice,
     voice_clone,
@@ -55,10 +58,13 @@ api_router.include_router(social_import.router)
 api_router.include_router(skills.router)
 api_router.include_router(heirs.router)
 api_router.include_router(dashboard.router)
+api_router.include_router(dashboard_extra.router)
 api_router.include_router(photos.router)
 api_router.include_router(companion.router)
 api_router.include_router(capture.router)
 api_router.include_router(reminders.router)
+api_router.include_router(onboarding.router)
+api_router.include_router(sources.router)
 
 app.include_router(api_router)
 

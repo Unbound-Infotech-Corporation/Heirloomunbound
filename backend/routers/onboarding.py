@@ -35,8 +35,20 @@ class OnboardingAnswers(BaseModel):
 
 @router.get("/state")
 async def state(user: dict = Depends(get_current_user)):
+    # Auto-onboard legacy users: anyone with existing archive entries is treated as onboarded
+    # so the redirect only catches truly new accounts.
+    onboarded = bool(user.get("onboarded"))
+    if not onboarded:
+        existing_entries = await db.entries.count_documents({"user_id": user["user_id"]})
+        if existing_entries >= 3:
+            await db.users.update_one(
+                {"user_id": user["user_id"]},
+                {"$set": {"onboarded": True, "onboarded_at": datetime.now(timezone.utc).isoformat()}},
+            )
+            onboarded = True
+
     return {
-        "onboarded": bool(user.get("onboarded")),
+        "onboarded": onboarded,
         "preferred_name": user.get("preferred_name") or user.get("name", ""),
         "profile": user.get("profile") or {},
         "dashboard_widgets": user.get("dashboard_widgets") or DEFAULT_WIDGETS,
