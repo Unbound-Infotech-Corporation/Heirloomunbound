@@ -30,39 +30,38 @@ Follow-up (broader ambition):
 
 ## What's been implemented (Feb 25, 2026)
 - ✅ Landing page + Google login + Auth callback (Emergent Auth playbook followed verbatim)
-- ✅ Sidebar app shell (9 nav routes)
+- ✅ Sidebar app shell (11 nav routes)
 - ✅ Dashboard with stats, completeness % (non-linear heuristic), suggested next topics
 - ✅ Archive CRUD (memory / story / value / advice / quote / chapter / voice / import)
 - ✅ AI Interviewer with streaming Claude responses + seed questions + save-turn-as-entry
 - ✅ Voice journal: MediaRecorder → Whisper STT → archive entry
-- ✅ Talk-to-Twin chat: streaming Claude, grounded in archive + skills, optional TTS playback per message
+- ✅ Talk-to-Twin chat: streaming Claude, grounded in archive + skills, optional TTS playback (falls back to OpenAI TTS if no voice clone)
 - ✅ Social/text import with Claude-powered extraction into structured entries
 - ✅ Skills (webhooks): create / list / edit / invoke / delete, with live test invocation
 - ✅ Heirs management
-- ✅ Settings page with roadmap
+- ✅ Settings page with ElevenLabs voice config + clone-your-own-voice
 - ✅ Multi-user isolation verified
 
-## Backend test results (iteration_1.json)
-- 50 / 50 pytest cases pass. Zero critical issues.
-- Minor cosmetic notes (POST returning 200 vs 201) — not blocking.
-- Voice STT success path not exercised (no audio sample in test env); 400 empty-audio guard verified.
+### Phase 2 — Feb 25, 2026 (this update)
+- ✅ **Photos**: Emergent object storage integration, upload with caption + taken_at, blob-fetch with Bearer/?auth query, soft-delete
+- ✅ **ElevenLabs voice clone**: per-user API key override + app default fallback, list voices, set voice, Instant Voice Clone from samples, TTS via cloned voice. Twin chat falls back to OpenAI TTS automatically.
+- ✅ **Local PC Companion**: device-token auth, command queue (shell / open_url / open_app / say), pull/poll architecture, voice passthrough (companion uploads audio → Whisper → Twin → reply + skill invocations), downloadable Python script with token + backend URL baked in, device revocation.
+
+## Backend test results
+- iteration_1.json: 50 / 50 v1 tests pass.
+- iteration_2.json: 36 / 36 Phase 2 tests pass. Real ElevenLabs API call verified. Real Emergent object storage roundtrip verified. Companion device-token auth + multi-user isolation verified.
 
 ## Prioritized backlog (next phases)
 
-### P0 — Live-use capability (the "actually use the computer" pillar)
-- **Local PC companion (Python, distributable)** that:
-  - Holds an always-on mic, hot-word detect, streams audio to `/api/voice/transcribe` and `/api/twin/message`.
-  - Exposes a local HTTP bridge so cloud-hosted Heirloom can hit it via ngrok / Tailscale Funnel.
-  - Optional OS-control plugins (run shell commands, open apps, mouse/keyboard via pyautogui).
-- **Home Assistant pre-baked skill templates** in the Skills UI ("Hue lights", "Spotify", "OBS scene").
-
-### P1 — Personality fidelity
-- **ElevenLabs voice cloning** — record 1-min sample → twin literally sounds like the user (requires user-supplied ElevenLabs key).
-- **Photo + caption uploads** (object storage integration).
+### P1 — Polish on existing pillars
+- **Wake-word ("Hey Twin")** on the companion (openWakeWord or Porcupine).
+- **Companion TTS playback** with cloned voice on the local PC (currently the companion only prints; replies could be streamed back as audio for the on-PC speaker).
 - **Long-conversation memory compaction** — summarize old turns so Claude context never overflows.
+- **Photo linking** — attach photos to archive entries so the Twin can reference them by description.
 
 ### P2 — Legacy & community
 - Heir release workflow: scheduled email + access link when "release_on" hits.
+- Sealed "Letter to my son at 18 / 30 / 50" — auto-deliver on a future date.
 - Discord bot (text channels) for passive personality capture.
 - Family-tree graph linking memories to people.
 - Export full archive as PDF "memoir" + JSON.
