@@ -261,7 +261,7 @@ export default function Onboarding() {
       </main>
 
       <footer
-        className="px-10 lg:px-20 py-6 pr-44 sm:pr-56 flex justify-between items-center border-t"
+        className="pl-10 lg:pl-20 py-6 pr-44 sm:pr-56 lg:pr-60 flex justify-between items-center border-t"
         style={{ borderColor: "var(--border-default)" }}
       >
         <button
