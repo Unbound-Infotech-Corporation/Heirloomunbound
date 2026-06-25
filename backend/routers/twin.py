@@ -82,13 +82,39 @@ async def get_twin_conversation(conversation_id: str, user: dict = Depends(get_c
     return conv
 
 
-async def _archive_blob(user_id: str, limit: int = 120) -> str:
-    cursor = db.entries.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(limit)
-    entries = await cursor.to_list(length=limit)
-    if not entries:
+async def _archive_blob(user_id: str, query_hint: str = "", limit_recent: int = 20, limit_relevant: int = 30) -> str:
+    """Top-k retrieval: 20 most recent + up to N entries matching tokens in the user's question."""
+    docs: dict[str, dict] = {}
+
+    # Recent N — always include for continuity
+    recent = await db.entries.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(limit_recent).to_list(length=limit_recent)
+    for e in recent:
+        docs[e["entry_id"]] = e
+
+    # Token-matched entries on the user's latest message
+    if query_hint:
+        import re as _re
+        STOP = {"the","a","an","of","in","on","to","for","was","is","are","what","where","when","who","why","how","my","me","i","did","do","does","that","this","at","with","and","you","your"}
+        tokens = [
+            _re.escape(t) for t in _re.split(r"\W+", query_hint.lower())
+            if len(t) > 2 and t not in STOP
+        ]
+        if tokens:
+            or_clauses = []
+            for t in tokens[:8]:
+                or_clauses.extend([
+                    {"title": {"$regex": t, "$options": "i"}},
+                    {"content": {"$regex": t, "$options": "i"}},
+                    {"tags": {"$regex": t, "$options": "i"}},
+                ])
+            match_cursor = db.entries.find({"user_id": user_id, "$or": or_clauses}, {"_id": 0}).limit(limit_relevant)
+            async for e in match_cursor:
+                docs[e["entry_id"]] = e
+
+    if not docs:
         return ""
     chunks = []
-    for e in entries:
+    for e in list(docs.values()):
         chunks.append(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n")
     return "\n".join(chunks)
 
