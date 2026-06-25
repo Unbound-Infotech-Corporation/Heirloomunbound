@@ -2,8 +2,6 @@
 import base64
 import io
 import os
-import uuid
-from datetime import datetime, timezone
 from typing import Optional
 
 from elevenlabs.client import AsyncElevenLabs

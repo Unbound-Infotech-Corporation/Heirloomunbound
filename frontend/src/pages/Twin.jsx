@@ -14,13 +14,31 @@ export default function Twin() {
 
   useEffect(() => {
     api.post("/twin/start", {}).then(({ data }) => setConv(data));
+    return () => {
+      if (audioRef.current) {
+        try { audioRef.current.pause(); } catch (_) {}
+        audioRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
   }, [conv, streaming]);
 
+  const stopAudio = () => {
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      } catch (_) {}
+      audioRef.current = null;
+    }
+    setSpeakingIdx(null);
+  };
+
   const speak = async (text, idx) => {
+    stopAudio();
     setSpeakingIdx(idx);
     try {
       // Try cloned voice first; fall back to default OpenAI TTS
@@ -34,7 +52,10 @@ export default function Twin() {
       }
       const audio = new Audio(`data:${data.mime};base64,${data.audio_base64}`);
       audioRef.current = audio;
-      audio.onended = () => setSpeakingIdx(null);
+      audio.onended = () => {
+        if (audioRef.current === audio) audioRef.current = null;
+        setSpeakingIdx((cur) => (cur === idx ? null : cur));
+      };
       audio.play();
     } catch (e) {
       console.error(e);

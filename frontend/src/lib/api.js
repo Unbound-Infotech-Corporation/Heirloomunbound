@@ -10,6 +10,9 @@ export const api = axios.create({
 });
 
 // Helpers for SSE streaming (auth via cookie sent by fetch)
+// Backend now frames each delta as JSON: `data: {"text": "..."}\n\n` so embedded
+// newlines and brackets survive intact. Errors arrive as `event: error` with
+// JSON `{error}`. `event: done` signals graceful completion.
 export const streamSSE = async (path, payload, onChunk, onDone, onError) => {
   try {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -26,6 +29,7 @@ export const streamSSE = async (path, payload, onChunk, onDone, onError) => {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let doneSignalled = false;
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -34,29 +38,37 @@ export const streamSSE = async (path, payload, onChunk, onDone, onError) => {
       buffer = events.pop() || "";
       for (const evt of events) {
         const lines = evt.split("\n");
-        let isDone = false;
-        let isError = false;
+        let eventName = "";
         const dataLines = [];
         for (const line of lines) {
           if (line.startsWith("event:")) {
-            const ev = line.slice(6).trim();
-            if (ev === "done") isDone = true;
-            if (ev === "error") isError = true;
+            eventName = line.slice(6).trim();
           } else if (line.startsWith("data:")) {
             dataLines.push(line.slice(5).replace(/^ /, ""));
           }
         }
         const data = dataLines.join("\n");
-        if (isDone) {
+        if (eventName === "done") {
+          doneSignalled = true;
           onDone && onDone();
-        } else if (isError) {
-          onError && onError(new Error(data));
+        } else if (eventName === "error") {
+          let msg = data;
+          try { msg = JSON.parse(data).error || data; } catch (_) {}
+          onError && onError(new Error(msg));
         } else if (data) {
-          onChunk(data);
+          // Default event = streaming text delta — JSON-encoded {text}
+          let text = data;
+          try {
+            const parsed = JSON.parse(data);
+            text = typeof parsed === "string" ? parsed : (parsed.text ?? "");
+          } catch (_) {
+            // Backwards-compat: if the server ever yields raw text, use as-is.
+          }
+          if (text) onChunk(text);
         }
       }
     }
-    onDone && onDone();
+    if (!doneSignalled) onDone && onDone();
   } catch (e) {
     onError && onError(e);
   }

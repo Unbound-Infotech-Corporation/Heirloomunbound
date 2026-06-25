@@ -9,7 +9,6 @@ export default function Photos() {
   const [caption, setCaption] = useState("");
   const [takenAt, setTakenAt] = useState("");
   const fileInputRef = useRef(null);
-  const blobUrls = useRef({});
 
   const load = async () => {
     const { data } = await api.get("/photos");
@@ -17,7 +16,6 @@ export default function Photos() {
   };
   useEffect(() => {
     load();
-    return () => Object.values(blobUrls.current).forEach(URL.revokeObjectURL);
   }, []);
 
   const onPick = (e) => {
@@ -65,20 +63,21 @@ export default function Photos() {
     const [src, setSrc] = useState(null);
     useEffect(() => {
       let cancelled = false;
+      let createdUrl = null;
       (async () => {
         try {
           const res = await fetch(`${API_BASE}/photos/${p.photo_id}/file`, { credentials: "include" });
           const blob = await res.blob();
           if (cancelled) return;
-          const url = URL.createObjectURL(blob);
-          blobUrls.current[p.photo_id] = url;
-          setSrc(url);
+          createdUrl = URL.createObjectURL(blob);
+          setSrc(createdUrl);
         } catch (e) {
           /* ignore */
         }
       })();
       return () => {
         cancelled = true;
+        if (createdUrl) URL.revokeObjectURL(createdUrl);
       };
     }, [p.photo_id]);
 

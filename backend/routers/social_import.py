@@ -2,7 +2,6 @@
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException

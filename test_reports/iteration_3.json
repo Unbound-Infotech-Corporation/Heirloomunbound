@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 3 — bug-fix verification round. All three reported bugs (BUG #1 multi-turn memory, BUG #2 SSE JSON framing, BUG #3 frontend audio overlap) are FIXED and verified end-to-end. Full Phase 2 regression suite (36/36) still green. Created /app/backend/tests/test_phase3_bugs.py with 4 new targeted tests; all pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase3_bugs.py",
+    "/app/backend/tests/test_phase2.py",
+    "/app/test_reports/pytest/iteration_3_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routers/interviewer.py + routers/twin.py: initial_messages assembly correctly filters only role in ('user','assistant') with non-empty content — won't replay stale system turns. session_id=conversation_id is appropriate for SDK context preservation. Good.",
+    "SSE framing: `data: <json>\\n\\n` with json.dumps({\"text\": ev.content}) is the correct fix — embedded newlines, backslashes, and braces are now escaped and survive split(\"\\n\\n\") on the client. Confirmed via end-to-end test consuming a 3-paragraph reply.",
+    "Error path: `event: error\\ndata: {\\\"error\\\":...}` is well-formed. NOTE: errors raised BEFORE the stream starts (e.g. 404 unknown conversation_id) hit FastAPI's HTTPException path and return 404 — they do NOT come back as event:error in SSE. This is correct behavior (caller will see HTTP 404 on res.ok check in streamSSE).",
+    "Twin.jsx: 3 layers of audio-overlap defense — (a) speak button disabled while speakingIdx === i, (b) stopAudio() called at speak() entry which pauses+nulls prior audioRef, (c) component-unmount useEffect cleanup pauses audioRef. Live test confirmed only 1 Audio instance is created despite 2 rapid clicks (~150ms apart).",
+    "lib/api.js streamSSE: correctly parses JSON-encoded data lines, falls back to raw text if JSON.parse fails (backward-compat), distinguishes event:done vs event:error vs default text-delta events. Buffer split on \\n\\n with carry-over pop() of the trailing partial — correct."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase3_bugs.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (4/4 phase3 + 36/36 phase2 regression)",
+    "frontend": "100% (audio overlap + cleanup verified)"
+  },
+  "test_credentials": "Phase-3 session_token=p3_sess_1782370692411 (user_id=p3-user-1782370692411, name='Marcus Test'). Use as Authorization: Bearer <token> or session_token cookie.",
+  "seed_data_creation": "Inserted 1 user + 1 user_session for phase 3 tests. The phase-3 user now has elevenlabs voice_id=CwhRBWXzGAHq8TQ4Fs17 set (for TTS test). Created 1 interviewer conversation + 1 twin conversation + 1 additional twin conversation during frontend testing (each with assistant turns recorded).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 3 reported bugs are verified fixed. Backend SSE format is now JSON-framed `data: {\"text\":\"...\"}\\n\\n`; if any future feature consumes SSE directly, parse data lines as JSON. The audio fix has 3 redundant safeguards (disabled button + stopAudio + unmount cleanup) — the disabled-state alone prevented the double Audio() instantiation in the live test. Phase 3 user voice_id is set to a real ElevenLabs voice; subsequent TTS calls will burn small credits if invoked.",
+  "rca of the issue": "Originally: (1) each /interviewer/message or /twin/message constructed LlmChat with NO initial_messages, so LLM had zero memory — fixed by replaying conv.messages on every turn. (2) SSE delta yielded raw text containing \\n which collides with SSE framing delimiter \\n\\n — fixed by wrapping each delta in json.dumps({\"text\":...}). (3) Audio overlap: rapid speaker clicks each created new Audio() with no stop of prior; navigating away left audio playing — fixed via stopAudio() + useEffect cleanup."
+}

@@ -215,6 +215,14 @@ Your personality archive:
         api_key=EMERGENT_LLM_KEY,
         session_id=conv["conversation_id"],
         system_message=system,
+        initial_messages=(
+            [{"role": "system", "content": system}]
+            + [
+                {"role": m["role"], "content": m["content"]}
+                for m in conv.get("messages", [])
+                if m.get("role") in ("user", "assistant") and m.get("content")
+            ]
+        ),
     ).with_model("anthropic", "claude-sonnet-4-6")
     try:
         reply = await chat.send_message(UserMessage(text=spoken))

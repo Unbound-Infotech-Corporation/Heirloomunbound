@@ -1,4 +1,5 @@
 """Talk to Your Twin: chat that speaks AS the user, grounded in archive."""
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -114,10 +115,17 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     skills = await _skills_blob(user["user_id"])
     system = _build_twin_system(user.get("name", ""), archive, skills)
 
+    # Replay prior turns so the twin remembers what was just said.
+    initial_messages = [{"role": "system", "content": system}]
+    for m in conv.get("messages", []):
+        if m.get("role") in ("user", "assistant") and m.get("content"):
+            initial_messages.append({"role": m["role"], "content": m["content"]})
+
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=payload.conversation_id,
         system_message=system,
+        initial_messages=initial_messages,
     ).with_model("anthropic", "claude-sonnet-4-6")
 
     user_turn = {"role": "user", "content": payload.message, "ts": datetime.now(timezone.utc).isoformat()}
@@ -128,11 +136,12 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             async for ev in chat.stream_message(UserMessage(text=payload.message)):
                 if isinstance(ev, TextDelta):
                     full += ev.content
-                    yield f"data: {ev.content}\n\n"
+                    # JSON-encode so embedded newlines don't break SSE framing
+                    yield "data: " + json.dumps({"text": ev.content}) + "\n\n"
                 elif isinstance(ev, StreamDone):
                     break
         except Exception as exc:  # noqa: BLE001
-            yield f"event: error\ndata: {exc!s}\n\n"
+            yield "event: error\ndata: " + json.dumps({"error": str(exc)}) + "\n\n"
             return
 
         await db.conversations.update_one(
