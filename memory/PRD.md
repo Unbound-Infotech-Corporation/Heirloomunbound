@@ -42,26 +42,32 @@ Follow-up (broader ambition):
 - ✅ Settings page with ElevenLabs voice config + clone-your-own-voice
 - ✅ Multi-user isolation verified
 
-### Phase 2 — Feb 25, 2026 (this update)
+### Phase 2 — Feb 25, 2026
 - ✅ **Photos**: Emergent object storage integration, upload with caption + taken_at, blob-fetch with Bearer/?auth query, soft-delete
 - ✅ **ElevenLabs voice clone**: per-user API key override + app default fallback, list voices, set voice, Instant Voice Clone from samples, TTS via cloned voice. Twin chat falls back to OpenAI TTS automatically.
-- ✅ **Local PC Companion**: device-token auth, command queue (shell / open_url / open_app / say), pull/poll architecture, voice passthrough (companion uploads audio → Whisper → Twin → reply + skill invocations), downloadable Python script with token + backend URL baked in, device revocation.
+- ✅ **Local PC Companion v1**: device-token auth, command queue (shell / open_url / open_app / say), pull/poll architecture, voice passthrough (companion uploads audio → Whisper → Twin → reply + skill invocations), downloadable Python script with token + backend URL baked in, device revocation.
+
+### Phase 3 — Feb 26, 2026 (this update)
+- ✅ **Windows installer experience**: New `/api/companion/windows-package` returns a `.zip` containing `Heirloom.bat` (one-click launcher that installs deps + runs the script — no terminal needed), `Build-Exe.bat` (PyInstaller one-shot to produce a standalone `HeirloomCompanion.exe`), `heirloom_companion.py` (with system-tray icon support via pystray that degrades gracefully if missing), and `README.txt`. The Companion page now shows two download buttons: Windows package (primary) and `.py` only (Mac/Linux).
+- ✅ **Wake-word mode** (push-to-talk OR "Hey Twin"): companion supports `--wake-word` / `--ptt` flags + `HEIRLOOM_WAKE_WORD` env var, using `openwakeword` (falls back to PTT automatically if not installed).
+- ✅ **Sealed Letters**: full CRUD at `/api/letters` with three triggers — `on_release`, `on_date`, `on_age`. Letters can be sealed (locked from edits) and unsealed before delivery. Cannot be deleted after delivery.
+- ✅ **Heir Release workflow**: extended Heirs with `release_on` date trigger and `inactivity_days` trigger. Owner endpoints: `/heirs/check-in` resets inactivity clock, `/heirs/check-releases` sweeps + mints tokens, `/heirs/<id>/release-now` manual override, `/heirs/<id>/revoke-release`, `/heirs/<id>/release-link`. Release tokens are never exposed in the list endpoint.
+- ✅ **Public Heir Portal** at `/heir/<token>` (no auth, just the token): standalone page (no AppLayout) with four tabs — Welcome (heir.note + counts), Letters (only unlocked + auto-marks delivered on first read), Archive (read-only browse), Talk to them (real Claude chat grounded in owner's archive). Auto-rejects invalid/revoked tokens with a friendly error screen.
 
 ## Backend test results
 - iteration_1.json: 50 / 50 v1 tests pass.
-- iteration_2.json: 36 / 36 Phase 2 tests pass. Real ElevenLabs API call verified. Real Emergent object storage roundtrip verified. Companion device-token auth + multi-user isolation verified.
+- iteration_2.json: 36 / 36 Phase 2 tests pass.
+- iteration_9.json: 24 / 25 Phase 3 tests pass (1 skipped — see notes), all 5 frontend flows pass, multi-user isolation re-verified.
 
 ## Prioritized backlog (next phases)
 
 ### P1 — Polish on existing pillars
-- **Wake-word ("Hey Twin")** on the companion (openWakeWord or Porcupine).
-- **Companion TTS playback** with cloned voice on the local PC (currently the companion only prints; replies could be streamed back as audio for the on-PC speaker).
+- **Companion TTS playback with cloned voice**: stream the twin's reply audio back to the on-PC speaker (currently uses local OS TTS — `say`/`espeak`/SAPI). Wire to ElevenLabs for in-room presence.
+- **Email notifications**: when an heir is released, auto-email them the portal link (currently the owner must copy the link manually).
 - **Long-conversation memory compaction** — summarize old turns so Claude context never overflows.
 - **Photo linking** — attach photos to archive entries so the Twin can reference them by description.
 
 ### P2 — Legacy & community
-- Heir release workflow: scheduled email + access link when "release_on" hits.
-- Sealed "Letter to my son at 18 / 30 / 50" — auto-deliver on a future date.
 - Discord bot (text channels) for passive personality capture.
 - Family-tree graph linking memories to people.
 - Export full archive as PDF "memoir" + JSON.
