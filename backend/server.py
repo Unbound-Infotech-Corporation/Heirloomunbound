@@ -15,8 +15,10 @@ from routers import (
     companion,
     dashboard,
     dashboard_extra,
+    heir_portal,
     heirs,
     interviewer,
+    letters,
     onboarding,
     photos,
     reminders,
@@ -65,6 +67,8 @@ api_router.include_router(capture.router)
 api_router.include_router(reminders.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(sources.router)
+api_router.include_router(letters.router)
+api_router.include_router(heir_portal.router)
 
 app.include_router(api_router)
 

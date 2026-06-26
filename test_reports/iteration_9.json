@@ -1,0 +1,37 @@
+{
+  "summary": "End-to-end testing of Heirloom new features: Windows companion package, Sealed Letters CRUD, Heir Release workflow, public Heir Portal, and multi-user isolation. 24/25 backend tests passed (1 skipped), all 5 core frontend flows passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/letters/<id> (delivered)", "issue": "Could not verify '400 when delivered' because release-now does not auto-mark recipient letters as delivered (status stays sealed but not delivered). Skipped this assertion. If this is intentional (delivery happens via cron / nightly trigger), no action needed; otherwise consider auto-flipping delivered_at on release for letters whose trigger has fired."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_heirloom_features.py",
+    "/app/test_reports/pytest/iteration_9_results.xml"
+  ],
+  "action_items": [
+    "None blocking. Optional: decide policy for auto-marking letters as delivered upon heir release-now vs. via scheduled trigger so DELETE /api/letters/<id> can correctly reject delivered ones (the route already enforces this; just the data path wasn't reachable in test)."
+  ],
+  "critical_code_review_comments": [
+    "Companion.jsx: 'download-windows' is a <button onClick={window.open(...)}> rather than an <a href>. Review request mentions verifying the href; functionally equivalent (new tab opens with cookie-auth), but a true <a href target=_blank> would be cleaner and accessible to crawlers and assistive tech.",
+    "All endpoints respond <1s except heir-portal twin chat (real LLM, ~3-5s observed) — acceptable.",
+    "Token isolation verified: GET /api/heirs (list) never leaks release_token; user B cannot retrieve A's release-link (404) and cannot attach a letter to A's heir_id (404).",
+    "Public Heir Portal correctly returns 401 for invalid/revoked tokens and the React route renders heir-portal-error testid for the same."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_heirloom_features.py (new)"
+  ],
+  "success_rate": {"backend": "96% (24/25 — 1 skipped, 0 failed)", "frontend": "100% (5/5 flows)"},
+  "test_credentials": "Session A: test_session_1782472876048 (user test-user-1782472876048). Session B: test_session_B_1782472876421. Session FE (onboarded): test_session_FE_1782472952366. Sessions seeded via mongosh per /app/auth_testing.md.",
+  "seed_data_creation": "Created 3 test users with sessions in test_database. The FE user had onboarded:true set explicitly so /companion, /letters, /heirs are reachable.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend regression suite is at /app/backend/tests/test_heirloom_features.py — run with A_SESSION and B_SESSION env vars to skip mongosh seeding. Note: backend infers /api prefix correctly. The frontend Auth.jsx ProtectedRoute calls /onboarding/state; new test users must have onboarded:true in users collection or they will be redirected to /onboarding. The heir-portal twin chat does a real Emergent LLM call (~3-5s) — keep timeout >=30s.",
+  "rca_of_the_issue": "No bug RCA needed — all features work as expected. Only minor observation: companion download buttons use onClick+window.open instead of <a href>, which is functionally fine and what the implementation intended (window.open carries the session cookie). The test confirms the URL constructed in JS matches /api/companion/windows-package?token=<token>."
+}

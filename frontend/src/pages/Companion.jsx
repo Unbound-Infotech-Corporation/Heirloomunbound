@@ -41,6 +41,12 @@ export default function Companion() {
     window.open(url, "_blank");
   };
 
+  const downloadWindows = () => {
+    if (!issued) return;
+    const url = `${API_BASE}/companion/windows-package?token=${encodeURIComponent(issued.device_token)}`;
+    window.open(url, "_blank");
+  };
+
   const revoke = async (id) => {
     if (!window.confirm("Revoke this device?")) return;
     await api.delete(`/companion/devices/${id}`);
@@ -81,9 +87,14 @@ export default function Companion() {
         <div className="overline mb-3">setup — three steps</div>
         <ol className="space-y-3 text-sm leading-relaxed mb-6" style={{ color: "var(--text-secondary)" }}>
           <li>1. Name this device, then click <b style={{ color: "var(--text-primary)" }}>Issue token</b>.</li>
-          <li>2. Download the companion script — your token will be baked in.</li>
-          <li>3. On your PC: <code className="font-mono" style={{ color: "var(--accent)" }}>pip install requests sounddevice soundfile numpy pynput</code> then <code className="font-mono" style={{ color: "var(--accent)" }}>python heirloom_companion.py</code></li>
+          <li>2. Download the <b style={{ color: "var(--text-primary)" }}>Windows package (.zip)</b> — token is baked in.</li>
+          <li>3. Unzip it, then <b style={{ color: "var(--text-primary)" }}>double-click <code className="font-mono" style={{ color: "var(--accent)" }}>Heirloom.bat</code></b>. That's it — no terminal, no commands.</li>
         </ol>
+        <p className="text-xs mb-6" style={{ color: "var(--text-muted)" }}>
+          One-time prerequisite on the PC: Python 3.11+ from{" "}
+          <a href="https://python.org/downloads/" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>python.org</a>{" "}
+          (check "Add Python to PATH" during install). The launcher installs everything else for you.
+        </p>
 
         <div className="flex gap-3">
           <input
@@ -117,6 +128,22 @@ export default function Companion() {
             </div>
             <div className="flex gap-3 flex-wrap">
               <button
+                onClick={downloadWindows}
+                data-testid="download-windows"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
+                style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+              >
+                <Download className="h-3.5 w-3.5" /> Windows package (.zip)
+              </button>
+              <button
+                onClick={downloadScript}
+                data-testid="download-script"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
+                style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+              >
+                <Download className="h-3.5 w-3.5" /> .py only (Mac/Linux)
+              </button>
+              <button
                 onClick={() => {
                   navigator.clipboard.writeText(issued.device_token);
                 }}
@@ -125,14 +152,6 @@ export default function Companion() {
                 data-testid="copy-token"
               >
                 <Copy className="h-3.5 w-3.5" /> Copy token
-              </button>
-              <button
-                onClick={downloadScript}
-                data-testid="download-script"
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
-                style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
-              >
-                <Download className="h-3.5 w-3.5" /> Download heirloom_companion.py
               </button>
             </div>
           </div>
@@ -149,7 +168,7 @@ export default function Companion() {
         ) : (
           <div className="space-y-3">
             {devices.map((d) => (
-              <div key={d.device_id} className="surface p-5 flex justify-between items-center" data-testid={`device-${d.device_id}`}>
+              <div key={d.device_id} className="surface p-5 flex justify-between items-center gap-3" data-testid={`device-${d.device_id}`}>
                 <div className="flex items-center gap-4">
                   <MonitorSpeaker className="h-5 w-5" style={{ color: "var(--accent)" }} />
                   <div>
@@ -166,6 +185,9 @@ export default function Companion() {
                 )}
               </div>
             ))}
+            <p className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>
+              Lost a download? Tokens can't be retrieved after they're issued — revoke the device above and click <b>Issue token</b> again to get a fresh package.
+            </p>
           </div>
         )}
       </section>

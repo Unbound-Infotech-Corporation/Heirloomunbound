@@ -11,6 +11,7 @@ import {
   Image as ImageIcon,
   LogOut,
   ListTodo,
+  Mail,
   MessageCircleHeart,
   MonitorSpeaker,
   Settings as SettingsIcon,
@@ -37,6 +38,7 @@ const navItems = [
   { to: "/skills", label: "Skills", icon: Wrench, tid: "nav-skills" },
   { to: "/companion", label: "Local PC", icon: MonitorSpeaker, tid: "nav-companion" },
   { to: "/heirs", label: "Heirs", icon: Users, tid: "nav-heirs" },
+  { to: "/letters", label: "Sealed letters", icon: Mail, tid: "nav-letters" },
   { to: "/settings", label: "Settings", icon: SettingsIcon, tid: "nav-settings" },
 ];
 

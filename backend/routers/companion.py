@@ -322,8 +322,17 @@ Your personality archive:
 
 # ---------- Download the companion script (with token embedded) ----------
 @router.get("/script")
-async def download_script(token: str, user: dict = Depends(get_current_user)):
-    """Returns the companion.py file with the user's device token & backend URL baked in."""
+async def download_script(
+    token: str,
+    wake_word: bool = False,
+    user: dict = Depends(get_current_user),
+):
+    """Returns the companion.py file with the user's device token & backend URL baked in.
+
+    Query param `wake_word=true` flips the script's default mode from push-to-talk
+    to always-on wake-word (Porcupine / openwakeword). The script still falls back
+    to PTT if the wake-word dependencies aren't installed.
+    """
     device = await db.companion_devices.find_one(
         {"device_token": token, "user_id": user["user_id"], "revoked": False}, {"_id": 0}
     )
@@ -332,7 +341,7 @@ async def download_script(token: str, user: dict = Depends(get_current_user)):
     import os
     backend_url = os.environ.get("PUBLIC_BACKEND_URL", "")
     # Build content
-    script = _build_companion_script(token, backend_url)
+    script = _build_companion_script(token, backend_url, wake_word=wake_word)
     from fastapi import Response
     return Response(
         content=script,
@@ -341,34 +350,216 @@ async def download_script(token: str, user: dict = Depends(get_current_user)):
     )
 
 
-def _build_companion_script(token: str, backend_url_hint: str) -> str:
-    return COMPANION_TEMPLATE.replace("__DEVICE_TOKEN__", token).replace(
-        "__BACKEND_URL_HINT__", backend_url_hint or ""
+def _build_companion_script(token: str, backend_url_hint: str, wake_word: bool = False) -> str:
+    return (
+        COMPANION_TEMPLATE
+        .replace("__DEVICE_TOKEN__", token)
+        .replace("__BACKEND_URL_HINT__", backend_url_hint or "")
+        .replace("__WAKE_WORD_DEFAULT__", "True" if wake_word else "False")
     )
+
+
+# ---------- Windows one-click package ----------
+@router.get("/windows-package")
+async def windows_package(
+    token: str,
+    wake_word: bool = False,
+    user: dict = Depends(get_current_user),
+):
+    """Returns a .zip containing the companion script + a one-click Windows
+    launcher (.bat) that installs dependencies and runs it. End-user just
+    double-clicks Heirloom.bat — no terminal, no Python knowledge required."""
+    import io
+    import os
+    import zipfile
+
+    device = await db.companion_devices.find_one(
+        {"device_token": token, "user_id": user["user_id"], "revoked": False}, {"_id": 0}
+    )
+    if not device:
+        raise HTTPException(status_code=404, detail="Device token not found")
+
+    backend_url = os.environ.get("PUBLIC_BACKEND_URL", "")
+    script = _build_companion_script(token, backend_url, wake_word=wake_word)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("heirloom_companion.py", script)
+        z.writestr("Heirloom.bat", _WINDOWS_LAUNCHER_BAT)
+        z.writestr("Build-Exe.bat", _WINDOWS_BUILD_EXE_BAT)
+        z.writestr("README.txt", _WINDOWS_README)
+    buf.seek(0)
+
+    from fastapi import Response
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="HeirloomCompanion-Windows.zip"'},
+    )
+
+
+_WINDOWS_LAUNCHER_BAT = r"""@echo off
+setlocal
+title Heirloom Companion
+
+REM ============================================================
+REM  Heirloom Companion — Windows one-click launcher
+REM  Just double-click this file. The first run installs Python
+REM  packages; subsequent runs start instantly.
+REM ============================================================
+
+cd /d "%~dp0"
+
+REM --- Find a working Python ---
+set "PY="
+where py >nul 2>nul && (set "PY=py")
+if "%PY%"=="" (
+  where python >nul 2>nul && (set "PY=python")
+)
+if "%PY%"=="" (
+  echo.
+  echo  Python is not installed on this PC.
+  echo.
+  echo  1. Download Python 3.11 or newer from:  https://python.org/downloads/
+  echo  2. During install, CHECK the box that says "Add python.exe to PATH"
+  echo  3. Run this file again.
+  echo.
+  pause
+  exit /b 1
+)
+
+REM --- Install / update dependencies (idempotent, quiet) ---
+echo Checking dependencies (one-time)...
+%PY% -m pip install --quiet --upgrade --user requests sounddevice soundfile numpy pynput pystray Pillow 2>nul
+if errorlevel 1 (
+  echo  ! Could not install some packages. Trying again with verbose output...
+  %PY% -m pip install --upgrade --user requests sounddevice soundfile numpy pynput pystray Pillow
+)
+
+echo.
+echo Starting Heirloom Companion...
+echo Close this window to stop, or right-click the tray icon ^> Quit.
+echo.
+
+%PY% "%~dp0heirloom_companion.py"
+
+if errorlevel 1 (
+  echo.
+  echo The companion exited with an error. The log is above. Press any key to close.
+  pause >nul
+)
+"""
+
+
+_WINDOWS_BUILD_EXE_BAT = r"""@echo off
+setlocal
+title Heirloom Companion - Build .exe
+
+REM ============================================================
+REM  Build a standalone Heirloom.exe (no Python required to run).
+REM  Run this ONCE on the PC where you want the .exe.
+REM  Output: dist\HeirloomCompanion.exe
+REM ============================================================
+
+cd /d "%~dp0"
+
+set "PY="
+where py >nul 2>nul && (set "PY=py")
+if "%PY%"=="" (
+  where python >nul 2>nul && (set "PY=python")
+)
+if "%PY%"=="" (
+  echo Python required to build the .exe. Install from python.org first.
+  pause & exit /b 1
+)
+
+echo Installing PyInstaller + companion deps...
+%PY% -m pip install --upgrade --user pyinstaller requests sounddevice soundfile numpy pynput pystray Pillow
+
+echo.
+echo Building HeirloomCompanion.exe (this takes a few minutes the first time)...
+%PY% -m PyInstaller --noconfirm --onefile --windowed ^
+  --name HeirloomCompanion ^
+  --hidden-import=pystray._win32 ^
+  --hidden-import=PIL._tkinter_finder ^
+  heirloom_companion.py
+
+if errorlevel 1 (
+  echo Build failed. See messages above.
+  pause & exit /b 1
+)
+
+echo.
+echo  Done. Your app is at:   dist\HeirloomCompanion.exe
+echo  Copy it anywhere. Double-click to run.
+echo.
+pause
+"""
+
+
+_WINDOWS_README = """Heirloom Companion for Windows
+================================
+
+THE EASY WAY (recommended)
+--------------------------
+1. Make sure Python 3.11+ is installed
+   https://python.org/downloads/  (CHECK "Add Python to PATH")
+2. Double-click  Heirloom.bat
+3. Hold Ctrl+Space, speak to your twin, release.
+
+A small tray icon appears in your system tray. Right-click for Quit.
+
+BUILD A REAL .EXE (optional, for shipping)
+------------------------------------------
+If you want a standalone Heirloom.exe that doesn't need Python:
+1. Double-click  Build-Exe.bat  (runs once, takes ~3 minutes)
+2. You'll find HeirloomCompanion.exe in the dist\\ folder.
+3. Copy it anywhere on your PC and double-click — no Python needed.
+
+TROUBLESHOOTING
+---------------
+* "Python is not installed" — install from python.org, check "Add to PATH".
+* "Could not authenticate" — your device token has been revoked. Go to
+  the Companion page in Heirloom and download a fresh package.
+* No sound / push-to-talk not working — Ctrl+Space must be held down while
+  speaking. Release to send.
+
+Your archive lives in the cloud; this app is just the local hands+ears.
+You can revoke this device any time from Heirloom > Local PC.
+"""
 
 
 COMPANION_TEMPLATE = r'''#!/usr/bin/env python3
 """
-Heirloom — Local PC Companion (push-to-talk + skills bridge)
+Heirloom — Local PC Companion (push-to-talk OR wake-word + skills bridge)
 
 What this does:
 - Polls your Heirloom cloud every 3s for queued OS commands and runs them.
-- Push-to-talk: hold Ctrl+Space, speak, release. Audio is sent to your Twin in the cloud.
-- The Twin's text reply is printed, and it may invoke webhook skills (lights, scripts).
+- Two listening modes (toggle with --wake-word / --ptt or env HEIRLOOM_WAKE_WORD=1):
+  • Push-to-talk (default): hold Ctrl+Space, speak, release.
+  • Wake-word: say "Hey Twin" (requires `pip install openwakeword`) — always on.
+- The Twin's text reply is printed (and spoken on macOS/Win/Linux via TTS).
+  It may invoke webhook skills (lights, scripts).
 - Your archive stays in the cloud; this script is purely the local hands+ears.
 
 Setup (one time):
     pip install requests sounddevice numpy pynput soundfile
+    # optional wake-word:
+    pip install openwakeword
 
 Run:
-    python heirloom_companion.py
-    # or set HEIRLOOM_BACKEND_URL env var to override the baked-in URL
+    python heirloom_companion.py                 # uses default mode (baked-in)
+    python heirloom_companion.py --wake-word     # force wake-word
+    python heirloom_companion.py --ptt           # force push-to-talk
+    # or set HEIRLOOM_BACKEND_URL / HEIRLOOM_WAKE_WORD env vars
 
 Privacy:
 - Audio is sent only to your own Heirloom backend over HTTPS.
+- Wake-word detection runs 100% locally; nothing leaves your PC until the wake word fires.
 - The device token can be revoked any time from your Heirloom Settings page.
 """
 
+import argparse
 import json
 import os
 import platform
@@ -388,6 +579,9 @@ if not BACKEND_URL:
 POLL_INTERVAL_SEC = 3
 SAMPLE_RATE = 16000
 PTT_KEY = "ctrl+space"
+WAKE_WORD_DEFAULT = __WAKE_WORD_DEFAULT__  # toggled by the download endpoint
+WAKE_WORD_PHRASE = "hey_jarvis"  # openwakeword model name (closest to "hey twin")
+WAKE_RECORD_SECONDS = 6  # how long to capture after the wake-word fires
 
 # --- lazy imports so the script still runs in degraded mode ---
 try:
@@ -413,6 +607,22 @@ def safe_get(path, **kwargs):
     except Exception as e:
         print(f"  GET {path} failed: {e}")
         return None
+
+
+# ---------- Local TTS so replies play through the room ----------
+def speak_locally(text: str):
+    if not text:
+        return
+    try:
+        if platform.system() == "Darwin":
+            subprocess.Popen(["say", text])
+        elif platform.system() == "Windows":
+            ps = f'Add-Type -AssemblyName System.Speech;(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{text}")'
+            subprocess.Popen(["powershell", "-Command", ps])
+        else:
+            subprocess.Popen(["espeak", text])
+    except Exception:
+        pass  # silent fallback — text was already printed
 
 
 # ---------- Command executor ----------
@@ -445,14 +655,7 @@ def execute(cmd):
         if kind == "open_app":
             return "ok", open_app(payload.get("name", ""))
         if kind == "say":
-            text = payload.get("text", "")
-            if platform.system() == "Darwin":
-                subprocess.run(["say", text])
-            elif platform.system() == "Windows":
-                ps = f'Add-Type -AssemblyName System.Speech;(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{text}")'
-                subprocess.run(["powershell", "-Command", ps])
-            else:
-                subprocess.run(["espeak", text])
+            speak_locally(payload.get("text", ""))
             return "ok", "spoken"
         return "error", f"unknown kind {kind}"
     except Exception as e:
@@ -475,6 +678,34 @@ def poll_loop():
         elif r is not None:
             print(f"  poll → {r.status_code}: {r.text[:200]}")
         time.sleep(POLL_INTERVAL_SEC)
+
+
+def upload_audio(frames, np, sf):
+    """Shared upload helper used by both PTT and wake-word modes."""
+    if not frames:
+        return
+    import io
+    audio = np.concatenate(frames, axis=0)
+    if len(audio) < SAMPLE_RATE // 4:  # less than 0.25s
+        print("  (too short)")
+        return
+    buf = io.BytesIO()
+    sf.write(buf, audio, SAMPLE_RATE, format="WAV")
+    buf.seek(0)
+    files = {"audio": ("ptt.wav", buf, "audio/wav")}
+    print("  ↑ uploading…")
+    r = safe_post("/companion/voice", files=files)
+    if r and r.status_code == 200:
+        data = r.json()
+        you = data.get("user_text", "")
+        reply = data.get("reply", "")
+        print(f"\n  you: {you}\n  twin: {reply}")
+        speak_locally(reply)
+        for a in data.get("actions") or []:
+            print(f"  → action: {a.get('name')} ({a.get('status')})")
+        print()
+    elif r is not None:
+        print(f"  voice → {r.status_code}: {r.text[:200]}")
 
 
 # ---------- Push-to-talk ----------
@@ -509,30 +740,7 @@ def ptt_loop():
             pressed.discard("space")
         if recording["on"] and not ("ctrl" in pressed and "space" in pressed):
             recording["on"] = False
-            send_audio(recording["frames"])
-
-    def send_audio(frames):
-        if not frames:
-            return
-        import io
-        audio = np.concatenate(frames, axis=0)
-        if len(audio) < SAMPLE_RATE // 4:  # less than 0.25s
-            print("  (too short)")
-            return
-        buf = io.BytesIO()
-        sf.write(buf, audio, SAMPLE_RATE, format="WAV")
-        buf.seek(0)
-        files = {"audio": ("ptt.wav", buf, "audio/wav")}
-        print("  ↑ uploading…")
-        r = safe_post("/companion/voice", files=files)
-        if r and r.status_code == 200:
-            data = r.json()
-            print(f"\n  you: {data.get('user_text','')}\n  twin: {data.get('reply','')}")
-            for a in data.get("actions") or []:
-                print(f"  → action: {a.get('name')} ({a.get('status')})")
-            print()
-        elif r is not None:
-            print(f"  voice → {r.status_code}: {r.text[:200]}")
+            upload_audio(recording["frames"], np, sf)
 
     def callback(indata, frames, time_info, status):
         if recording["on"]:
@@ -543,29 +751,151 @@ def ptt_loop():
             listener.join()
 
 
+# ---------- Wake-word ("Hey Twin") ----------
+def wake_word_loop():
+    try:
+        import sounddevice as sd
+        import soundfile as sf
+        import numpy as np
+    except ImportError:
+        print("\n⚠ wake-word disabled (install: pip install sounddevice soundfile numpy). Falling back to PTT.")
+        return ptt_loop()
+    try:
+        from openwakeword.model import Model as WakeModel
+    except ImportError:
+        print("\n⚠ wake-word disabled (install: pip install openwakeword). Falling back to PTT.")
+        return ptt_loop()
+
+    print(f"→ wake-word mode: say the wake phrase, then speak. (Ctrl+C to quit)")
+    print(f"  phrase: '{WAKE_WORD_PHRASE.replace('_', ' ')}' (using the closest openwakeword model)")
+
+    try:
+        ww = WakeModel(wakeword_models=[WAKE_WORD_PHRASE])
+    except Exception as e:
+        print(f"  ✗ failed to load wake-word model: {e}. Falling back to PTT.")
+        return ptt_loop()
+
+    rolling = []
+    state = {"capturing": False, "captured": [], "capture_end": 0.0}
+
+    def callback(indata, frames, time_info, status):
+        chunk = (indata[:, 0] * 32767).astype(np.int16)
+        if state["capturing"]:
+            state["captured"].append(indata.copy())
+            if time.time() >= state["capture_end"]:
+                state["capturing"] = False
+                frames_to_send = state["captured"]
+                state["captured"] = []
+                threading.Thread(
+                    target=upload_audio, args=(frames_to_send, np, sf), daemon=True
+                ).start()
+            return
+        # Detection on each callback chunk
+        try:
+            scores = ww.predict(chunk)
+        except Exception:
+            return
+        score = max(scores.values()) if scores else 0
+        if score > 0.5:
+            print(f"  ★ wake word detected (score={score:.2f}) — listening for {WAKE_RECORD_SECONDS}s…")
+            state["capturing"] = True
+            state["captured"] = []
+            state["capture_end"] = time.time() + WAKE_RECORD_SECONDS
+
+    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                        blocksize=1280, callback=callback):
+        while True:
+            time.sleep(1)
+
+
 def main():
-    print("\n╭─────────────────────────────────────────╮")
-    print("│  Heirloom — Local Companion             │")
-    print("│  press Ctrl+C to quit                   │")
-    print("╰─────────────────────────────────────────╯")
-    print(f"backend: {BACKEND_URL}")
-    print(f"token  : {DEVICE_TOKEN[:14]}…")
+    parser = argparse.ArgumentParser(description="Heirloom local companion")
+    parser.add_argument("--wake-word", action="store_true", help="Force wake-word mode")
+    parser.add_argument("--ptt", action="store_true", help="Force push-to-talk mode")
+    parser.add_argument("--no-tray", action="store_true", help="Skip the system tray icon")
+    args = parser.parse_args()
+
+    env_wake = os.environ.get("HEIRLOOM_WAKE_WORD", "").lower() in ("1", "true", "yes")
+    use_wake = args.wake_word or env_wake or (WAKE_WORD_DEFAULT and not args.ptt)
+
+    print("\n+-----------------------------------------+")
+    print("|  Heirloom - Local Companion             |")
+    print("|  press Ctrl+C or close window to quit   |")
+    print("+-----------------------------------------+")
+    print(f"backend : {BACKEND_URL}")
+    print(f"token   : {DEVICE_TOKEN[:14]}...")
+    print(f"mode    : {'wake-word' if use_wake else 'push-to-talk'}")
 
     # Verify token
     r = safe_get("/companion/poll")
     if not r or r.status_code != 200:
-        print("\n❌ Could not authenticate with backend. Check the token & URL.")
+        msg = "Could not authenticate with backend. Check the token & URL."
+        print("\nX " + msg)
+        if not args.no_tray:
+            _show_tray_error(msg)
         sys.exit(1)
-    print("✓ authenticated.\n")
+    print("OK authenticated.\n")
 
     threading.Thread(target=poll_loop, daemon=True).start()
+    if not args.no_tray:
+        threading.Thread(target=_run_tray_icon, args=(use_wake,), daemon=True).start()
+
     try:
-        ptt_loop()
-        # If PTT not available, just keep polling
+        if use_wake:
+            wake_word_loop()
+        else:
+            ptt_loop()
         while True:
             time.sleep(60)
     except KeyboardInterrupt:
         print("\nbye.")
+
+
+# ---------- System tray (graceful fallback when pystray is missing) ----------
+def _run_tray_icon(wake_mode: bool):
+    try:
+        import pystray
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return  # tray not available; the console window is the UI
+    # Draw a simple 64x64 amber dot icon
+    img = Image.new("RGB", (64, 64), color=(18, 17, 16))
+    d = ImageDraw.Draw(img)
+    d.ellipse((12, 12, 52, 52), fill=(214, 150, 99))
+    label = "Heirloom (wake-word)" if wake_mode else "Heirloom (push-to-talk)"
+
+    def on_quit(icon, item):
+        icon.stop()
+        os._exit(0)
+
+    menu = pystray.Menu(
+        pystray.MenuItem(label, lambda i, it: None, enabled=False),
+        pystray.MenuItem("Open Heirloom (web)",
+                         lambda i, it: webbrowser.open(BACKEND_URL)),
+        pystray.MenuItem("Quit", on_quit),
+    )
+    icon = pystray.Icon("heirloom", img, "Heirloom Companion", menu)
+    icon.run()
+
+
+def _show_tray_error(msg: str):
+    try:
+        import pystray
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return
+    img = Image.new("RGB", (64, 64), color=(80, 20, 20))
+    d = ImageDraw.Draw(img)
+    d.ellipse((12, 12, 52, 52), fill=(220, 80, 80))
+
+    def on_quit(icon, item):
+        icon.stop()
+        os._exit(1)
+    menu = pystray.Menu(
+        pystray.MenuItem("Heirloom: " + msg[:60], lambda i, it: None, enabled=False),
+        pystray.MenuItem("Quit", on_quit),
+    )
+    pystray.Icon("heirloom-error", img, "Heirloom (error)", menu).run()
 
 
 if __name__ == "__main__":

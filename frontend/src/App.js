@@ -15,6 +15,8 @@ import Twin from "@/pages/Twin";
 import Skills from "@/pages/Skills";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
+import HeirPortal from "@/pages/HeirPortal";
+import Letters from "@/pages/Letters";
 import Today from "@/pages/Today";
 import Reminders from "@/pages/Reminders";
 import Onboarding from "@/pages/Onboarding";
@@ -31,6 +33,7 @@ function AppRouter() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/heir/:token" element={<HeirPortal />} />
       <Route
         path="/onboarding"
         element={
@@ -59,6 +62,7 @@ function AppRouter() {
         <Route path="/skills" element={<Skills />} />
         <Route path="/companion" element={<Companion />} />
         <Route path="/heirs" element={<Heirs />} />
+        <Route path="/letters" element={<Letters />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
