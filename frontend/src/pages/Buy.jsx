@@ -3,11 +3,17 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { CheckCircle2, Loader2, ShieldCheck } from "lucide-react";
+import { usePageMeta } from "../lib/usePageMeta";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND}/api`;
 
 export default function Buy() {
+  usePageMeta({
+    title: "$79 Lifetime — Heirloom by Unbound Infotech",
+    description:
+      "One-time $79 payment, no subscription. Lifetime access to Heirloom — your private AI archive, voice-cloned twin, sealed letters, and Windows companion. Paid securely via Stripe.",
+  });
   const nav = useNavigate();
   const [packages, setPackages] = useState({});
   const [selected, setSelected] = useState("lifetime");

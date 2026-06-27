@@ -77,6 +77,15 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 11 — Feb 27, 2026 (SEO hardening for public launch)
+After Semrush audit (Health 78/100) flagged duplicate titles/descriptions, bad robots.txt format, low word count on /login, and a missing sitemap, fixed all code-level issues:
+- ✅ **Per-route titles + meta descriptions** via lightweight `usePageMeta` hook (no React-Helmet dependency). Three unique titles now exist for the indexable surface: `/`, `/login`, `/buy`. Each restores the previous values on unmount.
+- ✅ **Real `/robots.txt`** (plain text) with Allow/Disallow rules for every route and a `Sitemap:` directive. Previously CRA was returning the SPA HTML fallback.
+- ✅ **`/sitemap.xml`** with the three public URLs (landing, login, buy) and proper priority/changefreq.
+- ✅ **`/llms.txt`** with clean markdown — what Heirloom is, who it's for, core features, brand, privacy posture. Helps LLM crawlers correctly describe the product.
+- ✅ **`index.html` default meta**: New `<title>`, real `<meta name="description">`, OpenGraph + Twitter cards, canonical link, theme-color updated to brand palette.
+- ✅ **Login page word count**: 56 → 128 words. Added a descriptive paragraph explaining what Heirloom is so search engines no longer flag it as thin content.
+
 ### Phase 10 — Feb 27, 2026 (truly one-click Windows install)
 - ✅ **Single-file `.bat` installer** (`GET /api/companion/easy-installer?token=...`) — downloads a 4.5KB self-contained Windows batch file. Double-click → does everything in ~60 seconds: silently installs Python 3.12 via `winget` if missing (`--scope user`, no UAC), downloads the personalized companion script, pip-installs deps to user-site, writes a VBS launcher that runs the python script HIDDEN (no flashing console), drops a shortcut in the Startup folder for auto-start on every Windows sign-in, and launches immediately. Tray icon appears. Done. End-user never sees a terminal, never types a command, never installs Python by hand.
 - ✅ **Public companion-script route** (`GET /api/companion/public-script?token=...`) — needed because the `.bat` running on the user's PC has no browser cookie. Authentication is by device_token (a strong 256-bit random secret that already authorizes commands, so reading the script is no escalation).
