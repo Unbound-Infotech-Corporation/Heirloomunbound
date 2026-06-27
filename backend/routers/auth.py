@@ -88,6 +88,10 @@ async def me(user: dict = Depends(get_current_user)):
         "safe_topics": user.get("safe_topics") or [],
         "tts_language": user.get("tts_language") or "auto",
         "music_provider": user.get("music_provider") or "youtube_music",
+        "brand_name": user.get("brand_name") or "",
+        "brand_tagline": user.get("brand_tagline") or "",
+        "brand_signoff": user.get("brand_signoff") or "",
+        "active_persona_id": user.get("active_persona_id") or None,
     }
 
 
@@ -95,6 +99,9 @@ class PreferencesUpdate(BaseModel):
     safe_topics: Optional[list[str]] = None
     tts_language: Optional[str] = None  # 'auto', 'en', 'es', 'fr', etc.
     music_provider: Optional[str] = None  # 'youtube_music' | 'spotify' | ...
+    brand_name: Optional[str] = None
+    brand_tagline: Optional[str] = None
+    brand_signoff: Optional[str] = None  # e.g. "— Aaron, Unbound Infotech"
 
 
 @router.put("/me/preferences")
@@ -114,6 +121,12 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
         if prov and prov not in PROVIDERS:
             raise HTTPException(status_code=400, detail=f"Unknown music provider. Choose from {list(PROVIDERS)}")
         update["music_provider"] = prov or DEFAULT_PROVIDER
+    if payload.brand_name is not None:
+        update["brand_name"] = payload.brand_name.strip()[:80]
+    if payload.brand_tagline is not None:
+        update["brand_tagline"] = payload.brand_tagline.strip()[:200]
+    if payload.brand_signoff is not None:
+        update["brand_signoff"] = payload.brand_signoff.strip()[:160]
     if not update:
         raise HTTPException(status_code=400, detail="No preferences provided")
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
@@ -122,6 +135,9 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
         "safe_topics": refreshed.get("safe_topics") or [],
         "tts_language": refreshed.get("tts_language") or "auto",
         "music_provider": refreshed.get("music_provider") or "youtube_music",
+        "brand_name": refreshed.get("brand_name") or "",
+        "brand_tagline": refreshed.get("brand_tagline") or "",
+        "brand_signoff": refreshed.get("brand_signoff") or "",
     }
 
 

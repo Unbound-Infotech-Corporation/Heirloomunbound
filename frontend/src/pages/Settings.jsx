@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, Music, ShieldOff, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { CheckCircle2, Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -31,6 +31,11 @@ export default function Settings() {
   const [newTopic, setNewTopic] = useState("");
   const [musicProvider, setMusicProvider] = useState("youtube_music");
   const [musicProviders, setMusicProviders] = useState([]);
+  const [brand, setBrand] = useState({ brand_name: "", brand_tagline: "", brand_signoff: "" });
+  const [ttsLang, setTtsLang] = useState("auto");
+  const [personas, setPersonas] = useState([]);
+  const [activePersonaId, setActivePersonaId] = useState(null);
+  const [newPersona, setNewPersona] = useState({ name: "", description: "", system_addendum: "" });
 
   const loadSettings = async () => {
     const { data } = await api.get("/voice-clone/settings");
@@ -56,6 +61,20 @@ export default function Settings() {
     const { data } = await api.get("/auth/me");
     setSafeTopics(data.safe_topics || []);
     setMusicProvider(data.music_provider || "youtube_music");
+    setBrand({
+      brand_name: data.brand_name || "",
+      brand_tagline: data.brand_tagline || "",
+      brand_signoff: data.brand_signoff || "",
+    });
+    setTtsLang(data.tts_language || "auto");
+    setActivePersonaId(data.active_persona_id || null);
+  };
+  const loadPersonas = async () => {
+    try {
+      const { data } = await api.get("/personas");
+      setPersonas(data.personas || []);
+      setActivePersonaId(data.active_persona_id || null);
+    } catch { /* noop */ }
   };
   const loadMusicProviders = async () => {
     try {
@@ -71,7 +90,57 @@ export default function Settings() {
     loadWidgets();
     loadPrefs();
     loadMusicProviders();
+    loadPersonas();
   }, []);
+
+  const saveBrand = async () => {
+    try {
+      await api.put("/auth/me/preferences", brand);
+      toast.success("Brand kit saved");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  };
+
+  const saveLang = async (lang) => {
+    setTtsLang(lang);
+    try {
+      await api.put("/auth/me/preferences", { tts_language: lang });
+      toast.success("Voice language updated");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  };
+
+  const activatePersona = async (id) => {
+    if (!id) {
+      await api.post("/personas/deactivate");
+      setActivePersonaId(null);
+      toast.success("Persona cleared");
+      return;
+    }
+    await api.post(`/personas/${id}/activate`);
+    setActivePersonaId(id);
+    toast.success("Persona activated");
+  };
+
+  const createPersona = async () => {
+    if (!newPersona.name.trim()) return;
+    try {
+      await api.post("/personas", newPersona);
+      setNewPersona({ name: "", description: "", system_addendum: "" });
+      loadPersonas();
+      toast.success("Persona created");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  };
+
+  const deletePersona = async (id) => {
+    if (!window.confirm("Delete this persona?")) return;
+    await api.delete(`/personas/${id}`);
+    loadPersonas();
+  };
 
   const updateMusicProvider = async (val) => {
     setMusicProvider(val);
@@ -201,14 +270,163 @@ export default function Settings() {
         </div>
       </section>
 
+      {/* Personas — switchable twin modes */}
+      <section className="surface p-7 mb-6" data-testid="personas-section">
+        <div className="overline mb-2 flex items-center gap-2">
+          <User className="h-3.5 w-3.5" /> personas
+        </div>
+        <h2 className="font-serif text-2xl mb-2">Your twin&apos;s modes</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Switchable personalities for the same archive. Family mode for evenings, Professional mode for work — the underlying memory stays the same, only the tone shifts.
+        </p>
+
+        <div className="flex flex-wrap gap-2 mb-5">
+          <button
+            onClick={() => activatePersona(null)}
+            data-testid="persona-none"
+            className="px-4 py-2 text-sm rounded-sm"
+            style={{
+              background: !activePersonaId ? "var(--accent)" : "var(--bg-base)",
+              color: !activePersonaId ? "var(--text-inverse)" : "var(--text-primary)",
+              border: !activePersonaId ? "1px solid var(--accent)" : "1px solid var(--border-default)",
+            }}
+          >
+            Default
+          </button>
+          {personas.map((p) => (
+            <button
+              key={p.persona_id}
+              onClick={() => activatePersona(p.persona_id)}
+              data-testid={`persona-${p.persona_id}`}
+              className="px-4 py-2 text-sm rounded-sm group inline-flex items-center gap-2"
+              style={{
+                background: p.persona_id === activePersonaId ? "var(--accent)" : "var(--bg-base)",
+                color: p.persona_id === activePersonaId ? "var(--text-inverse)" : "var(--text-primary)",
+                border: p.persona_id === activePersonaId ? "1px solid var(--accent)" : "1px solid var(--border-default)",
+              }}
+            >
+              {p.name}
+              <span
+                onClick={(e) => { e.stopPropagation(); deletePersona(p.persona_id); }}
+                className="opacity-50 hover:opacity-100 transition-opacity"
+                title="Delete"
+              >
+                <X className="h-3 w-3" />
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-2 mb-3">
+          <input
+            value={newPersona.name}
+            onChange={(e) => setNewPersona({ ...newPersona, name: e.target.value })}
+            placeholder="Name — e.g. 'Professional', 'Customer Support'"
+            data-testid="persona-new-name"
+            className="w-full px-3 py-2 text-sm rounded-sm"
+            style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+          />
+          <textarea
+            value={newPersona.system_addendum}
+            onChange={(e) => setNewPersona({ ...newPersona, system_addendum: e.target.value })}
+            placeholder="Instructions added to the twin in this mode. e.g. 'Be formal. Don't mention family. Focus on Unbound Infotech work and product positioning.'"
+            rows={3}
+            data-testid="persona-new-addendum"
+            className="w-full px-3 py-2 text-sm rounded-sm"
+            style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+          />
+          <button
+            onClick={createPersona}
+            disabled={!newPersona.name.trim()}
+            data-testid="persona-create"
+            className="px-4 py-2 text-sm rounded-sm disabled:opacity-50"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          >
+            Create persona
+          </button>
+        </div>
+      </section>
+
+      {/* Brand Kit — injected into the twin's system prompt */}
+      <section className="surface p-7 mb-6" data-testid="brand-section">
+        <div className="overline mb-2 flex items-center gap-2">
+          <Palette className="h-3.5 w-3.5" /> brand kit
+        </div>
+        <h2 className="font-serif text-2xl mb-2">Your voice across everything</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Optional — applied to all twin replies so it stays consistent across personal chats, the heir portal, and any business persona.
+        </p>
+        <input
+          value={brand.brand_name}
+          onChange={(e) => setBrand({ ...brand, brand_name: e.target.value })}
+          placeholder="Brand or company name (e.g. Unbound Infotech)"
+          data-testid="brand-name"
+          className="w-full px-3 py-2 text-sm rounded-sm mb-3"
+          style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+        />
+        <input
+          value={brand.brand_tagline}
+          onChange={(e) => setBrand({ ...brand, brand_tagline: e.target.value })}
+          placeholder="One-line tagline (optional)"
+          data-testid="brand-tagline"
+          className="w-full px-3 py-2 text-sm rounded-sm mb-3"
+          style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+        />
+        <input
+          value={brand.brand_signoff}
+          onChange={(e) => setBrand({ ...brand, brand_signoff: e.target.value })}
+          placeholder="Sign-off the twin uses on longer replies (e.g. '— Aaron, Unbound')"
+          data-testid="brand-signoff"
+          className="w-full px-3 py-2 text-sm rounded-sm mb-4"
+          style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+        />
+        <button
+          onClick={saveBrand}
+          data-testid="brand-save"
+          className="px-4 py-2 text-sm rounded-sm"
+          style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+        >
+          Save brand
+        </button>
+      </section>
+
+      {/* Voice language — ElevenLabs Multilingual v2 */}
+      <section className="surface p-7 mb-6" data-testid="language-section">
+        <div className="overline mb-2 flex items-center gap-2">
+          <Languages className="h-3.5 w-3.5" /> spoken language
+        </div>
+        <h2 className="font-serif text-2xl mb-2">Speak your language</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          When the twin replies in audio, it&apos;ll use your cloned voice — in the language you pick. ElevenLabs Multilingual v2 preserves your timbre across all of these.
+        </p>
+        <select
+          value={ttsLang}
+          onChange={(e) => saveLang(e.target.value)}
+          data-testid="lang-select"
+          className="w-full px-3 py-2 text-sm rounded-sm"
+          style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+        >
+          {[
+            ["auto","Auto-detect from text"],
+            ["en","English"],["es","Español"],["fr","Français"],["de","Deutsch"],
+            ["it","Italiano"],["pt","Português"],["nl","Nederlands"],["pl","Polski"],
+            ["sv","Svenska"],["no","Norsk"],["da","Dansk"],["fi","Suomi"],
+            ["cs","Čeština"],["tr","Türkçe"],["ru","Русский"],["ar","العربية"],
+            ["hi","हिन्दी"],["ja","日本語"],["ko","한국어"],["zh","中文"],
+          ].map(([k, label]) => (
+            <option key={k} value={k}>{label}</option>
+          ))}
+        </select>
+      </section>
+
       {/* Music — default service the twin opens when you say "play X" */}
       <section className="surface p-7 mb-6" data-testid="music-section">
         <div className="overline mb-2 flex items-center gap-2">
           <Music className="h-3.5 w-3.5" /> music
         </div>
-        <h2 className="font-serif text-2xl mb-2">Where should "play X" go?</h2>
+        <h2 className="font-serif text-2xl mb-2">Where should &ldquo;play X&rdquo; go?</h2>
         <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          When you say things like <i>"play me some Pink Floyd"</i> to the twin, it queues an open-URL command on your companion PC for this service. You can override per-request later.
+          When you say things like <i>&ldquo;play me some Pink Floyd&rdquo;</i> to the twin, it queues an open-URL command on your companion PC for this service. You can override per-request later.
         </p>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
           {musicProviders.map((p) => (
@@ -234,7 +452,7 @@ export default function Settings() {
         <div className="overline mb-2 flex items-center gap-2">
           <ShieldOff className="h-3.5 w-3.5" /> safe-topic fence
         </div>
-        <h2 className="font-serif text-2xl mb-2">What your twin won't talk about</h2>
+        <h2 className="font-serif text-2xl mb-2">What your twin won&apos;t talk about</h2>
         <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
           Add topics your twin should politely decline — politics, religion, business secrets, anything personal. Applied to all chats, including the heir portal.
         </p>
@@ -480,7 +698,7 @@ export default function Settings() {
       <section className="surface p-7 mb-6">
         <div className="overline mb-4">on the roadmap</div>
         <ul className="space-y-3 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-          <li>· Wake-word ("Hey Twin") on the companion.</li>
+          <li>· Wake-word (&ldquo;Hey Twin&rdquo;) on the companion.</li>
           <li>· OAuth Gmail + Drive (post Google verification).</li>
           <li>· Sealed letters auto-delivered to heirs on a date you set.</li>
           <li>· Heir release workflow.</li>

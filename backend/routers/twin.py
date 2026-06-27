@@ -16,13 +16,22 @@ from routers.memory import (
     maybe_summarise_episode,
 )
 from routers.music import detect_music_intent, play_for_user
+from routers.personas import get_active_persona
 from routers.skills import invoke_skill_internal, match_skill_trigger
 from utils import rate_limit
 
 router = APIRouter(prefix="/twin", tags=["twin"])
 
 
-def _build_twin_system(name: str, memory_blob: str, archive_blob: str, skills_blob: str, safe_topics: list[str] | None = None) -> str:
+def _build_twin_system(
+    name: str,
+    memory_blob: str,
+    archive_blob: str,
+    skills_blob: str,
+    safe_topics: list[str] | None = None,
+    persona: dict | None = None,
+    brand: dict | None = None,
+) -> str:
     fence = ""
     if safe_topics:
         joined = ", ".join(s for s in safe_topics if s.strip())
@@ -35,6 +44,27 @@ def _build_twin_system(name: str, memory_blob: str, archive_blob: str, skills_bl
     memory_section = ""
     if memory_blob:
         memory_section = f"\n\n=== YOUR LONG-TERM MEMORY ===\n{memory_blob}\n"
+
+    persona_section = ""
+    if persona and persona.get("system_addendum"):
+        persona_section = (
+            f"\n\n=== ACTIVE PERSONA: {persona.get('name','')} ===\n"
+            f"{persona.get('description','')}\n\n"
+            f"{persona['system_addendum']}\n"
+        )
+
+    brand_section = ""
+    if brand:
+        bits = []
+        if brand.get("brand_name"):
+            bits.append(f"You are speaking on behalf of {brand['brand_name']}.")
+        if brand.get("brand_tagline"):
+            bits.append(f"Brand tagline: {brand['brand_tagline']}")
+        if brand.get("brand_signoff"):
+            bits.append(f"When ending a substantive reply, you may sign off with: {brand['brand_signoff']}")
+        if bits:
+            brand_section = "\n\n=== BRAND VOICE ===\n" + "\n".join(bits) + "\n"
+
     return f"""You are the digital twin of {name or "this person"} — a faithful continuation of their voice, memories, values, humor, and way of speaking. You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them.{fence}
 
 Voice rules:
@@ -46,7 +76,7 @@ Voice rules:
 
 Skills available (you can offer to invoke these by name when they're relevant to the user's request):
 {skills_blob or "(no skills configured yet)"}
-{memory_section}
+{memory_section}{persona_section}{brand_section}
 === RELEVANT ARCHIVE EXCERPTS ===
 {archive_blob or "(no archive entries retrieved for this turn)"}
 """
@@ -265,8 +295,19 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     skills = await _skills_blob(user["user_id"])
     memory_pack = await build_memory_pack(user["user_id"], query_hint=payload.message)
     memory_blob = format_memory_pack_for_prompt(memory_pack)
+    persona = await get_active_persona(user["user_id"], user)
+    # Merge safe topics from user + persona
+    merged_safe = list({*(user.get("safe_topics") or []), *((persona or {}).get("extra_safe_topics") or [])})
+    brand = {
+        "brand_name": user.get("brand_name") or "",
+        "brand_tagline": user.get("brand_tagline") or "",
+        "brand_signoff": user.get("brand_signoff") or "",
+    }
+    if not any(brand.values()):
+        brand = None
     system = _build_twin_system(
-        user.get("name", ""), memory_blob, archive, skills, user.get("safe_topics") or []
+        user.get("name", ""), memory_blob, archive, skills, merged_safe,
+        persona=persona, brand=brand,
     )
 
     # Replay prior turns so the twin remembers what was just said.

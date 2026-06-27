@@ -67,8 +67,15 @@ Researched competitor matrix (HereAfter AI, Eternos, Replika 2026, Personal AI, 
 - ✅ **What I Hold Onto** UI on `/personality` — each fact is removable (X button), instantly stops appearing in the twin's prompt. Closes the Vellum/OpenClaw/Replika-2026 memory gap.
 - ✅ **Music control via the twin**: `routers/music.py` with 9 deep-link providers (YouTube Music, YouTube, Spotify, Apple Music, Amazon Music, Tidal, Deezer, Pandora, SoundCloud) + deterministic intent detection (`play X`, `put on X`, `queue up X`, `play song X`, `play music video of X`) that short-circuits before the LLM. When triggered, queues an `open_url` command on the user's active companion PC so playback opens in their browser/app. Twin replies with an inline music chip rendered on the chat page. User picks default provider in Settings.
 
+### Phase 6 — Feb 26, 2026 (competitor-feature pack: multilingual + brand + personas)
+Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that strengthen Heirloom WITHOUT pivoting into Synthesia-style commercial content (which would dilute the legacy/companion moat):
+- ✅ **Multilingual cloned voice** (Settings → Spoken language) — wired ElevenLabs Multilingual v2 `language_code` parameter; user picks default in 21-language dropdown, and `/voice-clone/tts` accepts per-request `language` override. The cloned voice now speaks any of those languages while preserving timbre.
+- ✅ **Brand Kit** (Settings → Brand kit) — `brand_name`, `brand_tagline`, `brand_signoff` fields on the user; injected into the twin's system prompt as a "BRAND VOICE" section so all replies stay consistent.
+- ✅ **Personas** (`routers/personas.py` + Settings → Personas) — switchable twin modes ("Family", "Professional", "Customer Support"). Each persona contributes a system_addendum + extra_safe_topics that compose on top of the base prompt. At most one persona active per user; default = none = full archive.
+
 ## Backend test results
-- iteration_11.json: 18/18 backend tests pass. Memory facts, episodes, caching, multi-user isolation, music regex (10/10 cases), companion command queue, twin SSE short-circuit (<3s, no Claude) — all green.
+- iteration_12.json: 18 / 18 backend tests pass for Stripe checkout + auto-skill triggers.
+- Phase-6 smoke test: 8 / 8 endpoints green (brand kit save+load, persona create/activate/list/deactivate/delete, tts_language save). Frontend lint clean.
 
 ## Prioritized backlog (next phases)
 

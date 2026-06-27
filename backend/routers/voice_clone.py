@@ -31,6 +31,7 @@ class SettingsPayload(BaseModel):
 
 class TTSReq(BaseModel):
     text: str
+    language: Optional[str] = None  # ISO 639-1 (en, es, fr, ...). 'auto' or None = let model detect.
 
 
 @router.get("/settings")
@@ -100,13 +101,18 @@ async def speak(payload: TTSReq, user: dict = Depends(get_current_user)):
         text = text[:5000]
 
     client = AsyncElevenLabs(api_key=key)
+    # Language: explicit param → user preference → model autodetect
+    lang_pref = (payload.language or user.get("tts_language") or "auto").strip().lower()
+    convert_kwargs = dict(
+        voice_id=voice_id,
+        text=text,
+        model_id="eleven_multilingual_v2",
+        output_format="mp3_44100_128",
+    )
+    if lang_pref and lang_pref != "auto" and len(lang_pref) <= 8:
+        convert_kwargs["language_code"] = lang_pref
     try:
-        stream = client.text_to_speech.convert(
-            voice_id=voice_id,
-            text=text,
-            model_id="eleven_multilingual_v2",
-            output_format="mp3_44100_128",
-        )
+        stream = client.text_to_speech.convert(**convert_kwargs)
         audio = b""
         async for chunk in stream:
             if chunk:
