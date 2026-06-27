@@ -104,7 +104,10 @@ async def _generate_nudge(user_id: str, user_name: str) -> dict:
             "action_type": "memory",
             "action_prompt": "What is one small moment from the last week you don't want to forget?",
         }
-    parsed["action_type"] = parsed.get("action_type", "memory")
+    # Clamp action_type to the documented enum so a stray model output never
+    # ends up persisted.
+    if parsed.get("action_type") not in ("journal", "memory", "value", "advice"):
+        parsed["action_type"] = "memory"
     return parsed
 
 

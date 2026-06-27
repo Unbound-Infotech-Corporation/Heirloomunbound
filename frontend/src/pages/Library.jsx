@@ -201,8 +201,12 @@ export default function Library() {
       {askMode && (asking || askResult) && (
         <section className="surface p-6 mb-8" data-testid="library-ask-result">
           {asking ? (
-            <div className="text-sm" style={{ color: "var(--text-muted)" }}>
-              Reading your archive…
+            <div className="flex items-center gap-3 text-sm" style={{ color: "var(--text-muted)" }} data-testid="ask-loading">
+              <span
+                className="inline-block w-2 h-2 rounded-full animate-pulse"
+                style={{ background: "var(--accent)" }}
+              />
+              Reading your archive — Claude is composing the answer…
             </div>
           ) : (
             <>
