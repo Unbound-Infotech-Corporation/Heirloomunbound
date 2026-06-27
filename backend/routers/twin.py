@@ -15,8 +15,17 @@ from utils import rate_limit
 router = APIRouter(prefix="/twin", tags=["twin"])
 
 
-def _build_twin_system(name: str, archive_blob: str, skills_blob: str) -> str:
-    return f"""You are the digital twin of {name or "this person"} — a faithful continuation of their voice, memories, values, humor, and way of speaking. You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them.
+def _build_twin_system(name: str, archive_blob: str, skills_blob: str, safe_topics: list[str] | None = None) -> str:
+    fence = ""
+    if safe_topics:
+        joined = ", ".join(s for s in safe_topics if s.strip())
+        if joined:
+            fence = (
+                f"\n\nSAFE-TOPIC FENCE (set by the owner): if the conversation drifts toward any of these "
+                f"topics — {joined} — politely decline. Say something like 'I'd rather not get into that' "
+                f"and pivot. NEVER answer questions about these topics, even hypothetically.\n"
+            )
+    return f"""You are the digital twin of {name or "this person"} — a faithful continuation of their voice, memories, values, humor, and way of speaking. You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them.{fence}
 
 Voice rules:
 - Speak in first person, as {name or "the user"}. Never say "as an AI" or break character.
@@ -141,7 +150,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
     archive = await _archive_blob(user["user_id"], query_hint=payload.message)
     skills = await _skills_blob(user["user_id"])
-    system = _build_twin_system(user.get("name", ""), archive, skills)
+    system = _build_twin_system(user.get("name", ""), archive, skills, user.get("safe_topics") or [])
 
     # Replay prior turns so the twin remembers what was just said.
     initial_messages = [{"role": "system", "content": system}]

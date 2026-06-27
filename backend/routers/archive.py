@@ -4,10 +4,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
+from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from deps import db, get_current_user
+from deps import EMERGENT_LLM_KEY, db, get_current_user
 
 router = APIRouter(prefix="/archive", tags=["archive"])
 
@@ -102,3 +103,85 @@ async def delete_entry(entry_id: str, user: dict = Depends(get_current_user)):
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Entry not found")
     return {"ok": True}
+
+
+# ----------- Ask the Archive (StoryFile-style Q&A retrieval) -----------
+class AskReq(BaseModel):
+    question: str = Field(..., min_length=2, max_length=500)
+
+
+def _score_entry(entry: dict, tokens: list[str]) -> int:
+    """Simple keyword-overlap score. Good enough until we add embeddings."""
+    text = f"{entry.get('title','')} {entry.get('content','')} {' '.join(entry.get('tags') or [])}".lower()
+    return sum(text.count(t) for t in tokens)
+
+
+@router.post("/ask")
+async def ask_archive(payload: AskReq, user: dict = Depends(get_current_user)):
+    """Returns a Claude-synthesised answer based on the most relevant archive
+    entries, plus the IDs cited so the UI can highlight them."""
+    q = payload.question.strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="Question is empty")
+
+    STOP = {
+        "the","a","an","of","in","on","to","for","was","is","are","what","where","when",
+        "who","why","how","my","me","i","did","do","does","that","this","at","with","and","you","your",
+    }
+    tokens = [
+        t for t in _re.split(r"\W+", q.lower()) if len(t) > 2 and t not in STOP
+    ][:10]
+
+    cursor = db.entries.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(400)
+    entries = await cursor.to_list(length=400)
+    if not entries:
+        return {"answer": "Your archive is empty — nothing to look back on yet.", "citations": []}
+
+    if tokens:
+        scored = [(e, _score_entry(e, tokens)) for e in entries]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        top = [e for e, s in scored if s > 0][:12]
+        if not top:
+            top = entries[:8]
+    else:
+        top = entries[:8]
+
+    cite_lines = []
+    for e in top:
+        cite_lines.append(
+            f"[id={e.get('entry_id')}] [{e.get('type','').upper()}] {e.get('title','')}\n{(e.get('content') or '')[:1200]}"
+        )
+
+    system = (
+        "You answer questions about the user's life using ONLY the entries below. "
+        "Quote exact phrases when relevant. If the entries don't answer the question, say so honestly. "
+        "Be concise — 2-5 sentences. Refer to the user as 'you'."
+    )
+    body = (
+        f"Question: {q}\n\n=== ARCHIVE ENTRIES ({len(top)}) ===\n"
+        + "\n\n".join(cite_lines)
+    )
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=f"ask_{user['user_id']}_{int(datetime.now(timezone.utc).timestamp())}",
+        system_message=system,
+    ).with_model("anthropic", "claude-sonnet-4-6")
+    try:
+        reply = await chat.send_message(UserMessage(text=body))
+        reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"LLM call failed: {exc!s}") from exc
+
+    return {
+        "answer": reply_text,
+        "citations": [
+            {
+                "entry_id": e.get("entry_id"),
+                "title": e.get("title"),
+                "type": e.get("type"),
+                "snippet": (e.get("content") or "")[:280],
+                "created_at": e.get("created_at"),
+            }
+            for e in top
+        ],
+    }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlarmClock, ArrowRight, BookmarkPlus, Calendar, CheckCircle2, Circle, Clock, Feather, Flame, MessageCircle, Sparkles } from "lucide-react";
+import { AlarmClock, ArrowRight, BookmarkPlus, Calendar, CheckCircle2, Circle, Clock, Feather, Flame, MessageCircle, Sparkles, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -34,6 +34,7 @@ export default function Today() {
   const [onthisday, setOnThisDay] = useState(null);
   const [journals, setJournals] = useState([]);
   const [lastTwin, setLastTwin] = useState(null);
+  const [nudge, setNudge] = useState(null);
   const [widgets, setWidgets] = useState({
     reflection: true,
     reminders: true,
@@ -56,7 +57,18 @@ export default function Today() {
 
   useEffect(() => {
     load();
+    api.get("/nudges/today").then(({ data }) => setNudge(data)).catch(() => {});
   }, []);
+
+  const dismissNudge = async () => {
+    if (!nudge?.nudge_id) return;
+    await api.patch(`/nudges/${nudge.nudge_id}`, { status: "dismissed" });
+    setNudge(null);
+  };
+  const actOnNudge = async () => {
+    if (!nudge?.nudge_id) return;
+    await api.patch(`/nudges/${nudge.nudge_id}`, { status: "acted" });
+  };
 
   useEffect(() => {
     if (widgets.on_this_day) {
@@ -97,6 +109,50 @@ export default function Today() {
         <StatPill icon={Clock} label="due today" value={total} tid="today-due" />
         <StatPill icon={Sparkles} label="captured" value={stats?.total_entries ?? 0} tid="today-entries" />
       </section>
+
+      {/* From your twin — daily nudge */}
+      {nudge && nudge.status !== "dismissed" && (
+        <section
+          className="surface p-7 mb-12 relative"
+          style={{ borderLeft: "3px solid var(--accent)" }}
+          data-testid="today-nudge"
+        >
+          <button
+            onClick={dismissNudge}
+            data-testid="nudge-dismiss"
+            className="absolute top-4 right-4 p-1"
+            title="Dismiss"
+          >
+            <X className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
+          </button>
+          <div className="overline mb-2 flex items-center gap-2">
+            <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} /> from your twin
+          </div>
+          <h2
+            className="font-serif text-2xl lg:text-3xl mb-3"
+            style={{ color: "var(--text-primary)" }}
+            data-testid="nudge-title"
+          >
+            {nudge.title}
+          </h2>
+          <p
+            className="font-serif text-lg leading-relaxed mb-5 max-w-3xl"
+            style={{ color: "var(--text-secondary)" }}
+            data-testid="nudge-body"
+          >
+            {nudge.body}
+          </p>
+          <Link
+            to={`/interviewer?topic=${encodeURIComponent(nudge.action_prompt || nudge.title)}&key=nudge_${nudge.nudge_id}`}
+            onClick={actOnNudge}
+            data-testid="nudge-act"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-sm"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          >
+            Answer this <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </section>
+      )}
 
       {/* Reflection */}
       {widgets.reflection && (

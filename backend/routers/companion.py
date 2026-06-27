@@ -360,24 +360,13 @@ def _build_companion_script(token: str, backend_url_hint: str, wake_word: bool =
 
 
 # ---------- Windows one-click package ----------
-@router.get("/windows-package")
-async def windows_package(
-    token: str,
-    wake_word: bool = False,
-    user: dict = Depends(get_current_user),
-):
-    """Returns a .zip containing the companion script + a one-click Windows
-    launcher (.bat) that installs dependencies and runs it. End-user just
-    double-clicks Heirloom.bat — no terminal, no Python knowledge required."""
+def build_windows_zip_bytes(token: str, wake_word: bool = False) -> bytes:
+    """Reusable helper — returns the in-memory bytes of the personalized
+    Windows .zip package for `token`. Used by /windows-package and by the
+    public /download/{download_token} endpoint after a successful purchase."""
     import io
     import os
     import zipfile
-
-    device = await db.companion_devices.find_one(
-        {"device_token": token, "user_id": user["user_id"], "revoked": False}, {"_id": 0}
-    )
-    if not device:
-        raise HTTPException(status_code=404, detail="Device token not found")
 
     backend_url = os.environ.get("PUBLIC_BACKEND_URL", "")
     script = _build_companion_script(token, backend_url, wake_word=wake_word)
@@ -391,11 +380,29 @@ async def windows_package(
         z.writestr("version_info.txt", _VERSION_INFO_TXT)
         z.writestr("Sign-Exe.bat", _SIGN_EXE_BAT)
         z.writestr("README.txt", _WINDOWS_README)
-    buf.seek(0)
+    return buf.getvalue()
+
+
+@router.get("/windows-package")
+async def windows_package(
+    token: str,
+    wake_word: bool = False,
+    user: dict = Depends(get_current_user),
+):
+    """Returns a .zip containing the companion script + a one-click Windows
+    launcher (.bat) that installs dependencies and runs it. End-user just
+    double-clicks Heirloom.bat — no terminal, no Python knowledge required."""
+    device = await db.companion_devices.find_one(
+        {"device_token": token, "user_id": user["user_id"], "revoked": False}, {"_id": 0}
+    )
+    if not device:
+        raise HTTPException(status_code=404, detail="Device token not found")
+
+    payload = build_windows_zip_bytes(token, wake_word=wake_word)
 
     from fastapi import Response
     return Response(
-        content=buf.getvalue(),
+        content=payload,
         media_type="application/zip",
         headers={"Content-Disposition": 'attachment; filename="HeirloomCompanion-Windows.zip"'},
     )

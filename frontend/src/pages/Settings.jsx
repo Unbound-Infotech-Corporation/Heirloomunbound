@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, Sparkles, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, Loader2, ShieldOff, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -26,6 +26,8 @@ export default function Settings() {
   const [cloneFiles, setCloneFiles] = useState([]);
   const [cloning, setCloning] = useState(false);
   const [widgets, setWidgets] = useState({});
+  const [safeTopics, setSafeTopics] = useState([]);
+  const [newTopic, setNewTopic] = useState("");
 
   const loadSettings = async () => {
     const { data } = await api.get("/voice-clone/settings");
@@ -47,11 +49,30 @@ export default function Settings() {
     const { data } = await api.get("/onboarding/state");
     setWidgets(data.dashboard_widgets || {});
   };
+  const loadPrefs = async () => {
+    const { data } = await api.get("/auth/me");
+    setSafeTopics(data.safe_topics || []);
+  };
 
   useEffect(() => {
     loadSettings().then(() => loadVoices());
     loadWidgets();
+    loadPrefs();
   }, []);
+
+  const addTopic = async () => {
+    const t = newTopic.trim();
+    if (!t) return;
+    const next = Array.from(new Set([...safeTopics, t])).slice(0, 25);
+    setSafeTopics(next);
+    setNewTopic("");
+    await api.put("/auth/me/preferences", { safe_topics: next });
+  };
+  const removeTopic = async (t) => {
+    const next = safeTopics.filter((x) => x !== t);
+    setSafeTopics(next);
+    await api.put("/auth/me/preferences", { safe_topics: next });
+  };
 
   const toggleWidget = async (key) => {
     const next = { ...widgets, [key]: !widgets[key] };
@@ -154,6 +175,57 @@ export default function Settings() {
               />
             </label>
           ))}
+        </div>
+      </section>
+
+      {/* Safe Topics — twin won't engage on these */}
+      <section className="surface p-7 mb-6" data-testid="safe-topics-section">
+        <div className="overline mb-2 flex items-center gap-2">
+          <ShieldOff className="h-3.5 w-3.5" /> safe-topic fence
+        </div>
+        <h2 className="font-serif text-2xl mb-2">What your twin won't talk about</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Add topics your twin should politely decline — politics, religion, business secrets, anything personal. Applied to all chats, including the heir portal.
+        </p>
+        <div className="flex flex-wrap gap-2 mb-4" data-testid="safe-topics-list">
+          {safeTopics.length === 0 && (
+            <span className="text-sm italic" style={{ color: "var(--text-muted)" }}>
+              No fenced topics. Your twin will engage freely.
+            </span>
+          )}
+          {safeTopics.map((t) => (
+            <span
+              key={t}
+              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-sm"
+              style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+              data-testid={`safe-topic-${t}`}
+            >
+              {t}
+              <button onClick={() => removeTopic(t)} className="opacity-60 hover:opacity-100">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={newTopic}
+            onChange={(e) => setNewTopic(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addTopic()}
+            placeholder="Add a topic — e.g. 'politics', 'my divorce', 'work salaries'"
+            data-testid="safe-topic-input"
+            className="flex-1 px-3 py-2 text-sm rounded-sm"
+            style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+          />
+          <button
+            onClick={addTopic}
+            disabled={!newTopic.trim()}
+            data-testid="safe-topic-add"
+            className="px-4 py-2 text-sm rounded-sm disabled:opacity-50"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          >
+            Add
+          </button>
         </div>
       </section>
 

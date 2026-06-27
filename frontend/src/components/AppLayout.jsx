@@ -7,6 +7,7 @@ import {
   Database,
   Feather,
   Headphones,
+  Heart,
   Home,
   Image as ImageIcon,
   LogOut,
@@ -18,6 +19,7 @@ import {
   Sparkles,
   Sunrise,
   Upload,
+  User as UserIcon,
   Users,
   Wrench,
 } from "lucide-react";
@@ -35,6 +37,7 @@ const navItems = [
   { to: "/sources", label: "Sources", icon: Database, tid: "nav-sources" },
   { to: "/import", label: "Import", icon: Upload, tid: "nav-import" },
   { to: "/twin", label: "Talk to twin", icon: Sparkles, tid: "nav-twin" },
+  { to: "/personality", label: "Your portrait", icon: UserIcon, tid: "nav-personality" },
   { to: "/skills", label: "Skills", icon: Wrench, tid: "nav-skills" },
   { to: "/companion", label: "Local PC", icon: MonitorSpeaker, tid: "nav-companion" },
   { to: "/heirs", label: "Heirs", icon: Users, tid: "nav-heirs" },

@@ -1,9 +1,11 @@
 """Emergent-managed Google Auth routes."""
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
 
 from deps import db, get_current_user
 
@@ -83,6 +85,34 @@ async def me(user: dict = Depends(get_current_user)):
         "email": user["email"],
         "name": user.get("name", ""),
         "picture": user.get("picture", ""),
+        "safe_topics": user.get("safe_topics") or [],
+        "tts_language": user.get("tts_language") or "auto",
+    }
+
+
+class PreferencesUpdate(BaseModel):
+    safe_topics: Optional[list[str]] = None
+    tts_language: Optional[str] = None  # 'auto', 'en', 'es', 'fr', etc.
+
+
+@router.put("/me/preferences")
+async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(get_current_user)):
+    update: dict = {}
+    if payload.safe_topics is not None:
+        cleaned = [s.strip()[:80] for s in payload.safe_topics if s and s.strip()][:25]
+        update["safe_topics"] = cleaned
+    if payload.tts_language is not None:
+        lang = payload.tts_language.strip().lower()[:8]
+        if lang and lang not in {"auto","en","es","fr","de","it","pt","pl","hi","ja","ko","zh","nl","sv","no","da","fi","cs","tr","ru","ar"}:
+            raise HTTPException(status_code=400, detail="Unsupported language code")
+        update["tts_language"] = lang or "auto"
+    if not update:
+        raise HTTPException(status_code=400, detail="No preferences provided")
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
+    refreshed = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return {
+        "safe_topics": refreshed.get("safe_topics") or [],
+        "tts_language": refreshed.get("tts_language") or "auto",
     }
 
 

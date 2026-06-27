@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Plus, Search, Sparkles, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "../lib/api";
 
 const TYPES = ["all", "memory", "story", "value", "advice", "quote", "chapter", "voice", "import"];
@@ -10,6 +11,9 @@ export default function Library() {
   const [q, setQ] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [draft, setDraft] = useState({ type: "memory", title: "", content: "", tags: "" });
+  const [askMode, setAskMode] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [askResult, setAskResult] = useState(null);
 
   const load = () => {
     const params = {};
@@ -140,7 +144,7 @@ export default function Library() {
         ))}
       </div>
 
-      <div className="relative mb-8">
+      <div className="relative mb-4">
         <Search
           className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4"
           style={{ color: "var(--text-muted)" }}
@@ -148,22 +152,101 @@ export default function Library() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && load()}
-          placeholder="Search title, content, tags…"
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            if (askMode) {
+              if (!q.trim()) return;
+              setAsking(true);
+              setAskResult(null);
+              api
+                .post("/archive/ask", { question: q })
+                .then(({ data }) => setAskResult(data))
+                .catch((err) => toast.error(err.response?.data?.detail || err.message))
+                .finally(() => setAsking(false));
+            } else {
+              load();
+            }
+          }}
+          placeholder={askMode ? "Ask anything: 'What did I think about my first job?'" : "Search title, content, tags…"}
           data-testid="library-search"
           className="w-full pl-10 pr-3 py-3 text-sm rounded-sm"
-          style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+          style={{ background: "var(--bg-surface)", border: askMode ? "1px solid var(--accent)" : "1px solid var(--border-default)", color: "var(--text-primary)" }}
         />
       </div>
 
-      {entries.length === 0 ? (
+      <div className="flex justify-between items-center mb-8">
+        <button
+          onClick={() => {
+            setAskMode((m) => !m);
+            setAskResult(null);
+          }}
+          data-testid="library-ask-toggle"
+          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-sm"
+          style={{
+            background: askMode ? "var(--accent)" : "transparent",
+            color: askMode ? "var(--text-inverse)" : "var(--accent)",
+            border: "1px solid var(--accent)",
+          }}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          {askMode ? "Search mode" : "Ask the archive"}
+        </button>
+        {askMode && (
+          <span className="text-xs italic" style={{ color: "var(--text-muted)" }}>
+            press Enter to ask
+          </span>
+        )}
+      </div>
+
+      {askMode && (asking || askResult) && (
+        <section className="surface p-6 mb-8" data-testid="library-ask-result">
+          {asking ? (
+            <div className="text-sm" style={{ color: "var(--text-muted)" }}>
+              Reading your archive…
+            </div>
+          ) : (
+            <>
+              <div className="overline mb-3">the twin's answer</div>
+              <p
+                className="font-serif text-lg leading-relaxed mb-6 whitespace-pre-wrap"
+                style={{ color: "var(--text-primary)" }}
+                data-testid="ask-answer"
+              >
+                {askResult.answer}
+              </p>
+              {askResult.citations?.length > 0 && (
+                <div>
+                  <div className="overline mb-2">drawn from</div>
+                  <div className="space-y-2">
+                    {askResult.citations.slice(0, 6).map((c) => (
+                      <div
+                        key={c.entry_id}
+                        className="text-sm px-3 py-2 rounded-sm"
+                        style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)" }}
+                      >
+                        <div className="overline mb-0.5">{c.type}</div>
+                        <div className="font-serif text-base mb-1">{c.title}</div>
+                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                          {c.snippet}…
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
+      {!askMode && entries.length === 0 ? (
         <div className="surface p-12 text-center" data-testid="library-empty">
           <div className="overline mb-3">the shelves are bare</div>
           <p className="font-serif text-2xl" style={{ color: "var(--text-secondary)" }}>
             Begin with a single story.
           </p>
         </div>
-      ) : (
+      ) : !askMode ? (
         <div className="grid md:grid-cols-2 gap-4">
           {entries.map((e) => (
             <div key={e.entry_id} className="surface p-6 group" data-testid={`library-card-${e.entry_id}`}>
@@ -188,7 +271,7 @@ export default function Library() {
             </div>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
