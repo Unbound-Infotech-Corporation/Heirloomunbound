@@ -20,7 +20,7 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="px-10 lg:px-16 py-12 lg:py-16 max-w-7xl" data-testid="dashboard-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 lg:py-16 max-w-7xl" data-testid="dashboard-root">
       <header className="mb-14">
         <div className="overline mb-3">your archive</div>
         <h1

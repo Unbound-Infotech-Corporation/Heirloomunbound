@@ -91,7 +91,7 @@ export default function Today() {
   const total = (data.overdue?.length || 0) + (data.today?.length || 0);
 
   return (
-    <div className="px-10 lg:px-16 py-12 max-w-5xl" data-testid="today-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-5xl" data-testid="today-root">
       <header className="mb-12">
         <div className="overline mb-3">today, {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</div>
         <h1

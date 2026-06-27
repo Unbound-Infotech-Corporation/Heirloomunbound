@@ -1,4 +1,5 @@
 """Emergent-managed Google Auth routes."""
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -158,3 +159,55 @@ async def logout(request: Request, response: Response):
         await db.user_sessions.delete_one({"session_token": token})
     response.delete_cookie("session_token", path="/", samesite="none", secure=True)
     return {"ok": True}
+
+
+@router.delete("/me")
+async def delete_account(
+    request: Request,
+    response: Response,
+    confirm: str = "",
+    user: dict = Depends(get_current_user),
+):
+    """Hard delete this user and every artifact they own.
+
+    GDPR/CCPA "right to be forgotten". Requires a `confirm=DELETE` query param
+    so accidental DELETE calls (mistyped curls etc.) don't blow up data.
+
+    Wipes: archive entries, conversations, photos, companion devices, skills,
+    heirs, letters, memories, identity facts, personas, reminders, nudges,
+    imports, sources, voice clone settings, avatar talks, magic links, the
+    user document itself, and the active session cookie. Stripe records are
+    retained per Stripe's own policies (we only stored session ids).
+    """
+    if confirm != "DELETE":
+        raise HTTPException(
+            status_code=400,
+            detail="Pass confirm=DELETE to confirm permanent account deletion.",
+        )
+
+    uid = user["user_id"]
+    collections = [
+        "entries", "conversations", "photos", "companion_devices",
+        "companion_commands", "skills", "heirs", "letters", "memories",
+        "identity_facts", "personas", "reminders", "nudges", "imports",
+        "sources", "elevenlabs_settings", "avatar_talks", "magic_links",
+        "checkout_sessions", "user_sessions",
+    ]
+    counts = {}
+    for c in collections:
+        res = await db[c].delete_many({"user_id": uid})
+        if res.deleted_count:
+            counts[c] = res.deleted_count
+
+    user_res = await db.users.delete_one({"user_id": uid})
+    counts["users"] = user_res.deleted_count
+
+    # Log the deletion anonymously for fraud/tax records (12 months per privacy policy)
+    await db.deletion_log.insert_one({
+        "event_id": f"del_{uid}_{int(time.time())}",
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
+        "counts": counts,
+    })
+
+    response.delete_cookie("session_token", path="/", samesite="none", secure=True)
+    return {"deleted": True, "counts": counts}

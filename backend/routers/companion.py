@@ -155,7 +155,11 @@ async def poll(ctx: dict = Depends(get_device_user)):
     return {
         "commands": pending + reminder_commands,
         "server_time": now_iso,
+        "script_version": COMPANION_SCRIPT_VERSION,
     }
+
+
+COMPANION_SCRIPT_VERSION = "2026.02.27.1"  # bump whenever _build_companion_script materially changes
 
 
 class CompanionResult(BaseModel):
@@ -423,6 +427,7 @@ def _build_companion_script(token: str, backend_url_hint: str, wake_word: bool =
         .replace("__DEVICE_TOKEN__", token)
         .replace("__BACKEND_URL_HINT__", backend_url_hint or "")
         .replace("__WAKE_WORD_DEFAULT__", "True" if wake_word else "False")
+        .replace("__SCRIPT_VERSION__", COMPANION_SCRIPT_VERSION)
     )
 
 
@@ -1016,6 +1021,7 @@ import webbrowser
 from urllib.parse import quote
 
 DEVICE_TOKEN = "__DEVICE_TOKEN__"
+SCRIPT_VERSION = "__SCRIPT_VERSION__"  # bumped by the server when a new build ships
 BACKEND_URL = os.environ.get("HEIRLOOM_BACKEND_URL", "__BACKEND_URL_HINT__").rstrip("/")
 if not BACKEND_URL:
     BACKEND_URL = input("Enter your Heirloom backend URL (e.g. https://your-app.preview.emergentagent.com): ").strip().rstrip("/")
@@ -1106,12 +1112,45 @@ def execute(cmd):
         return "error", str(e)
 
 
+def _check_and_self_update(server_version):
+    """If the server reports a newer script version, re-download ourselves
+    and exit. The Windows VBS launcher (or the user's `Heirloom.bat`) will
+    restart us within seconds on the next sign-in / boot — but we also
+    spawn a tiny re-exec so the new code starts immediately.
+    """
+    if not server_version or not SCRIPT_VERSION or server_version == SCRIPT_VERSION:
+        return
+    print(f"\n↻ Companion update available: {SCRIPT_VERSION} → {server_version}. Downloading…")
+    try:
+        url = f"{BACKEND_URL}/api/companion/public-script?token={DEVICE_TOKEN}"
+        r = requests.get(url, timeout=30)
+        if r.status_code != 200 or len(r.content) < 1000:
+            print(f"  update fetch failed ({r.status_code})")
+            return
+        import sys
+        my_path = os.path.abspath(__file__)
+        backup = my_path + ".bak"
+        try:
+            os.replace(my_path, backup)
+        except Exception:
+            pass
+        with open(my_path, "wb") as f:
+            f.write(r.content)
+        print(f"  → wrote new script to {my_path}. Restarting…")
+        # Re-exec via the same Python interpreter
+        os.execv(sys.executable, [sys.executable, my_path])
+    except Exception as exc:
+        print(f"  self-update failed: {exc}")
+
+
 def poll_loop():
     print(f"\n→ polling {BACKEND_URL}/api/companion/poll every {POLL_INTERVAL_SEC}s …")
+    print(f"  script version: {SCRIPT_VERSION}")
     while True:
         r = safe_get("/companion/poll")
         if r and r.status_code == 200:
             data = r.json()
+            _check_and_self_update(data.get("script_version"))
             for cmd in data.get("commands", []):
                 status, output = execute(cmd)
                 safe_post("/companion/result", json={

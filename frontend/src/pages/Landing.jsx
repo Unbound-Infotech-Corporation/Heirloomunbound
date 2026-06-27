@@ -30,7 +30,7 @@ export default function Landing() {
         }}
       />
 
-      <header className="relative z-10 px-10 lg:px-20 py-8 flex justify-between items-center">
+      <header className="relative z-10 px-5 sm:px-10 lg:px-20 py-8 flex justify-between items-center">
         <div>
           <div className="overline mb-1">an unbound infotech product</div>
           <div className="font-serif text-2xl" style={{ color: "var(--text-primary)" }}>
@@ -60,7 +60,7 @@ export default function Landing() {
       </header>
 
       {/* HERO */}
-      <section className="relative z-10 px-10 lg:px-20 pt-16 lg:pt-24 max-w-6xl">
+      <section className="relative z-10 px-5 sm:px-10 lg:px-20 pt-16 lg:pt-24 max-w-6xl">
         <motion.div
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
@@ -104,7 +104,7 @@ export default function Landing() {
       </section>
 
       {/* HOW IT WORKS */}
-      <section id="how" className="relative z-10 px-10 lg:px-20 mt-32 lg:mt-44 max-w-6xl">
+      <section id="how" className="relative z-10 px-5 sm:px-10 lg:px-20 mt-32 lg:mt-44 max-w-6xl">
         <div className="overline mb-4">the practice</div>
         <h2 className="font-serif text-3xl lg:text-4xl mb-16 max-w-2xl">
           A daily assistant that becomes a lasting heirloom.
@@ -162,7 +162,7 @@ export default function Landing() {
       </section>
 
       {/* WINDOWS COMPANION */}
-      <section id="windows" className="relative z-10 px-10 lg:px-20 mt-32 lg:mt-44 max-w-6xl">
+      <section id="windows" className="relative z-10 px-5 sm:px-10 lg:px-20 mt-32 lg:mt-44 max-w-6xl">
         <div className="grid lg:grid-cols-2 gap-14 items-center">
           <div>
             <div className="overline mb-4">windows companion</div>
@@ -214,7 +214,7 @@ export default function Landing() {
       </section>
 
       {/* QUOTE */}
-      <section className="relative z-10 px-10 lg:px-20 mt-32 lg:mt-44 max-w-4xl">
+      <section className="relative z-10 px-5 sm:px-10 lg:px-20 mt-32 lg:mt-44 max-w-4xl">
         <div className="surface p-10 lg:p-14 rounded-sm">
           <div className="overline mb-4">a note on what this is, and isn't</div>
           <p className="font-serif text-2xl lg:text-3xl leading-snug" style={{ color: "var(--text-primary)" }}>
@@ -224,7 +224,7 @@ export default function Landing() {
       </section>
 
       {/* TRUST */}
-      <section className="relative z-10 px-10 lg:px-20 mt-24 max-w-4xl text-center">
+      <section className="relative z-10 px-5 sm:px-10 lg:px-20 mt-24 max-w-4xl text-center">
         <div className="flex flex-wrap gap-8 justify-center items-center" style={{ color: "var(--text-muted)" }}>
           <span className="inline-flex items-center gap-2 text-xs"><Lock className="h-3.5 w-3.5" /> private by default</span>
           <span className="inline-flex items-center gap-2 text-xs"><Server className="h-3.5 w-3.5" /> hosted on dedicated GPU infrastructure</span>
@@ -234,7 +234,7 @@ export default function Landing() {
 
       {/* FOOTER */}
       <footer
-        className="relative z-10 px-10 lg:px-20 mt-32 py-10 border-t flex flex-wrap gap-6 justify-between items-center"
+        className="relative z-10 px-5 sm:px-10 lg:px-20 mt-32 py-10 border-t flex flex-wrap gap-6 justify-between items-center"
         style={{ borderColor: "var(--border-default)" }}
       >
         <div>
@@ -250,8 +250,11 @@ export default function Landing() {
             built by Unbound Infotech Corporation →
           </a>
         </div>
-        <div className="flex gap-6 text-xs" style={{ color: "var(--text-muted)" }}>
-          <span>built with care</span>
+        <div className="flex gap-6 text-xs flex-wrap" style={{ color: "var(--text-muted)" }}>
+          <Link to="/privacy" className="hover:text-[var(--accent)] transition-colors" data-testid="landing-privacy">Privacy</Link>
+          <Link to="/terms" className="hover:text-[var(--accent)] transition-colors" data-testid="landing-terms">Terms</Link>
+          <Link to="/refunds" className="hover:text-[var(--accent)] transition-colors" data-testid="landing-refunds">Refunds</Link>
+          <Link to="/support" className="hover:text-[var(--accent)] transition-colors" data-testid="landing-support">Support</Link>
           <span>private by default</span>
         </div>
       </footer>

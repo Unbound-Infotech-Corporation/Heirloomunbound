@@ -43,7 +43,7 @@ export default function Login() {
         </div>
       </div>
 
-      <div className="flex flex-col justify-center px-10 lg:px-20 py-16">
+      <div className="flex flex-col justify-center px-5 sm:px-10 lg:px-20 py-16">
         <Link to="/" className="overline mb-10 inline-block" data-testid="login-brand-link">
           ← Heirloom
         </Link>

@@ -113,7 +113,7 @@ export default function Photos() {
   };
 
   return (
-    <div className="px-10 lg:px-16 py-12 max-w-6xl" data-testid="photos-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-6xl" data-testid="photos-root">
       <header className="mb-10">
         <div className="overline mb-3">the photographs</div>
         <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">A picture, then a story.</h1>

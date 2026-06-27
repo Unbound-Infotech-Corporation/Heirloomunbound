@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration-15 pre-sale hardening + mobile sweep verification. Backend pytest 10/10 PASS (~2.6s) covering: companion script_version field on /poll, SCRIPT_VERSION constant baked into /public-script, GET/PUT/DELETE /api/avatar/api-key (BYO D-ID key) + masked_key format, DELETE /api/auth/me confirm=DELETE guard + cascade delete across 20 collections + deletion_log entry + session-token invalidation + second-user isolation, plus regression on /auth/me and /companion/easy-installer. Frontend: 4 legal pages (/privacy /terms /refunds /support) load with correct unique <title>s ('Privacy Policy — Heirloom' etc.), '← back to Heirloom' link, mailto: link, zero console errors. SiteFooter renders on authenticated pages with all 4 legal links + mailto. Settings page renders both [data-testid=settings-d-id-section] and [data-testid=settings-danger-zone] + Delete button. Delete-account prompt: Cancel = no-op (200), wrong text = no-op (200), typing 'DELETE' = account deleted + session 401 + redirect to home. Mobile (390x844): sidebar hidden, hamburger visible, drawer opens on click, scrim tap closes (DOM removed), ESC closes, nav-link tap closes + route changes. Desktop (1920x1080) regression: sidebar visible, hamburger hidden. Mobile pages /, /login, /buy, /twin, /dashboard all 0px horizontal overflow.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration15_prelaunch.py",
+    "/app/test_reports/pytest/iteration_15_results.xml"
+  ],
+  "action_items": [
+    "Nothing required. Pre-sale hardening + mobile sweep ships GREEN."
+  ],
+  "critical_code_review_comments": [
+    "auth.py DELETE /me cascade is comprehensive — wipes all 20 listed collections, logs a deletion_log row with per-collection counts for fraud/tax records, and clears the session_token cookie. `import time` is present at the top of auth.py (line 1), so the `int(time.time())` call in the deletion_log event_id works correctly. GDPR/CCPA compliant.",
+    "avatar.py masked_key uses U+2026 (…) between first-6 and last-4 chars. Frontend display matches.",
+    "companion.py: COMPANION_SCRIPT_VERSION='2026.02.27.1' is defined AFTER the /poll handler in source order, but Python resolves it lazily at call time so it works. Minor stylistic suggestion: move the constant above the handler that references it for readability — not a bug.",
+    "AppLayout.jsx mobile drawer: useEffect closes drawer on route change (location.pathname); useEffect on Escape key cleans up listener; scrim onClick + nav-link onClick both call setDrawerOpen(false). All 4 close paths verified working.",
+    "Translate-transform-based drawer (-translate-x-full off-canvas) is correctly hidden via bounding-box even though Playwright's is_visible() reports true — note for future test agents: use bounding_box().x check, not is_visible(), to assert drawer state.",
+    "Legal pages (Privacy/Terms/Refunds/Support) each set document.title via useEffect — verified all 4 unique titles. No SSR (CRA app), so titles are set client-side after mount; SEO/social-share scrapers that don't run JS will see 'Heirloom' as title. Not a launch blocker but worth knowing.",
+    "SiteFooter rendered globally inside main scroll area — appears on every authenticated route. All 4 legal links + mailto:support@heirloom.app present.",
+    "PostHog reference confirmed removed from /app/frontend/public/index.html (no posthog or emergent tracker script tags)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration15_prelaunch.py (new — 10 tests, all PASS)"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10)",
+    "frontend": "100% — all 4 legal pages, footer, settings sections, delete-account prompt flow, mobile drawer (open/scrim/ESC/nav-link close), mobile horizontal-scroll, and desktop sidebar regression all verified"
+  },
+  "test_credentials": "Seeded fresh via mongosh (test_database). Backend tests use _seed_user() helper which creates a new user+session per test class. UI session token: iter15ui_1782584242068 (consumed by delete-account test — re-mint via /app/memory/test_credentials.md if needed). user.onboarded=true + onboarding_complete=true + tour_completed=true.",
+  "seed_data_creation": "10 test users seeded via /app/backend/tests/test_iteration15_prelaunch.py (one per test). All test data prefixed 'iter15-' or 'TEST_' and cleaned up by the deletion test itself or explicit teardown. 1 UI test user seeded via mongosh — deleted by the test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 15 is GREEN. The mobile drawer is in DOM at all times (transformed off-canvas when closed); use bounding_box().x or transform style — NOT is_visible() — to assert open/closed state in Playwright. Backend has 10 net-new tests in test_iteration15_prelaunch.py covering account-deletion cascade, D-ID BYO key, and companion script_version — keep as regression. Iteration 14's 52 tests (test_iteration14_prelaunch_regression.py) still apply.",
+  "rca_of_the_issue": "No real bugs. Initial mobile-drawer test produced 3 false-negative 'drawer stayed visible' reports because Playwright is_visible() returns true for elements that are translated off-screen via CSS transform. Re-tested with bounding_box().x check — all 4 close paths (scrim tap, ESC, nav-link tap, x-button) confirmed working. Test methodology corrected; no code change required."
+}

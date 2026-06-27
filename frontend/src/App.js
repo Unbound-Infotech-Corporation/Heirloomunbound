@@ -26,6 +26,10 @@ import Reminders from "@/pages/Reminders";
 import Onboarding from "@/pages/Onboarding";
 import Sources from "@/pages/Sources";
 import Settings from "@/pages/Settings";
+import Privacy from "@/pages/Privacy";
+import Terms from "@/pages/Terms";
+import Refunds from "@/pages/Refunds";
+import Support from "@/pages/Support";
 import { Toaster } from "sonner";
 
 function AppRouter() {
@@ -39,6 +43,10 @@ function AppRouter() {
       <Route path="/login" element={<Login />} />
       <Route path="/buy" element={<Buy />} />
       <Route path="/buy/success" element={<BuySuccess />} />
+      <Route path="/privacy" element={<Privacy />} />
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/refunds" element={<Refunds />} />
+      <Route path="/support" element={<Support />} />
       <Route path="/auth/magic/:token" element={<MagicLink />} />
       <Route path="/heir/:token" element={<HeirPortal />} />
       <Route

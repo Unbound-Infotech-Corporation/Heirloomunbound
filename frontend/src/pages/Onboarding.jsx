@@ -102,7 +102,7 @@ export default function Onboarding() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg-base)" }} data-testid="onboarding-root">
-      <header className="px-10 lg:px-20 py-8 flex items-center justify-between">
+      <header className="px-5 sm:px-10 lg:px-20 py-8 flex items-center justify-between">
         <div>
           <div className="overline mb-1">step {step + 1} of {STEPS.length}</div>
           <div className="font-serif text-2xl" style={{ color: "var(--text-primary)" }}>
@@ -122,7 +122,7 @@ export default function Onboarding() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col justify-center px-10 lg:px-20 max-w-3xl pb-20">
+      <main className="flex-1 flex flex-col justify-center px-5 sm:px-10 lg:px-20 max-w-3xl pb-20">
         {step === 0 && (
           <Step title="What should the Twin call you?" subtitle="Pick the name you'd want a grandchild to hear.">
             <input

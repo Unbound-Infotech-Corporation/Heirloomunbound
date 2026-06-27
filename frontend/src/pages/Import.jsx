@@ -47,7 +47,7 @@ export default function Import() {
   };
 
   return (
-    <div className="px-10 lg:px-16 py-12 max-w-5xl" data-testid="import-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-5xl" data-testid="import-root">
       <header className="mb-10">
         <div className="overline mb-3">seed from elsewhere</div>
         <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">

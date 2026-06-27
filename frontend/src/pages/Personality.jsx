@@ -55,7 +55,7 @@ export default function Personality() {
 
   if (loading) {
     return (
-      <div className="px-10 lg:px-16 py-12 flex items-center gap-3" data-testid="personality-loading">
+      <div className="px-4 sm:px-8 lg:px-16 py-12 flex items-center gap-3" data-testid="personality-loading">
         <Loader2 className="h-5 w-5 animate-spin" style={{ color: "var(--accent)" }} />
         <span className="text-sm" style={{ color: "var(--text-muted)" }}>
           Reading your archive…
@@ -69,7 +69,7 @@ export default function Personality() {
   const empty = (profile.entry_count || 0) === 0;
 
   return (
-    <div className="px-10 lg:px-16 py-12 max-w-4xl" data-testid="personality-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl" data-testid="personality-root">
       <header className="mb-10 flex justify-between items-end flex-wrap gap-6">
         <div>
           <div className="overline mb-3">your portrait</div>

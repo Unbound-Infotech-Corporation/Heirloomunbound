@@ -87,7 +87,7 @@ export default function Interviewer() {
   const messages = conversation?.messages || [];
 
   return (
-    <div className="px-10 lg:px-16 py-12 max-w-4xl" data-testid="interviewer-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl" data-testid="interviewer-root">
       <header className="mb-10">
         <div className="overline mb-3">the interviewer</div>
         <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">A patient question, then another.</h1>

@@ -92,7 +92,7 @@ export default function Journal() {
   const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
   return (
-    <div className="px-10 lg:px-16 py-12 max-w-4xl" data-testid="journal-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl" data-testid="journal-root">
       <header className="mb-12">
         <div className="overline mb-3">voice journal</div>
         <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">

@@ -117,7 +117,7 @@ export default function Letters() {
   };
 
   return (
-    <div className="px-10 lg:px-16 py-12 max-w-4xl" data-testid="letters-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl" data-testid="letters-root">
       <header className="mb-10 flex justify-between items-end flex-wrap gap-6">
         <div>
           <div className="overline mb-3">sealed letters</div>

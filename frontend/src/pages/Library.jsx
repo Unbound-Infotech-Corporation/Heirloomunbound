@@ -48,7 +48,7 @@ export default function Library() {
   };
 
   return (
-    <div className="px-10 lg:px-16 py-12 max-w-6xl" data-testid="library-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-6xl" data-testid="library-root">
       <header className="mb-10 flex justify-between items-end flex-wrap gap-6">
         <div>
           <div className="overline mb-3">the library</div>

@@ -29,6 +29,31 @@ router = APIRouter(prefix="/avatar", tags=["avatar"])
 D_ID_API_KEY = os.environ.get("D_ID_API_KEY", "")
 D_ID_BASE = "https://api.d-id.com"
 
+
+async def _user_d_id_key(user: dict) -> str:
+    """Return the D-ID API key for this user. Prefer their personal key
+    (Settings → BYO key) if present, else fall back to the platform default.
+
+    Letting customers BYO their key means D-ID render costs come out of their
+    account, not ours — which is essential for the $79 lifetime price to work
+    at scale."""
+    personal = (user.get("d_id_api_key") or "").strip()
+    if personal:
+        return personal
+    if not D_ID_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "D-ID not configured. Add your personal D-ID API key in "
+                "Settings → Avatar to enable video generation."
+            ),
+        )
+    return D_ID_API_KEY
+
+
+def _auth_header_from_key(key: str) -> str:
+    return "Basic " + base64.b64encode(key.encode()).decode()
+
 # A safe public default portrait until the user uploads their own. D-ID hosts
 # a small library of free demo presenters; this is the "amy-Aq6OmGZnMt" image.
 DEFAULT_SOURCE_URL = "https://create-images-results.d-id.com/DefaultPresenters/Emma_f/v1_image.jpeg"
@@ -38,6 +63,15 @@ def _auth_header() -> str:
     if not D_ID_API_KEY:
         raise HTTPException(status_code=500, detail="D-ID not configured (D_ID_API_KEY missing)")
     return "Basic " + base64.b64encode(D_ID_API_KEY.encode()).decode()
+
+
+class ApiKeyReq(BaseModel):
+    api_key: str = Field(..., min_length=10, max_length=500)
+
+
+class ApiKeyResp(BaseModel):
+    has_personal_key: bool
+    masked: str = ""
 
 
 def _now_iso() -> str:
@@ -79,7 +113,7 @@ async def create_talk(payload: TalkReq, user: dict = Depends(get_current_user)):
         "config": {"stitch": True, "fluent": True},
     }
     headers = {
-        "Authorization": _auth_header(),
+        "Authorization": _auth_header_from_key(await _user_d_id_key(user)),
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
@@ -121,7 +155,7 @@ async def poll_talk(talk_id: str, user: dict = Depends(get_current_user)):
     if not rec:
         raise HTTPException(status_code=404, detail="Talk not found")
 
-    headers = {"Authorization": _auth_header(), "Accept": "application/json"}
+    headers = {"Authorization": _auth_header_from_key(await _user_d_id_key(user)), "Accept": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(f"{D_ID_BASE}/talks/{talk_id}", headers=headers)
@@ -184,8 +218,29 @@ async def upload_source(
 
 @router.get("/me")
 async def my_avatar(user: dict = Depends(get_current_user)):
+    personal_key = (user.get("d_id_api_key") or "").strip()
     return {
         "avatar_source_url": user.get("avatar_source_url") or "",
         "default_url": DEFAULT_SOURCE_URL,
-        "configured": bool(D_ID_API_KEY),
+        "configured": bool(personal_key or D_ID_API_KEY),
+        "has_personal_key": bool(personal_key),
+        "masked_key": (personal_key[:6] + "…" + personal_key[-4:]) if personal_key else "",
     }
+
+
+@router.put("/api-key")
+async def set_api_key(payload: ApiKeyReq, user: dict = Depends(get_current_user)):
+    """User stores their personal D-ID key. We never log or return it in full."""
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"d_id_api_key": payload.api_key.strip()}},
+    )
+    return {"has_personal_key": True, "masked": payload.api_key[:6] + "…" + payload.api_key[-4:]}
+
+
+@router.delete("/api-key")
+async def clear_api_key(user: dict = Depends(get_current_user)):
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$unset": {"d_id_api_key": ""}}
+    )
+    return {"has_personal_key": False}

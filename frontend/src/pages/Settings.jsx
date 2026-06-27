@@ -248,7 +248,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="px-10 lg:px-16 py-12 max-w-3xl" data-testid="settings-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-3xl" data-testid="settings-root">
       <header className="mb-10">
         <div className="overline mb-3">settings</div>
         <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">Your archive.</h1>
@@ -783,7 +783,152 @@ export default function Settings() {
       >
         Sign out
       </button>
+
+      <DIdKeySection />
+      <DangerZone />
     </div>
+  );
+}
+
+function DIdKeySection() {
+  const [info, setInfo] = useState(null);
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const load = async () => {
+    try {
+      const { data } = await api.get("/avatar/me");
+      setInfo(data);
+    } catch { /* noop */ }
+  };
+  useEffect(() => { load(); }, []);
+  const save = async () => {
+    if (key.length < 10) {
+      toast.error("That key looks too short");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.put("/avatar/api-key", { api_key: key });
+      toast.success("D-ID key saved. Renders now bill to your account.");
+      setKey("");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const clear = async () => {
+    if (!confirm("Remove your personal D-ID key? Renders will fall back to the platform key.")) return;
+    await api.delete("/avatar/api-key");
+    toast.success("Key removed");
+    load();
+  };
+  return (
+    <section className="surface p-8 mt-10" data-testid="settings-d-id-section">
+      <div className="overline mb-2">your face · d-id integration</div>
+      <h2 className="font-serif text-2xl font-light mb-3" style={{ color: "var(--text-primary)" }}>
+        Bring your own D-ID key
+      </h2>
+      <p className="text-sm mb-6 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        Every &ldquo;Play as video&rdquo; click on the Twin renders through D-ID. If you connect your personal D-ID key,
+        renders are billed to your account (much higher monthly cap, no shared platform throttle). Get a key at{" "}
+        <a href="https://www.d-id.com/api/" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
+          d-id.com/api
+        </a>.
+      </p>
+      {info?.has_personal_key ? (
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="font-mono text-xs px-3 py-2 rounded-sm" style={{
+            background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)",
+          }} data-testid="d-id-key-masked">
+            {info.masked_key || "•••••• connected"}
+          </div>
+          <button
+            onClick={clear}
+            data-testid="d-id-key-clear"
+            className="px-4 py-2 text-xs rounded-sm"
+            style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+          >
+            Remove key
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-3 items-center">
+          <input
+            type="password"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder="paste your D-ID API key (Basic auth string)"
+            data-testid="d-id-key-input"
+            className="flex-1 min-w-[300px] px-3 py-2 text-sm rounded-sm font-mono"
+            style={{
+              background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)",
+            }}
+          />
+          <button
+            onClick={save}
+            disabled={saving || !key}
+            data-testid="d-id-key-save"
+            className="px-4 py-2 text-sm rounded-sm disabled:opacity-50"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          >
+            {saving ? "Saving…" : "Connect"}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DangerZone() {
+  const [busy, setBusy] = useState(false);
+  const remove = async () => {
+    const phrase = prompt(
+      "This is permanent. Your archive, voice clone, photos, heirs, letters, and account will be erased within 7 days. " +
+      "Type DELETE to confirm:"
+    );
+    if (phrase !== "DELETE") {
+      toast.message("Cancelled — your account is safe.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.delete("/auth/me?confirm=DELETE");
+      toast.success("Account deleted. Goodbye.");
+      setTimeout(() => { window.location.href = "/"; }, 1200);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Delete failed");
+      setBusy(false);
+    }
+  };
+  return (
+    <section
+      className="p-8 mt-10 rounded-sm"
+      style={{ border: "1px solid #6b1f1f", background: "rgba(107, 31, 31, 0.06)" }}
+      data-testid="settings-danger-zone"
+    >
+      <div className="overline mb-2" style={{ color: "#ff8a8a" }}>danger zone</div>
+      <h2 className="font-serif text-2xl font-light mb-3" style={{ color: "var(--text-primary)" }}>
+        Delete my account
+      </h2>
+      <p className="text-sm mb-6 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        Permanently delete your archive, voice clone, photos, heirs, letters, and every other artifact tied to your
+        account. This cannot be undone. Stripe records are retained per Stripe&apos;s policies (we only kept your
+        checkout session id, never your card). For a refund, write to{" "}
+        <a href="mailto:support@heirloom.app" style={{ color: "var(--accent)" }}>support@heirloom.app</a> first
+        — see our <a href="/refunds" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>refund policy</a>.
+      </p>
+      <button
+        onClick={remove}
+        disabled={busy}
+        data-testid="settings-delete-account"
+        className="px-5 py-3 text-sm rounded-sm transition-colors disabled:opacity-50"
+        style={{ border: "1px solid #6b1f1f", color: "#ff8a8a", background: "transparent" }}
+      >
+        {busy ? "Deleting…" : "Delete my account permanently"}
+      </button>
+    </section>
   );
 }
 
