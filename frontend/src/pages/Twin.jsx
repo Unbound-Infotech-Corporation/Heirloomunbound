@@ -16,7 +16,7 @@ export default function Twin() {
     api.post("/twin/start", {}).then(({ data }) => setConv(data));
     return () => {
       if (audioRef.current) {
-        try { audioRef.current.pause(); } catch (_) {}
+        try { audioRef.current.pause(); } catch (_) { /* noop */ }
         audioRef.current = null;
       }
     };
@@ -31,7 +31,7 @@ export default function Twin() {
       try {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
-      } catch (_) {}
+      } catch (_) { /* noop */ }
       audioRef.current = null;
     }
     setSpeakingIdx(null);
@@ -114,7 +114,7 @@ export default function Twin() {
             Sit a while. Ask anything.
           </h1>
           <p className="mt-3 text-base max-w-xl" style={{ color: "var(--text-secondary)" }}>
-            Your twin draws from everything you've put into the archive. The more you've added, the truer it sounds.
+            Your twin draws from everything you&apos;ve put into the archive. The more you&apos;ve added, the truer it sounds.
           </p>
         </div>
         <label
@@ -197,6 +197,25 @@ export default function Twin() {
                     </span>
                     <span style={{ color: "var(--accent)" }}>↗ open here</span>
                   </a>
+                )}
+                {m.action?.kind === "skill" && (
+                  <div
+                    data-testid={`twin-skill-${i}`}
+                    className="mt-4 inline-flex items-center gap-3 px-4 py-2 text-sm rounded-sm"
+                    style={{
+                      background: m.action.ok ? "var(--accent-muted)" : "rgba(220,80,80,0.12)",
+                      border: `1px solid ${m.action.ok ? "var(--accent)" : "#c95a5a"}`,
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    <span>⚡</span>
+                    <span>
+                      <b>{m.action.skill_name}</b>
+                      <span className="ml-2 text-xs italic" style={{ color: "var(--text-muted)" }}>
+                        {m.action.ok ? `HTTP ${m.action.status}` : `failed (${m.action.status || "error"})`}
+                      </span>
+                    </span>
+                  </div>
                 )}
               </div>
             ) : (

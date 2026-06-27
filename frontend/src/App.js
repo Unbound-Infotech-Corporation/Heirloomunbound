@@ -17,7 +17,10 @@ import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import HeirPortal from "@/pages/HeirPortal";
 import Letters from "@/pages/Letters";
+import MagicLink from "@/pages/MagicLink";
 import Personality from "@/pages/Personality";
+import Buy from "@/pages/Buy";
+import BuySuccess from "@/pages/BuySuccess";
 import Today from "@/pages/Today";
 import Reminders from "@/pages/Reminders";
 import Onboarding from "@/pages/Onboarding";
@@ -34,6 +37,9 @@ function AppRouter() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/buy" element={<Buy />} />
+      <Route path="/buy/success" element={<BuySuccess />} />
+      <Route path="/auth/magic/:token" element={<MagicLink />} />
       <Route path="/heir/:token" element={<HeirPortal />} />
       <Route
         path="/onboarding"

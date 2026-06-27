@@ -9,6 +9,7 @@ const empty = {
   method: "POST",
   headers: "",
   body_template: "",
+  triggers: "",
   enabled: true,
 };
 
@@ -33,7 +34,13 @@ export default function Skills() {
         return alert("Headers must be valid JSON, e.g. {\"Authorization\":\"Bearer …\"}");
       }
     }
-    await api.post("/skills", { ...draft, headers });
+    await api.post("/skills", {
+      ...draft,
+      headers,
+      triggers: draft.triggers
+        ? draft.triggers.split(/\r?\n|,/).map((s) => s.trim()).filter(Boolean)
+        : [],
+    });
     setShowNew(false);
     setDraft(empty);
     load();
@@ -131,6 +138,21 @@ export default function Skills() {
             className="w-full px-3 py-2 text-sm rounded-sm font-mono"
             style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
           />
+          <div>
+            <label className="overline block mb-2">trigger phrases (auto-invoke)</label>
+            <textarea
+              value={draft.triggers}
+              onChange={(e) => setDraft({ ...draft, triggers: e.target.value })}
+              placeholder={'One per line (or comma-separated). When the twin sees any of these in chat,\nit runs this skill automatically without asking. e.g.\nturn on the office lights\noffice lights on'}
+              rows={3}
+              data-testid="skill-triggers"
+              className="w-full px-3 py-2 text-sm rounded-sm"
+              style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+            />
+            <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
+              Match is case-insensitive substring across the user's message. Leave blank to keep this skill manual-only.
+            </p>
+          </div>
           <div className="flex justify-end gap-3">
             <button
               onClick={() => setShowNew(false)}
@@ -176,6 +198,19 @@ export default function Skills() {
                     <div className="font-mono text-xs truncate" style={{ color: "var(--text-muted)" }}>
                       {s.webhook_url}
                     </div>
+                    {(s.triggers || []).length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {s.triggers.slice(0, 6).map((t, i) => (
+                          <span
+                            key={i}
+                            className="text-xs px-2 py-0.5 rounded-sm"
+                            style={{ background: "var(--accent-muted)", color: "var(--text-primary)", border: "1px solid var(--accent)" }}
+                          >
+                            "{t}"
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2 shrink-0">
                     <button

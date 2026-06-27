@@ -16,6 +16,7 @@ from routers.memory import (
     maybe_summarise_episode,
 )
 from routers.music import detect_music_intent, play_for_user
+from routers.skills import invoke_skill_internal, match_skill_trigger
 from utils import rate_limit
 
 router = APIRouter(prefix="/twin", tags=["twin"])
@@ -203,6 +204,58 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
 
         return StreamingResponse(
             music_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
+
+    # ---- Auto-skill intent short-circuit ----
+    matched_skill = await match_skill_trigger(user["user_id"], payload.message)
+    if matched_skill:
+        await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
+        result = await invoke_skill_internal(user["user_id"], matched_skill["skill_id"])
+        skill_name = matched_skill.get("name", "the skill")
+        if result.get("ok"):
+            reply = f"Done — running {skill_name}."
+        else:
+            err = result.get("error") or f"HTTP {result.get('status')}"
+            reply = f"I tried to run {skill_name} but it failed: {err}"
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await db.conversations.update_one(
+            {"conversation_id": payload.conversation_id},
+            {
+                "$push": {"messages": {"$each": [
+                    {"role": "user", "content": payload.message, "ts": now_iso},
+                    {
+                        "role": "assistant",
+                        "content": reply,
+                        "ts": now_iso,
+                        "action": {
+                            "kind": "skill",
+                            "skill_id": matched_skill["skill_id"],
+                            "skill_name": skill_name,
+                            "ok": result.get("ok", False),
+                            "status": result.get("status", 0),
+                        },
+                    },
+                ]}},
+                "$set": {"updated_at": now_iso},
+            },
+        )
+
+        async def skill_stream():
+            yield "data: " + json.dumps({"text": reply}) + "\n\n"
+            yield "event: action\ndata: " + json.dumps({
+                "kind": "skill",
+                "skill_id": matched_skill["skill_id"],
+                "skill_name": skill_name,
+                "ok": result.get("ok", False),
+                "status": result.get("status", 0),
+            }) + "\n\n"
+            yield "event: done\ndata: {}\n\n"
+
+        return StreamingResponse(
+            skill_stream(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
         )

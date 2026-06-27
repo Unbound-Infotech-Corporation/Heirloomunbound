@@ -1,4 +1,11 @@
-"""Skills: webhook-based commands the Twin can invoke (lights, scripts, etc)."""
+"""Skills: webhook-based commands the Twin can invoke (lights, scripts, etc).
+
+Each skill may carry a list of trigger phrases. When the twin sees a user message
+that matches any trigger, it short-circuits the LLM and invokes the skill (the
+twin's reply confirms the action). This is how a user says "turn the lights on"
+and their Home Assistant webhook fires automatically.
+"""
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -20,6 +27,7 @@ class SkillCreate(BaseModel):
     method: str = "POST"
     headers: dict = Field(default_factory=dict)
     body_template: str = ""
+    triggers: list[str] = Field(default_factory=list)
     enabled: bool = True
 
 
@@ -30,6 +38,7 @@ class SkillUpdate(BaseModel):
     method: Optional[str] = None
     headers: Optional[dict] = None
     body_template: Optional[str] = None
+    triggers: Optional[list[str]] = None
     enabled: Optional[bool] = None
 
 
@@ -82,10 +91,14 @@ async def invoke_skill(skill_id: str, user: dict = Depends(get_current_user)):
     )
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found or disabled")
-    # Security (SEC-003): block SSRF — only public http(s) destinations
+    return await _do_invoke(skill)
+
+
+async def _do_invoke(skill: dict) -> dict:
+    """Shared invoke logic (used by both the manual endpoint and the twin's
+    auto-skill router). SSRF-protected via validate_outbound_url."""
     validate_outbound_url(skill["webhook_url"])
     try:
-        # follow_redirects=False prevents bouncing to internal targets via 30x
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
             r = await client.request(
                 skill.get("method", "POST"),
@@ -102,3 +115,41 @@ async def invoke_skill(skill_id: str, user: dict = Depends(get_current_user)):
         raise
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "status": 0, "error": str(exc)}
+
+
+# ---------------- Auto-skill intent matching ----------------
+def _normalise(text: str) -> str:
+    return re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower()).strip()
+
+
+async def match_skill_trigger(user_id: str, text: str) -> Optional[dict]:
+    """Return the first enabled skill whose triggers fire on `text`, or None.
+
+    Matching is case-insensitive substring across normalised text. Triggers
+    shorter than 3 chars are ignored to avoid accidental matches.
+    """
+    if not text or not text.strip():
+        return None
+    haystack = _normalise(text)
+    cursor = db.skills.find(
+        {"user_id": user_id, "enabled": True, "triggers": {"$exists": True, "$ne": []}},
+        {"_id": 0},
+    )
+    skills = await cursor.to_list(length=100)
+    for skill in skills:
+        for raw in skill.get("triggers") or []:
+            trig = _normalise(str(raw))
+            if len(trig) < 3:
+                continue
+            if trig in haystack:
+                return skill
+    return None
+
+
+async def invoke_skill_internal(user_id: str, skill_id: str) -> dict:
+    skill = await db.skills.find_one(
+        {"skill_id": skill_id, "user_id": user_id, "enabled": True}, {"_id": 0}
+    )
+    if not skill:
+        return {"ok": False, "status": 0, "error": "skill not found"}
+    return await _do_invoke(skill)

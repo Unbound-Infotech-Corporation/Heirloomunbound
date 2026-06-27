@@ -35,6 +35,14 @@ export default function Landing() {
           <a href="#how" data-testid="landing-how-link" className="hidden sm:inline" style={{ color: "var(--text-secondary)" }}>How it works</a>
           <a href="#windows" data-testid="landing-download-link" className="hidden sm:inline" style={{ color: "var(--text-secondary)" }}>Windows app</a>
           <Link
+            to="/buy"
+            data-testid="landing-buy-link"
+            className="hidden sm:inline tracking-wide"
+            style={{ color: "var(--accent)" }}
+          >
+            $79 — Buy lifetime
+          </Link>
+          <Link
             to="/login"
             data-testid="landing-signin-link"
             className="tracking-wide hover:text-[var(--accent)] transition-colors"

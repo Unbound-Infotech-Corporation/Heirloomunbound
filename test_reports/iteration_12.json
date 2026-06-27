@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration-12 (Stripe checkout + fulfillment + auto-skill triggers) end-to-end testing complete. 19/19 backend pytest tests pass against real backend (real Stripe test session creation, idempotent provisioning, 10KB+ personalized .zip with all 7 files and device_token baked in, magic-link single-use 200 then 410, skills triggers persistence + PATCH, twin SSE auto-skill short-circuit <5s with action.kind='skill' in db.conversations, case-insensitive substring matching, <3-char triggers ignored, disabled skills not invoked, music intent wins over skill, multi-user isolation). Frontend verified: /buy renders pkg-lifetime card with $79 price, validates empty email (button disabled), and POST→redirect actually reaches https://checkout.stripe.com/...; /buy/success spinners through 'checking' and shows success-failed + retry on missing/unpaid session; /buy/success with mocked paid response renders success-paid with success-download and success-login hrefs pointing to the seeded dl_ + ml_ tokens; /auth/magic/<valid> consumes the magic-link and navigates to /today, invalid token renders magic-error; /skills new-skill form has skill-triggers textarea, submitted skill renders on the page; /twin sends 'auto fire alpha now' message and the assistant bubble shows the inline action chip 'TEST_FE_Visual HTTP 200' with the lightning icon — confirming twin auto-skill UI wiring end-to-end against real httpbin.org webhook.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Magic-link consume → /today",
+        "issue": "After /auth/magic/<token> succeeds and SPA navigates to /today, AuthProvider does not immediately pick up the freshly stored session_token from localStorage — the first render of /today still appears unauthenticated (Login page flashes before a manual reload). Backend is correct (sets cookie + returns session_token). The SPA needs to call /api/auth/me again after MagicLink stores the token, OR set the axios default Authorization header before nav.",
+        "affected_selectors": ["[data-testid='magic-loading']", "/today"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration12_billing_skills.py",
+    "/app/test_reports/pytest/iteration_12_results.xml"
+  ],
+  "action_items": [
+    "Optional: After MagicLink success, force AuthProvider to refetch /api/auth/me (or set localStorage + axios.defaults.headers Authorization before nav('/today')) so the user doesn't see a Login flash on the first /today render. Backend magic-link consume works correctly — this is purely a client-side auth-state refresh issue.",
+    "Optional: Add a data-testid='trigger-chip' (or per-trigger testid) on the trigger chips in Skills.jsx so future automation doesn't have to grep DOM for quoted strings. Not blocking.",
+    "Optional: BuySuccess polling — there is no UI feedback for which poll attempt is in flight; if Stripe is genuinely slow the user just sees a spinner for 60s before timeout. Consider a 'still confirming, attempt N/24' subtitle."
+  ],
+  "critical_code_review_comments": [
+    "billing.py::_provision_after_payment is correctly idempotent via the txn.provisioned flag — verified by direct pytest call against the real path (no duplicate users/devices/tokens). Good.",
+    "billing.py::_provision_after_payment will RAISE HTTPException(400) when email is missing on an unknown txn — that's fine for the polling path (frontend keeps polling) but could leave Stripe webhook responses hanging. Consider catching + returning 200 from the webhook to avoid Stripe retry storms.",
+    "fulfillment.py::download endpoint has BOTH max_uses AND expires_at — good defense-in-depth. uses counter increments AFTER the zip is built; if build_windows_zip_bytes throws the counter won't tick — correct behavior. Good.",
+    "fulfillment.py::consume_magic_link sets cookie with samesite='none' secure=True — required for cross-site SPA. Confirmed cookie arrives in the browser.",
+    "skills.py::match_skill_trigger normalises text by stripping non-alphanumerics, which means a trigger of 'ping me' will match 'ping  me' (multi-space) — good. But it WILL also match 'shipping memo' because 'ping me' is a substring after normalisation. Consider word-boundary matching (regex \\b) for safer triggers.",
+    "skills.py::_do_invoke catches all Exceptions and returns ok=False; httpx errors get swallowed. That's fine for the chip status display, but consider logging the exception so debugging webhook failures isn't blind.",
+    "twin.py: the music-intent short-circuit runs BEFORE the skill-trigger short-circuit (verified by test_music_intent_wins_over_skill). Correct per spec.",
+    "Buy.jsx imports CheckCircle2 and useNavigate that are unused (CheckCircle2 used only on success page). Minor lint — not blocking.",
+    "MagicLink.jsx: on success it stores session_token in localStorage then nav('/today'), but AuthProvider's initial /api/auth/me has already resolved with 401 by then. Should call setUser or refetch — see action item.",
+    "BuySuccess.jsx: downloadUrl is built as `${BACKEND}${info.download_url}` — uses REACT_APP_BACKEND_URL which is correct."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration12_billing_skills.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (19/19)",
+    "frontend": "~90% — Buy + BuySuccess + MagicLink + Skills triggers + Twin auto-skill chip all visually verified. Minor: post-magic-link auth refresh flash."
+  },
+  "test_credentials": "FE test user A: session=tk_fe_1782536783060, user_id=test-user-fe-1782536783060, email=fe.a.1782536783060@example.com. Backend-test users self-seed via _now()-based ids per session.",
+  "seed_data_creation": "Seeded for FE tests: 1 paid payment_transactions row (session_id=cs_test_fe_seeded_1782536783014) + 1 buyer user (u_fe_4417371191) + companion device + download_token=dl_fe_22c505237718ae2040a30f327e8e + magic_token=ml_fe_146af8c490d0eb6ee74995ded3f. Separately a fully-onboarded test user (FE A) with onboarded=true. The backend pytest seeds additional TEST_ prefixed users + paid txns per test class.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration-12 backend regression lives at /app/backend/tests/test_iteration12_billing_skills.py (19 tests, all pass <15s). Re-run with REACT_APP_BACKEND_URL + MONGO_URL env. The TestFulfillment class seeds its OWN paid payment_transactions rows directly because real Stripe payment cannot be simulated server-side — DO NOT try to drive the real Stripe Checkout to completion. Magic-link valid token consumes successfully and returns session_token + sets samesite=none cookie. Twin SSE expects {conversation_id, message} payload, NOT {text} — important for any new twin tests. For frontend mocking of the success-paid state, use playwright's page.route to intercept /api/billing/status/** and return {paid:true, download_url, login_url, ...} (since /billing/status normally pulls live status from Stripe which won't be 'paid' for seeded txns).",
+  "rca_of_the_issue": "No new critical bugs in iteration-12 backend; all 19 endpoint+behavioral assertions pass on real services. One client-side UX issue noted: MagicLink.jsx stores session_token in localStorage and navigates to /today, but AuthProvider doesn't re-call /api/auth/me, so the first render of /today briefly shows the Login route until a refresh. Backend magic-link consumption works (200 + cookie + valid session_token persisted). Recommend post-consume: setUser(data.user) on the auth context OR call auth refresh before nav."
+}
