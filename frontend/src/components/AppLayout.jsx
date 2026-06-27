@@ -24,6 +24,7 @@ import {
   Wrench,
 } from "lucide-react";
 import QuickCapture from "./QuickCapture";
+import TourOverlay from "./TourOverlay";
 import { useAuth } from "../lib/auth";
 
 const navItems = [
@@ -154,6 +155,7 @@ export default function AppLayout() {
         </div>
         <Outlet />
       </motion.main>
+      <TourOverlay />
     </div>
   );
 }

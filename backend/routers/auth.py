@@ -92,7 +92,17 @@ async def me(user: dict = Depends(get_current_user)):
         "brand_tagline": user.get("brand_tagline") or "",
         "brand_signoff": user.get("brand_signoff") or "",
         "active_persona_id": user.get("active_persona_id") or None,
+        "tour_completed": bool(user.get("tour_completed", False)),
     }
+
+
+@router.post("/me/tour-complete")
+async def complete_tour(user: dict = Depends(get_current_user)):
+    """Mark the first-run welcome tour as seen. Idempotent."""
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$set": {"tour_completed": True}}
+    )
+    return {"tour_completed": True}
 
 
 class PreferencesUpdate(BaseModel):
