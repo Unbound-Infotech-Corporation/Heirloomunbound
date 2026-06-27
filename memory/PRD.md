@@ -77,6 +77,11 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 13 — Feb 27, 2026 (branded OG image)
+- ✅ **Custom 1200×630 OG image** at `/og-image.jpg` (139KB). Composed via Pillow: dark library photograph + warm gradient overlay + the cyan Unbound "U" logo (black background extracted to alpha so it sits cleanly on the gradient) + accent overline ("AN UNBOUND INFOTECH PRODUCT · est. 2026 · heirloom.app") + Liberation-Serif "Heirloom" wordmark + two-line accent-colored tagline + sub-description + a measured-to-fit "$79 · LIFETIME · NO SUBSCRIPTION" pill chip.
+- ✅ **Full OG + Twitter card meta** in `index.html`: `og:image`, `og:image:width=1200`, `og:image:height=630`, `og:image:alt`, `twitter:image`. JSON-LD `SoftwareApplication.image` already pointed here — now the file exists.
+- ✅ Compose script saved to `/app/frontend/scripts/build_og_image.py` for future iterations.
+
 ### Phase 12 — Feb 27, 2026 (JSON-LD structured data)
 - ✅ Added a 3-entity `@graph` JSON-LD block to `index.html` head: `Organization` (Unbound Infotech), `WebSite` (Heirloom), and `SoftwareApplication` (Heirloom) with full `Offer` ($79 USD lifetime), 7 `featureList` items, `applicationCategory`, and operating systems. All three entities are cross-referenced via `@id`. Makes Heirloom eligible for Google rich results (price snippet, software-app card, knowledge-graph entity for "Unbound Infotech"). No synthetic `aggregateRating` (would violate Google's structured-data policy).
 
