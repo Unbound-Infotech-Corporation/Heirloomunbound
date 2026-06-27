@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { CheckCircle2, Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";

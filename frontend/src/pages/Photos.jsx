@@ -2,6 +2,59 @@ import { useEffect, useRef, useState } from "react";
 import { Image as ImageIcon, Loader2, Trash2, Upload as UploadIcon } from "lucide-react";
 import { api, API_BASE } from "../lib/api";
 
+function PhotoCard({ p, onRemove }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    let createdUrl = null;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/photos/${p.photo_id}/file`, { credentials: "include" });
+        const blob = await res.blob();
+        if (cancelled) return;
+        createdUrl = URL.createObjectURL(blob);
+        setSrc(createdUrl);
+      } catch (e) {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [p.photo_id]);
+
+  return (
+    <div className="surface overflow-hidden group" data-testid={`photo-${p.photo_id}`}>
+      <div className="aspect-[4/3] relative" style={{ background: "var(--bg-base)" }}>
+        {src ? (
+          <img src={src} alt={p.caption} className="w-full h-full object-cover" />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <ImageIcon className="h-6 w-6" style={{ color: "var(--text-muted)" }} />
+          </div>
+        )}
+        <button
+          onClick={() => onRemove(p.photo_id)}
+          data-testid={`delete-photo-${p.photo_id}`}
+          className="absolute top-2 right-2 p-1.5 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ background: "rgba(18,17,16,0.7)" }}
+        >
+          <Trash2 className="h-4 w-4" style={{ color: "var(--text-primary)" }} />
+        </button>
+      </div>
+      <div className="p-4">
+        <div className="font-serif text-base leading-snug mb-1" style={{ color: "var(--text-primary)" }}>
+          {p.caption || "Untitled"}
+        </div>
+        <div className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
+          {p.taken_at || new Date(p.created_at).toLocaleDateString()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Photos() {
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -57,59 +110,6 @@ export default function Photos() {
     if (!window.confirm("Remove this photo?")) return;
     await api.delete(`/photos/${id}`);
     load();
-  };
-
-  const PhotoCard = ({ p }) => {
-    const [src, setSrc] = useState(null);
-    useEffect(() => {
-      let cancelled = false;
-      let createdUrl = null;
-      (async () => {
-        try {
-          const res = await fetch(`${API_BASE}/photos/${p.photo_id}/file`, { credentials: "include" });
-          const blob = await res.blob();
-          if (cancelled) return;
-          createdUrl = URL.createObjectURL(blob);
-          setSrc(createdUrl);
-        } catch (e) {
-          /* ignore */
-        }
-      })();
-      return () => {
-        cancelled = true;
-        if (createdUrl) URL.revokeObjectURL(createdUrl);
-      };
-    }, [p.photo_id]);
-
-    return (
-      <div className="surface overflow-hidden group" data-testid={`photo-${p.photo_id}`}>
-        <div className="aspect-[4/3] relative" style={{ background: "var(--bg-base)" }}>
-          {src ? (
-            <img src={src} alt={p.caption} className="w-full h-full object-cover" />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <ImageIcon className="h-6 w-6" style={{ color: "var(--text-muted)" }} />
-            </div>
-          )}
-          <button
-            onClick={() => remove(p.photo_id)}
-            data-testid={`delete-photo-${p.photo_id}`}
-            className="absolute top-2 right-2 p-1.5 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ background: "rgba(18,17,16,0.7)" }}
-          >
-            <Trash2 className="h-4 w-4" style={{ color: "var(--text-primary)" }} />
-          </button>
-        </div>
-        <div className="p-4">
-          <div className="font-serif text-base leading-snug mb-1" style={{ color: "var(--text-primary)" }}>
-            {p.caption || "Untitled"}
-          </div>
-          <div className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
-            {p.taken_at || new Date(p.created_at).toLocaleDateString()}
-          </div>
-        </div>
-      </div>
-    );
   };
 
   return (
@@ -203,7 +203,7 @@ export default function Photos() {
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {photos.map((p) => (
-            <PhotoCard key={p.photo_id} p={p} />
+            <PhotoCard key={p.photo_id} p={p} onRemove={remove} />
           ))}
         </div>
       )}

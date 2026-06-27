@@ -8,6 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
 from deps import db  # noqa: F401  -- ensures Mongo client is initialised early
+from db_indexes import ensure_indexes
 from routers import (
     archive,
     auth,
@@ -48,6 +49,7 @@ app = FastAPI(title="Digital Heirloom — AI Twin", version="0.3.0")
 @app.on_event("startup")
 async def _startup():
     init_storage()
+    await ensure_indexes()
 
 
 api_router = APIRouter(prefix="/api")
