@@ -73,8 +73,13 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Brand Kit** (Settings → Brand kit) — `brand_name`, `brand_tagline`, `brand_signoff` fields on the user; injected into the twin's system prompt as a "BRAND VOICE" section so all replies stay consistent.
 - ✅ **Personas** (`routers/personas.py` + Settings → Personas) — switchable twin modes ("Family", "Professional", "Customer Support"). Each persona contributes a system_addendum + extra_safe_topics that compose on top of the base prompt. At most one persona active per user; default = none = full archive.
 
+### Phase 7 — Feb 27, 2026 (D-ID talking-head avatar)
+- ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
+- ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
+
 ## Backend test results
 - iteration_12.json: 18 / 18 backend tests pass for Stripe checkout + auto-skill triggers.
+- iteration_13.json: 11 / 11 D-ID avatar backend tests pass (real D-ID render completed in ~95s with valid .mp4). Frontend Twin "Play as video" + Settings avatar URL + 6 regression pages all green.
 - Phase-6 smoke test: 8 / 8 endpoints green (brand kit save+load, persona create/activate/list/deactivate/delete, tts_language save). Frontend lint clean.
 
 ## Prioritized backlog (next phases)
