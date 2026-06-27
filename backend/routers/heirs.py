@@ -10,6 +10,7 @@ Release workflow:
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -162,6 +163,21 @@ async def _do_release(heir: dict) -> str:
             "release_token": token,
         }},
     )
+    # Fire-and-forget the heir release email
+    if heir.get("email"):
+        try:
+            from email_service import send_heir_release_email
+            owner = await db.users.find_one({"user_id": heir["user_id"]}, {"name": 1, "_id": 0}) or {}
+            frontend = os.environ.get("PUBLIC_FRONTEND_URL", "").rstrip("/")
+            portal_url = f"{frontend}/heir/{token}" if frontend else f"/heir/{token}"
+            await send_heir_release_email(
+                to=heir["email"],
+                heir_name=heir.get("name", ""),
+                owner_name=owner.get("name", ""),
+                portal_url=portal_url,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[heir release] email send failed for {heir.get('email')}: {exc}")
     return token
 
 

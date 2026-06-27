@@ -785,8 +785,94 @@ export default function Settings() {
       </button>
 
       <DIdKeySection />
+      <EmailSection />
       <DangerZone />
     </div>
+  );
+}
+
+function EmailSection() {
+  const [info, setInfo] = useState(null);
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/email/status");
+        setInfo(data);
+      } catch { /* noop */ }
+    })();
+  }, []);
+  const sendTest = async () => {
+    if (!to.includes("@")) {
+      toast.error("Enter a real email address first");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await api.post("/email/test", { to });
+      toast.success(`Email sent (id ${data.id?.slice(0, 8) || "—"}). Check your inbox.`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Send failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!info) return null;
+  return (
+    <section className="surface p-8 mt-10" data-testid="settings-email-section">
+      <div className="overline mb-2">delivery · resend</div>
+      <h2 className="font-serif text-2xl font-light mb-3" style={{ color: "var(--text-primary)" }}>
+        Transactional email
+      </h2>
+      <p className="text-sm mb-4 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        Sent automatically after Stripe checkout (welcome + magic link) and when an heir is released.
+        Status:{" "}
+        {info.configured
+          ? <span style={{ color: "var(--accent)" }}>connected</span>
+          : <span style={{ color: "#c95a5a" }}>not configured</span>}
+        {info.configured && (
+          <> · from <code className="font-mono">{info.sender_email}</code></>
+        )}
+      </p>
+      {info.test_mode && (
+        <p className="text-xs mb-4 leading-relaxed p-3 rounded-sm" style={{
+          background: "rgba(212,163,115,0.06)", border: "1px solid var(--accent-muted)", color: "var(--text-muted)",
+        }}>
+          <b style={{ color: "var(--accent)" }}>Test mode</b> — using Resend&apos;s shared{" "}
+          <code className="font-mono">onboarding@resend.dev</code> sender. In this mode emails only deliver to the
+          inbox that owns your Resend account. To send to real customers, verify a domain at{" "}
+          <a href="https://resend.com/domains" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
+            resend.com/domains
+          </a>{" "}
+          and update <code className="font-mono">SENDER_EMAIL</code> in your backend env.
+        </p>
+      )}
+      {info.configured && (
+        <div className="flex flex-wrap gap-3 items-center">
+          <input
+            type="email"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="recipient@example.com"
+            data-testid="email-test-input"
+            className="flex-1 min-w-[260px] px-3 py-2 text-sm rounded-sm"
+            style={{
+              background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)",
+            }}
+          />
+          <button
+            onClick={sendTest}
+            disabled={busy || !to}
+            data-testid="email-test-send"
+            className="px-4 py-2 text-sm rounded-sm disabled:opacity-50"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          >
+            {busy ? "Sending…" : "Send a test welcome email"}
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
 

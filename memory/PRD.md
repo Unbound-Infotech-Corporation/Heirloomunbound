@@ -77,6 +77,53 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 15 — Feb 27, 2026 (Resend transactional email)
+The last operational blocker to selling. Without this, paying customers complete Stripe checkout and never receive their magic link.
+
+- ✅ **`email_service.py`** — async wrapper around the Resend Python SDK using `asyncio.to_thread` so FastAPI never blocks. Two production templates:
+  - `send_magic_link_email(to, name, login_url, download_url, backend_url)` — sent after Stripe checkout, includes signin link + Windows download
+  - `send_heir_release_email(to, heir_name, owner_name, portal_url)` — sent when an heir is released
+- ✅ Both templates use inline-CSS + table-based dark-library aesthetic that renders consistently across Gmail, Outlook, Apple Mail, and mobile clients.
+- ✅ **Wired into `_provision_after_payment`** in `billing.py` — fires the welcome email immediately after Stripe webhook completion. Non-blocking; if Resend is down, the user still sees the in-page magic link on `/buy/success`.
+- ✅ **Wired into `_do_release`** in `heirs.py` — fires the heir-release email both for manual `release-now` and automatic `check-releases` triggers.
+- ✅ `POST /api/email/test` + `GET /api/email/status` — owner-only endpoints. Settings page renders a `[data-testid=settings-email-section]` block showing connection state, sender, test-mode warning (when using `onboarding@resend.dev`), and a "Send a test welcome email" button.
+- ✅ **Live verified end-to-end**: real Resend send to the account-owner email returned id `689a8291…` (welcome) and `e544e41e…` (heir release). Quota usage tracked: 8 of 10 daily remaining on test-mode shared sender.
+
+**To unlock real customer email**: Verify a domain at resend.com/domains, then change `SENDER_EMAIL` in `backend/.env` from `onboarding@resend.dev` to e.g. `noreply@heirloom.app`. While in test-mode, only the account-owner inbox receives emails.
+
+### Phase 14 — Feb 27, 2026 (pre-sale hardening + mobile sweep)
+This phase makes Heirloom legally and operationally ready to charge real customers, and usable on a phone.
+
+**Legal & trust pages**
+- ✅ `/privacy`, `/terms`, `/refunds`, `/support` — full markup-styled pages with unique `<title>` and `<meta description>` via `usePageMeta`. Each page has the same dark-library aesthetic and a "back to Heirloom" link.
+- ✅ **Site-wide footer** (`components/SiteFooter.jsx`) appears on every authenticated route + Landing — links to Privacy, Terms, Refunds, Support, and `mailto:support@heirloom.app`.
+
+**Account & data ownership**
+- ✅ `DELETE /api/auth/me?confirm=DELETE` — hard-deletes the user document and **every artifact across 20 collections** (entries, conversations, photos, companion_devices, companion_commands, skills, heirs, letters, memories, identity_facts, personas, reminders, nudges, imports, sources, elevenlabs_settings, avatar_talks, magic_links, checkout_sessions, user_sessions). Writes a `deletion_log` entry for fraud/tax retention. Session cookie cleared. Without the `confirm=DELETE` query param → 400.
+- ✅ **Settings → Danger Zone** UI: `prompt()` asks the user to type `DELETE` before calling the endpoint. After success, redirect to `/`. Other test users remain untouched (isolation verified).
+
+**Business-model: BYO API key**
+- ✅ `PUT /api/avatar/api-key` saves a user's personal D-ID key to `users.d_id_api_key`, returns a masked preview. `DELETE /api/avatar/api-key` clears it. `GET /api/avatar/me` now reports `has_personal_key` + `masked_key`.
+- ✅ `avatar.py::_user_d_id_key()` helper — uses the user's personal key when present, falls back to the platform default. Means D-ID render costs come out of the customer's account, protecting our margin on the $79 lifetime.
+- ✅ Settings → "Bring your own D-ID key" section with a password input, masked-key display, and Remove button.
+
+**Companion auto-update**
+- ✅ `/api/companion/poll` response now includes `script_version`. `_build_companion_script` injects a `SCRIPT_VERSION` constant. The companion's `poll_loop` calls `_check_and_self_update()` on every cycle — if the server version differs, it re-downloads `/public-script`, writes itself to disk, and `os.execv`s into the new script. Customers on old installs auto-upgrade within minutes of a deploy. Backup `.bak` is kept for safety.
+
+**Mobile responsiveness**
+- ✅ **AppLayout rewritten** with a slide-in mobile drawer. Desktop sidebar uses `hidden lg:flex`. Mobile shows a sticky top bar with hamburger button + brand + user avatar. Tapping the hamburger opens a `translate-x-0` drawer; tapping the scrim, pressing Escape, tapping the X button, or selecting a nav link all close it. ESC keypress wired; route-change auto-closes.
+- ✅ **19 pages updated**: all `px-10 lg:px-16` patterns rewritten to `px-4 sm:px-8 lg:px-16` (16px mobile / 32px tablet / 64px desktop) so phones don't waste 40px of padding on each side.
+- ✅ Mobile-tested: `/`, `/login`, `/buy`, `/twin`, `/dashboard` all show 0px horizontal overflow at 390×844 viewport.
+
+**Removed**
+- ✅ Emergent's default PostHog tracker stripped from `index.html` (was sending analytics to Emergent's account, not ours).
+
+## Backend test results
+- iteration_15.json: **100% (10/10 + frontend all green)** — pre-sale hardening + mobile sweep regression. Account-deletion cascade across 20 collections + isolation, BYO D-ID key roundtrip + masking, companion script_version + auto-update mechanism, all 4 legal pages, footer rendering, mobile-drawer open/scrim-close/ESC-close/nav-tap-close, desktop sidebar regression. Zero open issues.
+- iteration_14.json: 52 / 52 PRE-LAUNCH REGRESSION tests pass + 15 / 15 SPA routes load with zero console errors.
+- iteration_13.json: 11 / 11 D-ID avatar backend tests pass + frontend Twin "Play as video" green.
+- iteration_12.json: 18 / 18 Stripe checkout + auto-skill trigger tests pass.
+
 ### Phase 13 — Feb 27, 2026 (branded OG image)
 - ✅ **Custom 1200×630 OG image** at `/og-image.jpg` (139KB). Composed via Pillow: dark library photograph + warm gradient overlay + the cyan Unbound "U" logo (black background extracted to alpha so it sits cleanly on the gradient) + accent overline ("AN UNBOUND INFOTECH PRODUCT · est. 2026 · heirloom.app") + Liberation-Serif "Heirloom" wordmark + two-line accent-colored tagline + sub-description + a measured-to-fit "$79 · LIFETIME · NO SUBSCRIPTION" pill chip.
 - ✅ **Full OG + Twitter card meta** in `index.html`: `og:image`, `og:image:width=1200`, `og:image:height=630`, `og:image:alt`, `twitter:image`. JSON-LD `SoftwareApplication.image` already pointed here — now the file exists.

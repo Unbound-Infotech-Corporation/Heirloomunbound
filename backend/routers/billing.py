@@ -239,6 +239,23 @@ async def _provision_after_payment(session_id: str, status_obj: CheckoutStatusRe
         }},
     )
 
+    # Fire the welcome email. We never block on this — if Resend is down or
+    # the recipient is not on the verified-list yet (test-mode), the user
+    # still has the in-page magic-link on /buy/success.
+    try:
+        from email_service import send_magic_link_email
+        backend_url = os.environ.get("PUBLIC_BACKEND_URL", "").rstrip("/")
+        await send_magic_link_email(
+            to=email,
+            name=user.get("name", ""),
+            login_url=login_url,
+            download_url=download_url,
+            backend_url=backend_url,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Log and move on — the polling path still shows the link in-page.
+        print(f"[fulfillment] email send failed for {email}: {exc}")
+
     return {"download_url": download_url, "login_url": login_url, "email": email}
 
 
