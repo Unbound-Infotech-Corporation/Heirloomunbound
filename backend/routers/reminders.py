@@ -95,7 +95,9 @@ async def update_reminder(reminder_id: str, payload: ReminderUpdate, user: dict 
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Reminder not found")
-    doc = await db.reminders.find_one({"reminder_id": reminder_id}, {"_id": 0})
+    doc = await db.reminders.find_one(
+        {"reminder_id": reminder_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
     return doc
 
 

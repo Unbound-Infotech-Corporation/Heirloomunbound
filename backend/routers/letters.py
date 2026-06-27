@@ -132,8 +132,12 @@ async def update_letter(
             raise HTTPException(status_code=404, detail="Recipient heir not found")
 
     update["updated_at"] = _now_iso()
-    await db.sealed_letters.update_one({"letter_id": letter_id}, {"$set": update})
-    doc = await db.sealed_letters.find_one({"letter_id": letter_id}, {"_id": 0})
+    await db.sealed_letters.update_one(
+        {"letter_id": letter_id, "user_id": user["user_id"]}, {"$set": update}
+    )
+    doc = await db.sealed_letters.find_one(
+        {"letter_id": letter_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
     return doc
 
 
@@ -145,7 +149,9 @@ async def seal_letter(letter_id: str, user: dict = Depends(get_current_user)):
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Letter not found or already sealed")
-    doc = await db.sealed_letters.find_one({"letter_id": letter_id}, {"_id": 0})
+    doc = await db.sealed_letters.find_one(
+        {"letter_id": letter_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
     return doc
 
 
@@ -159,9 +165,12 @@ async def unseal_letter(letter_id: str, user: dict = Depends(get_current_user)):
     if existing.get("delivered"):
         raise HTTPException(status_code=400, detail="Letter has already been delivered; cannot unseal")
     await db.sealed_letters.update_one(
-        {"letter_id": letter_id}, {"$set": {"sealed": False, "updated_at": _now_iso()}}
+        {"letter_id": letter_id, "user_id": user["user_id"]},
+        {"$set": {"sealed": False, "updated_at": _now_iso()}},
     )
-    doc = await db.sealed_letters.find_one({"letter_id": letter_id}, {"_id": 0})
+    doc = await db.sealed_letters.find_one(
+        {"letter_id": letter_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
     return doc
 
 
@@ -174,5 +183,7 @@ async def delete_letter(letter_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Letter not found")
     if existing.get("delivered"):
         raise HTTPException(status_code=400, detail="Cannot delete a delivered letter")
-    await db.sealed_letters.delete_one({"letter_id": letter_id})
+    await db.sealed_letters.delete_one(
+        {"letter_id": letter_id, "user_id": user["user_id"]}
+    )
     return {"ok": True}

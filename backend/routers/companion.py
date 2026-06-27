@@ -149,7 +149,7 @@ async def poll(ctx: dict = Depends(get_device_user)):
         reminder_commands.append(cmd)
         # Mark delivered so we don't repeat-fire
         await db.reminders.update_one(
-            {"reminder_id": rem["reminder_id"]},
+            {"reminder_id": rem["reminder_id"], "user_id": user["user_id"]},
             {"$set": {"delivered_at": now_iso}},
         )
     return {
@@ -290,7 +290,7 @@ Your personality archive:
     # 5) Persist turns
     now_iso = datetime.now(timezone.utc).isoformat()
     await db.conversations.update_one(
-        {"conversation_id": conv["conversation_id"]},
+        {"conversation_id": conv["conversation_id"], "user_id": conv["user_id"]},
         {
             "$push": {
                 "messages": {

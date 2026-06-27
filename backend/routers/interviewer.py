@@ -153,7 +153,7 @@ async def send_message(payload: MessageRequest, user: dict = Depends(get_current
             "ts": datetime.now(timezone.utc).isoformat(),
         }
         await db.conversations.update_one(
-            {"conversation_id": payload.conversation_id},
+            {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},
             {
                 "$push": {"messages": {"$each": [user_turn, assistant_turn]}},
                 "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},

@@ -72,7 +72,9 @@ async def update_skill(skill_id: str, payload: SkillUpdate, user: dict = Depends
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Skill not found")
-    doc = await db.skills.find_one({"skill_id": skill_id}, {"_id": 0})
+    doc = await db.skills.find_one(
+        {"skill_id": skill_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
     return doc
 
 

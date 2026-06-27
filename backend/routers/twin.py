@@ -199,7 +199,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
 
         now_iso = datetime.now(timezone.utc).isoformat()
         await db.conversations.update_one(
-            {"conversation_id": payload.conversation_id},
+            {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},
             {
                 "$push": {"messages": {"$each": [
                     {"role": "user", "content": payload.message, "ts": now_iso},
@@ -252,7 +252,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
 
         now_iso = datetime.now(timezone.utc).isoformat()
         await db.conversations.update_one(
-            {"conversation_id": payload.conversation_id},
+            {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},
             {
                 "$push": {"messages": {"$each": [
                     {"role": "user", "content": payload.message, "ts": now_iso},
@@ -340,7 +340,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             return
 
         await db.conversations.update_one(
-            {"conversation_id": payload.conversation_id},
+            {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},
             {
                 "$push": {
                     "messages": {

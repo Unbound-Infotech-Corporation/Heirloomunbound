@@ -100,7 +100,7 @@ async def trigger_local_sync(source_id: str, user: dict = Depends(get_current_us
         }
     )
     await db.sources.update_one(
-        {"source_id": source_id}, {"$set": {"status": "syncing"}}
+        {"source_id": source_id, "user_id": user["user_id"]}, {"$set": {"status": "syncing"}}
     )
     return {"cmd_id": cmd_id, "ok": True}
 
@@ -266,7 +266,7 @@ async def upload_to_source(
         extracted_total += await _extract_with_claude(user["user_id"], source_id, chunk, label)
 
     await db.sources.update_one(
-        {"source_id": source_id},
+        {"source_id": source_id, "user_id": user["user_id"]},
         {
             "$set": {"last_synced_at": _now(), "status": "idle"},
             "$inc": {"imported_count": extracted_total},

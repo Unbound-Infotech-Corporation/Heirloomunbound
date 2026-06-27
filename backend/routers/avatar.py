@@ -172,7 +172,9 @@ async def poll_talk(talk_id: str, user: dict = Depends(get_current_user)):
     update = {"status": status, "updated_at": _now_iso()}
     if result_url:
         update["result_url"] = result_url
-    await db.avatar_talks.update_one({"talk_id": talk_id}, {"$set": update})
+    await db.avatar_talks.update_one(
+        {"talk_id": talk_id, "user_id": user["user_id"]}, {"$set": update}
+    )
 
     return {
         "talk_id": talk_id,

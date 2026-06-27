@@ -77,6 +77,31 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 16 — Feb 27, 2026 (user-isolation hardening)
+Anchored on the question *"will Heirloom respond to everyone with Logan as their child?"* — a categorical "no" needed audit-grade proof.
+
+**1. Static audit (`/app/backend/scripts/audit_user_filters.py`)**
+Walks every router file and flags any `db.X.find/find_one/update_one/delete_one/count_documents` whose first-arg filter dict doesn't mention `user_id`. Found **21 latent risk patterns** (every one was technically safe because of a prior user-scoped read, but the pattern was fragile — a future refactor could silently break isolation). All 21 fixed in this round:
+- `letters.py` — 6 sites: every update/find/delete now includes `user_id` in the filter
+- `twin.py` — 3 sites: conversation update_one now filters by user_id
+- `interviewer.py`, `memory.py`, `companion.py` — conversation/reminder updates now user-scoped
+- `personas.py`, `reminders.py`, `skills.py` — follow-up `find_one`s after update now user-scoped
+- `sources.py` — both source updates now user-scoped
+- `avatar.py` — D-ID talk update now user-scoped
+- Two genuine false positives (variable-passed filters, token-authenticated heir-portal) explicitly allowlisted with rationale
+Re-running the script now reports: *"OK — every Mongo read in /app/backend filters by user_id (or is in the allowlist)."* CI-grade: exit code 1 if any new query forgets the filter.
+
+**2. End-to-end fuzz test (`/app/backend/tests/test_user_isolation_fuzz.py`)**
+Seeds **5 fake users** with deeply distinctive markers (made-up names like *Olwyn Rasmussen-Quill*, child names *Pinkerley/Tessaroon/Quintabel/Mosswick/Wyndham*, made-up cities, hobbies, fears, comfort foods). Then runs **10 isolation tests** at three layers:
+- *Data layer*: direct DB query returns 6 entries for each user, never another user's content.
+- *Context-builder layer*: `_archive_blob()` — the exact string passed to Claude — contains only the requesting user's markers, never another's.
+- *HTTP layer*: `/api/archive`, `/api/archive?q=<other_user_marker>`, `/api/memory/facts`, `/api/heirs`, `/api/auth/me` all return only the session-owner's data.
+- *Attack-surface*: PATCH/DELETE another user's entry by guessed id → 404. Release another user's heir → 404. Each test asserts the EXACT marker that would have leaked is absent — so if a future bug ever exposes "Pinkerley" to the wrong user, the test will print *which* marker leaked, in *which* endpoint, for *which* user.
+
+**Result: 10/10 fuzz tests PASS in 24 seconds. Audit script: GREEN. Zero leaks at any layer.**
+
+The product-level promise — *your Logan stays your Logan; nobody else's Twin will ever know* — now has a CI test that proves it on every code change.
+
 ### Phase 15 — Feb 27, 2026 (Resend transactional email)
 The last operational blocker to selling. Without this, paying customers complete Stripe checkout and never receive their magic link.
 

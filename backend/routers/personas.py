@@ -103,7 +103,9 @@ async def update_persona(
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Persona not found")
-    doc = await db.personas.find_one({"persona_id": persona_id}, {"_id": 0})
+    doc = await db.personas.find_one(
+        {"persona_id": persona_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
     return doc
 
 

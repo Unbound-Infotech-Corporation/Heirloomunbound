@@ -193,7 +193,7 @@ async def maybe_summarise_episode(user_id: str, conversation_id: str) -> Optiona
         "created_at": _now_iso(),
     })
     await db.conversations.update_one(
-        {"conversation_id": conversation_id},
+        {"conversation_id": conversation_id, "user_id": user_id},
         {"$set": {"summarised_through": len(msgs)}},
     )
     return summary
