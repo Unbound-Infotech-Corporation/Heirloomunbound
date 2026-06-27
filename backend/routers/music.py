@@ -53,6 +53,18 @@ PROVIDERS = {
         "name": "Amazon Music",
         "search_url": "https://music.amazon.com/search/{q}",
     },
+    "tidal": {
+        "name": "Tidal",
+        "search_url": "https://tidal.com/browse/search?q={q}",
+    },
+    "deezer": {
+        "name": "Deezer",
+        "search_url": "https://www.deezer.com/search/{q}",
+    },
+    "pandora": {
+        "name": "Pandora",
+        "search_url": "https://www.pandora.com/search/{q}/all",
+    },
     "soundcloud": {
         "name": "SoundCloud",
         "search_url": "https://soundcloud.com/search?q={q}",

@@ -164,7 +164,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         if result["queued"]:
             reply = f"Putting on {music_query} for you on {result['provider_name']}."
         else:
-            reply = f"No companion PC is connected, but here's {music_query} on {result['provider_name']}: {result['url']}"
+            reply = f"No companion PC is connected — opening {music_query} on {result['provider_name']} in your browser."
 
         now_iso = datetime.now(timezone.utc).isoformat()
         await db.conversations.update_one(

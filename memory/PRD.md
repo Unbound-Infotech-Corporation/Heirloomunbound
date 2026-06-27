@@ -62,8 +62,13 @@ Researched competitor matrix (HereAfter AI, Eternos, Replika 2026, Personal AI, 
 - ✅ **Safe-Topic Fence** (Settings → safe-topic-fence) — owner adds topics to politely decline. Applied to `_build_twin_system` so both `/twin/chat` AND the public heir portal respect the fence.
 - ✅ **TTS language preference** scaffold (`/api/auth/me/preferences` accepts `tts_language`) — wiring ready for ElevenLabs Multilingual v2 selector.
 
+### Phase 5 — Feb 26, 2026 (long-term memory + music control)
+- ✅ **Long-term memory architecture** (`routers/memory.py`): identity facts (stable claims auto-extracted from the archive via Claude, cached, refresh when archive grows by 5+ entries) AND episodic summaries (twin auto-summarises a conversation after 12+ messages and stores it). Both are injected into the twin's system prompt BEFORE the per-turn archive excerpts — the twin no longer dumps the whole archive each turn.
+- ✅ **What I Hold Onto** UI on `/personality` — each fact is removable (X button), instantly stops appearing in the twin's prompt. Closes the Vellum/OpenClaw/Replika-2026 memory gap.
+- ✅ **Music control via the twin**: `routers/music.py` with 9 deep-link providers (YouTube Music, YouTube, Spotify, Apple Music, Amazon Music, Tidal, Deezer, Pandora, SoundCloud) + deterministic intent detection (`play X`, `put on X`, `queue up X`, `play song X`, `play music video of X`) that short-circuits before the LLM. When triggered, queues an `open_url` command on the user's active companion PC so playback opens in their browser/app. Twin replies with an inline music chip rendered on the chat page. User picks default provider in Settings.
+
 ## Backend test results
-- iteration_10.json: 17 / 17 backend tests pass (real Claude calls). All 4 features verified visually + by testid. Multi-user isolation re-verified.
+- iteration_11.json: 18/18 backend tests pass. Memory facts, episodes, caching, multi-user isolation, music regex (10/10 cases), companion command queue, twin SSE short-circuit (<3s, no Claude) — all green.
 
 ## Prioritized backlog (next phases)
 
