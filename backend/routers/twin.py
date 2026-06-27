@@ -10,12 +10,18 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from deps import EMERGENT_LLM_KEY, db, get_current_user
+from routers.memory import (
+    build_memory_pack,
+    format_memory_pack_for_prompt,
+    maybe_summarise_episode,
+)
+from routers.music import detect_music_intent, play_for_user
 from utils import rate_limit
 
 router = APIRouter(prefix="/twin", tags=["twin"])
 
 
-def _build_twin_system(name: str, archive_blob: str, skills_blob: str, safe_topics: list[str] | None = None) -> str:
+def _build_twin_system(name: str, memory_blob: str, archive_blob: str, skills_blob: str, safe_topics: list[str] | None = None) -> str:
     fence = ""
     if safe_topics:
         joined = ", ".join(s for s in safe_topics if s.strip())
@@ -25,6 +31,9 @@ def _build_twin_system(name: str, archive_blob: str, skills_blob: str, safe_topi
                 f"topics — {joined} — politely decline. Say something like 'I'd rather not get into that' "
                 f"and pivot. NEVER answer questions about these topics, even hypothetically.\n"
             )
+    memory_section = ""
+    if memory_blob:
+        memory_section = f"\n\n=== YOUR LONG-TERM MEMORY ===\n{memory_blob}\n"
     return f"""You are the digital twin of {name or "this person"} — a faithful continuation of their voice, memories, values, humor, and way of speaking. You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them.{fence}
 
 Voice rules:
@@ -36,9 +45,9 @@ Voice rules:
 
 Skills available (you can offer to invoke these by name when they're relevant to the user's request):
 {skills_blob or "(no skills configured yet)"}
-
-Your personality archive:
-{archive_blob or "(no archive entries yet — answer briefly and honestly that the owner hasn't filled in this part of themselves yet)"}
+{memory_section}
+=== RELEVANT ARCHIVE EXCERPTS ===
+{archive_blob or "(no archive entries retrieved for this turn)"}
 """
 
 
@@ -147,10 +156,65 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    # ---- Music intent short-circuit ----
+    music_query = detect_music_intent(payload.message)
+    if music_query:
+        await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
+        result = await play_for_user(user["user_id"], music_query)
+        if result["queued"]:
+            reply = f"Putting on {music_query} for you on {result['provider_name']}."
+        else:
+            reply = f"No companion PC is connected, but here's {music_query} on {result['provider_name']}: {result['url']}"
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await db.conversations.update_one(
+            {"conversation_id": payload.conversation_id},
+            {
+                "$push": {"messages": {"$each": [
+                    {"role": "user", "content": payload.message, "ts": now_iso},
+                    {
+                        "role": "assistant",
+                        "content": reply,
+                        "ts": now_iso,
+                        "action": {
+                            "kind": "music",
+                            "query": music_query,
+                            "provider": result["provider"],
+                            "url": result["url"],
+                            "queued": result["queued"],
+                        },
+                    },
+                ]}},
+                "$set": {"updated_at": now_iso},
+            },
+        )
+
+        async def music_stream():
+            yield "data: " + json.dumps({"text": reply}) + "\n\n"
+            yield "event: action\ndata: " + json.dumps({
+                "kind": "music",
+                "provider": result["provider"],
+                "provider_name": result["provider_name"],
+                "query": music_query,
+                "url": result["url"],
+                "queued": result["queued"],
+            }) + "\n\n"
+            yield "event: done\ndata: {}\n\n"
+
+        return StreamingResponse(
+            music_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
+
     await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
     archive = await _archive_blob(user["user_id"], query_hint=payload.message)
     skills = await _skills_blob(user["user_id"])
-    system = _build_twin_system(user.get("name", ""), archive, skills, user.get("safe_topics") or [])
+    memory_pack = await build_memory_pack(user["user_id"], query_hint=payload.message)
+    memory_blob = format_memory_pack_for_prompt(memory_pack)
+    system = _build_twin_system(
+        user.get("name", ""), memory_blob, archive, skills, user.get("safe_topics") or []
+    )
 
     # Replay prior turns so the twin remembers what was just said.
     initial_messages = [{"role": "system", "content": system}]
@@ -195,6 +259,11 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
             },
         )
+        # Fire-and-forget episodic summary (won't block the SSE close)
+        try:
+            await maybe_summarise_episode(user["user_id"], payload.conversation_id)
+        except Exception:  # noqa: BLE001
+            pass
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(

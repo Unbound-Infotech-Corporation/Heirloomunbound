@@ -87,12 +87,14 @@ async def me(user: dict = Depends(get_current_user)):
         "picture": user.get("picture", ""),
         "safe_topics": user.get("safe_topics") or [],
         "tts_language": user.get("tts_language") or "auto",
+        "music_provider": user.get("music_provider") or "youtube_music",
     }
 
 
 class PreferencesUpdate(BaseModel):
     safe_topics: Optional[list[str]] = None
     tts_language: Optional[str] = None  # 'auto', 'en', 'es', 'fr', etc.
+    music_provider: Optional[str] = None  # 'youtube_music' | 'spotify' | ...
 
 
 @router.put("/me/preferences")
@@ -106,6 +108,12 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
         if lang and lang not in {"auto","en","es","fr","de","it","pt","pl","hi","ja","ko","zh","nl","sv","no","da","fi","cs","tr","ru","ar"}:
             raise HTTPException(status_code=400, detail="Unsupported language code")
         update["tts_language"] = lang or "auto"
+    if payload.music_provider is not None:
+        from routers.music import PROVIDERS, DEFAULT_PROVIDER
+        prov = payload.music_provider.strip().lower()
+        if prov and prov not in PROVIDERS:
+            raise HTTPException(status_code=400, detail=f"Unknown music provider. Choose from {list(PROVIDERS)}")
+        update["music_provider"] = prov or DEFAULT_PROVIDER
     if not update:
         raise HTTPException(status_code=400, detail="No preferences provided")
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
@@ -113,6 +121,7 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
     return {
         "safe_topics": refreshed.get("safe_topics") or [],
         "tts_language": refreshed.get("tts_language") or "auto",
+        "music_provider": refreshed.get("music_provider") or "youtube_music",
     }
 
 

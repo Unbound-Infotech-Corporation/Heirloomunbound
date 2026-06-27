@@ -72,6 +72,7 @@ export default function Twin() {
     setStreaming("");
 
     let full = "";
+    let action = null;
     await streamSSE(
       "/twin/message",
       { conversation_id: conv.conversation_id, message: text },
@@ -83,7 +84,7 @@ export default function Twin() {
         const newIdx = (conv.messages?.length || 0) + 1;
         setConv((c) => ({
           ...c,
-          messages: [...c.messages, { role: "assistant", content: full, ts: new Date().toISOString() }],
+          messages: [...c.messages, { role: "assistant", content: full, ts: new Date().toISOString(), action }],
         }));
         setStreaming("");
         setPending(false);
@@ -93,6 +94,11 @@ export default function Twin() {
         console.error(err);
         setStreaming("");
         setPending(false);
+      },
+      (eventName, data) => {
+        if (eventName === "action") {
+          action = data;
+        }
       },
     );
   };
@@ -171,6 +177,27 @@ export default function Twin() {
                 >
                   {m.content}
                 </p>
+                {m.action?.kind === "music" && (
+                  <a
+                    href={m.action.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    data-testid={`twin-music-${i}`}
+                    className="mt-4 inline-flex items-center gap-3 px-4 py-2 text-sm rounded-sm transition-colors"
+                    style={{ background: "var(--accent-muted)", border: "1px solid var(--accent)", color: "var(--text-primary)" }}
+                  >
+                    <span>♪</span>
+                    <span>
+                      <b>{m.action.query}</b> · {m.action.provider_name}
+                      {m.action.queued && (
+                        <span className="ml-2 text-xs italic" style={{ color: "var(--text-muted)" }}>
+                          queued on your PC
+                        </span>
+                      )}
+                    </span>
+                    <span style={{ color: "var(--accent)" }}>↗ open here</span>
+                  </a>
+                )}
               </div>
             ) : (
               <div>

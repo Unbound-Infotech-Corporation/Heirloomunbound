@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, ShieldOff, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { CheckCircle2, Loader2, Music, ShieldOff, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -28,6 +29,8 @@ export default function Settings() {
   const [widgets, setWidgets] = useState({});
   const [safeTopics, setSafeTopics] = useState([]);
   const [newTopic, setNewTopic] = useState("");
+  const [musicProvider, setMusicProvider] = useState("youtube_music");
+  const [musicProviders, setMusicProviders] = useState([]);
 
   const loadSettings = async () => {
     const { data } = await api.get("/voice-clone/settings");
@@ -52,13 +55,33 @@ export default function Settings() {
   const loadPrefs = async () => {
     const { data } = await api.get("/auth/me");
     setSafeTopics(data.safe_topics || []);
+    setMusicProvider(data.music_provider || "youtube_music");
+  };
+  const loadMusicProviders = async () => {
+    try {
+      const { data } = await api.get("/music/providers");
+      setMusicProviders(data.providers || []);
+    } catch {
+      // public endpoint — should always work, but degrade silently
+    }
   };
 
   useEffect(() => {
     loadSettings().then(() => loadVoices());
     loadWidgets();
     loadPrefs();
+    loadMusicProviders();
   }, []);
+
+  const updateMusicProvider = async (val) => {
+    setMusicProvider(val);
+    try {
+      await api.put("/auth/me/preferences", { music_provider: val });
+      toast.success("Music provider updated");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  };
 
   const addTopic = async () => {
     const t = newTopic.trim();
@@ -174,6 +197,34 @@ export default function Settings() {
                 className="h-4 w-4"
               />
             </label>
+          ))}
+        </div>
+      </section>
+
+      {/* Music — default service the twin opens when you say "play X" */}
+      <section className="surface p-7 mb-6" data-testid="music-section">
+        <div className="overline mb-2 flex items-center gap-2">
+          <Music className="h-3.5 w-3.5" /> music
+        </div>
+        <h2 className="font-serif text-2xl mb-2">Where should "play X" go?</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          When you say things like <i>"play me some Pink Floyd"</i> to the twin, it queues an open-URL command on your companion PC for this service. You can override per-request later.
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          {musicProviders.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => updateMusicProvider(p.id)}
+              data-testid={`music-provider-${p.id}`}
+              className="px-4 py-3 text-sm rounded-sm text-left transition-colors"
+              style={{
+                background: musicProvider === p.id ? "var(--accent)" : "var(--bg-base)",
+                color: musicProvider === p.id ? "var(--text-inverse)" : "var(--text-primary)",
+                border: musicProvider === p.id ? "1px solid var(--accent)" : "1px solid var(--border-default)",
+              }}
+            >
+              {p.name}
+            </button>
           ))}
         </div>
       </section>

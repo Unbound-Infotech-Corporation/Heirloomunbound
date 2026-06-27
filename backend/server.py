@@ -19,6 +19,8 @@ from routers import (
     heirs,
     interviewer,
     letters,
+    memory,
+    music,
     nudges,
     onboarding,
     personality,
@@ -73,6 +75,8 @@ api_router.include_router(letters.router)
 api_router.include_router(heir_portal.router)
 api_router.include_router(personality.router)
 api_router.include_router(nudges.router)
+api_router.include_router(memory.router)
+api_router.include_router(music.router)
 
 app.include_router(api_router)
 

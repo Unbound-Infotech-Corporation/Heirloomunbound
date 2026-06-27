@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { RefreshCw, Sparkles, Heart, Users, BookOpen, MessageSquareQuote, Loader2 } from "lucide-react";
+import { RefreshCw, Sparkles, Heart, Users, BookOpen, Brain, MessageSquareQuote, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../lib/api";
 
@@ -15,6 +15,7 @@ export default function Personality() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [facts, setFacts] = useState([]);
 
   const load = async () => {
     setLoading(true);
@@ -26,6 +27,13 @@ export default function Personality() {
     } finally {
       setLoading(false);
     }
+    api.get("/memory/facts").then(({ data }) => setFacts(data.facts || [])).catch(() => {});
+  };
+
+  const removeFact = async (factId) => {
+    await api.delete(`/memory/facts/${factId}`);
+    setFacts((arr) => arr.filter((f) => f.fact_id !== factId));
+    toast.success("Fact removed — your twin won't use it anymore");
   };
 
   const refresh = async () => {
@@ -248,6 +256,43 @@ export default function Personality() {
           <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>
             Drawn from {profile.entry_count} archive {profile.entry_count === 1 ? "entry" : "entries"}, generated {new Date(profile.generated_at).toLocaleString()}.
           </p>
+
+          {/* What the twin holds onto — long-term memory facts */}
+          {facts.length > 0 && (
+            <section className="mt-12" data-testid="personality-facts">
+              <div className="overline mb-4 flex items-center gap-2">
+                <Brain className="h-3.5 w-3.5" /> what i hold onto
+              </div>
+              <h2 className="font-serif text-2xl mb-2">My long-term memory.</h2>
+              <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+                The stable facts the twin keeps in mind during every conversation. If one's wrong, remove it — the twin will stop using it immediately.
+              </p>
+              <div className="space-y-2">
+                {facts.map((f) => (
+                  <div
+                    key={f.fact_id}
+                    className="surface p-4 flex justify-between items-center gap-3"
+                    data-testid={`fact-${f.fact_id}`}
+                  >
+                    <div className="flex-1">
+                      <div className="overline mb-1">{f.kind}</div>
+                      <div className="text-base" style={{ color: "var(--text-primary)" }}>
+                        {f.fact}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeFact(f.fact_id)}
+                      data-testid={`remove-fact-${f.fact_id}`}
+                      title="Remove this fact"
+                      className="p-2"
+                    >
+                      <X className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </>
       )}
     </div>

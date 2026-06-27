@@ -13,7 +13,7 @@ export const api = axios.create({
 // Backend now frames each delta as JSON: `data: {"text": "..."}\n\n` so embedded
 // newlines and brackets survive intact. Errors arrive as `event: error` with
 // JSON `{error}`. `event: done` signals graceful completion.
-export const streamSSE = async (path, payload, onChunk, onDone, onError) => {
+export const streamSSE = async (path, payload, onChunk, onDone, onError, onEvent) => {
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
@@ -55,6 +55,11 @@ export const streamSSE = async (path, payload, onChunk, onDone, onError) => {
           let msg = data;
           try { msg = JSON.parse(data).error || data; } catch (_) {}
           onError && onError(new Error(msg));
+        } else if (eventName) {
+          // Named event (e.g. 'action') — pass parsed JSON to onEvent
+          let parsed = data;
+          try { parsed = JSON.parse(data); } catch (_) {}
+          if (onEvent) onEvent(eventName, parsed);
         } else if (data) {
           // Default event = streaming text delta — JSON-encoded {text}
           let text = data;
