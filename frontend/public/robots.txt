@@ -1,0 +1,33 @@
+# robots.txt for Heirloom by Unbound Infotech
+# https://voice-clone-hub-20.emergent.host
+
+User-agent: *
+Allow: /
+Allow: /login
+Allow: /buy
+
+# Authenticated app routes — no indexing value, all behind Google login
+Disallow: /today
+Disallow: /dashboard
+Disallow: /library
+Disallow: /interviewer
+Disallow: /journal
+Disallow: /photos
+Disallow: /sources
+Disallow: /import
+Disallow: /twin
+Disallow: /personality
+Disallow: /skills
+Disallow: /companion
+Disallow: /heirs
+Disallow: /letters
+Disallow: /settings
+Disallow: /reminders
+Disallow: /m/
+Disallow: /heir/
+Disallow: /buy/success
+
+# API surface — never index
+Disallow: /api/
+
+Sitemap: https://voice-clone-hub-20.emergent.host/sitemap.xml

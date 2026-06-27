@@ -1,0 +1,31 @@
+# Heirloom
+
+> A private digital archive and AI twin. Heirloom helps a person build a slow, careful record of their voice, memories, beliefs, and advice — then turns it into a daily AI biographer and a digital twin that their family can sit with one day. A product of Unbound Infotech.
+
+Heirloom is for one person at a time. The owner spends a few minutes a day capturing memories (text, voice, photos, social/text imports). Heirloom extracts long-term identity facts and episodic summaries with Claude, optionally clones the owner's voice with ElevenLabs, and renders a talking-head video of them speaking via D-ID. Trusted heirs can be added; they receive access only when the owner releases it (manually, on a date, or after an inactivity period). Sealed letters can be written today and delivered automatically one day.
+
+## Product
+
+- [Landing page](https://voice-clone-hub-20.emergent.host/): What Heirloom is, who it's for, and how it works.
+- [Sign in](https://voice-clone-hub-20.emergent.host/login): Google sign-in for owners and heirs.
+- [Lifetime purchase ($79)](https://voice-clone-hub-20.emergent.host/buy): One-time payment, no subscription.
+
+## Core features
+
+- **AI biographer**: A streaming Claude-backed interviewer that asks gentle, intelligent questions and turns answers into archive entries.
+- **Talk to your Twin**: A chat that replies grounded in the owner's archive, in their voice (ElevenLabs) and their face (D-ID).
+- **Local PC companion**: A small Python program that runs hidden in the Windows tray. Push-to-talk or wake-word, controls music, opens URLs, runs skills. Installed via a single double-clickable `.bat` file.
+- **Sealed letters & heirs**: Letters the owner writes today, delivered to named heirs on a date, age, or release event.
+- **Personality portrait**: Big Five OCEAN traits, top values, voice tone, life themes — auto-extracted from the archive.
+- **Long-term memory**: Identity facts + episodic summaries injected into the twin's prompt so it remembers across conversations.
+
+## Brand
+
+- Name: Heirloom
+- Parent: Unbound Infotech
+- One-line: "Build the version of yourself that gets to stay."
+- Pricing: $79 USD lifetime, paid once via Stripe.
+
+## Privacy
+
+The archive is private to the owner and the heirs they explicitly choose. The data is not used to train external models.

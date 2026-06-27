@@ -1,8 +1,14 @@
 import { ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
+import { usePageMeta } from "../lib/usePageMeta";
 
 // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
 export default function Login() {
+  usePageMeta({
+    title: "Sign in — Heirloom · A continuation of you",
+    description:
+      "Sign in to Heirloom to continue your private archive — your stories, your voice, your AI twin. Your data stays private to you and the heirs you choose. By Unbound Infotech.",
+  });
   const handleGoogle = () => {
     const redirectUrl = window.location.origin + "/today";
     window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
@@ -48,8 +54,13 @@ export default function Login() {
           >
             Welcome back.
           </h1>
-          <p className="text-base mb-12" style={{ color: "var(--text-secondary)" }}>
+          <p className="text-base mb-6" style={{ color: "var(--text-secondary)" }}>
             Continue your archive, or begin a new one. Your stories stay private to you and the heirs you choose.
+          </p>
+          <p className="text-sm mb-10 leading-relaxed" style={{ color: "var(--text-muted)" }}>
+            Heirloom is a slow, careful place to write down the version of you that gets to stay — your voice, your memories,
+            the beliefs and advice you&apos;d want your family to remember. Sign in with Google to capture a story, sit with the
+            AI biographer, or talk to your twin. A product of Unbound Infotech.
           </p>
 
           <button
