@@ -160,6 +160,12 @@ async def stripe_webhook(request: Request):
     if session_id and payment_status == "paid":
         # Re-pull the canonical status so we can pass amounts/metadata
         status_obj = await sc.get_checkout_status(session_id)
-        await _provision_after_payment(session_id, status_obj)
+        try:
+            await _provision_after_payment(session_id, status_obj)
+        except HTTPException as exc:
+            # Don't let Stripe webhook retry storm if the txn is malformed —
+            # log and accept. The polling path (which has the buyer's email)
+            # will provision correctly when they hit /buy/success.
+            print(f"[stripe webhook] provision failed for {session_id}: {exc.detail}")
 
     return {"received": True}

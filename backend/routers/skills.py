@@ -125,8 +125,9 @@ def _normalise(text: str) -> str:
 async def match_skill_trigger(user_id: str, text: str) -> Optional[dict]:
     """Return the first enabled skill whose triggers fire on `text`, or None.
 
-    Matching is case-insensitive substring across normalised text. Triggers
-    shorter than 3 chars are ignored to avoid accidental matches.
+    Matching is case-insensitive WORD-BOUNDARY across normalised text. Word
+    boundaries prevent surprises like 'shipping memo' matching a 'ping me'
+    trigger. Triggers shorter than 3 chars are ignored.
     """
     if not text or not text.strip():
         return None
@@ -141,7 +142,8 @@ async def match_skill_trigger(user_id: str, text: str) -> Optional[dict]:
             trig = _normalise(str(raw))
             if len(trig) < 3:
                 continue
-            if trig in haystack:
+            # \b is sufficient since both haystack and trigger are alphanum-only
+            if re.search(rf"\b{re.escape(trig)}\b", haystack):
                 return skill
     return None
 

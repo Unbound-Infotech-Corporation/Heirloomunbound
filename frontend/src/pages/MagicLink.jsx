@@ -2,6 +2,7 @@ import axios from "axios";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
+import { useAuth } from "../lib/auth";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND}/api`;
@@ -9,6 +10,7 @@ const API = `${BACKEND}/api`;
 export default function MagicLink() {
   const { token } = useParams();
   const nav = useNavigate();
+  const { setUser, refresh } = useAuth();
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -18,17 +20,22 @@ export default function MagicLink() {
     }
     axios
       .post(`${API}/auth/magic/${token}`, {}, { withCredentials: true })
-      .then(({ data }) => {
-        // Store session_token also in localStorage for the SPA's Bearer fallback
+      .then(async ({ data }) => {
         if (data.session_token) {
           localStorage.setItem("session_token", data.session_token);
+        }
+        // Hydrate the AuthProvider so /today renders authenticated on first paint
+        if (data.user && setUser) {
+          setUser(data.user);
+        } else if (refresh) {
+          await refresh();
         }
         nav("/today");
       })
       .catch((e) =>
         setErr(e.response?.data?.detail || "This magic-link is invalid or expired.")
       );
-  }, [token, nav]);
+  }, [token, nav, setUser, refresh]);
 
   if (err) {
     return (
