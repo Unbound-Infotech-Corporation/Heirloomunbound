@@ -387,6 +387,9 @@ async def windows_package(
         z.writestr("heirloom_companion.py", script)
         z.writestr("Heirloom.bat", _WINDOWS_LAUNCHER_BAT)
         z.writestr("Build-Exe.bat", _WINDOWS_BUILD_EXE_BAT)
+        z.writestr("make_icon.py", _MAKE_ICON_PY)
+        z.writestr("version_info.txt", _VERSION_INFO_TXT)
+        z.writestr("Sign-Exe.bat", _SIGN_EXE_BAT)
         z.writestr("README.txt", _WINDOWS_README)
     buf.seek(0)
 
@@ -452,47 +455,276 @@ if errorlevel 1 (
 
 
 _WINDOWS_BUILD_EXE_BAT = r"""@echo off
-setlocal
+setlocal EnableDelayedExpansion
 title Heirloom Companion - Build .exe
 
 REM ============================================================
-REM  Build a standalone Heirloom.exe (no Python required to run).
+REM  Heirloom Companion -- Build a sellable Windows executable
+REM
+REM  What this does:
+REM   1. Generates an app icon (heirloom.ico) using Pillow.
+REM   2. Bundles heirloom_companion.py into ONE single-file .exe
+REM      using PyInstaller, with proper Windows file metadata
+REM      (Unbound Infotech, version, product name, icon).
+REM   3. Output:  dist\HeirloomCompanion.exe
+REM
 REM  Run this ONCE on the PC where you want the .exe.
-REM  Output: dist\HeirloomCompanion.exe
+REM  Subsequent rebuilds are much faster.
 REM ============================================================
 
 cd /d "%~dp0"
 
+echo.
+echo  [1/4] Locating Python...
 set "PY="
 where py >nul 2>nul && (set "PY=py")
-if "%PY%"=="" (
+if "!PY!"=="" (
   where python >nul 2>nul && (set "PY=python")
 )
-if "%PY%"=="" (
-  echo Python required to build the .exe. Install from python.org first.
+if "!PY!"=="" (
+  echo  X  Python is not installed.
+  echo     Install Python 3.11+ from https://python.org/downloads/
+  echo     and check the "Add Python to PATH" box during install.
   pause & exit /b 1
 )
-
-echo Installing PyInstaller + companion deps...
-%PY% -m pip install --upgrade --user pyinstaller requests sounddevice soundfile numpy pynput pystray Pillow
+echo      Using: !PY!
 
 echo.
-echo Building HeirloomCompanion.exe (this takes a few minutes the first time)...
-%PY% -m PyInstaller --noconfirm --onefile --windowed ^
+echo  [2/4] Installing build dependencies (one-time, ~1 minute)...
+!PY! -m pip install --quiet --upgrade --user pyinstaller pillow requests sounddevice soundfile numpy pynput pystray
+if errorlevel 1 (
+  echo      Retrying with verbose output...
+  !PY! -m pip install --upgrade --user pyinstaller pillow requests sounddevice soundfile numpy pynput pystray
+  if errorlevel 1 (
+    echo  X  Could not install dependencies. Check your internet connection.
+    pause & exit /b 1
+  )
+)
+
+echo.
+echo  [3/4] Generating app icon (heirloom.ico)...
+!PY! "%~dp0make_icon.py"
+if not exist "%~dp0heirloom.ico" (
+  echo  !  Icon generation failed; building without a custom icon.
+  set "ICON_FLAG="
+) else (
+  set "ICON_FLAG=--icon=heirloom.ico"
+)
+
+echo.
+echo  [4/4] Building HeirloomCompanion.exe (takes 2-4 minutes the first time)...
+echo      You can step away. The exe will appear in:  dist\HeirloomCompanion.exe
+echo.
+
+REM Clean previous builds so re-runs are deterministic
+if exist build rmdir /s /q build 2>nul
+if exist dist  rmdir /s /q dist  2>nul
+if exist HeirloomCompanion.spec del HeirloomCompanion.spec 2>nul
+
+!PY! -m PyInstaller ^
+  --noconfirm ^
+  --onefile ^
+  --windowed ^
   --name HeirloomCompanion ^
+  !ICON_FLAG! ^
+  --version-file=version_info.txt ^
   --hidden-import=pystray._win32 ^
   --hidden-import=PIL._tkinter_finder ^
+  --hidden-import=sounddevice ^
+  --hidden-import=soundfile ^
+  --hidden-import=pynput.keyboard._win32 ^
+  --hidden-import=pynput.mouse._win32 ^
+  --collect-data=sounddevice ^
+  --collect-data=soundfile ^
   heirloom_companion.py
 
 if errorlevel 1 (
-  echo Build failed. See messages above.
+  echo.
+  echo  X  Build failed. See messages above.
+  pause & exit /b 1
+)
+
+if not exist "dist\HeirloomCompanion.exe" (
+  echo  X  Build appeared to succeed but no .exe found. See PyInstaller log above.
   pause & exit /b 1
 )
 
 echo.
-echo  Done. Your app is at:   dist\HeirloomCompanion.exe
-echo  Copy it anywhere. Double-click to run.
+echo  =================================================================
+echo   DONE.
 echo.
+echo   Your app:  %CD%\dist\HeirloomCompanion.exe
+echo.
+echo   Copy it anywhere -- double-click to run. No Python required.
+echo   To sign it for distribution: see Sign-Exe.bat (optional).
+echo  =================================================================
+echo.
+explorer "%CD%\dist"
+pause
+"""
+
+
+_MAKE_ICON_PY = '''"""Generates heirloom.ico -- a multi-resolution Windows icon.
+Bundled with the Build-Exe package so users don\'t need a designer.
+
+Brand: Heirloom by Unbound Infotech.
+Design: an embossed amber "H" monogram on charcoal, framed by a thin
+amber ring (a seal motif). Rendered at 4x then downsampled with LANCZOS
+so edges stay crisp at every size from taskbar (16px) to Start menu (256px).
+"""
+from PIL import Image, ImageDraw
+
+SIZES = [16, 32, 48, 64, 128, 256]
+BG = (18, 17, 16, 255)          # charcoal
+ACCENT = (214, 150, 99, 255)    # amber
+RING = (214, 150, 99, 160)      # softer amber halo
+
+
+def _draw(d, w, h, scale):
+    """Draw the icon at canvas size w x h. All coords are float for AA."""
+    cx, cy = w / 2.0, h / 2.0
+
+    # Thin outer "seal" ring
+    ring_r = min(w, h) * 0.46
+    ring_thickness = max(1.0, w * 0.012)
+    d.ellipse(
+        (cx - ring_r, cy - ring_r, cx + ring_r, cy + ring_r),
+        outline=RING,
+        width=int(round(ring_thickness)),
+    )
+
+    # H monogram (drawn geometrically so we never depend on system fonts)
+    h_w = w * 0.46          # total width of the H
+    h_h = h * 0.56          # total height
+    stroke = w * 0.095      # vertical stroke width
+    cross_h = h * 0.085     # crossbar height
+
+    left = cx - h_w / 2.0
+    right = cx + h_w / 2.0
+    top = cy - h_h / 2.0
+    bot = cy + h_h / 2.0
+
+    # Left vertical stroke
+    d.rectangle((left, top, left + stroke, bot), fill=ACCENT)
+    # Right vertical stroke
+    d.rectangle((right - stroke, top, right, bot), fill=ACCENT)
+    # Crossbar (sits slightly above center for a classical serif feel)
+    cross_y = cy - cross_h * 0.65
+    d.rectangle((left, cross_y, right, cross_y + cross_h), fill=ACCENT)
+
+
+def render(size):
+    """Render at 4x resolution then LANCZOS-downscale -- gives crisp AA."""
+    scale = 4
+    big = size * scale
+    img = Image.new("RGBA", (big, big), BG)
+    d = ImageDraw.Draw(img, "RGBA")
+    _draw(d, big, big, scale)
+    return img.resize((size, size), Image.LANCZOS)
+
+
+def main():
+    # Start from the 256 px master, let PIL include all sizes in the .ico
+    big = render(256)
+    big.save(
+        "heirloom.ico",
+        format="ICO",
+        sizes=[(s, s) for s in SIZES],
+    )
+    print("Wrote heirloom.ico (", ", ".join(f"{s}x{s}" for s in SIZES), ")")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+# PyInstaller version metadata. This is what Windows displays in
+# Right-click -> Properties -> Details on the .exe.
+_VERSION_INFO_TXT = r"""# UTF-8
+#
+# For more details about fixed file info 'ffi' see:
+# http://msdn.microsoft.com/en-us/library/ms646997.aspx
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        u'040904B0',
+        [StringStruct(u'CompanyName', u'Unbound Infotech'),
+        StringStruct(u'FileDescription', u'Heirloom Companion -- local twin'),
+        StringStruct(u'FileVersion', u'1.0.0.0'),
+        StringStruct(u'InternalName', u'HeirloomCompanion'),
+        StringStruct(u'LegalCopyright', u'(c) Unbound Infotech. All rights reserved.'),
+        StringStruct(u'OriginalFilename', u'HeirloomCompanion.exe'),
+        StringStruct(u'ProductName', u'Heirloom Companion'),
+        StringStruct(u'ProductVersion', u'1.0.0.0')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
+  ]
+)
+"""
+
+
+# Optional: code-sign the exe if the user buys a Windows code-signing certificate later.
+_SIGN_EXE_BAT = r"""@echo off
+setlocal
+title Heirloom Companion - Sign .exe (optional)
+
+REM ============================================================
+REM  Code-sign HeirloomCompanion.exe so Windows SmartScreen and
+REM  customer antivirus won't scare buyers with warnings.
+REM
+REM  Requires:
+REM   - A Windows code-signing certificate (.pfx file).
+REM     Buy from: SSL.com, Sectigo, DigiCert, GoDaddy. ~$70-300/yr.
+REM   - signtool.exe (comes with the Windows SDK).
+REM
+REM  Then run:   Sign-Exe.bat  path\to\cert.pfx  YOUR_PFX_PASSWORD
+REM ============================================================
+
+set "EXE=%~dp0dist\HeirloomCompanion.exe"
+if not exist "%EXE%" (
+  echo  X  No exe found at %EXE% -- run Build-Exe.bat first.
+  pause & exit /b 1
+)
+
+if "%~1"=="" (
+  echo  Usage: Sign-Exe.bat  path\to\cert.pfx  PFX_PASSWORD
+  echo.
+  echo  If you don't have a cert yet, buy one from SSL.com or Sectigo.
+  echo  Until then, ship the unsigned exe; users will see one extra
+  echo  SmartScreen warning until reputation builds up.
+  pause & exit /b 0
+)
+
+where signtool >nul 2>nul
+if errorlevel 1 (
+  echo  X  signtool.exe not found. Install the Windows SDK from:
+  echo     https://developer.microsoft.com/windows/downloads/windows-sdk/
+  pause & exit /b 1
+)
+
+signtool sign /fd SHA256 /f "%~1" /p "%~2" /tr http://timestamp.digicert.com /td SHA256 "%EXE%"
+if errorlevel 1 (
+  echo  X  Signing failed.
+  pause & exit /b 1
+)
+
+echo.
+echo  Signed successfully.
+echo  Verifying...
+signtool verify /pa "%EXE%"
 pause
 """
 
@@ -500,32 +732,54 @@ pause
 _WINDOWS_README = """Heirloom Companion for Windows
 ================================
 
-THE EASY WAY (recommended)
---------------------------
-1. Make sure Python 3.11+ is installed
-   https://python.org/downloads/  (CHECK "Add Python to PATH")
+THE EASY WAY (recommended for personal use)
+-------------------------------------------
+1. Install Python 3.11+ from https://python.org/downloads/
+   CHECK the box that says "Add Python to PATH" during install.
 2. Double-click  Heirloom.bat
 3. Hold Ctrl+Space, speak to your twin, release.
 
-A small tray icon appears in your system tray. Right-click for Quit.
+A small tray icon appears in the Windows system tray.
+Right-click it for Quit.
 
-BUILD A REAL .EXE (optional, for shipping)
-------------------------------------------
-If you want a standalone Heirloom.exe that doesn't need Python:
-1. Double-click  Build-Exe.bat  (runs once, takes ~3 minutes)
-2. You'll find HeirloomCompanion.exe in the dist\\ folder.
-3. Copy it anywhere on your PC and double-click — no Python needed.
+BUILD A REAL .EXE (for distribution / selling)
+----------------------------------------------
+If you want a standalone HeirloomCompanion.exe -- the kind you can
+hand to a customer who has never heard of Python:
+
+1. Double-click  Build-Exe.bat
+   (takes ~3 minutes the first time -- it bundles Python + all libs
+   + the audio drivers into a single ~25 MB .exe)
+2. The finished app appears at:  dist\\HeirloomCompanion.exe
+3. Right-click that .exe -> Properties -> Details. You'll see proper
+   Windows metadata: Company "Unbound Infotech", Product "Heirloom
+   Companion", version 1.0.0.0, and your custom amber icon.
+4. Copy that single .exe anywhere. Double-click to run -- no Python
+   install needed on the target PC. That's the file you sell.
+
+CODE-SIGN THE .EXE (optional, recommended for selling)
+------------------------------------------------------
+Unsigned exes trigger SmartScreen warnings on customer PCs ("Windows
+protected your PC"). To remove that:
+1. Buy a Windows code-signing certificate (~$70-300/yr from SSL.com,
+   Sectigo, GoDaddy, DigiCert). Get a .pfx file.
+2. Install the Windows SDK (gives you signtool.exe).
+3. Run:  Sign-Exe.bat  path\\to\\cert.pfx  YOUR_PFX_PASSWORD
+4. Your exe now signs cleanly. Reputation builds with downloads.
 
 TROUBLESHOOTING
 ---------------
-* "Python is not installed" — install from python.org, check "Add to PATH".
-* "Could not authenticate" — your device token has been revoked. Go to
-  the Companion page in Heirloom and download a fresh package.
-* No sound / push-to-talk not working — Ctrl+Space must be held down while
-  speaking. Release to send.
+* "Python is not installed" -- install from python.org, check "Add to PATH".
+* "Could not authenticate" -- your device token was revoked. Go to the
+  Companion page in Heirloom and re-issue a token (download a new zip).
+* No microphone -- Windows Settings > Privacy > Microphone, allow
+  desktop apps.
+* Push-to-talk not working -- hold Ctrl+Space WHILE speaking, then
+  release to send.
 
-Your archive lives in the cloud; this app is just the local hands+ears.
-You can revoke this device any time from Heirloom > Local PC.
+Your archive lives in the cloud at Heirloom. This .exe is just the
+local hands+ears (mic + speaker + OS commands). The device token can be
+revoked any time from Heirloom > Local PC.
 """
 
 
