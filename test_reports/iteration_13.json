@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration-13 end-to-end testing of the D-ID talking-head avatar flow + regression for Personas/BrandKit/Letters/Heirs/Buy/Skills. Backend pytest 11/11 PASS (107s, including a real D-ID render completing in ~95s with .mp4 result_url). Frontend Twin page validated: session-cookie auth works, /twin loads, user message streams to assistant reply, twin-play-video button fires POST /api/avatar/talk → loading indicator 'rendering your face speaking…' appears → polls /api/avatar/talks/{id} every 2s → <video data-testid='twin-video-1'> rendered with valid D-ID S3 src (https://d-id-talks-prod.s3.us-west-2.amazonaws.com/...). twin-voice-toggle still toggles, twin-speak-{idx} still present. Settings page avatar URL input + 'Save photo URL' button confirmed: PUT /api/avatar/source-url → 200, value persists across reload. Regression: /personas, /brand, /letters, /heirs, /buy, /skills all render with 0 real console errors; /buy shows the $79 Heirloom Lifetime card and Stripe-form.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration13_avatar.py",
+    "/app/test_reports/pytest/iteration_13_results.xml"
+  ],
+  "action_items": [
+    "None blocking. D-ID flow is fully functional end-to-end (backend create+poll, frontend play-video button, video element renders, Settings URL save persists)."
+  ],
+  "critical_code_review_comments": [
+    "avatar.py::create_talk uses Basic auth header constructed from D_ID_API_KEY (already in `user:key` format in env) — works correctly with D-ID's /talks endpoint. Good.",
+    "avatar.py::create_talk swallows the user's stitch/fluent config — fine for v1 but consider exposing in TalkReq for power users.",
+    "avatar.py::poll_talk writes `result_url` only when present (`if result_url:`), so partial polls don't overwrite a finished record back to null — good.",
+    "avatar.py::set_source_url ALLOWS empty string (clears the url, line 156 only validates non-empty strings). Confirmed by test_put_empty_url_is_accepted_as_clear. Intentional clear path — good.",
+    "avatar.py::create_talk has timeout=30s; on a slow D-ID upstream this could 502 the client. Current behaviour observed: actual create returns in <2s consistently. Acceptable.",
+    "Twin.jsx::playAsVideo polls 60×2s=120s with try/catch on transient poll errors (continue) — robust. Confirmed working in browser test.",
+    "Twin.jsx::playAsVideo only attached on assistant messages with `!m.action` — correct (skill/music chips replace the video button). Note: this means if a future feature adds another action.kind, the play-as-video button silently disappears. Consider explicit !m.action || m.action.kind === 'none'.",
+    "Twin.jsx: pollErr inside the for-loop is caught and `continue`s, but on the FIRST attempt this means a 401 (e.g., bad session) would silently loop for 120s before showing 'timed out'. Acceptable for now since session auth is required to reach this page, but a single non-2xx response could be surfaced faster.",
+    "Settings.jsx: avatar URL input + 'Save photo URL' button works and persists. Consider adding data-testid='settings-avatar-url-input' and data-testid='settings-avatar-save' to make automation more robust (currently relying on placeholder/text matching).",
+    "Regression pages (Personas/Brand/Letters/Heirs/Buy/Skills) load with 0 console errors against the real backend — no regressions from the D-ID changes."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration13_avatar.py (new — 11 D-ID + auth tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11)",
+    "frontend": "100% — Twin /twin video render, voice toggle, speak button, Settings save/persist, and 6 regression pages all verified."
+  },
+  "test_credentials": "Avatar test user A: session_token=tk_avatar_1782543125527, user_id=test-user-avatar-1782543125527, email=avatar.a.1782543125527@example.com, onboarded=true. User B (for cross-user 404 test): session_token=tk_avatar_1782543125545, user_id=test-user-avatar-1782543125545.",
+  "seed_data_creation": "Two test users seeded directly in mongosh per /app/memory/test_credentials.md. User A was further updated with onboarded=true + onboarding_complete=true + preferred_name='Avatar Test A' so the SPA doesn't redirect to /onboarding/* before reaching /twin. Avatar source URL was set by the test itself via PUT /api/avatar/source-url to a D-ID Default Presenter image. No production data touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "D-ID flow lives at /app/backend/routers/avatar.py (prefix /api/avatar). Real D-ID renders take ~60-100s and DO complete reliably — pytest deadline is 120s, frontend polling cap is 120s. test_iteration13_avatar.py expects two pre-seeded users; if their sessions are GC'd, re-mint via the mongosh snippet in /app/memory/test_credentials.md and update TEST_TOKEN_A/USER_A/TEST_TOKEN_B/USER_B env vars (or rely on the hardcoded defaults — they're persistent in test_database). To reach /twin in the browser, the test user MUST have onboarded=true OR the SPA will redirect to /onboarding/name. /api/avatar/source-upload is intentionally a 501 stub — do NOT mark this as a bug. Frontend Twin.jsx wires playAsVideo to messages where !m.action, so to test play-video the seeded conversation must produce a plain assistant reply (no music intent, no skill trigger).",
+  "rca_of_the_issue": "No bugs in iteration-13 surface. Earlier iteration-12 noted MagicLink auth-refresh flash issue — NOT retested here (out of scope). Initial Playwright run failed because the test user lacked onboarded=true (SPA redirected to /onboarding/name); fixed by updating db.users.{onboarded:true, onboarding_complete:true} before /twin navigation. The real network errors logged in console (401 + ERR_CONNECTION_CLOSED) were transient SSE connection cycles during the streaming response, NOT broken endpoints — confirmed because the streamed reply rendered fully and the subsequent /api/avatar/talk request succeeded."
+}

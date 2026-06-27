@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, X } from "lucide-react";
+import { Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -36,6 +36,9 @@ export default function Settings() {
   const [personas, setPersonas] = useState([]);
   const [activePersonaId, setActivePersonaId] = useState(null);
   const [newPersona, setNewPersona] = useState({ name: "", description: "", system_addendum: "" });
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [avatarDefault, setAvatarDefault] = useState("");
+  const [avatarConfigured, setAvatarConfigured] = useState(false);
 
   const loadSettings = async () => {
     const { data } = await api.get("/voice-clone/settings");
@@ -76,6 +79,14 @@ export default function Settings() {
       setActivePersonaId(data.active_persona_id || null);
     } catch { /* noop */ }
   };
+  const loadAvatar = async () => {
+    try {
+      const { data } = await api.get("/avatar/me");
+      setAvatarUrl(data.avatar_source_url || "");
+      setAvatarDefault(data.default_url || "");
+      setAvatarConfigured(!!data.configured);
+    } catch { /* noop */ }
+  };
   const loadMusicProviders = async () => {
     try {
       const { data } = await api.get("/music/providers");
@@ -91,7 +102,17 @@ export default function Settings() {
     loadPrefs();
     loadMusicProviders();
     loadPersonas();
+    loadAvatar();
   }, []);
+
+  const saveAvatarUrl = async () => {
+    try {
+      await api.put("/avatar/source-url", { url: avatarUrl.trim() });
+      toast.success("Avatar photo saved");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  };
 
   const saveBrand = async () => {
     try {
@@ -267,6 +288,55 @@ export default function Settings() {
               />
             </label>
           ))}
+        </div>
+      </section>
+
+      {/* Talking-head avatar — D-ID */}
+      <section className="surface p-7 mb-6" data-testid="avatar-section">
+        <div className="overline mb-2 flex items-center gap-2">
+          <Video className="h-3.5 w-3.5" /> talking-head avatar
+        </div>
+        <h2 className="font-serif text-2xl mb-2">Your face, speaking.</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Paste a public URL to a photo of you (imgur, your social, etc.). When you click <i>Play as video</i> on a twin reply, D-ID renders a short clip of your face speaking the text in your cloned voice.
+          {!avatarConfigured && (
+            <span className="block mt-2 text-xs" style={{ color: "#c95a5a" }}>
+              D-ID API not configured — contact the operator.
+            </span>
+          )}
+        </p>
+        <div className="flex gap-3 items-start mb-4">
+          {(avatarUrl || avatarDefault) && (
+            <img
+              src={avatarUrl || avatarDefault}
+              alt="avatar source"
+              className="w-24 h-24 rounded-sm object-cover"
+              data-testid="avatar-preview"
+              style={{ border: "1px solid var(--border-default)" }}
+              onError={(e) => { e.currentTarget.style.opacity = 0.3; }}
+            />
+          )}
+          <div className="flex-1 space-y-3">
+            <input
+              value={avatarUrl}
+              onChange={(e) => setAvatarUrl(e.target.value)}
+              placeholder={`Photo URL (leave blank to use the default presenter)`}
+              data-testid="avatar-url-input"
+              className="w-full px-3 py-2 text-sm rounded-sm font-mono"
+              style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+            />
+            <button
+              onClick={saveAvatarUrl}
+              data-testid="avatar-save"
+              className="px-4 py-2 text-sm rounded-sm"
+              style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+            >
+              Save photo
+            </button>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Best: front-facing, neutral expression, ~1024×1024. D-ID requires the URL to be publicly fetchable.
+            </p>
+          </div>
         </div>
       </section>
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Loader2, Volume2 } from "lucide-react";
+import { ArrowRight, Loader2, Video, Volume2 } from "lucide-react";
 import { api, streamSSE } from "../lib/api";
 
 export default function Twin() {
@@ -10,6 +10,8 @@ export default function Twin() {
   const [voiceOn, setVoiceOn] = useState(false);
   const [speakingIdx, setSpeakingIdx] = useState(null);
   const audioRef = useRef(null);
+  // Avatar video state: { [msgIdx]: { state: 'loading'|'ready'|'error', url?, err? } }
+  const [videos, setVideos] = useState({});
   const feedRef = useRef(null);
 
   useEffect(() => {
@@ -104,6 +106,38 @@ export default function Twin() {
   };
 
   const messages = conv?.messages || [];
+
+  const playAsVideo = async (idx, text) => {
+    if (videos[idx]?.state === "loading" || videos[idx]?.state === "ready") return;
+    setVideos((v) => ({ ...v, [idx]: { state: "loading" } }));
+    try {
+      const { data } = await api.post("/avatar/talk", { text });
+      const talkId = data.talk_id;
+      // Poll up to 120s (60 attempts × 2s). D-ID renders take 30-90s depending on text length.
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        let poll;
+        try {
+          const r = await api.get(`/avatar/talks/${talkId}`);
+          poll = r.data;
+        } catch (pollErr) {
+          // Transient network/proxy hiccup — keep polling rather than failing the whole render
+          continue;
+        }
+        if (poll.result_url) {
+          setVideos((v) => ({ ...v, [idx]: { state: "ready", url: poll.result_url } }));
+          return;
+        }
+        if (poll.status === "error" || poll.status === "rejected") {
+          setVideos((v) => ({ ...v, [idx]: { state: "error", err: poll.error?.description || poll.error || "render failed" } }));
+          return;
+        }
+      }
+      setVideos((v) => ({ ...v, [idx]: { state: "error", err: "timed out after 2 min" } }));
+    } catch (e) {
+      setVideos((v) => ({ ...v, [idx]: { state: "error", err: e.response?.data?.detail || e.message } }));
+    }
+  };
 
   return (
     <div className="px-10 lg:px-16 py-12 max-w-4xl" data-testid="twin-root">
@@ -215,6 +249,45 @@ export default function Twin() {
                         {m.action.ok ? `HTTP ${m.action.status}` : `failed (${m.action.status || "error"})`}
                       </span>
                     </span>
+                  </div>
+                )}
+                {/* Play-as-video (D-ID talking head) */}
+                {!m.action && (
+                  <div className="mt-4">
+                    {videos[i]?.state === "ready" ? (
+                      <video
+                        controls
+                        autoPlay
+                        playsInline
+                        src={videos[i].url}
+                        data-testid={`twin-video-${i}`}
+                        className="rounded-sm max-w-md"
+                        style={{ border: "1px solid var(--border-default)" }}
+                      />
+                    ) : videos[i]?.state === "loading" ? (
+                      <div
+                        className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-sm"
+                        style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-muted)" }}
+                      >
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> rendering your face speaking…
+                      </div>
+                    ) : videos[i]?.state === "error" ? (
+                      <div
+                        className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-sm"
+                        style={{ background: "rgba(220,80,80,0.08)", border: "1px solid #c95a5a", color: "var(--text-muted)" }}
+                      >
+                        video failed: {videos[i].err}
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => playAsVideo(i, m.content)}
+                        data-testid={`twin-play-video-${i}`}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-sm transition-colors"
+                        style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+                      >
+                        <Video className="h-3.5 w-3.5" /> Play as video
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

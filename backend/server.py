@@ -11,6 +11,7 @@ from deps import db  # noqa: F401  -- ensures Mongo client is initialised early
 from routers import (
     archive,
     auth,
+    avatar,
     billing,
     capture,
     companion,
@@ -83,6 +84,7 @@ api_router.include_router(memory.router)
 api_router.include_router(music.router)
 api_router.include_router(billing.router)
 api_router.include_router(fulfillment.router)
+api_router.include_router(avatar.router)
 
 app.include_router(api_router)
 
