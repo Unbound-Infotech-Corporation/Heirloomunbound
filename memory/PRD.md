@@ -77,9 +77,16 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 8 — Feb 27, 2026 (pre-launch hardening for tester rollout)
+- ✅ **MongoDB performance indexes**: New `db_indexes.py` creates 26 idempotent indexes at startup on every hot-path collection — `user_sessions.session_token` (every request), `users.user_id` (every request), `entries.user_id+created_at`, `companion_devices.token` (every 2s poll), `heirs.release_token` (public portal), `avatar_talks.talk_id`, and 20 more. Pruned legacy `token: null` rows and made the two token-unique indexes sparse-unique so they cleanly rebuild on cold start.
+- ✅ **Settings.jsx runtime fix**: `CheckCircle2` symbol was used but not imported — would crash the ElevenLabs section when a cloned voice was set. Added to lucide-react imports.
+- ✅ **Photos.jsx React refactor**: `PhotoCard` was defined inside the parent's render, so every parent state change destroyed the entire subtree and recreated all blob URLs. Extracted to a top-level component with `onRemove` prop — thumbnails are now stable and the page no longer re-fetches every photo on every render.
+- ✅ **Production build verified**: `yarn build` passes cleanly (194KB gzipped main.js, 11KB CSS, 0 errors). App is deploy-ready.
+
 ## Backend test results
 - iteration_12.json: 18 / 18 backend tests pass for Stripe checkout + auto-skill triggers.
 - iteration_13.json: 11 / 11 D-ID avatar backend tests pass (real D-ID render completed in ~95s with valid .mp4). Frontend Twin "Play as video" + Settings avatar URL + 6 regression pages all green.
+- **iteration_14.json: 52 / 52 PRE-LAUNCH REGRESSION tests pass + 15 / 15 SPA routes load with zero console errors.** Auth, archive, interviewer, twin, avatar, voice-clone, photos, companion, skills, heirs, letters, personas, memory, nudges, personality, music, Stripe — all covered. App is ship-ready for testers.
 - Phase-6 smoke test: 8 / 8 endpoints green (brand kit save+load, persona create/activate/list/deactivate/delete, tts_language save). Frontend lint clean.
 
 ## Prioritized backlog (next phases)
