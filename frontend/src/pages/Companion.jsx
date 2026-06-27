@@ -47,6 +47,12 @@ export default function Companion() {
     window.open(url, "_blank");
   };
 
+  const downloadEasyInstaller = () => {
+    if (!issued) return;
+    const url = `${API_BASE}/companion/easy-installer?token=${encodeURIComponent(issued.device_token)}`;
+    window.open(url, "_blank");
+  };
+
   const revoke = async (id) => {
     if (!window.confirm("Revoke this device?")) return;
     await api.delete(`/companion/devices/${id}`);
@@ -84,16 +90,15 @@ export default function Companion() {
 
       {/* Setup */}
       <section className="surface p-7 mb-10">
-        <div className="overline mb-3">setup — three steps</div>
+        <div className="overline mb-3">setup — two steps</div>
         <ol className="space-y-3 text-sm leading-relaxed mb-6" style={{ color: "var(--text-secondary)" }}>
           <li>1. Name this device, then click <b style={{ color: "var(--text-primary)" }}>Issue token</b>.</li>
-          <li>2. Download the <b style={{ color: "var(--text-primary)" }}>Windows package (.zip)</b> — token is baked in.</li>
-          <li>3. Unzip it, then <b style={{ color: "var(--text-primary)" }}>double-click <code className="font-mono" style={{ color: "var(--accent)" }}>Heirloom.bat</code></b>. That's it — no terminal, no commands.</li>
+          <li>2. On your PC, <b style={{ color: "var(--text-primary)" }}>download the Easy install <code className="font-mono" style={{ color: "var(--accent)" }}>.bat</code> and double-click it</b>. It installs Python silently (if missing), drops the companion in <code className="font-mono">%LOCALAPPDATA%\Heirloom</code>, runs it hidden in the tray, and auto-starts on every sign-in. That&apos;s it.</li>
         </ol>
         <p className="text-xs mb-6" style={{ color: "var(--text-muted)" }}>
-          One-time prerequisite on the PC: Python 3.11+ from{" "}
-          <a href="https://python.org/downloads/" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>python.org</a>{" "}
-          (check "Add Python to PATH" during install). The launcher installs everything else for you.
+          Works on Windows 10 (≥ 1809) and Windows 11. No terminal, no pip, no Python knowledge needed.
+          Prefer the manual route? The <b>Windows package (.zip)</b> ships the same script as separate files
+          you can inspect and run yourself.
         </p>
 
         <div className="flex gap-3">
@@ -128,10 +133,18 @@ export default function Companion() {
             </div>
             <div className="flex gap-3 flex-wrap">
               <button
+                onClick={downloadEasyInstaller}
+                data-testid="download-easy-installer"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
+                style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+              >
+                <Download className="h-3.5 w-3.5" /> Easy install (Windows, 1 file)
+              </button>
+              <button
                 onClick={downloadWindows}
                 data-testid="download-windows"
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
-                style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+                style={{ border: "1px solid var(--accent)", color: "var(--text-primary)" }}
               >
                 <Download className="h-3.5 w-3.5" /> Windows package (.zip)
               </button>
@@ -154,6 +167,12 @@ export default function Companion() {
                 <Copy className="h-3.5 w-3.5" /> Copy token
               </button>
             </div>
+            <p className="text-xs mt-4 leading-relaxed" style={{ color: "var(--text-muted)" }}>
+              <b style={{ color: "var(--accent)" }}>Easy install</b> downloads one tiny <code>.bat</code> file.
+              Double-click it on the PC where you want Heirloom to live — it installs Python (silently, if missing),
+              sets up the companion at <code>%LOCALAPPDATA%\Heirloom</code>, runs it hidden in the tray, and
+              auto-starts on every Windows sign-in. No terminal, no pip, no Python knowledge. ~60 seconds.
+            </p>
           </div>
         )}
       </section>
