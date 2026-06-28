@@ -39,6 +39,11 @@ SPOTIFY_SCOPES = (
     "user-read-recently-played user-top-read user-library-read "
     "playlist-read-private user-read-playback-state user-modify-playback-state"
 )
+
+GITHUB_CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID", "")
+GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
+GITHUB_REDIRECT_URI = os.environ.get("GITHUB_REDIRECT_URI", "")
+GITHUB_SCOPES = "read:user user:email"
 PUBLIC_FRONTEND = os.environ.get("PUBLIC_FRONTEND_URL", "").rstrip("/") or "/"
 
 
@@ -66,6 +71,15 @@ async def list_connections(user: dict = Depends(get_current_user)):
             "connected": "spotify" in by_provider,
             "profile": by_provider.get("spotify", {}).get("profile") or None,
             "connected_at": by_provider.get("spotify", {}).get("connected_at"),
+        },
+        {
+            "provider": "github",
+            "label": "GitHub",
+            "description": "Pull your recent repositories, primary languages, and READMEs into your archive. The Twin gets a sense of what you build.",
+            "configured": bool(GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET and GITHUB_REDIRECT_URI),
+            "connected": "github" in by_provider,
+            "profile": by_provider.get("github", {}).get("profile") or None,
+            "connected_at": by_provider.get("github", {}).get("connected_at"),
         },
     ]
     return {"connections": providers}
