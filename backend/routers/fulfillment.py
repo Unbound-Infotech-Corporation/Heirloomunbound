@@ -202,8 +202,11 @@ async def stripe_webhook(request: Request):
             print(f"[stripe webhook] payment_link mismatch: got {payment_link_id}, expected {STRIPE_PAYMENT_LINK_ID}")
 
         source = "payment_link" if payment_link_id else "checkout_session"
-        status_obj = await sc.get_checkout_status(session_id)
+        # Stripe webhooks MUST NEVER raise — Stripe will retry-storm. Wrap the
+        # whole retrieve+provision path and just log failures; idempotency is
+        # preserved by the stripe_events insert above so retries dedupe.
         try:
+            status_obj = await sc.get_checkout_status(session_id)
             await _provision_after_payment(
                 session_id,
                 status_obj,
@@ -211,9 +214,8 @@ async def stripe_webhook(request: Request):
                 name_override=customer_name or None,
                 source=source,
             )
-        except HTTPException as exc:
-            # Don't trigger retry storms — the polling path will provision later
-            print(f"[stripe webhook] provision failed for {session_id}: {exc.detail}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[stripe webhook] provision failed for {session_id}: {exc}")
 
     # --- charge.refunded / dispute → revoke access ---
     if event_type in {"charge.refunded", "charge.dispute.created", "charge.dispute.funds_withdrawn"}:
