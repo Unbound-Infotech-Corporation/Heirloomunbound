@@ -12,6 +12,7 @@ single-shot (consumed=true after one use).
 """
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import uuid
@@ -27,6 +28,7 @@ from routers.companion import build_windows_zip_bytes
 router = APIRouter(tags=["fulfillment"])
 
 STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
+STRIPE_PAYMENT_LINK_ID = os.environ.get("STRIPE_PAYMENT_LINK_ID", "")
 
 
 def _now() -> datetime:
@@ -154,6 +156,15 @@ async def stripe_webhook(request: Request):
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Webhook verification failed: {exc!s}") from exc
 
+    # Also parse the raw payload so we can read fields the wrapper doesn't
+    # surface (customer_details.email, payment_link, etc.) — needed for
+    # Stripe Payment Link purchases that don't carry our app metadata.
+    try:
+        raw = json.loads(body.decode("utf-8"))
+        raw_obj = (raw.get("data") or {}).get("object", {}) or {}
+    except Exception:  # noqa: BLE001
+        raw_obj = {}
+
     # Event-level idempotency — Stripe retries the same event id many times.
     # We dedupe at the event level (not just session level) so retries are free.
     event_id = getattr(evt, "event_id", None) or getattr(evt, "id", None)
@@ -173,9 +184,33 @@ async def stripe_webhook(request: Request):
 
     # --- checkout.session.completed → provision ---
     if session_id and payment_status == "paid":
+        # Pull customer email + payment_link id from raw payload (Payment Link
+        # purchases put the buyer's email here, not in our metadata).
+        customer_details = raw_obj.get("customer_details") or {}
+        customer_email = (
+            customer_details.get("email")
+            or raw_obj.get("customer_email")
+            or ""
+        )
+        customer_name = customer_details.get("name") or ""
+        payment_link_id = raw_obj.get("payment_link") or ""
+
+        # Defense in depth: if this session came from a Payment Link, ensure
+        # it's *our* Payment Link. (Doesn't reject — just logs — in case the
+        # user later adds more links.)
+        if payment_link_id and STRIPE_PAYMENT_LINK_ID and payment_link_id != STRIPE_PAYMENT_LINK_ID:
+            print(f"[stripe webhook] payment_link mismatch: got {payment_link_id}, expected {STRIPE_PAYMENT_LINK_ID}")
+
+        source = "payment_link" if payment_link_id else "checkout_session"
         status_obj = await sc.get_checkout_status(session_id)
         try:
-            await _provision_after_payment(session_id, status_obj)
+            await _provision_after_payment(
+                session_id,
+                status_obj,
+                email_override=customer_email or None,
+                name_override=customer_name or None,
+                source=source,
+            )
         except HTTPException as exc:
             # Don't trigger retry storms — the polling path will provision later
             print(f"[stripe webhook] provision failed for {session_id}: {exc.detail}")
@@ -250,6 +285,8 @@ async def webhook_info(request: Request):
             "charge.dispute.created",
             "charge.dispute.funds_withdrawn",
         ],
+        "payment_link_id": STRIPE_PAYMENT_LINK_ID,
+        "payment_link_url": os.environ.get("STRIPE_PAYMENT_LINK_URL", ""),
         "test_mode": STRIPE_API_KEY.startswith("sk_test"),
         "configured": bool(STRIPE_API_KEY),
     }

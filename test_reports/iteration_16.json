@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 16: Stripe Payment Link integration backend tests. Created /app/backend/tests/test_iteration16_payment_link.py with 8 tests covering the new payment-link endpoint, webhook handler for Stripe-hosted Payment Link purchases, _provision_after_payment idempotency, and regression of existing checkout/status endpoints. Result: 6/8 PASS, 2/8 FAIL — both failures are the SAME root-cause backend bug in /app/backend/routers/fulfillment.py:205. Regression: /app/backend/tests/test_user_isolation_fuzz.py 10/10 PASS unchanged.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/webhook/stripe",
+        "issue": "Webhook handler returns 500 (not 200) when sc.get_checkout_status() fails for a session id Stripe doesn't recognise. The spec says errors must be swallowed/logged so Stripe doesn't retry-storm the endpoint. Root cause: routers/fulfillment.py line 205 calls `sc.get_checkout_status(session_id)` OUTSIDE the try/except block (lines 206-216), and the try/except only catches HTTPException — but the wrapper raises `emergentintegrations.payments.stripe.checkout.CheckoutError`, which is uncaught and becomes a 500. Two of my tests fail for this reason: test_payment_link_webhook_provisions_via_customer_details and test_webhook_idempotent_at_event_level. The stripe_events row never gets a chance to be checked for the duplicate-suppression assertion because the first response is already 500. Impact: in production, Stripe will retry-storm the webhook on any transient `retrieve` failure (rate-limited, race condition where the session isn't queryable yet, etc.) and our event-level idempotency dedupe never runs because the insert happens BEFORE the failing call — wait, actually the insert IS before the failing call (lines 176-180), so subsequent retries will be deduped — BUT the FIRST retry still leaks a 500 to Stripe.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration16_payment_link.py",
+    "/app/test_reports/pytest/iteration_16_results.xml"
+  ],
+  "action_items": [
+    "Fix /app/backend/routers/fulfillment.py stripe_webhook(): move `status_obj = await sc.get_checkout_status(session_id)` INSIDE the try block (or add a broader try around it) and widen the except to catch `Exception` (or specifically `CheckoutError`). Suggested patch:\n```python\n    if session_id and payment_status == \"paid\":\n        customer_details = raw_obj.get(\"customer_details\") or {}\n        customer_email = customer_details.get(\"email\") or raw_obj.get(\"customer_email\") or \"\"\n        customer_name = customer_details.get(\"name\") or \"\"\n        payment_link_id = raw_obj.get(\"payment_link\") or \"\"\n        if payment_link_id and STRIPE_PAYMENT_LINK_ID and payment_link_id != STRIPE_PAYMENT_LINK_ID:\n            print(f\"[stripe webhook] payment_link mismatch...\")\n        source = \"payment_link\" if payment_link_id else \"checkout_session\"\n        try:\n            status_obj = await sc.get_checkout_status(session_id)\n            await _provision_after_payment(\n                session_id, status_obj,\n                email_override=customer_email or None,\n                name_override=customer_name or None,\n                source=source,\n            )\n        except Exception as exc:  # noqa: BLE001\n            print(f\"[stripe webhook] provision failed for {session_id}: {exc}\")\n```\nAfter the fix, retest the 2 failing tests in test_iteration16_payment_link.py — they should both pass."
+  ],
+  "critical_code_review_comments": [
+    "billing.py:_provision_after_payment is well-structured and correctly idempotent — second call returns existing artifacts via the `txn.get('provisioned')` short-circuit. Verified directly: download_url/login_url stay identical across repeated calls, no duplicate companion_devices/download_tokens/magic_links/payment_transactions rows.",
+    "billing.py:_provision_after_payment correctly prefers email_override > txn.email > metadata.email — this is the right precedence for Payment Link flows where the email lives in customer_details, not metadata.",
+    "fulfillment.py BUG: try/except around _provision_after_payment is too narrow (HTTPException only). The Stripe wrapper raises CheckoutError, not HTTPException. Also, sc.get_checkout_status is outside the try block. See action item above.",
+    "fulfillment.py event-level idempotency (lines 170-180): correctly inserts the stripe_events row BEFORE provisioning, so even if provisioning crashes the dedupe still works on retry. Good defensive design.",
+    "fulfillment.py payment_link mismatch is log-only (not enforcement) — sensible.",
+    "billing.py /payment-link reads env at request time (not import time) — supports hot-reload of env without restart. Good.",
+    "Sync StripeCheckout webhook signature verification IS skipped when STRIPE_WEBHOOK_SECRET is unset (per spec, this is acceptable for now); document in env that STRIPE_WEBHOOK_SECRET should be set in production. Already noted by E1."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration16_payment_link.py (new — 8 tests, 6 PASS / 2 FAIL due to backend bug above)"
+  ],
+  "success_rate": {
+    "backend": "75% (6/8) on new iter16 suite; 100% (10/10) on user_isolation_fuzz regression; 100% (3/3) on payment-link/packages/webhook-info endpoint contract; 100% (1/1) on _provision_after_payment unit test (4 collections + idempotency verified). The 2 failures share a single root cause — one fix unblocks both.",
+    "frontend": "not tested (backend-only request)"
+  },
+  "test_credentials": "No auth needed for the tested endpoints. All test data prefixed @example.com / evt_test_ / evt_dup_ / cs_synth_ — cleaned via mongosh at end of run (47 users, 20 txns, 2 events deleted).",
+  "seed_data_creation": "Each test creates its own ephemeral fixtures and cleans up in a finally block. Final mongosh sweep also ran to ensure zero leaks of @example.com data, evt_test_*/evt_dup_* stripe_events. _MONGO sync client used (pymongo) to avoid motor event-loop reuse across multiple asyncio.run() calls in same test process.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After main agent widens the except in fulfillment.py stripe_webhook (action item), the 2 failing iter16 tests should pass. Re-run: `cd /app && python -m pytest backend/tests/test_iteration16_payment_link.py -v`. Also worth a follow-up: write an integration test that POSTs a payload with a known-good session_id (from a Stripe test-mode checkout the test itself creates) so we exercise the full happy-path provisioning from the webhook side — currently only the unit-level _provision_after_payment is exercised on the happy path. The MOCKED/synthetic webhook payload approach in the existing tests is sufficient for proving the wrapper accepts the raw JSON when STRIPE_WEBHOOK_SECRET is unset, plus the customer_details email-pickup branch.",
+  "rca_of_the_issue": "Backend bug — fulfillment.py stripe_webhook: `sc.get_checkout_status(session_id)` (line 205) is called BEFORE the try/except (lines 206-216) AND the except only catches HTTPException. The Stripe wrapper raises emergentintegrations.payments.stripe.checkout.CheckoutError when the session is missing, so the exception is uncaught and FastAPI returns 500. The spec contract says: 'the webhook still returns 200 (errors are swallowed and logged)' — so this is a regression. Reproduction: POST {id:'evt_x', type:'checkout.session.completed', data:{object:{id:'cs_test_unknown', payment_status:'paid', payment_link:'plink_X', customer_details:{email:'x@example.com'}}}} to /api/webhook/stripe — get 500 with 'Failed to retrieve session status: No such checkout.session'. Mitigation: move get_checkout_status inside the try and widen except to `Exception` (Stripe webhook handlers should NEVER raise — Stripe will retry-storm otherwise). One-line fix shown in action_items."
+}

@@ -1,8 +1,7 @@
 import axios from "axios";
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { CheckCircle2, Loader2, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, ScanLine, ShieldCheck, Smartphone } from "lucide-react";
 import { usePageMeta } from "../lib/usePageMeta";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
@@ -14,40 +13,25 @@ export default function Buy() {
     description:
       "One-time $79 payment, no subscription. Lifetime access to Heirloom — your private AI archive, voice-cloned twin, sealed letters, and Windows companion. Paid securely via Stripe.",
   });
-  const nav = useNavigate();
-  const [packages, setPackages] = useState({});
-  const [selected, setSelected] = useState("lifetime");
+
+  const [link, setLink] = useState(null);
   const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
 
   useEffect(() => {
-    axios.get(`${API}/billing/packages`).then(({ data }) => setPackages(data.packages || {}));
+    axios
+      .get(`${API}/billing/payment-link`)
+      .then(({ data }) => setLink(data))
+      .catch(() => setLink(null));
   }, []);
 
-  const pkg = packages[selected];
-
-  const checkout = async () => {
-    setErr("");
-    if (!email.trim()) {
-      setErr("Email is required so we can deliver your install.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const { data } = await axios.post(`${API}/billing/checkout`, {
-        package_id: selected,
-        origin_url: window.location.origin,
-        email: email.trim(),
-        name: name.trim() || undefined,
-      });
-      window.location.href = data.url;
-    } catch (e) {
-      setErr(e.response?.data?.detail || e.message);
-      setBusy(false);
-    }
-  };
+  // Append prefilled_email so Stripe pre-fills the buyer's email at checkout —
+  // makes the post-purchase auto-provision step much more reliable.
+  const checkoutUrl = useMemo(() => {
+    if (!link?.url) return "";
+    if (!email.trim()) return link.url;
+    const sep = link.url.includes("?") ? "&" : "?";
+    return `${link.url}${sep}prefilled_email=${encodeURIComponent(email.trim())}`;
+  }, [link, email]);
 
   return (
     <div
@@ -59,7 +43,7 @@ export default function Buy() {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="w-full max-w-3xl"
+        className="w-full max-w-5xl"
       >
         <div className="overline mb-3">heirloom by unbound infotech</div>
         <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight mb-3">
@@ -69,85 +53,143 @@ export default function Buy() {
           className="text-base max-w-2xl mb-12"
           style={{ color: "var(--text-secondary)" }}
         >
-          You'll get a personalized Windows installer (the device token is baked in at checkout), a magic-link to your private archive, and lifetime access to every feature we've built — heir release, sealed letters, voice clone, the works.
+          Pay once via Stripe and we'll email you a magic-link to your private
+          archive plus your personalized Windows installer (the device token is
+          baked in for you). Lifetime access to every feature — heir release,
+          sealed letters, voice clone, the works.
         </p>
 
-        <div className="grid md:grid-cols-2 gap-5 mb-10">
-          {Object.entries(packages).map(([id, p]) => (
-            <button
-              key={id}
-              onClick={() => setSelected(id)}
-              data-testid={`pkg-${id}`}
-              className="text-left p-6 rounded-sm transition-colors"
+        <div className="grid lg:grid-cols-[1.2fr_1fr] gap-8 mb-10">
+          {/* PRICE + EMAIL + CTA */}
+          <div className="surface p-7" data-testid="buy-price-card">
+            <div className="overline mb-2">lifetime</div>
+            <h3 className="font-serif text-2xl mb-2">Heirloom Lifetime</h3>
+            <div
+              className="font-serif text-5xl mb-4"
+              style={{ color: "var(--accent)" }}
+            >
+              ${link?.package?.price ?? "79"}
+              <span
+                className="text-base ml-1"
+                style={{ color: "var(--text-muted)" }}
+              >
+                USD · one-time
+              </span>
+            </div>
+            <p
+              className="text-sm mb-6"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {link?.package?.description ||
+                "Lifetime Heirloom Companion + Cloud Archive. One payment, yours forever."}
+            </p>
+
+            <label
+              className="overline block mb-2"
+              htmlFor="buy-email"
+              style={{ color: "var(--text-muted)" }}
+            >
+              your email (we'll prefill at stripe)
+            </label>
+            <input
+              id="buy-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@domain.com"
+              data-testid="buy-email"
+              className="w-full px-3 py-3 text-sm rounded-sm mb-5"
               style={{
-                background: selected === id ? "var(--accent-muted)" : "var(--bg-surface)",
-                border: selected === id ? "2px solid var(--accent)" : "1px solid var(--border-default)",
+                background: "var(--bg-base)",
+                border: "1px solid var(--border-default)",
+                color: "var(--text-primary)",
+              }}
+            />
+
+            <a
+              href={checkoutUrl || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-disabled={!checkoutUrl}
+              data-testid="buy-checkout"
+              onClick={(e) => {
+                if (!checkoutUrl) e.preventDefault();
+              }}
+              className="w-full inline-flex items-center justify-center gap-2 px-6 py-4 rounded-sm text-base font-medium tracking-wide transition-opacity hover:opacity-95"
+              style={{
+                background: "var(--accent)",
+                color: "var(--text-inverse)",
+                opacity: checkoutUrl ? 1 : 0.5,
+                pointerEvents: checkoutUrl ? "auto" : "none",
               }}
             >
-              <div className="overline mb-2">{id}</div>
-              <h3 className="font-serif text-2xl mb-2">{p.name}</h3>
-              <div className="font-serif text-4xl mb-3" style={{ color: "var(--accent)" }}>
-                ${p.price}
-                <span className="text-base ml-1" style={{ color: "var(--text-muted)" }}>
-                  USD
-                </span>
-              </div>
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                {p.description}
-              </p>
-            </button>
-          ))}
-        </div>
+              Pay ${link?.package?.price ?? "79"} with Stripe
+              <ArrowUpRight className="h-4 w-4" />
+            </a>
 
-        <div className="surface p-7 mb-6">
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email — where to send your install link"
-            data-testid="buy-email"
-            className="w-full px-3 py-3 text-sm rounded-sm mb-4"
-            style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
-          />
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Your name (optional — shown to your heirs)"
-            data-testid="buy-name"
-            className="w-full px-3 py-3 text-sm rounded-sm mb-5"
-            style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
-          />
-          {err && (
-            <div className="text-sm mb-4" style={{ color: "var(--error)" }} data-testid="buy-error">
-              {err}
+            <div
+              className="flex items-center gap-2 mt-4 text-xs"
+              style={{ color: "var(--text-muted) " }}
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Secure Stripe checkout. After paying, check your email for the
+              magic-link to your archive.
             </div>
-          )}
-          <button
-            onClick={checkout}
-            disabled={busy || !pkg || !email.trim()}
-            data-testid="buy-checkout"
-            className="w-full inline-flex items-center justify-center gap-2 px-6 py-4 rounded-sm disabled:opacity-50 text-base"
-            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          </div>
+
+          {/* QR CODE */}
+          <div
+            className="surface p-7 flex flex-col items-center text-center"
+            data-testid="buy-qr-card"
           >
-            {busy ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" /> Redirecting to Stripe…
-              </>
-            ) : (
-              <>
-                Pay ${pkg?.price || "—"} with Stripe →
-              </>
-            )}
-          </button>
-          <div className="flex items-center gap-2 mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Test-mode keys — no real charges. Use card 4242 4242 4242 4242, any future expiry, any CVC.
+            <div className="overline mb-2 flex items-center gap-2">
+              <Smartphone className="h-3.5 w-3.5" /> on desktop?
+            </div>
+            <h3 className="font-serif text-xl mb-4">Scan to pay from phone</h3>
+            <div
+              className="rounded-sm p-3 mb-4 inline-block"
+              style={{ background: "white" }}
+            >
+              <img
+                src="/stripe-qr.png"
+                alt="Scan this QR code to pay $79 via Stripe"
+                width={220}
+                height={220}
+                className="block"
+                data-testid="buy-qr-image"
+              />
+            </div>
+            <p
+              className="text-xs max-w-xs"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <ScanLine className="h-3.5 w-3.5 inline-block mr-1" />
+              Open your phone camera, point at the code, tap the Stripe link.
+              Pay there, come back here — your archive will be waiting in your
+              inbox.
+            </p>
           </div>
         </div>
 
         <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          By purchasing you agree to Unbound Infotech's terms. Your archive is encrypted at rest. You can export everything or delete your account any time.
+          By purchasing you agree to Unbound Infotech's{" "}
+          <a
+            href="/terms"
+            className="underline"
+            style={{ color: "var(--text-muted)" }}
+          >
+            terms
+          </a>{" "}
+          and{" "}
+          <a
+            href="/refunds"
+            className="underline"
+            style={{ color: "var(--text-muted)" }}
+          >
+            refund policy
+          </a>
+          . Your archive is encrypted at rest. You can export everything or
+          delete your account any time.
         </p>
       </motion.div>
     </div>

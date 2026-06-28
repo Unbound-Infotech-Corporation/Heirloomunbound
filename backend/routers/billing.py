@@ -131,24 +131,37 @@ async def create_checkout(payload: CheckoutReq, request: Request):
     return CheckoutResp(url=session.url, session_id=session.session_id)
 
 
-async def _provision_after_payment(session_id: str, status_obj: CheckoutStatusResponse) -> dict:
+async def _provision_after_payment(
+    session_id: str,
+    status_obj: CheckoutStatusResponse,
+    *,
+    email_override: Optional[str] = None,
+    name_override: Optional[str] = None,
+    source: str = "checkout_session",
+) -> dict:
     """Idempotently create the buyer's account + companion device + magic-link +
     one-time download token. Returns the provisioning artifacts so the caller
-    can pass download_url + login_url back to the user."""
+    can pass download_url + login_url back to the user.
+
+    `email_override` is used when the buyer paid via a static Stripe Payment
+    Link (no app-initiated session), so the email lives at
+    session.customer_details.email — not in our metadata.
+    """
     txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
     if not txn:
         # Webhook arrived for a session we don't know about — record minimal data
         meta = dict(status_obj.metadata or {})
         await db.payment_transactions.insert_one({
             "session_id": session_id,
-            "package_id": meta.get("package_id", "unknown"),
+            "package_id": meta.get("package_id", "lifetime"),
             "amount": (status_obj.amount_total or 0) / 100.0,
             "currency": status_obj.currency,
-            "email": meta.get("email", ""),
-            "name": meta.get("name", ""),
+            "email": email_override or meta.get("email", ""),
+            "name": name_override or meta.get("name", ""),
             "status": status_obj.status,
             "payment_status": status_obj.payment_status,
             "metadata": meta,
+            "source": source,
             "provisioned": False,
             "created_at": _now_iso(),
             "updated_at": _now_iso(),
@@ -163,8 +176,18 @@ async def _provision_after_payment(session_id: str, status_obj: CheckoutStatusRe
             "email": txn.get("email"),
         }
 
-    email = txn.get("email") or (status_obj.metadata or {}).get("email") or ""
-    name = txn.get("name") or (status_obj.metadata or {}).get("name") or email.split("@")[0]
+    email = (
+        email_override
+        or txn.get("email")
+        or (status_obj.metadata or {}).get("email")
+        or ""
+    ).strip().lower()
+    name = (
+        name_override
+        or txn.get("name")
+        or (status_obj.metadata or {}).get("name")
+        or (email.split("@")[0] if email else "")
+    )
 
     # Find or create user
     user = await db.users.find_one({"email": email}, {"_id": 0}) if email else None
@@ -302,3 +325,15 @@ async def checkout_status(session_id: str, request: Request):
 @router.get("/packages")
 async def list_packages():
     return {"packages": {k: {**v, "id": k} for k, v in PACKAGES.items()}}
+
+
+@router.get("/payment-link")
+async def get_payment_link():
+    """Public: returns the live Stripe Payment Link URL the frontend should
+    direct users to. This replaces the programmatic checkout-session flow
+    for the public buy page."""
+    return {
+        "url": os.environ.get("STRIPE_PAYMENT_LINK_URL", ""),
+        "payment_link_id": os.environ.get("STRIPE_PAYMENT_LINK_ID", ""),
+        "package": PACKAGES["lifetime"],
+    }
