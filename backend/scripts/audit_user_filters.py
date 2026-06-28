@@ -36,6 +36,7 @@ ALLOWLIST_COLLECTIONS = {
     "companion_devices",   # looked up by device_token in the poll path
     "companion_commands",  # device-scoped via device_id
     "deletion_log",         # owner-less audit log
+    "stripe_events",        # owner-less webhook event log for idempotency
     "system_state",        # rate-limit buckets etc
     "billing_plans",       # product catalog, owner-less
     "audit_events",        # global audit

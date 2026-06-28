@@ -71,6 +71,13 @@ async def ensure_indexes() -> None:
         # Billing / fulfillment
         ("checkout_sessions", [("session_id", 1)], {"unique": True, "name": "session_uniq"}),
         ("magic_links", [("token", 1)], {"unique": True, "sparse": True, "name": "token_uniq"}),
+
+        # Stripe webhook event-level idempotency
+        ("stripe_events", [("event_id", 1)], {"unique": True, "name": "event_id_uniq"}),
+
+        # OAuth account-linking
+        ("oauth_connections", [("user_id", 1), ("provider", 1)], {"unique": True, "name": "user_provider_uniq"}),
+        ("oauth_states", [("state", 1)], {"unique": True, "name": "state_uniq"}),
     ]
 
     created = 0

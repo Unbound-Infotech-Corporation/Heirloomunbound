@@ -77,6 +77,18 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 19 — Feb 27, 2026 (Stripe webhook hardening for production)
+Three real production gaps closed:
+
+- ✅ **Event-level idempotency** (`stripe_events` collection with unique-by-event_id index). Stripe retries the same webhook event many times across hours — every retry is now a fast 200 with `{duplicate: true}` instead of re-running provisioning. Closes a real risk of double-emails / double-account-creates under network blips.
+- ✅ **Refund + dispute handling** — listening to `charge.refunded`, `charge.dispute.created`, `charge.dispute.funds_withdrawn`. On any of these: sets `users.account_status = "refunded"`, sets `refunded_at`, revokes EVERY companion device (`revoked: true`, `revoked_reason: "refunded"`), deletes active sessions. **Archive is preserved** in case the refund was a mistake — restorable by one `$unset` on `account_status`.
+- ✅ **Companion poll honors the revocation**: refunded accounts get HTTP 403 `account_inactive` instead of commands — the local PC quietly stops working without crashing.
+- ✅ **Dashboard-setup helper**: `GET /api/billing/webhook-info` returns the exact URL + event list to paste into the Stripe Dashboard. No more guessing.
+- ✅ **`DEPLOY.md` Stripe production-setup section** added — 4 numbered steps the operator does in the Stripe Dashboard, plus an explanation of the refund/dispute behaviour and how to restore an account if needed.
+- ✅ New `stripe_events.event_id` unique index. Audit script + 10/10 isolation fuzz tests still GREEN.
+
+What's **explicitly NOT done** (needs dashboard work first): Stripe Tax automatic-tax in checkout (toggle in dashboard, then one line in `billing.py`). Live-key swap (needs you to activate live mode in your Stripe account).
+
 ### Phase 18 — Feb 27, 2026 (GitHub OAuth)
 Second OAuth provider — slotted into the existing scaffold in ~80 lines of new code:
 

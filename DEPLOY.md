@@ -21,6 +21,41 @@ Last reviewed: Feb 27, 2026.
 | Preview (dev) | `voice-clone-hub-20.preview.emergentagent.com` | Where the agent edits code. Auto-redeploys on every save. |
 | Production | `voice-clone-hub-20.emergent.host` (or your custom domain) | What customers see. Manually promoted from preview. |
 
+## Stripe — production setup
+
+Before you accept real money, do these 4 things in the Stripe Dashboard. Each step takes ~2 min.
+
+### 1. Switch to LIVE mode
+Top-left toggle in stripe.com dashboard → **Activate your account** → fill business details, bank info, ID. Once approved you get an `sk_live_...` key under **Developers → API keys**. Replace `STRIPE_API_KEY` in backend `.env` and `sudo supervisorctl restart backend`.
+
+### 2. Register the webhook
+- **Developers → Webhooks → Add endpoint**
+- **Endpoint URL**: get the right one from `GET /api/billing/webhook-info` (paste the `webhook_url` value — it will be `https://YOUR_PROD_DOMAIN/api/webhook/stripe`)
+- **Events to send** (paste exactly these four):
+  - `checkout.session.completed`
+  - `charge.refunded`
+  - `charge.dispute.created`
+  - `charge.dispute.funds_withdrawn`
+- Save → copy the **Signing secret** (`whsec_...`) → paste into backend `.env` as `STRIPE_WEBHOOK_SECRET`. The emergent integration library already uses it via the `webhook_url` constructor.
+
+### 3. Enable Stripe Tax (recommended if selling outside one state/country)
+- **Settings → Tax → Enable Stripe Tax** → add your business address.
+- Stripe Tax automatically charges the right VAT / sales tax based on the buyer's location.
+- To turn it on in checkout: set `automatic_tax: { enabled: true }` on the checkout session metadata. This is currently NOT in our code — add it to `billing.py` when you're ready.
+
+### 4. Receipts
+Stripe automatically emails a receipt to the buyer's email when Receipts are enabled in **Settings → Customer emails → "Successful payments"**. Toggle that on. We also send our own welcome email via Resend (`email_service.send_magic_link_email`) — both arrive, the Stripe receipt is the formal one.
+
+## Refund / dispute behaviour
+
+When Stripe sends `charge.refunded`, `charge.dispute.created`, or `charge.dispute.funds_withdrawn`:
+- The user's `users.account_status` becomes `"refunded"`.
+- Every companion device is revoked (won't get commands; poll returns 403).
+- Active sessions are deleted (forced re-login).
+- The archive is preserved (in case the refund was a mistake — you can manually re-activate via `db.users.update_one({user_id: ..}, {$unset: {account_status: ""}})`).
+
+If you want the archive auto-deleted on refund, change `_revoke_access_for_event` in `routers/fulfillment.py`.
+
 ## How to deploy
 
 1. **Run the testing agent in preview** until green. Open the latest `/app/test_reports/iteration_*.json` and confirm all critical paths pass.

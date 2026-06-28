@@ -154,18 +154,102 @@ async def stripe_webhook(request: Request):
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Webhook verification failed: {exc!s}") from exc
 
+    # Event-level idempotency — Stripe retries the same event id many times.
+    # We dedupe at the event level (not just session level) so retries are free.
+    event_id = getattr(evt, "event_id", None) or getattr(evt, "id", None)
+    event_type = getattr(evt, "event_type", None) or getattr(evt, "type", "checkout.session.completed")
+    if event_id:
+        existing = await db.stripe_events.find_one({"event_id": event_id}, {"_id": 1})
+        if existing:
+            return {"received": True, "duplicate": True}
+        await db.stripe_events.insert_one({
+            "event_id": event_id,
+            "event_type": event_type,
+            "received_at": _now_iso(),
+        })
+
     session_id = getattr(evt, "session_id", None)
     payment_status = getattr(evt, "payment_status", "")
 
+    # --- checkout.session.completed → provision ---
     if session_id and payment_status == "paid":
-        # Re-pull the canonical status so we can pass amounts/metadata
         status_obj = await sc.get_checkout_status(session_id)
         try:
             await _provision_after_payment(session_id, status_obj)
         except HTTPException as exc:
-            # Don't let Stripe webhook retry storm if the txn is malformed —
-            # log and accept. The polling path (which has the buyer's email)
-            # will provision correctly when they hit /buy/success.
+            # Don't trigger retry storms — the polling path will provision later
             print(f"[stripe webhook] provision failed for {session_id}: {exc.detail}")
 
+    # --- charge.refunded / dispute → revoke access ---
+    if event_type in {"charge.refunded", "charge.dispute.created", "charge.dispute.funds_withdrawn"}:
+        await _revoke_access_for_event(evt)
+
     return {"received": True}
+
+
+async def _revoke_access_for_event(evt) -> None:
+    """Mark the user's account as refunded/disputed and revoke companion access.
+
+    We do NOT auto-delete the archive (the customer's data is sensitive — if
+    the refund was a mistake we want to be able to restore). We just flag the
+    account so the buy-success page shows a banner and the companion devices
+    stop polling successfully.
+    """
+    # Try to find the transaction this refund references
+    charge_id = getattr(evt, "charge_id", None) or getattr(evt, "id", None)
+    metadata = getattr(evt, "metadata", {}) or {}
+    session_id = metadata.get("checkout_session_id") or getattr(evt, "session_id", None)
+
+    txn = None
+    if session_id:
+        txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not txn and charge_id:
+        txn = await db.payment_transactions.find_one({"charge_id": charge_id}, {"_id": 0})
+    if not txn:
+        print(f"[stripe webhook] refund event with no matching txn: charge={charge_id}, session={session_id}")
+        return
+
+    uid = txn.get("user_id")
+    if not uid:
+        return
+
+    await db.users.update_one(
+        {"user_id": uid},
+        {"$set": {
+            "account_status": "refunded",
+            "refunded_at": _now_iso(),
+            "refund_event_type": getattr(evt, "event_type", None) or getattr(evt, "type", "refund"),
+        }},
+    )
+    # Revoke every companion device so the local PCs stop being able to poll
+    await db.companion_devices.update_many(
+        {"user_id": uid},
+        {"$set": {"revoked": True, "revoked_reason": "refunded", "revoked_at": _now_iso()}},
+    )
+    # Invalidate active sessions
+    await db.user_sessions.delete_many({"user_id": uid})
+    print(f"[stripe webhook] revoked access for {uid} due to refund/dispute")
+
+
+# ---------------- Webhook setup info (for the dashboard config) ----------------
+@router.get("/billing/webhook-info")
+async def webhook_info(request: Request):
+    """Show the URL + events the operator needs to register in the Stripe Dashboard.
+
+    Use:
+      Stripe Dashboard → Developers → Webhooks → Add endpoint → paste `url`
+      → tick the events listed below → save → copy the signing secret into
+      backend env as STRIPE_WEBHOOK_SECRET.
+    """
+    base = str(request.base_url).rstrip("/")
+    return {
+        "webhook_url": f"{base}/api/webhook/stripe",
+        "events_to_listen_for": [
+            "checkout.session.completed",
+            "charge.refunded",
+            "charge.dispute.created",
+            "charge.dispute.funds_withdrawn",
+        ],
+        "test_mode": STRIPE_API_KEY.startswith("sk_test"),
+        "configured": bool(STRIPE_API_KEY),
+    }

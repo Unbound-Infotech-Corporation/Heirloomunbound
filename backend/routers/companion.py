@@ -111,6 +111,10 @@ async def list_commands(user: dict = Depends(get_current_user), limit: int = 50)
 async def poll(ctx: dict = Depends(get_device_user)):
     """Companion polls every few seconds for queued commands AND due reminders."""
     user = ctx["user"]
+    # Refunded / disputed accounts: tell the companion to quietly stop.
+    if user.get("account_status") == "refunded":
+        from fastapi import HTTPException as _HE
+        raise _HE(status_code=403, detail="account_inactive")
     cursor = db.companion_commands.find(
         {"user_id": user["user_id"], "status": "queued"}, {"_id": 0}
     ).sort("created_at", 1).limit(10)
