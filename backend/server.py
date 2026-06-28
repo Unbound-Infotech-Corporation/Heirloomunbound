@@ -27,6 +27,7 @@ from routers import (
     memory,
     music,
     nudges,
+    oauth,
     onboarding,
     personality,
     personas,
@@ -89,6 +90,7 @@ api_router.include_router(billing.router)
 api_router.include_router(fulfillment.router)
 api_router.include_router(avatar.router)
 api_router.include_router(email_router.router)
+api_router.include_router(oauth.router)
 
 app.include_router(api_router)
 

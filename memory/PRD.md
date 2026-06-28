@@ -77,6 +77,17 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 17 — Feb 27, 2026 (OAuth account linking — Spotify)
+First "Connect your account" integration; pattern is provider-agnostic and reusable for future providers (Google, GitHub, YouTube).
+
+- ✅ **`routers/oauth.py`** — provider-agnostic OAuth router. Endpoints: `GET /api/oauth/connections` (lists all providers + per-user connection state), `GET /api/oauth/{provider}/connect` (returns authorize URL), `GET /api/oauth/{provider}/callback` (exchanges code → tokens → seeds personality signals → redirects to `/settings?{provider}=connected`), `DELETE /api/oauth/{provider}` (disconnect).
+- ✅ **Spotify wired end-to-end**: registered app credentials in env, Authorization Code flow with state-token CSRF guard, full scope set (`user-read-recently-played user-top-read user-library-read playlist-read-private user-read-playback-state user-modify-playback-state`), auto-refresh helper (`get_fresh_spotify_token`) that handles token expiry transparently for downstream callers (music.py etc).
+- ✅ **Auto-seeded personality signal on first connect**: pulls user's top 10 artists, top 10 tracks, recent 20 plays, and aggregated top 6 genres, then writes ONE summary archive entry titled "What I'm listening to (from Spotify)" + sets a long-term `musical_taste` identity fact. Customer's Twin instantly knows their musical taste with zero typing.
+- ✅ **`settings-oauth-section`** UI — provider cards with status, profile name, Connect/Disconnect buttons. Each card auto-greys when not configured server-side; clean toast feedback on redirect-back.
+- ✅ **Isolation re-verified post-change**: static audit script GREEN (every Mongo read still user-scoped, oauth_connections + oauth_states properly filter); 10/10 fuzz tests still pass.
+
+Future providers slot in as branches under the existing flow — Google Drive / GitHub / YouTube each ~30–60 min of provider-specific code once their respective developer-console apps are registered.
+
 ### Phase 16 — Feb 27, 2026 (user-isolation hardening)
 Anchored on the question *"will Heirloom respond to everyone with Logan as their child?"* — a categorical "no" needed audit-grade proof.
 

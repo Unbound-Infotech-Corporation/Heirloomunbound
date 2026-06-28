@@ -786,8 +786,117 @@ export default function Settings() {
 
       <DIdKeySection />
       <EmailSection />
+      <ConnectedAccountsSection />
       <DangerZone />
     </div>
+  );
+}
+
+function ConnectedAccountsSection() {
+  const [data, setData] = useState(null);
+  const load = async () => {
+    try {
+      const r = await api.get("/oauth/connections");
+      setData(r.data);
+    } catch { /* noop */ }
+  };
+  useEffect(() => { load(); }, []);
+
+  // After Spotify callback we land at /settings?spotify=connected (or error:...)
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    const p = u.searchParams.get("spotify");
+    if (!p) return;
+    if (p === "connected") toast.success("Spotify connected. Your listening history is now in your archive.");
+    else toast.error(`Spotify connection failed (${p.replace("error:", "")})`);
+    // Clean URL
+    u.searchParams.delete("spotify");
+    window.history.replaceState({}, "", u.toString());
+    load();
+  }, []);
+
+  const connectSpotify = async () => {
+    try {
+      const { data: d } = await api.get("/oauth/spotify/connect");
+      window.location.href = d.authorize_url;
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to start Spotify OAuth");
+    }
+  };
+  const disconnect = async (provider) => {
+    if (!confirm(`Disconnect ${provider}? Your previously imported data stays in the archive.`)) return;
+    await api.delete(`/oauth/${provider}`);
+    toast.success(`${provider} disconnected`);
+    load();
+  };
+
+  if (!data) return null;
+  return (
+    <section className="surface p-8 mt-10" data-testid="settings-oauth-section">
+      <div className="overline mb-2">connected accounts</div>
+      <h2 className="font-serif text-2xl font-light mb-3" style={{ color: "var(--text-primary)" }}>
+        Bring your accounts in
+      </h2>
+      <p className="text-sm mb-6 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        Connect the apps you already live in. Heirloom quietly pulls a small personality signal from each — what you listen to, what you read, what you make — and weaves it into your archive without you having to type a single word.
+      </p>
+      <div className="space-y-3">
+        {data.connections.map((c) => (
+          <div
+            key={c.provider}
+            className="p-5 rounded-sm flex items-start gap-4"
+            style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)" }}
+            data-testid={`oauth-card-${c.provider}`}
+          >
+            <div
+              className="h-11 w-11 flex-shrink-0 flex items-center justify-center rounded-sm"
+              style={{
+                background: c.connected ? "var(--accent-muted)" : "var(--bg-elevated)",
+                border: `1px solid ${c.connected ? "var(--accent)" : "var(--border-default)"}`,
+              }}
+            >
+              <Music className="h-5 w-5" style={{ color: c.connected ? "var(--accent)" : "var(--text-muted)" }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline justify-between gap-3">
+                <div className="font-serif text-lg" style={{ color: "var(--text-primary)" }}>{c.label}</div>
+                {c.connected && c.profile?.display_name && (
+                  <div className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>
+                    signed in as <b style={{ color: "var(--accent)" }}>{c.profile.display_name}</b>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs mt-1 mb-4 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                {c.description}
+              </p>
+              {!c.configured ? (
+                <div className="text-xs italic" style={{ color: "var(--text-muted)" }}>
+                  Not configured on the server. Set the {c.provider.toUpperCase()}_CLIENT_ID and _CLIENT_SECRET env vars.
+                </div>
+              ) : c.connected ? (
+                <button
+                  onClick={() => disconnect(c.provider)}
+                  data-testid={`oauth-disconnect-${c.provider}`}
+                  className="px-3 py-1.5 text-xs rounded-sm"
+                  style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+                >
+                  Disconnect
+                </button>
+              ) : (
+                <button
+                  onClick={() => c.provider === "spotify" ? connectSpotify() : null}
+                  data-testid={`oauth-connect-${c.provider}`}
+                  className="px-3 py-1.5 text-xs rounded-sm"
+                  style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+                >
+                  Connect {c.label}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
