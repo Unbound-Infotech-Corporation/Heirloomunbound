@@ -459,6 +459,77 @@ def build_windows_zip_bytes(token: str, wake_word: bool = False) -> bytes:
     return buf.getvalue()
 
 
+# ---------- Heirloom Desktop (PySide6 full GUI) ----------
+def build_desktop_app_zip_bytes(token: str) -> bytes:
+    """Returns the in-memory zip for the full PySide6 desktop app, with the
+    user's device token + backend URL baked into heirloom/config.py.
+
+    On first run the bundled Heirloom.bat creates a venv at
+    %LOCALAPPDATA%\\Heirloom\\venv, pip-installs PySide6 + audio deps, then
+    launches pythonw -m heirloom — so the user sees a real Qt window, not a
+    console.
+    """
+    import io
+    import os
+    import pathlib
+    import zipfile
+
+    backend_url = os.environ.get("PUBLIC_BACKEND_URL", "")
+    pkg_root = pathlib.Path(__file__).resolve().parents[2] / "companion_desktop"
+    if not pkg_root.is_dir():
+        raise HTTPException(
+            status_code=500, detail=f"Desktop app source missing at {pkg_root}"
+        )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for path in pkg_root.rglob("*"):
+            if path.is_dir():
+                continue
+            if "__pycache__" in path.parts:
+                continue
+            rel = path.relative_to(pkg_root).as_posix()
+            data = path.read_bytes()
+            # Token + URL injection happens only on the config.py
+            if rel == "heirloom/config.py":
+                text = data.decode("utf-8")
+                text = text.replace('"__BACKEND_URL__"', f'"{backend_url}"')
+                text = text.replace('"__DEVICE_TOKEN__"', f'"{token}"')
+                data = text.encode("utf-8")
+            z.writestr(rel, data)
+    return buf.getvalue()
+
+
+@router.get("/desktop-package")
+async def desktop_package(
+    token: str,
+    user: dict = Depends(get_current_user),
+):
+    """Returns a zip with the full PySide6 desktop app, personalized to `token`.
+
+    The zip contains:
+      - heirloom/  (the PySide6 package with config.py baked with your token)
+      - Heirloom.bat (one-click launcher; creates venv + installs deps on first run)
+      - requirements.txt
+      - README.txt
+    """
+    device = await db.companion_devices.find_one(
+        {"device_token": token, "user_id": user["user_id"], "revoked": False},
+        {"_id": 0},
+    )
+    if not device:
+        raise HTTPException(status_code=404, detail="Device token not found")
+
+    payload = build_desktop_app_zip_bytes(token)
+    from fastapi import Response
+
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="HeirloomDesktop.zip"'},
+    )
+
+
 @router.get("/windows-package")
 async def windows_package(
     token: str,

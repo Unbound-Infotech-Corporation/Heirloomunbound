@@ -18,6 +18,7 @@ from routers import (
     companion,
     dashboard,
     dashboard_extra,
+    desktop,
     email as email_router,
     fulfillment,
     heir_portal,
@@ -91,6 +92,7 @@ api_router.include_router(fulfillment.router)
 api_router.include_router(avatar.router)
 api_router.include_router(email_router.router)
 api_router.include_router(oauth.router)
+api_router.include_router(desktop.router)
 
 app.include_router(api_router)
 

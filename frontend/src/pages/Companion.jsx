@@ -53,6 +53,12 @@ export default function Companion() {
     window.open(url, "_blank");
   };
 
+  const downloadDesktopApp = () => {
+    if (!issued) return;
+    const url = `${API_BASE}/companion/desktop-package?token=${encodeURIComponent(issued.device_token)}`;
+    window.open(url, "_blank");
+  };
+
   const revoke = async (id) => {
     if (!window.confirm("Revoke this device?")) return;
     await api.delete(`/companion/devices/${id}`);
@@ -133,20 +139,28 @@ export default function Companion() {
             </div>
             <div className="flex gap-3 flex-wrap">
               <button
-                onClick={downloadEasyInstaller}
-                data-testid="download-easy-installer"
+                onClick={downloadDesktopApp}
+                data-testid="download-desktop-app"
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
                 style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
               >
-                <Download className="h-3.5 w-3.5" /> Easy install (Windows, 1 file)
+                <Download className="h-3.5 w-3.5" /> Heirloom Desktop (full app)
+              </button>
+              <button
+                onClick={downloadEasyInstaller}
+                data-testid="download-easy-installer"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
+                style={{ border: "1px solid var(--accent)", color: "var(--text-primary)" }}
+              >
+                <Download className="h-3.5 w-3.5" /> Background companion (.bat)
               </button>
               <button
                 onClick={downloadWindows}
                 data-testid="download-windows"
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
-                style={{ border: "1px solid var(--accent)", color: "var(--text-primary)" }}
+                style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
               >
-                <Download className="h-3.5 w-3.5" /> Windows package (.zip)
+                <Download className="h-3.5 w-3.5" /> Companion .zip
               </button>
               <button
                 onClick={downloadScript}
@@ -168,11 +182,10 @@ export default function Companion() {
               </button>
             </div>
             <p className="text-xs mt-4 leading-relaxed" style={{ color: "var(--text-muted)" }}>
-              <b style={{ color: "var(--accent)" }}>Easy install</b> downloads one tiny <code>.bat</code> file.
-              Double-click it on the PC where you want Heirloom to live — it installs Python (silently, if missing),
-              sets up the companion at <code>%LOCALAPPDATA%\Heirloom</code>, runs it hidden in the tray, and
-              auto-starts on every Windows sign-in. No terminal, no pip, no Python knowledge. ~60 seconds.
-            </p>
+              <b style={{ color: "var(--accent)" }}>Heirloom Desktop</b> is the full Windows app — a resizable
+              window with your twin&apos;s talking-head avatar, full chat thread, push-to-talk, quick-capture journal,
+              and a pop-out avatar mode for OBS streaming. The background companion <code>.bat</code> is the lightweight
+              option — runs hidden in the tray, listens for Ctrl+Space, no GUI. Both share the same token.</p>
           </div>
         )}
       </section>

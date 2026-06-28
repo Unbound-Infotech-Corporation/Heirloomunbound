@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 17 — Heirloom Desktop (PySide6) backend. Created /app/backend/tests/test_iteration17_desktop.py — 12 tests, all PASS. Verified: /api/desktop/me (auth happy + 401s), /api/desktop/conversation (creates kind='companion_twin' on first call, returns shared conv_id), /api/desktop/chat (live Claude call — persists user+assistant pair with source='desktop', same conv surfaces via /desktop/conversation), /api/desktop/capture (returns entry with source='desktop' + 'desktop' tag) feeding /api/desktop/memories/recent with CROSS-USER ISOLATION verified, /api/desktop/avatar/talk + /api/desktop/avatar/talk/{talk_id} REGISTRATION in OpenAPI (no live D-ID call — saved credits), build_desktop_app_zip_bytes('comp_zipbuild_test') unit (exact 13-file set, no __pycache__, token + https BACKEND_URL injected into config.py), /api/companion/desktop-package cookie-auth (401 unauth / 200 owner with HeirloomDesktop.zip / 404 cross-user), and a compile() syntax check over every .py under companion_desktop/heirloom. Regression: iter16 8/8 PASS, user_isolation_fuzz 10/10 PASS.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration17_desktop.py",
+    "/app/test_reports/pytest/iteration_17_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routers/desktop.py:_ensure_companion_conv — clean idempotent create using {user_id, kind:'companion_twin'} unique-key pattern. Correctly excludes _id from reads.",
+    "routers/desktop.py:desktop_chat — last 120 archive entries used as system-prompt context. Memory archive is sliced at 18,000 chars which is safe for Sonnet's window. Persists BOTH user+assistant turns with source='desktop' so the conv timeline knows who originated each message.",
+    "routers/desktop.py:desktop_capture — auto-injects 'desktop' tag via set-union dedupe and forces source='desktop'. Good for downstream attribution.",
+    "routers/desktop.py:desktop_memories — projection explicitly excludes _id; limit clamped to [1,100]; sorted by created_at desc. Cross-user isolation enforced via user_id filter — verified in test.",
+    "routers/companion.py:build_desktop_app_zip_bytes — walks /app/companion_desktop, excludes __pycache__, injects token+URL only into heirloom/config.py. Clean; reads package source at request time so hot-edits to companion_desktop/* are picked up without restart.",
+    "routers/companion.py:GET /companion/desktop-package — properly cookie-authed via get_current_user, then validates the device_token belongs to the requesting user (cross-user → 404). Matches the /windows-package pattern. Good.",
+    "companion_desktop/heirloom/config.py — placeholder fallback to localhost:8001 when run from source is a thoughtful dev affordance. Settings persist to LOCALAPPDATA/Heirloom on Windows, ~/.heirloom on Mac/Linux — good cross-platform fallback.",
+    "companion_desktop/heirloom/api.py — QThreadPool-backed async wrapper with on_ok/on_err signals keeps GUI thread free. Correct URL normalization (auto-prepends /api). _check() unwraps detail field from FastAPI errors. Solid.",
+    "MINOR (not blocking): companion_desktop/heirloom/audio.py imports sounddevice/soundfile at module level — fine for the bundled launcher but means heirloom.audio fails to import in any environment without portaudio. Not relevant to the backend tests; just a packaging note.",
+    "MINOR: /openapi.json is not reachable through the public ingress (Kubernetes routes /api/* only to the backend). Test hits http://localhost:8001/openapi.json instead — works in CI, but worth knowing if other agents try to introspect the spec externally."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration17_desktop.py (new — 12 tests, all PASS)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12) iter17 + 100% (8/8) iter16 regression + 100% (10/10) user_isolation_fuzz regression",
+    "frontend": "not tested (backend-only request)"
+  },
+  "test_credentials": "Minted in-test via pymongo: u_desktop_a_<rand>/u_desktop_b_<rand> users + comp_desktop_<token> device_tokens + sess_desktop_<token> user_sessions. No real Emergent Google Auth used.",
+  "seed_data_creation": "Each module sets up 2 users (A and B) with their own device_token + session_token + linked companion_devices row. teardown_module() sweeps users/companion_devices/user_sessions/entries/conversations/avatar_talks by user_id. One real LLM call made (~1 cent), no D-ID calls made.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iter17 desktop suite is fully green. /openapi.json is served at backend root (port 8001) not /api — if a future test needs the spec via the public URL it WON'T work (ingress only routes /api/*). The build_desktop_app_zip_bytes test invokes it in a subprocess to avoid leaking motor's asyncio loop into pytest. /desktop/chat hits live Claude — keep test runs sparse on this file. user_isolation_fuzz MUST be run from cwd=/app/backend (it does `from server import app`); from /app it fails with ModuleNotFoundError — that's expected pre-existing behaviour.",
+  "rca_of_the_issue": "n/a — no bugs found in this iteration's surface."
+}
