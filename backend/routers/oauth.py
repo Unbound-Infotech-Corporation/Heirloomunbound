@@ -275,6 +275,169 @@ async def _seed_spotify_signals(user_id: str, headers: dict) -> None:
     )
 
 
+# ─────────────────────────── GitHub connect flow ───────────────────────────
+
+
+@router.get("/github/connect")
+async def github_connect(user: dict = Depends(get_current_user)):
+    if not (GITHUB_CLIENT_ID and GITHUB_REDIRECT_URI):
+        raise HTTPException(status_code=500, detail="GitHub not configured on the server")
+
+    state_token = secrets.token_urlsafe(24)
+    await db.oauth_states.insert_one({
+        "state": state_token,
+        "user_id": user["user_id"],
+        "provider": "github",
+        "created_at": _now_iso(),
+    })
+    params = {
+        "client_id": GITHUB_CLIENT_ID,
+        "redirect_uri": GITHUB_REDIRECT_URI,
+        "scope": GITHUB_SCOPES,
+        "state": state_token,
+        "allow_signup": "true",
+    }
+    return {"authorize_url": "https://github.com/login/oauth/authorize?" + urlencode(params)}
+
+
+@router.get("/github/callback")
+async def github_callback(
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+):
+    redirect_back = f"{PUBLIC_FRONTEND}/settings?github="
+    if error:
+        return RedirectResponse(redirect_back + f"error:{error}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(redirect_back + "error:missing_code", status_code=302)
+    state_row = await db.oauth_states.find_one_and_delete({"state": state})
+    if not state_row:
+        return RedirectResponse(redirect_back + "error:invalid_state", status_code=302)
+    uid = state_row["user_id"]
+
+    tok = requests.post(
+        "https://github.com/login/oauth/access_token",
+        headers={"Accept": "application/json"},
+        data={
+            "client_id": GITHUB_CLIENT_ID,
+            "client_secret": GITHUB_CLIENT_SECRET,
+            "code": code,
+            "redirect_uri": GITHUB_REDIRECT_URI,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return RedirectResponse(redirect_back + f"error:token_{tok.status_code}", status_code=302)
+    tk = tok.json()
+    if "access_token" not in tk:
+        # GitHub returns 200 with an "error" field for bad creds
+        return RedirectResponse(redirect_back + f"error:{tk.get('error', 'no_token')}", status_code=302)
+    access = tk["access_token"]
+
+    headers = {"Authorization": f"Bearer {access}", "Accept": "application/vnd.github+json"}
+    me = requests.get("https://api.github.com/user", headers=headers, timeout=10).json()
+    profile = {
+        "id": me.get("id"),
+        "display_name": me.get("name") or me.get("login"),
+        "login": me.get("login"),
+        "image": me.get("avatar_url"),
+        "bio": me.get("bio"),
+        "location": me.get("location"),
+        "public_repos": me.get("public_repos"),
+        "followers": me.get("followers"),
+    }
+
+    # GitHub OAuth access tokens are non-expiring by default — no refresh needed
+    await db.oauth_connections.update_one(
+        {"user_id": uid, "provider": "github"},
+        {"$set": {
+            "user_id": uid,
+            "provider": "github",
+            "access_token": access,
+            "refresh_token": "",
+            "expires_at": (datetime.now(timezone.utc) + timedelta(days=365 * 5)).isoformat(),
+            "scope": GITHUB_SCOPES,
+            "profile": profile,
+            "connected_at": _now_iso(),
+            "last_refreshed_at": _now_iso(),
+        }},
+        upsert=True,
+    )
+
+    try:
+        await _seed_github_signals(uid, headers, profile)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[github] signal seed failed for {uid}: {exc}")
+
+    return RedirectResponse(redirect_back + "connected", status_code=302)
+
+
+async def _seed_github_signals(user_id: str, headers: dict, profile: dict) -> None:
+    import uuid
+
+    # Recent repos (most recently updated, owner = self)
+    repos = requests.get(
+        "https://api.github.com/user/repos?sort=updated&per_page=15&affiliation=owner",
+        headers=headers, timeout=10,
+    ).json()
+    if not isinstance(repos, list) or not repos:
+        return
+
+    # Aggregate languages
+    languages: dict[str, int] = {}
+    for r in repos:
+        lang = r.get("language")
+        if lang:
+            languages[lang] = languages.get(lang, 0) + 1
+    top_langs = sorted(languages.items(), key=lambda x: -x[1])[:5]
+
+    bits = []
+    if profile.get("bio"):
+        bits.append(f"GitHub bio: {profile['bio']}")
+    bits.append(
+        f"On GitHub as @{profile.get('login')} with "
+        f"{profile.get('public_repos', 0)} public repos and {profile.get('followers', 0)} followers."
+    )
+    if top_langs:
+        bits.append("Languages I work in most: " + ", ".join(f"{l} ({n})" for l, n in top_langs) + ".")
+    # Most recently touched 6 repos with one-line descriptions
+    repo_lines = []
+    for r in repos[:6]:
+        line = f"- {r['name']}"
+        if r.get("description"):
+            line += f": {r['description']}"
+        repo_lines.append(line)
+    if repo_lines:
+        bits.append("Recent repositories:\n" + "\n".join(repo_lines))
+
+    await db.entries.insert_one({
+        "entry_id": f"ent_{uuid.uuid4().hex[:12]}",
+        "user_id": user_id,
+        "type": "memory",
+        "title": "What I'm building (from GitHub)",
+        "content": "\n\n".join(bits),
+        "tags": ["work", "code", "github", "personality"],
+        "source": "github",
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+    })
+
+    if top_langs:
+        await db.memory_facts.update_one(
+            {"user_id": user_id, "key": "primary_languages"},
+            {"$set": {
+                "fact_id": f"f_{uuid.uuid4().hex[:10]}",
+                "user_id": user_id,
+                "key": "primary_languages",
+                "value": ", ".join(l for l, _ in top_langs),
+                "source": "github",
+                "updated_at": _now_iso(),
+            }},
+            upsert=True,
+        )
+
+
 # ─────────────────────────── Refresh helper (used by music.py later) ──────
 
 

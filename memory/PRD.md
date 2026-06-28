@@ -77,6 +77,18 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 18 — Feb 27, 2026 (GitHub OAuth)
+Second OAuth provider — slotted into the existing scaffold in ~80 lines of new code:
+
+- ✅ `/api/oauth/github/connect` + `/api/oauth/github/callback` — Authorization Code flow with state-token CSRF guard, scopes `read:user user:email`. GitHub tokens are non-expiring by default, so no refresh dance — we store with a 5-year expiry to satisfy the unified token-expiry contract.
+- ✅ **Auto-imported personality signals on first connect**:
+  - Pulls user's `/user/repos?sort=updated&affiliation=owner` — most recent 15 repos
+  - Aggregates top 5 languages by repo count
+  - Writes one archive entry titled "What I'm building (from GitHub)" with: bio (if set), public_repos/followers count, top languages, recent 6 repos with one-line descriptions
+  - Sets `primary_languages` long-term identity fact
+- ✅ `connections` endpoint now returns BOTH providers. Frontend's connected-accounts UI is fully generic — provider-agnostic `connectProvider(slug)` and `useEffect` callback handler now iterate over `["spotify", "github"]` for the success/error toast.
+- ✅ Re-verified: static audit GREEN, 10/10 isolation fuzz tests still pass.
+
 ### Phase 17 — Feb 27, 2026 (OAuth account linking — Spotify)
 First "Connect your account" integration; pattern is provider-agnostic and reusable for future providers (Google, GitHub, YouTube).
 

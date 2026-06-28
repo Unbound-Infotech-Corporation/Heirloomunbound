@@ -802,25 +802,27 @@ function ConnectedAccountsSection() {
   };
   useEffect(() => { load(); }, []);
 
-  // After Spotify callback we land at /settings?spotify=connected (or error:...)
+  // Handle callback for any provider — currently spotify + github
   useEffect(() => {
     const u = new URL(window.location.href);
-    const p = u.searchParams.get("spotify");
-    if (!p) return;
-    if (p === "connected") toast.success("Spotify connected. Your listening history is now in your archive.");
-    else toast.error(`Spotify connection failed (${p.replace("error:", "")})`);
-    // Clean URL
-    u.searchParams.delete("spotify");
-    window.history.replaceState({}, "", u.toString());
-    load();
+    for (const provider of ["spotify", "github"]) {
+      const p = u.searchParams.get(provider);
+      if (!p) continue;
+      const label = provider.charAt(0).toUpperCase() + provider.slice(1);
+      if (p === "connected") toast.success(`${label} connected. Personality signals imported into your archive.`);
+      else toast.error(`${label} connection failed (${p.replace("error:", "")})`);
+      u.searchParams.delete(provider);
+      window.history.replaceState({}, "", u.toString());
+      load();
+    }
   }, []);
 
-  const connectSpotify = async () => {
+  const connectProvider = async (provider) => {
     try {
-      const { data: d } = await api.get("/oauth/spotify/connect");
+      const { data: d } = await api.get(`/oauth/${provider}/connect`);
       window.location.href = d.authorize_url;
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to start Spotify OAuth");
+      toast.error(e?.response?.data?.detail || `Failed to start ${provider} OAuth`);
     }
   };
   const disconnect = async (provider) => {
@@ -884,7 +886,7 @@ function ConnectedAccountsSection() {
                 </button>
               ) : (
                 <button
-                  onClick={() => c.provider === "spotify" ? connectSpotify() : null}
+                  onClick={() => connectProvider(c.provider)}
                   data-testid={`oauth-connect-${c.provider}`}
                   className="px-3 py-1.5 text-xs rounded-sm"
                   style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
