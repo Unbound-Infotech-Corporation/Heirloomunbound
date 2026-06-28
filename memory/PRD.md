@@ -77,6 +77,11 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 20 — Feb 27, 2026 (Stripe checkout product image)
+- ✅ **Composed `public/stripe-checkout-image.jpg`** — 1024×1024 square, 228KB JPG. Layout: dark library bookshelf+chandelier bg with strong vignette, cyan Unbound "U" centered, "AN UNBOUND INFOTECH PRODUCT" accent overline, serif "Heirloom" wordmark, "a continuation of you" tagline, and a gold "$79 · LIFETIME · ONE-TIME" pill at the bottom. Scales gracefully down to Stripe's ~150×150 sidebar display.
+- ✅ Compose script saved at `/app/frontend/scripts/build_stripe_image.py` for future re-runs / tweaks.
+- ✅ Lives at: `https://voice-clone-hub-20.preview.emergentagent.com/stripe-checkout-image.jpg` (preview) — operator uploads it to Stripe Dashboard once.
+
 ### Phase 19 — Feb 27, 2026 (Stripe webhook hardening for production)
 Three real production gaps closed:
 
