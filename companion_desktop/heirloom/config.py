@@ -49,6 +49,11 @@ _DEFAULTS: Dict[str, Any] = {
     "window_geometry": None,
     "pop_out_geometry": None,
     "stay_logged_in": True,
+    # ---- Local Vault ----
+    "vault_folder": None,             # None → default (Documents/HeirloomVault)
+    "storage_tier": "partial",        # "full" | "partial" | "lite"
+    "maintenance_schedule": "on_quit",  # "midnight" | "on_quit" | "manual"
+    "last_maintenance_at": None,
 }
 
 

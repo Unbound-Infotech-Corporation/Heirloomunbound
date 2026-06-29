@@ -38,6 +38,7 @@ from routers import (
     social_import,
     sources,
     twin,
+    vault,
     voice,
     voice_clone,
 )
@@ -93,6 +94,7 @@ api_router.include_router(avatar.router)
 api_router.include_router(email_router.router)
 api_router.include_router(oauth.router)
 api_router.include_router(desktop.router)
+api_router.include_router(vault.router)
 
 app.include_router(api_router)
 

@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 18 — Local Vault + daily compaction backend surface. Created /app/backend/tests/test_iteration18_vault.py with 9 tests (all PASS). Verified: POST /api/vault/compact extracts >=1 valid fact via live Claude on the Vermont/Elias transcript (turns_seen=2, non-empty summary, each fact has non-empty 'fact' + 'kind' in the allowed enum); empty-turns short-circuit returns facts=[], turns_seen=0, summary='(no conversation today)' (no LLM call); missing & invalid bearer => 401. POST /api/vault/facts/ingest writes memory_facts with source='desktop_compaction' + source_date='2026-06-29', inserted=2/skipped=0 on first call, inserted=0/skipped=2 idempotent on second (lower-cased dedupe also confirmed for mixed-case re-ingest). Cross-user isolation verified: ingest for user A leaves user B's count at 0 and B's own ingest doesn't affect A. GET /api/vault/status returns the exact 5-key shape, facts_from_vault is filtered to source='desktop_compaction' only, last_compaction_date matches the ingest date. Local SQLite Vault driven in a no-Qt subprocess: append_turn writes 3 turns including audio to raw/<day>/audio/<turn_id>.wav, turns_for_day returns the 3 rows in ts order, record_compaction inserts a compactions row AND writes journals/<date>.md containing summary+themes, apply_tier_policy('lite') deletes turn rows + audio files for a backdated compacted day, apply_tier_policy('partial') keeps the row but deletes the audio file and sets audio_path=NULL for a 31-day-old turn. Regression: iter17 12/12 PASS (after a 1-line EXPECTED_FILES update — the test's hardcoded set was stale because iter18 added 3 desktop files to the zip), iter16 8/8 PASS, user_isolation_fuzz 10/10 PASS. ONE live Claude call used.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration18_vault.py",
+    "/app/test_reports/pytest/iteration_18_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routers/vault.py:vault_compact — clean short-circuit on empty turns avoids a wasted LLM call. Transcript is capped to last 240 turns and 30k chars, plus per-turn text trimmed to 1500 chars — bounded context. _extract_json's regex-then-loads pattern is forgiving for prose-wrapped JSON. If parse fails it still returns a usable CompactResp with the raw text as summary (graceful degrade).",
+    "routers/vault.py:vault_ingest_facts — idempotency built on lower-cased trimmed fact text union with already-existing facts AND in-batch dedupe (existing.add inside the loop) — duplicates within the same payload are also de-duped. Source set to 'desktop_compaction' and source_date is honoured. Cross-user isolation enforced by user_id from get_device_user.",
+    "routers/vault.py:vault_status — counts use Mongo count_documents (efficient). facts_from_vault correctly filtered to source='desktop_compaction'. last_compaction_at/date pulled from the most recent vault fact via sort=created_at desc. Reasonable, but: if user has never compacted, both fields return None — make sure desktop UI handles that.",
+    "MINOR (forward-compat): vault_ingest_facts reads with source ∈ {'desktop_compaction','vault_compaction'} for the existing-set, but writes ONLY 'desktop_compaction'. The 'vault_compaction' fallback in the read filter is dead-code today; harmless, but could mislead a reader into thinking two sources are persisted.",
+    "MINOR: routers/vault.py imports emergentintegrations.llm.chat at module top — same pattern as routers/twin, so the import-time cost is already paid. Fine.",
+    "companion_desktop/heirloom/vault.py — clean SQLite layout with WAL journal_mode, indexes on day + compacted_in. apply_tier_policy('lite') correctly wipes turn rows and audio per compacted day < today, then tries to rmdir the now-empty day directory (silent OSError if non-empty — good defensive behaviour). 'partial' tier uses a 30-day cutoff on the `day` column (string compare safe because day is ISO YYYY-MM-DD).",
+    "MINOR (vault.py): apply_tier_policy('partial') doesn't write an audit row when no audio rows match — but the unconditional audit insert at the bottom of the function does run, so we always record the policy run. Good.",
+    "MINOR (vault.py): _today_str() uses local time (datetime.now()) whereas _now_iso() uses UTC. That can shift a turn's `day` column by one across midnight UTC vs local TZ. For the daily-compaction model this is the desired behaviour (compact by user-local day), but worth flagging.",
+    "TEST REGRESSION I FIXED: tests/test_iteration17_desktop.py TestBuildDesktopZip.EXPECTED_FILES was a hardcoded set that didn't include iter18's three new desktop files (heirloom/vault.py, heirloom/maintenance.py, heirloom/ui/settings_dialog.py). Updated the set; this is the test's responsibility — the zip builder is doing the right thing by including the new files."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration18_vault.py (new — 9 tests, all PASS)",
+    "/app/backend/tests/test_iteration17_desktop.py (EXPECTED_FILES set expanded by +3 for new desktop modules)"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9) iter18 + 100% (12/12) iter17 regression + 100% (8/8) iter16 regression + 100% (10/10) user_isolation_fuzz regression",
+    "frontend": "not tested (backend-only request)"
+  },
+  "test_credentials": "Minted in-test via pymongo: u_vault_a_<rand>/u_vault_b_<rand> users + comp_vault_<token> device tokens. No real Emergent Google Auth used.",
+  "seed_data_creation": "Each test module mints 2 users with device_tokens via direct pymongo inserts into users + companion_devices. memory_facts rows are created via /api/vault/facts/ingest. teardown_module sweeps users, companion_devices, and memory_facts by user_id. ONE live Claude (Sonnet 4.6) call made via /vault/compact — well under the 2-call budget. Local-Vault SQLite test uses pytest's tmp_path and a stubbed heirloom.config in a subprocess — leaves no on-disk state.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iter18 vault suite is fully green. The Local-Vault SQLite test runs in a subprocess with sys.modules['heirloom.config'] stubbed BEFORE importing heirloom.vault — that pattern is required because heirloom/__init__.py doesn't exist as a package init for that subdir (only the package proper does), and we want to bypass the real config persistence. If iter19+ adds more files under /app/companion_desktop/heirloom/, the iter17 EXPECTED_FILES set must be updated again (or refactored to compute the expected set dynamically). /openapi.json is served at backend root only (port 8001) — ingress only routes /api/*. user_isolation_fuzz MUST be run from cwd=/app/backend (it does `from server import app`).",
+  "rca_of_the_issue": "Single regression encountered: tests/test_iteration17_desktop.py::TestBuildDesktopZip::test_zip_structure_and_token_injection failed because EXPECTED_FILES was a static hardcoded set that did not include the 3 new desktop modules that iteration 18 introduced under /app/companion_desktop/heirloom/ (vault.py, maintenance.py, ui/settings_dialog.py). The zip builder (routers/companion.py:build_desktop_app_zip_bytes) correctly walks the source tree and includes them; the test's expectation was stale. Fix: expanded EXPECTED_FILES by exactly +3 to match the new ground truth. No backend code change was needed."
+}

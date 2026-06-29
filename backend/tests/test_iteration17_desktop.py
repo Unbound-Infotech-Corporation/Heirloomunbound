@@ -246,11 +246,14 @@ class TestBuildDesktopZip:
         "heirloom/api.py",
         "heirloom/audio.py",
         "heirloom/config.py",
+        "heirloom/maintenance.py",
+        "heirloom/vault.py",
         "heirloom/ui/__init__.py",
         "heirloom/ui/avatar_panel.py",
         "heirloom/ui/conversation.py",
         "heirloom/ui/main_window.py",
         "heirloom/ui/panels.py",
+        "heirloom/ui/settings_dialog.py",
     }
 
     def test_zip_structure_and_token_injection(self):
