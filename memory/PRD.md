@@ -197,7 +197,41 @@ This phase makes Heirloom legally and operationally ready to charge real custome
 ### Phase 12 — Feb 27, 2026 (JSON-LD structured data)
 - ✅ Added a 3-entity `@graph` JSON-LD block to `index.html` head: `Organization` (Unbound Infotech), `WebSite` (Heirloom), and `SoftwareApplication` (Heirloom) with full `Offer` ($79 USD lifetime), 7 `featureList` items, `applicationCategory`, and operating systems. All three entities are cross-referenced via `@id`. Makes Heirloom eligible for Google rich results (price snippet, software-app card, knowledge-graph entity for "Unbound Infotech"). No synthetic `aggregateRating` (would violate Google's structured-data policy).
 
-### Phase 12 — Feb 28, 2026 (live Stripe Payment Link + Heirloom Desktop GUI)
+### Phase 13 — Feb 28, 2026 (Local Vault + daily compaction — the real twin)
+
+User pushed back hard: chat conversations were being saved but not making the twin
+*smarter*. They wanted a "hardcore real twin program, not bullshit gimmicks". So we
+built a proper personality archive that grows from every conversation.
+
+**Local-first storage with three tiers**
+- ✅ **New SQLite + filesystem vault** at the user's chosen folder (default `~/HeirloomVault` on Mac/Linux, `Documents/HeirloomVault` on Windows). Every chat turn — text and voice — is captured into `vault.db` with the raw WAV stored under `raw/<YYYY-MM-DD>/audio/<turn_id>.wav`.
+- ✅ **Three storage tiers** (selectable in the new Settings dialog):
+  - **Full** — keep all turns + audio forever. True legacy archive.
+  - **Partial** (default) — keep audio 30 days then delete the WAV but keep the transcript. ~10× smaller.
+  - **Lite** — once a day is compacted, delete its raw turns + audio, keep only the daily summary + extracted facts.
+- ✅ Each tier ALWAYS uploads extracted facts to the cloud — local pruning never affects what the twin remembers.
+
+**Daily compaction**
+- ✅ New `POST /api/vault/compact` ships a date's transcript to Claude with a strict extraction prompt → returns `{facts:[{fact, kind}], summary, themes, turns_seen}`. Bounded to last 240 turns / 30k chars / 1500 chars per turn — safe context budget.
+- ✅ New `POST /api/vault/facts/ingest` writes facts into `memory_facts` with `source='desktop_compaction'`. **Idempotent** by lower-cased fact text dedupe (within-batch + against existing).
+- ✅ New `GET /api/vault/status` returns `{total_facts, facts_from_vault, total_archive_entries, last_compaction_at, last_compaction_date}` for the Settings UI.
+- ✅ **Facts flow directly into the twin's system prompt** because they live in the same `memory_facts` collection the twin already reads. So things you say in chat actually become things your twin knows forever. Closes the gap.
+- ✅ Per-day journal markdown written to `<vault>/journals/<date>.md` (human-readable record of what the twin learned that day).
+- ✅ Full audit log table in `vault.db` for every append + compaction + policy-prune action.
+
+**Maintenance scheduling (user-pickable)**
+- ✅ **On quit** (default): when the user truly quits the app (tray Quit), `aboutToQuit` fires the compaction in a worker thread.
+- ✅ **3 AM daily**: a `QTimer` arms for the next 3 AM local time, fires the compaction, then re-arms for tomorrow.
+- ✅ **Manual only**: user clicks "Run maintenance now" in Settings to fire ad-hoc.
+- ✅ Settings dialog also shows storage usage (bytes + file count + turn count) and last-compaction summary + cloud fact count.
+
+**Frontend additions**
+- ✅ `⚙` gear button on the desktop titlebar opens the Settings dialog.
+- ✅ Vault folder picker, tier selector with descriptions, schedule selector, "Run maintenance now" button, live log of compaction progress, storage usage indicator.
+
+**Tests (iteration 18)**
+- ✅ `/app/backend/tests/test_iteration18_vault.py` — **9/9 PASS**. Live Claude compaction extracts ≥1 valid fact from a Vermont/Elias transcript; empty-turns short-circuit; auth 401s; ingest idempotency by lower-cased fact text; cross-user isolation; status counts only `desktop_compaction` facts; full SQLite vault unit test (append → turns_for_day → record_compaction → tier policies Full/Partial/Lite all verified).
+- ✅ **Regression**: iter17 desktop 12/12, iter16 Stripe 8/8, user_isolation_fuzz 10/10. **39/39 total.**
 
 **Stripe Payment Link wired into production**
 - ✅ User's live Payment Link `https://buy.stripe.com/dRm9AT87I9Ky7C82MZdQQ00` (ID `plink_1TnP5pGsA7WZDU3uyECbEDm5`) is now the primary checkout path. `Buy.jsx` shows the price card + branded QR code side-by-side; clicking "Pay $79 with Stripe" opens the live link with `?prefilled_email=` baked in for cleaner post-purchase provisioning. The QR is for desktop visitors who want to scan with their phone.
