@@ -241,6 +241,8 @@ class TestBuildDesktopZip:
         "Heirloom.bat",
         "README.txt",
         "requirements.txt",
+        "heirloom.spec",
+        "Build-Heirloom-Exe.bat",
         "heirloom/__init__.py",
         "heirloom/__main__.py",
         "heirloom/api.py",

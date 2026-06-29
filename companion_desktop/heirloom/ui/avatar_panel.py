@@ -284,9 +284,9 @@ class AvatarPanel(QFrame):
             self.set_status("idle")
             return
         if self._settings.get("avatar_mode") == "waveform":
-            # No D-ID — just emote with the waveform ring for ~2s
-            self.set_status("speaking")
-            QTimer.singleShot(1800, lambda: self.set_status("idle"))
+            # No D-ID render — but if the user has a cloned voice we still
+            # *speak*. The waveform ring pulses for the duration of playback.
+            self._speak_via_tts(text)
             return
         self.set_status("rendering")
         api.post_async(
@@ -295,6 +295,92 @@ class AvatarPanel(QFrame):
             on_ok=self._on_talk_started,
             on_err=lambda msg: self.set_status("idle"),
         )
+
+    def _speak_via_tts(self, text: str) -> None:
+        """Waveform-mode voice path: fetch cloned-voice MP3, play through the
+        same QMediaPlayer, animate the waveform for its duration. If the user
+        hasn't configured a voice, silently pulse for ~1.8s."""
+        self.set_status("rendering")
+
+        def _fetch():
+            import tempfile
+
+            import requests as _r
+
+            url = config.BACKEND_URL.rstrip("/") + "/api/desktop/speak"
+            headers = {
+                "Authorization": f"Bearer {config.DEVICE_TOKEN}",
+                "Content-Type": "application/json",
+            }
+            r = _r.post(url, json={"text": text[:4000]}, headers=headers, timeout=60)
+            if r.status_code == 400:
+                # Voice not configured → bubble up via a sentinel so the UI
+                # can fall back to the silent pulse without an error toast.
+                return {"unconfigured": True}
+            if r.status_code >= 400:
+                raise RuntimeError(f"TTS {r.status_code}: {r.text[:200]}")
+            f = tempfile.NamedTemporaryFile(
+                suffix=".mp3", delete=False, prefix="heirloom_tts_"
+            )
+            f.write(r.content)
+            f.flush()
+            f.close()
+            return {"path": f.name}
+
+        api._submit(_fetch, self._on_tts_ready, self._on_tts_err)  # type: ignore[attr-defined]
+
+    def _on_tts_ready(self, result: dict) -> None:
+        if result.get("unconfigured"):
+            # Graceful fallback — silent pulse for a beat.
+            self.set_status("speaking")
+            QTimer.singleShot(1800, lambda: self.set_status("idle"))
+            return
+        path = result.get("path")
+        if not path:
+            self.set_status("idle")
+            return
+        # Clean previous tmp file
+        if self._tmp_video and os.path.exists(self._tmp_video):
+            try:
+                os.unlink(self._tmp_video)
+            except Exception:
+                pass
+        self._tmp_video = path
+        self.set_status("speaking")
+        # Audio-only path: don't switch to video widget, keep showing the
+        # portrait. The waveform widget below it stays visible and we drive
+        # its level from a periodic timer while audio is playing.
+        self.portrait_video.show_portrait()
+        self.player.setVideoOutput(None)  # type: ignore[arg-type]
+        self.player.setSource(QUrl.fromLocalFile(path))
+        self._start_tts_pulse()
+        self.player.play()
+
+    def _on_tts_err(self, msg: str) -> None:
+        # Silent fallback — log to console; the UI just goes back to idle.
+        print(f"[avatar] TTS failed: {msg}")
+        self.set_status("speaking")
+        QTimer.singleShot(1500, lambda: self.set_status("idle"))
+
+    def _start_tts_pulse(self) -> None:
+        """While TTS is playing, modulate the waveform ring with a synthetic
+        envelope so the ring actually *pulses* with the speech. We don't
+        do real spectrum analysis (would need QAudioProbe/FFT) — instead a
+        cheap random walk that feels natural."""
+        if not hasattr(self, "_pulse_timer"):
+            self._pulse_timer = QTimer(self)
+            self._pulse_timer.timeout.connect(self._tts_pulse_tick)
+        self._pulse_timer.start(80)
+
+    def _tts_pulse_tick(self) -> None:
+        import random
+
+        if self.player.playbackState() != QMediaPlayer.PlayingState:
+            self._pulse_timer.stop()
+            self.set_level(0.0)
+            return
+        # Soft envelope: bias around 0.55 with random fluctuation
+        self.set_level(0.35 + random.random() * 0.45)
 
     def pop_out(self) -> None:
         if self._broadcast is not None and self._broadcast.isVisible():

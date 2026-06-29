@@ -17,7 +17,7 @@ from typing import Optional
 
 import httpx
 from emergentintegrations.llm.chat import LlmChat, UserMessage
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from deps import EMERGENT_LLM_KEY, db
@@ -30,6 +30,7 @@ D_ID_BASE = "https://api.d-id.com"
 DEFAULT_SOURCE_URL = (
     "https://create-images-results.d-id.com/DefaultPresenters/Emma_f/v1_image.jpeg"
 )
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 
 
 def _now_iso() -> str:
@@ -297,3 +298,94 @@ async def desktop_memories(ctx: dict = Depends(get_device_user), limit: int = 20
     )
     items = await cursor.to_list(length=limit)
     return {"items": items}
+
+
+# ---------------- Cloned-voice TTS (used by Waveform avatar mode) ----------------
+class SpeakReq(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    language: Optional[str] = None
+
+
+@router.post("/speak")
+async def desktop_speak(payload: SpeakReq, ctx: dict = Depends(get_device_user)):
+    """Synthesize `text` through the user's cloned ElevenLabs voice and stream
+    back the MP3 bytes. Returns 400 if the user hasn't configured a voice
+    (the desktop app falls back to silent waveform animation in that case).
+
+    Returns audio/mpeg directly — no base64 wrapper — because the desktop
+    QMediaPlayer plays from raw bytes and we want to avoid the ~33% size
+    inflation."""
+    user = ctx["user"]
+    key = (user.get("elevenlabs_api_key") or "").strip() or ELEVENLABS_API_KEY
+    voice_id = (user.get("elevenlabs_voice_id") or "").strip()
+    if not key or not voice_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Voice clone not configured — open the web Settings to clone your voice or set an ElevenLabs voice_id.",
+        )
+
+    text = payload.text.strip()[:4000]
+    lang_pref = (payload.language or user.get("tts_language") or "auto").strip().lower()
+
+    # Call ElevenLabs directly via REST so we don't have to import the heavy
+    # AsyncElevenLabs client just for streaming bytes — keeps cold-start fast.
+    headers = {
+        "xi-api-key": key,
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg",
+    }
+    body: dict = {
+        "text": text,
+        "model_id": "eleven_multilingual_v2",
+        "output_format": "mp3_44100_128",
+    }
+    if lang_pref and lang_pref != "auto" and len(lang_pref) <= 8:
+        body["language_code"] = lang_pref
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                headers=headers,
+                json=body,
+            )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"ElevenLabs upstream: {exc!s}") from exc
+
+    if r.status_code >= 400:
+        # Map common errors to clearer messages
+        snippet = r.text[:300]
+        if r.status_code == 401:
+            raise HTTPException(status_code=400, detail="ElevenLabs key invalid or revoked.")
+        if r.status_code == 404:
+            raise HTTPException(status_code=400, detail=f"Voice id not found in your ElevenLabs account ({voice_id}).")
+        raise HTTPException(status_code=502, detail=f"ElevenLabs {r.status_code}: {snippet}")
+
+    audio = r.content
+    if not audio:
+        raise HTTPException(status_code=502, detail="ElevenLabs returned empty audio.")
+
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        headers={
+            "Content-Disposition": 'inline; filename="twin.mp3"',
+            "Cache-Control": "no-store",
+            "X-Voice-Id": voice_id,
+        },
+    )
+
+
+@router.get("/voice/status")
+async def desktop_voice_status(ctx: dict = Depends(get_device_user)):
+    """Cheap pre-flight check the desktop app calls at boot — lets the avatar
+    panel decide whether Waveform mode should attempt TTS or stay silent."""
+    user = ctx["user"]
+    return {
+        "configured": bool(
+            (user.get("elevenlabs_api_key") or ELEVENLABS_API_KEY)
+            and user.get("elevenlabs_voice_id")
+        ),
+        "voice_name": user.get("elevenlabs_voice_name") or "",
+        "voice_id": user.get("elevenlabs_voice_id") or "",
+    }

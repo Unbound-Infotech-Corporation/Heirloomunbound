@@ -41,6 +41,32 @@ TROUBLESHOOTING
 - Mic not working? Settings → Privacy → Microphone → allow desktop apps.
 - App didn't open? Check %LOCALAPPDATA%\Heirloom for error logs.
 
+VOICE CLONING
+-------------
+In Waveform avatar mode, Heirloom calls your ElevenLabs cloned voice so the
+twin speaks aloud. Configure your voice in the web app: Settings → Voice clone
+→ paste your ElevenLabs API key and pick the voice id (clone one in
+ElevenLabs first if you haven't). The desktop app picks it up automatically
+on next launch — no restart needed.
+
+If no voice is configured, Waveform mode just pulses silently (no error).
+D-ID mode is unaffected — it always speaks because the talking-head MP4
+already has voice baked in.
+
+BUILDING A STANDALONE .EXE (Optional)
+-------------------------------------
+To produce a `Heirloom.exe` that doesn't need Python installed on the
+target machine:
+
+  1. On a Windows machine with Python 3.10+ installed,
+  2. Double-click `Build-Heirloom-Exe.bat`.
+  3. Wait ~3-5 minutes. Output: `dist\Heirloom\Heirloom.exe`.
+  4. Zip the entire `dist\Heirloom\` folder and share it.
+
+First launch on a new PC will show a SmartScreen warning (the exe isn't
+code-signed). Click "More info" -> "Run anyway". After ~5-10 successful
+installs, SmartScreen reputation builds up and the warning disappears.
+
 DATA
 ----
 Settings live at %LOCALAPPDATA%\Heirloom\settings.json. The device token is
