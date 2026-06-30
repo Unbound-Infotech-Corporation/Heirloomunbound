@@ -336,6 +336,14 @@ export default function Settings() {
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
               Best: front-facing, neutral expression, ~1024×1024. D-ID requires the URL to be publicly fetchable.
             </p>
+            <a
+              href="/avatar-studio"
+              data-testid="avatar-studio-link"
+              className="inline-flex items-center gap-1.5 text-xs underline mt-1"
+              style={{ color: "var(--accent)" }}
+            >
+              ✨ Or open Avatar Studio — upload 3 angles, optional subtle enhance →
+            </a>
           </div>
         </div>
       </section>

@@ -51,7 +51,7 @@ export default function AvatarStudio() {
     }
   };
 
-  const useAsActive = async (image_id) => {
+  const setActiveImage = async (image_id) => {
     try {
       await api.post("/avatar-studio/use", { image_id });
       toast.success("Set as your twin's face.");
@@ -92,7 +92,7 @@ export default function AvatarStudio() {
 
   const commitEnhanced = async () => {
     if (!enhanceState.previewId) return;
-    await useAsActive(enhanceState.previewId);
+    await setActiveImage(enhanceState.previewId);
     setEnhanceState({ open: false, strength: 35, previewUrl: null, previewId: null, originalUrl: null, originalId: null });
   };
 
@@ -107,10 +107,10 @@ export default function AvatarStudio() {
   return (
     <div className="min-h-screen px-6 sm:px-10 py-10" style={{ background: "var(--bg-base)" }} data-testid="avatar-studio">
       <div className="max-w-5xl mx-auto">
-        <div className="overline mb-3">your twin's face</div>
+        <div className="overline mb-3">your twin&apos;s face</div>
         <h1 className="font-serif text-4xl mb-3">Avatar Studio</h1>
         <p className="text-sm mb-10 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          Upload three angles of your face — front + both sides. The front photo is what your twin uses today.
+          Upload three angles of your face &mdash; front + both sides. The front photo is what your twin uses today.
           The sides we&apos;ll keep on file for a future 3D-avatar upgrade. Optional subtle enhance preserves your
           identity — never changes your features, just cleans things up.
         </p>
@@ -125,7 +125,7 @@ export default function AvatarStudio() {
               uploading={uploading === a.key}
               activeUrl={data.active_source_url}
               onUpload={(file) => handleUpload(a.key, file)}
-              onUse={useAsActive}
+              onUse={setActiveImage}
               onEnhance={openEnhance}
               falConfigured={data.fal_configured}
             />

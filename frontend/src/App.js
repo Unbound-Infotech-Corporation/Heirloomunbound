@@ -83,6 +83,7 @@ function AppRouter() {
         <Route path="/letters" element={<Letters />} />
         <Route path="/personality" element={<Personality />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/avatar-studio" element={<AvatarStudio />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
