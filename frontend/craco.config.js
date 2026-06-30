@@ -102,6 +102,43 @@ let webpackConfig = {
       if (config.enableHealthCheck && healthPluginInstance) {
         webpackConfig.plugins.push(healthPluginInstance);
       }
+
+      // Source-map upload to Sentry (production builds only).
+      // Only runs when SENTRY_AUTH_TOKEN is set — local dev builds skip it.
+      const SENTRY_AUTH_TOKEN = process.env.SENTRY_AUTH_TOKEN;
+      const SENTRY_ORG = process.env.SENTRY_ORG;
+      const SENTRY_PROJECT = process.env.SENTRY_PROJECT;
+      if (
+        webpackConfig.mode === "production" &&
+        SENTRY_AUTH_TOKEN &&
+        SENTRY_ORG &&
+        SENTRY_PROJECT
+      ) {
+        // Ensure CRA actually emits .map files so the plugin has something to upload
+        webpackConfig.devtool = "source-map";
+        const { sentryWebpackPlugin } = require("@sentry/webpack-plugin");
+        webpackConfig.plugins.push(
+          sentryWebpackPlugin({
+            org: SENTRY_ORG,
+            project: SENTRY_PROJECT,
+            authToken: SENTRY_AUTH_TOKEN,
+            release: {
+              name:
+                process.env.REACT_APP_VERSION ||
+                process.env.SENTRY_RELEASE ||
+                undefined,
+            },
+            sourcemaps: {
+              // After upload, strip .map files from the deployed bundle so we
+              // don't expose un-minified source via /static/js/*.map URLs.
+              filesToDeleteAfterUpload: ["build/**/*.map"],
+            },
+            telemetry: false,
+            silent: false,
+          }),
+        );
+      }
+
       return webpackConfig;
     },
   },
