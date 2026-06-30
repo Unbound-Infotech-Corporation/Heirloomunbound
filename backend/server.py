@@ -62,6 +62,7 @@ from routers import (
     social_import,
     sources,
     twin,
+    user_keys,
     vault,
     voice,
     voice_clone,
@@ -121,6 +122,7 @@ api_router.include_router(desktop.router)
 api_router.include_router(vault.router)
 api_router.include_router(live.router)
 api_router.include_router(avatar_studio.router)
+api_router.include_router(user_keys.router)
 
 app.include_router(api_router)
 

@@ -205,8 +205,37 @@ async def get_my_avatars(user: dict = Depends(get_current_user)):
         "front": by_angle.get("front"),
         "left": by_angle.get("left"),
         "right": by_angle.get("right"),
-        "fal_configured": bool(FAL_KEY),
+        "fal_configured": bool((user.get("fal_api_key") or "").strip() or FAL_KEY),
+        "fal_using_user_key": bool((user.get("fal_api_key") or "").strip()),
     }
+
+
+class FalKeyReq(BaseModel):
+    api_key: str
+
+
+@router.put("/api-key")
+async def set_fal_key(payload: FalKeyReq, user: dict = Depends(get_current_user)):
+    """Save the user's personal fal.ai key (overrides admin key for this user)."""
+    key = (payload.api_key or "").strip()
+    if not key:
+        await db.users.update_one(
+            {"user_id": user["user_id"]}, {"$unset": {"fal_api_key": ""}}
+        )
+        return {"has_user_key": False}
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"fal_api_key": key, "updated_at": _now_iso()}},
+    )
+    return {"has_user_key": True}
+
+
+@router.delete("/api-key")
+async def clear_fal_key(user: dict = Depends(get_current_user)):
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$unset": {"fal_api_key": ""}}
+    )
+    return {"has_user_key": False}
 
 
 class SaveActiveReq(BaseModel):
@@ -240,12 +269,14 @@ class EnhanceReq(BaseModel):
 async def enhance_avatar(body: EnhanceReq, user: dict = Depends(get_current_user)):
     """Run the front image through fal.ai's identity-preserving restorer and
     save the result as a NEW image (the original stays untouched)."""
-    if not FAL_KEY:
+    user_fal = (user.get("fal_api_key") or "").strip()
+    effective_key = user_fal or FAL_KEY
+    if not effective_key:
         raise HTTPException(
             status_code=400,
-            detail="Beautify is unavailable — admin hasn't configured FAL_KEY yet.",
+            detail="Beautify is unavailable — add your fal.ai key in Settings → Keys & Integrations.",
         )
-    os.environ["FAL_KEY"] = FAL_KEY  # fal_client reads from env at request time
+    os.environ["FAL_KEY"] = effective_key  # fal_client reads from env at request time
 
     row = await db.avatar_images.find_one(
         {"image_id": body.image_id, "user_id": user["user_id"], "is_deleted": False},

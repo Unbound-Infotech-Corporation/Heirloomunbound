@@ -14,6 +14,7 @@ import Import from "@/pages/Import";
 import Twin from "@/pages/Twin";
 import TwinLive from "@/pages/TwinLive";
 import AvatarStudio from "@/pages/AvatarStudio";
+import SetupKeys from "@/pages/SetupKeys";
 import Skills from "@/pages/Skills";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
@@ -84,6 +85,7 @@ function AppRouter() {
         <Route path="/personality" element={<Personality />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/avatar-studio" element={<AvatarStudio />} />
+        <Route path="/setup/keys" element={<SetupKeys />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -1,0 +1,59 @@
+{
+  "summary": "Iteration 21 — Setup/Keys Wizard (BYO API keys) end-to-end tests. Created /app/backend/tests/test_iteration21_user_keys.py (13 tests) and ran a Playwright UI sweep over /setup/keys, /settings, /avatar-studio. 12/13 backend tests pass; 1 fails (and reproduces in the UI) due to a frontend↔backend route mismatch on the ElevenLabs save endpoint. All other features (status, verify, fal save/clear flow, hybrid override, avatar-studio/me, /avatar/api-key, settings link, avatar-studio mount, reveal-toggle) PASS.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PUT/DELETE /api/voice-clone/api-key",
+        "issue": "Returns 404 — route does not exist. SetupKeys.jsx hardcodes keyEndpoint '/voice-clone/api-key' for the ElevenLabs card, but routers/voice_clone.py only exposes PUT/GET /voice-clone/settings. Either (a) add PUT /api-key + DELETE /api-key aliases in voice_clone.py (same body shape {api_key}), or (b) change the SetupKeys.jsx elevenlabs card's keyEndpoint to '/voice-clone/settings'. Confirmed via UI: clicking Save on the ElevenLabs card → PUT /api/voice-clone/api-key returns 404. fal.ai (avatar-studio/api-key) and D-ID (avatar/api-key) routes exist and work correctly.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "ElevenLabs Save key in Setup/Keys wizard",
+        "issue": "Save button on key-card-elevenlabs fires PUT /api/voice-clone/api-key which 404s. Backend route is /voice-clone/settings.",
+        "affected_selectors": ["[data-testid=\"key-save-elevenlabs\"]", "[data-testid=\"key-card-elevenlabs\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "/setup/keys (first visit for users mid-tour)",
+        "issues": ["The onboarding 'Welcome to Heirloom' modal tour overlays /setup/keys and intercepts pointer events on the wizard cards on first visit. Skip-the-tour works, but if a user clicks 'Open the wizard' from settings while the tour is mid-run, the cards behind the modal are unclickable. Consider auto-suppressing the tour when navigating directly to /setup/keys, or raising the wizard above the tour overlay."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration21_user_keys.py",
+    "/app/test_reports/pytest/iteration_21_results.xml"
+  ],
+  "action_items": [
+    "Fix ElevenLabs key-save 404: either add PUT/DELETE /voice-clone/api-key in routers/voice_clone.py (preferred — keeps wizard config uniform), or update SetupKeys.jsx SERVICES[elevenlabs].keyEndpoint to '/voice-clone/settings'.",
+    "Re-test ElevenLabs save+clear flow once the route mismatch is fixed (expected: status.elevenlabs.source flips to 'you' after save).",
+    "(Optional) suppress onboarding tour overlay on direct visits to /setup/keys."
+  ],
+  "critical_code_review_comments": [
+    "SetupKeys.jsx line 32: keyEndpoint '/voice-clone/api-key' does not match the actual backend route (/voice-clone/settings). This is the root cause of the ElevenLabs save 404. avatar-studio (line 17) and avatar (line 47) endpoints are correct.",
+    "routers/user_keys.py:status correctly distinguishes you/admin/none and includes oauth services with `oauth: true` marker. Clean separation.",
+    "routers/user_keys.py:verify uses live provider endpoints — good. Fal verify accepts 403 as a 'valid standard-scope' key, which is correct behavior (the admin-test FAL_KEY returns 403 on /serverless/usage but still works for inference).",
+    "routers/avatar_studio.py:enhance hybrid override is wired correctly: `effective_key = user_fal or FAL_KEY`, then writes to os.environ['FAL_KEY'] before fal_client uses it. Verified via 404-on-bad-image-id test (no 400 about missing key).",
+    "Minor: routers/avatar_studio.py mutates process-global os.environ['FAL_KEY'] per request — racy under concurrency. If two users with different fal keys make enhance() calls simultaneously, the second can stomp the first's key mid-request. Recommend passing the key to fal_client via its constructor/kwargs instead of env mutation, or using a contextvar.",
+    "routers/user_keys.py:status treats STRIPE_PAYMENT_LINK_URL as a 'key' — works for surface state but conceptually it's a URL, not a credential. Cosmetic."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration21_user_keys.py (NEW, 13 tests)"
+  ],
+  "success_rate": {
+    "backend": "92% (12/13 — the 1 failure is a real bug, not a flaky test)",
+    "frontend": "~95% (fal.ai BYO flow + settings link + avatar-studio all pass; ElevenLabs save fails due to backend mismatch)"
+  },
+  "test_credentials": "Created via mongosh in test_database: user_id=test-user-iter21-1782859458521, session_token=test_session_iter21_1782859458521, setup_complete:true, onboarded:true. Pytest fixture also mints per-module users (prefix u_iter21_*) and cleans them in teardown.",
+  "seed_data_creation": "Per-module test user + session created/cleaned by pytest fixture. The Playwright session user is left in the DB for re-use across reruns.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The ONE backend failure (test_voice_clone_key_save_clear) is the real bug — frontend SetupKeys.jsx wires the ElevenLabs save to PUT /api/voice-clone/api-key but routers/voice_clone.py only has PUT /voice-clone/settings. Once fixed, re-run pytest /app/backend/tests/test_iteration21_user_keys.py and re-run the SetupKeys UI save flow for ElevenLabs (data-testid=key-save-elevenlabs). All other wizard interactions (fal.ai save/verify/clear, badge flip, reveal toggle, settings link, avatar-studio mount, hybrid override via /enhance) are verified working. Note: a tour modal overlays /setup/keys on first visit — testing scripts must click 'Skip the tour' first, or pre-set the tour-done flag in localStorage. The valid fal verification path returns ok=true with 'standard scope' messaging because the admin FAL_KEY gets a 403 on /serverless/usage (admin-only endpoint) — this is correct and intentional.",
+  "rca of the issue": "ElevenLabs save 404: frontend/src/pages/SetupKeys.jsx line 32 sets keyEndpoint:'/voice-clone/api-key', and the wizard's save() function does `api.put(svc.keyEndpoint, {api_key:key})`. The backend router (routers/voice_clone.py) only registers `PUT /voice-clone/settings` (line 49) — no /api-key route. So every ElevenLabs save in the wizard 404s before the user's key is persisted. Reproduction: cookie-auth as a setup_complete+onboarded user, visit /setup/keys, paste anything into key-input-elevenlabs, click key-save-elevenlabs → Network tab shows PUT /api/voice-clone/api-key 404. Fix: add `@router.put('/api-key')` + `@router.delete('/api-key')` to voice_clone.py mirroring the avatar.py pattern (lines 233-247), OR change SetupKeys.jsx SERVICES[elevenlabs].keyEndpoint to '/voice-clone/settings' (the body shape `{api_key: '...'}` already matches what /settings expects via the Optional[api_key] field)."
+}

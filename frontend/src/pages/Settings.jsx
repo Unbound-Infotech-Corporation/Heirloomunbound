@@ -263,6 +263,25 @@ export default function Settings() {
         </div>
       </section>
 
+      {/* BYO keys quick-link — full setup wizard */}
+      <a
+        href="/setup/keys"
+        data-testid="settings-setup-keys-link"
+        className="surface p-5 mb-6 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
+        style={{ border: "1px solid var(--accent)" }}
+      >
+        <div>
+          <div className="overline mb-1" style={{ color: "var(--accent)" }}>🔑 keys & integrations</div>
+          <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+            Bring your own API keys for fal.ai, ElevenLabs, D-ID + connect Spotify/GitHub.
+          </p>
+          <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+            Step-by-step walkthroughs · live key verification · one-click OAuth.
+          </p>
+        </div>
+        <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
+      </a>
+
       {/* Dashboard widget toggles */}
       <section className="surface p-7 mb-6" data-testid="widgets-section">
         <div className="overline mb-4">today dashboard</div>
