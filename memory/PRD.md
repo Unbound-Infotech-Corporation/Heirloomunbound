@@ -292,6 +292,19 @@ After Semrush audit (Health 78/100) flagged duplicate titles/descriptions, bad r
 - ✅ **Persistence**: New `POST /api/auth/me/tour-complete` (idempotent, simple) sets `users.tour_completed = true`. `/auth/me` now returns this flag so the SPA shows the tour at most once. Dismissing via the X, "Skip the tour", or finishing all 4 steps all persist completion.
 - ✅ **Verified end-to-end** via Playwright: tour renders on first visit, Next/Skip advance + dismiss correctly, tour does not reappear after page reload.
 
+### Phase 11 — Feb 28, 2026 (Setup / Keys Wizard — BYO API keys + Avatar Studio finalized)
+- ✅ **Avatar Studio finished + wired**: `/avatar-studio` route registered (was scaffolded but unreachable), Settings page now links to it via `[data-testid=avatar-studio-link]`. Three-angle upload + identity-preserving fal.ai Beautify slider (0–85%) + side-by-side preview before commit all working.
+- ✅ **`/setup/keys` BYO wizard** (`pages/SetupKeys.jsx`): one card per provider (fal.ai, ElevenLabs, D-ID) with status badge (`using your key` / `using shared default` / `missing`), direct-to-dashboard deeplink, 4-step text walkthrough, password-masked input with reveal toggle, **live Verify button** (hits each provider's auth endpoint), Save, and Remove. OAuth section reuses existing Spotify/GitHub `/api/oauth/{svc}/login` endpoints. Read-only cards surface Resend + Stripe status. Settings has a prominent accent-bordered card linking to it.
+- ✅ **Hybrid per-user override**: fal.ai now reads `user.fal_api_key` first then env `FAL_KEY` (matching the pattern already in place for ElevenLabs and D-ID). User keys take over without breaking shared-default UX. New backend endpoints: `GET /api/user-keys/status`, `POST /api/user-keys/verify`, `PUT /api/avatar-studio/api-key`, `DELETE /api/avatar-studio/api-key`. Added `PUT/DELETE /api/voice-clone/api-key` aliases so the wizard uses a uniform REST shape across all three providers.
+- ✅ **Live verification logic**:
+   - fal.ai → `GET https://api.fal.ai/v1/serverless/usage` (200 / 403 = valid, 401 = invalid)
+   - ElevenLabs → `GET /v1/user` with `xi-api-key`
+   - D-ID → `GET /credits` with Basic auth
+   - Resend → `GET /domains` with Bearer token
+- ✅ **Testing**: 13/13 backend tests pass (`test_iteration21_user_keys.py`). Playwright UI sweep confirmed all data-testids present, save/verify/clear flow works in the browser, and the hybrid override is wired through to `/avatar-studio/enhance`. User-supplied fal.ai key validated against the live fal.ai endpoint.
+
+
+
 ### Phase 8 — Feb 27, 2026 (pre-launch hardening for tester rollout)
 - ✅ **MongoDB performance indexes**: New `db_indexes.py` creates 26 idempotent indexes at startup on every hot-path collection — `user_sessions.session_token` (every request), `users.user_id` (every request), `entries.user_id+created_at`, `companion_devices.token` (every 2s poll), `heirs.release_token` (public portal), `avatar_talks.talk_id`, and 20 more. Pruned legacy `token: null` rows and made the two token-unique indexes sparse-unique so they cleanly rebuild on cold start.
 - ✅ **Settings.jsx runtime fix**: `CheckCircle2` symbol was used but not imported — would crash the ElevenLabs section when a cloned voice was set. Added to lucide-react imports.

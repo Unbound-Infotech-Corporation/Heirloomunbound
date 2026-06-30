@@ -64,6 +64,35 @@ async def set_settings(payload: SettingsPayload, user: dict = Depends(get_curren
     return {"ok": True}
 
 
+class ApiKeyOnly(BaseModel):
+    api_key: str
+
+
+@router.put("/api-key")
+async def set_api_key(payload: ApiKeyOnly, user: dict = Depends(get_current_user)):
+    """Alias for /settings with just the api_key — mirrors /avatar/api-key
+    and /avatar-studio/api-key so the Setup/Keys wizard can use a uniform
+    REST shape across all three providers."""
+    key = (payload.api_key or "").strip()
+    if not key:
+        await db.users.update_one(
+            {"user_id": user["user_id"]}, {"$unset": {"elevenlabs_api_key": ""}}
+        )
+        return {"has_user_key": False}
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$set": {"elevenlabs_api_key": key}}
+    )
+    return {"has_user_key": True}
+
+
+@router.delete("/api-key")
+async def clear_api_key(user: dict = Depends(get_current_user)):
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$unset": {"elevenlabs_api_key": ""}}
+    )
+    return {"has_user_key": False}
+
+
 @router.get("/voices")
 async def list_voices(user: dict = Depends(get_current_user)):
     key = _resolve_key(user)
