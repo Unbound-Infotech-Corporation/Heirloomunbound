@@ -25,6 +25,7 @@ from routers import (
     heirs,
     interviewer,
     letters,
+    live,
     memory,
     music,
     nudges,
@@ -95,6 +96,7 @@ api_router.include_router(email_router.router)
 api_router.include_router(oauth.router)
 api_router.include_router(desktop.router)
 api_router.include_router(vault.router)
+api_router.include_router(live.router)
 
 app.include_router(api_router)
 

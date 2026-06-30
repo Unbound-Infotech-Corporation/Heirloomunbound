@@ -475,10 +475,19 @@ def build_desktop_app_zip_bytes(token: str) -> bytes:
     import zipfile
 
     backend_url = os.environ.get("PUBLIC_BACKEND_URL", "")
-    pkg_root = pathlib.Path(__file__).resolve().parents[2] / "companion_desktop"
-    if not pkg_root.is_dir():
+    # In dev the source lives at /app/companion_desktop; in production deploys
+    # only /app/backend ships, so we keep a copy at /app/backend/companion_desktop
+    # too. Prefer the in-backend copy (always present); fall back to dev path.
+    backend_root = pathlib.Path(__file__).resolve().parents[1]  # /app/backend
+    candidates = [
+        backend_root / "companion_desktop",          # bundled w/ deploy
+        backend_root.parent / "companion_desktop",   # dev convenience
+    ]
+    pkg_root = next((p for p in candidates if p.is_dir()), None)
+    if pkg_root is None:
         raise HTTPException(
-            status_code=500, detail=f"Desktop app source missing at {pkg_root}"
+            status_code=500,
+            detail=f"Desktop app source missing — looked in {[str(p) for p in candidates]}",
         )
 
     buf = io.BytesIO()

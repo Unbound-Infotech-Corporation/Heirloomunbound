@@ -22,6 +22,8 @@ from pydantic import BaseModel, Field
 
 from deps import EMERGENT_LLM_KEY, db
 from routers.companion import get_device_user
+from routers.live import publish_avatar as live_publish_avatar
+from routers.live import publish_turn as live_publish_turn
 
 router = APIRouter(prefix="/desktop", tags=["desktop"])
 
@@ -157,6 +159,10 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
         },
     )
 
+    # Fan out to any live-stream viewers (no-op if owner hasn't enabled it)
+    await live_publish_turn(user["user_id"], "user", body.text, source="desktop")
+    await live_publish_turn(user["user_id"], "assistant", reply_text, source="desktop")
+
     return {"reply": reply_text, "ts": now}
 
 
@@ -250,6 +256,10 @@ async def desktop_avatar_poll(talk_id: str, ctx: dict = Depends(get_device_user)
     await db.avatar_talks.update_one(
         {"talk_id": talk_id, "user_id": user["user_id"]}, {"$set": update}
     )
+    # When the render is finished, fan out to live viewers so they see the
+    # talking head play in sync with the owner.
+    if status == "done" and result_url:
+        await live_publish_avatar(user["user_id"], result_url)
     return {
         "talk_id": talk_id,
         "status": status,
