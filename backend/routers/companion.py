@@ -475,30 +475,40 @@ def build_desktop_app_zip_bytes(token: str) -> bytes:
     import zipfile
 
     backend_url = os.environ.get("PUBLIC_BACKEND_URL", "")
-    # In dev the source lives at /app/companion_desktop; in production deploys
-    # only /app/backend ships, so we keep a copy at /app/backend/companion_desktop
-    # too. Prefer the in-backend copy (always present); fall back to dev path.
-    backend_root = pathlib.Path(__file__).resolve().parents[1]  # /app/backend
-    candidates = [
-        backend_root / "companion_desktop",          # bundled w/ deploy
-        backend_root.parent / "companion_desktop",   # dev convenience
-    ]
-    pkg_root = next((p for p in candidates if p.is_dir()), None)
-    if pkg_root is None:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Desktop app source missing — looked in {[str(p) for p in candidates]}",
-        )
+
+    # 1) Prefer the in-memory data baked into companion_desktop_data.py — this
+    #    GUARANTEES the files ship with production deploys (Emergent's bundler
+    #    filters non-Python dirs but always ships .py modules).
+    try:
+        from companion_desktop_data import DESKTOP_FILES  # type: ignore
+    except ImportError:
+        DESKTOP_FILES = None
+
+    file_pairs: list[tuple[str, bytes]] = []
+    if DESKTOP_FILES:
+        file_pairs = sorted(DESKTOP_FILES.items())
+    else:
+        # 2) Dev fallback — read straight from the filesystem so contributors
+        #    can iterate on the desktop app without rebuilding the data module.
+        backend_root = pathlib.Path(__file__).resolve().parents[1]
+        candidates = [
+            backend_root / "companion_desktop",
+            backend_root.parent / "companion_desktop",
+        ]
+        pkg_root = next((p for p in candidates if p.is_dir()), None)
+        if pkg_root is None:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Desktop app source missing — embedded module not found and no fs at {[str(p) for p in candidates]}",
+            )
+        for path in pkg_root.rglob("*"):
+            if path.is_dir() or "__pycache__" in path.parts:
+                continue
+            file_pairs.append((path.relative_to(pkg_root).as_posix(), path.read_bytes()))
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for path in pkg_root.rglob("*"):
-            if path.is_dir():
-                continue
-            if "__pycache__" in path.parts:
-                continue
-            rel = path.relative_to(pkg_root).as_posix()
-            data = path.read_bytes()
+        for rel, data in file_pairs:
             # Token + URL injection happens only on the config.py
             if rel == "heirloom/config.py":
                 text = data.decode("utf-8")
