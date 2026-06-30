@@ -48,4 +48,12 @@ async def get_current_user(request: Request) -> dict:
     user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    # Bind to Sentry so any error during this request carries the user_id.
+    # No-op if Sentry isn't initialised.
+    try:
+        import sentry_sdk  # local import — keeps deps.py import-time cheap
+        sentry_sdk.set_user({"id": user["user_id"], "email": user.get("email", "")})
+    except Exception:  # noqa: BLE001
+        pass
     return user

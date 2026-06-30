@@ -3,6 +3,28 @@ import logging
 import os
 import re
 
+# Sentry must initialise BEFORE FastAPI/app imports so it instruments correctly.
+# Quiet no-op if SENTRY_DSN isn't set — keeps dev/test environments clean.
+_SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
+if _SENTRY_DSN:
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "preview"),
+        # Low sample rate keeps Heirloom comfortably inside the free tier.
+        traces_sample_rate=float(os.environ.get("SENTRY_TRACES_RATE", "0.05")),
+        profiles_sample_rate=float(os.environ.get("SENTRY_PROFILES_RATE", "0.0")),
+        send_default_pii=True,  # includes user_id we set via set_user
+        # Drop noise — health checks pollute the dashboard otherwise.
+        before_send=lambda event, _hint: (
+            None
+            if (event.get("request", {}) or {}).get("url", "").endswith(("/api/health", "/api/health/ping"))
+            else event
+        ),
+        attach_stacktrace=True,
+    )
+
 from fastapi import APIRouter, FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
@@ -99,6 +121,17 @@ api_router.include_router(vault.router)
 api_router.include_router(live.router)
 
 app.include_router(api_router)
+
+
+# -------- Sentry debug endpoint --------
+@app.get("/api/_sentry/debug")
+async def _sentry_debug(secret: str = ""):
+    """Triggers a deliberate ZeroDivisionError so we can confirm Sentry capture
+    is wired correctly. Requires the secret env var to prevent random hits."""
+    expected = os.environ.get("SENTRY_DEBUG_SECRET", "").strip()
+    if not expected or secret != expected:
+        return {"ok": False, "hint": "set SENTRY_DEBUG_SECRET and pass ?secret="}
+    1 / 0  # noqa: B018 — this is the point
 
 
 # -------- CORS: explicit allowlist + regex (security: SEC-001) --------
