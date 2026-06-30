@@ -197,7 +197,29 @@ This phase makes Heirloom legally and operationally ready to charge real custome
 ### Phase 12 — Feb 27, 2026 (JSON-LD structured data)
 - ✅ Added a 3-entity `@graph` JSON-LD block to `index.html` head: `Organization` (Unbound Infotech), `WebSite` (Heirloom), and `SoftwareApplication` (Heirloom) with full `Offer` ($79 USD lifetime), 7 `featureList` items, `applicationCategory`, and operating systems. All three entities are cross-referenced via `@id`. Makes Heirloom eligible for Google rich results (price snippet, software-app card, knowledge-graph entity for "Unbound Infotech"). No synthetic `aggregateRating` (would violate Google's structured-data policy).
 
-### Phase 13 — Feb 28, 2026 (Local Vault + daily compaction — the real twin)
+### Phase 14 — Mar 1, 2026 (Live-stream twin + desktop promotion)
+
+**Live-stream twin** — public, opt-in broadcasting of the twin
+- ✅ Public route at `/twin/live/<handle>` — viewers see the twin avatar (D-ID talking head when speaking, static portrait when idle) + a live, auto-updating transcript of the last 15 turns
+- ✅ Server-Sent Events stream at `GET /api/live/<handle>/stream` — pushes new turns + avatar render URLs in real time as the owner chats. In-process pub/sub bus (process-local for current single-worker setup; trivial Redis swap later)
+- ✅ Owner controls in Settings → Live Broadcast: claim handle, copy public + OBS URLs, toggle broadcasting on/off, "private mode" kill-switch for sensitive chats
+- ✅ Handle validation: 3-30 chars, a-z/0-9/_/-, no leading/trailing separators, ~50 reserved handles blocked (admin/api/www/etc.), 409 on collision, idempotent for the owner
+- ✅ `?obs=1` query mode strips chrome — avatar fills the screen with transparent background, perfect for OBS "Browser Source" overlay for streamers
+- ✅ Privacy by default — broadcasting OFF until owner explicitly enables. publish_turn silently no-ops if disabled or in private mode
+- ✅ Cross-user isolation verified — user A's broadcast subscribers never see user B's turns
+- ✅ Web (`/twin` `kind=twin`) AND desktop (`kind=companion_twin`) AND voice chat all route through publish hooks — one shared broadcast surface regardless of where the owner is chatting
+
+**Desktop promotion**
+- ✅ Landing page Windows section rewritten — "A real desktop app. Not a chatbot." hero plus 5-bullet feature list (avatar panel, cloned-voice TTS, push-to-talk, OBS pop-out, Local Vault)
+- ✅ New "Three storage tiers" explainer card side-by-side with the desktop feature copy — explains Full / Partial / Lite plus the nightly compaction promise ("chat actually grows your twin")
+
+**Desktop deploy path fix**
+- ✅ Migrated `/app/companion_desktop/` → `/app/backend/companion_desktop/` so the source ships with production deploys. Fixes user-reported "Desktop app source missing" 500 in production
+- ✅ `build_desktop_app_zip_bytes` now tries in-backend path first with dev fallback — clean migration, no behaviour change
+
+**Tests (iteration 20)**
+- ✅ `/app/backend/tests/test_iteration20_live.py` — **33/33 PASS**. Handle validation (all edge cases), claim idempotency + collision (409), settings PATCH semantics (enabled, private_mode, both, empty body), reserved-handle blocking (admin/api/www/twin/etc.), case normalization, public profile/recent endpoints (404 when disabled, 200 when enabled), SSE hello receipt over real HTTP, publish_turn pub/sub semantics (enabled+private_mode+cross-user isolation), and desktop zip rebuild from new in-backend path
+- ✅ **Regression**: iter19 voice/exe 12/12, iter18 vault 9/9, iter17 desktop 12/12, iter16 Stripe 8/8. Path expectations updated to dual-look (in-backend first, dev fallback). **73/73 total.**
 
 User pushed back hard: chat conversations were being saved but not making the twin
 *smarter*. They wanted a "hardcore real twin program, not bullshit gimmicks". So we
