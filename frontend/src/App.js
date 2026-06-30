@@ -13,6 +13,7 @@ import Photos from "@/pages/Photos";
 import Import from "@/pages/Import";
 import Twin from "@/pages/Twin";
 import TwinLive from "@/pages/TwinLive";
+import AvatarStudio from "@/pages/AvatarStudio";
 import Skills from "@/pages/Skills";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";

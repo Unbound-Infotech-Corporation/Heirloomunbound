@@ -35,6 +35,7 @@ from routers import (
     archive,
     auth,
     avatar,
+    avatar_studio,
     billing,
     capture,
     companion,
@@ -119,6 +120,7 @@ api_router.include_router(oauth.router)
 api_router.include_router(desktop.router)
 api_router.include_router(vault.router)
 api_router.include_router(live.router)
+api_router.include_router(avatar_studio.router)
 
 app.include_router(api_router)
 
