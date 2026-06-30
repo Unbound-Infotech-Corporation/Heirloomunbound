@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 20 — Live-stream twin (/api/live/*) + companion_desktop path migration. Wrote 33 new tests covering handle validation, claim/idempotent/collision, settings PATCH semantics, public profile/recent endpoints, SSE hello receipt, publish_turn pub/sub semantics (enabled/private_mode/cross-user isolation), and desktop zip rebuild from new in-backend path. Also ran all 4 regression suites (iter16-19); 3 pre-existing tests had hardcoded /app/companion_desktop paths that broke due to the migration — patched the test paths to prefer /app/backend/companion_desktop with fallback. Final: 73/73 passing (33 iter20 + 40 regression).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration20_live.py",
+    "/app/test_reports/pytest/iteration_20_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "SSE cross-process testing limitation noted: in-process `publish_turn` from the pytest process can never reach the running uvicorn process's BUS (separate Python interpreters → separate module-level _Bus instances). The end-to-end publish→SSE event chain is therefore validated in two halves: (a) HTTP SSE `hello` event is received from the running server, (b) publish_turn → BUS.subscribe semantics (incl. enabled/private_mode/cross-user isolation) are validated via direct in-process subscription. This is documented in the test. If full E2E coverage is needed, the publish would have to be triggered via an HTTP endpoint (e.g., POST to /api/twin/chat).",
+    "routers/live.py: BUS is in-memory only — explicitly noted in module docstring that multi-worker deployments require Redis. Current single-worker setup is fine.",
+    "routers/live.py:228 `viewer_count` is read-only at request time (BUS.subscriber_count) which is a process-local count — viewers connected to other workers won't be counted. Matches the in-memory bus design tradeoff.",
+    "routers/companion.py build_desktop_app_zip_bytes correctly tries /app/backend/companion_desktop first with /app/companion_desktop dev fallback — clean migration."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration20_live.py (NEW)",
+    "/app/backend/tests/test_iteration17_desktop.py (path fallback for new desktop location)",
+    "/app/backend/tests/test_iteration18_vault.py (path fallback for new desktop location)",
+    "/app/backend/tests/test_iteration19_voice_speak.py (path fallback for new desktop location)"
+  ],
+  "success_rate": {"backend": "100% (73/73)", "frontend": "n/a (backend-only)"},
+  "test_credentials": "Mints fresh users + sessions per test via pymongo direct insert (prefixes u_live_*). Cleaned up in teardown_module.",
+  "seed_data_creation": "Per-test users in `users` + `user_sessions`, ad-hoc rows in `live_profiles` and `conversations` (kind=companion_twin). All cleaned in teardown.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iter20 test file uses pytest-asyncio + httpx.AsyncClient(stream=True) for SSE. Motor binds to the event loop on first use, and pytest-asyncio creates a new loop per test → use the `_reset_motor_for_current_loop()` helper inside async tests before calling any code that touches `routers.live.db`. The SSE end-to-end publish chain (publish_turn → server SSE stream) is NOT testable cross-process; the test split is intentional. For iter17/18/19 regression tests, hardcoded /app/companion_desktop paths were patched to try /app/backend/companion_desktop first with dev fallback. publish_turn in routers/live.py and publish_avatar both consult live_profiles before publishing — silent drop semantics are tested.",
+  "rca of the issue": "First test run had 5 SSE failures: (1) pytest-asyncio creates new event loop per function, but motor's AsyncIOMotorClient is bound to first loop → 'Event loop is closed' on subsequent tests. Fixed by re-instantiating AsyncIOMotorClient inside each async test and re-binding routers.live.db. (2) Cross-process publish_turn → SSE end-to-end is structurally impossible (test BUS ≠ server BUS) — restructured: test #1 only validates SSE hello receipt over HTTP; tests #2-5 validate publish_turn pub/sub semantics via local BUS.subscribe. Also fixed 3 regression failures from desktop path migration by adding dual-path fallback in 3 test files."
+}

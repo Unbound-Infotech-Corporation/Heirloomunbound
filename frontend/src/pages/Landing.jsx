@@ -161,22 +161,23 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* WINDOWS COMPANION */}
+      {/* WINDOWS DESKTOP — THE REAL THING */}
       <section id="windows" className="relative z-10 px-5 sm:px-10 lg:px-20 mt-32 lg:mt-44 max-w-6xl">
         <div className="grid lg:grid-cols-2 gap-14 items-center">
           <div>
-            <div className="overline mb-4">windows companion</div>
+            <div className="overline mb-4">heirloom desktop · windows</div>
             <h2 className="font-serif text-3xl lg:text-4xl mb-6 leading-tight">
-              Always on the desk. Always at your shoulder.
+              A real desktop app. Not a chatbot.
             </h2>
             <p className="text-base leading-relaxed mb-6" style={{ color: "var(--text-secondary)" }}>
-              A tiny Python companion runs on your PC. Hold Ctrl+Space and talk — your Twin answers in your voice. Connect local folders, smart-home webhooks, or scripts so the Twin can actually <em>do</em> things for you, not just remember.
+              Heirloom Desktop is a native Windows app that puts your twin in front of you — a talking-head avatar, full chat thread, push-to-talk, quick-capture journal, and a sidebar of recent memories. Closes to the system tray, runs forever. Drag the avatar out as its own borderless window for OBS streaming.
             </p>
             <ul className="space-y-3 mb-8 text-sm" style={{ color: "var(--text-secondary)" }}>
-              <li className="flex items-start gap-3"><span style={{ color: "var(--accent)" }}>·</span> Push-to-talk hotkey, hands-free</li>
-              <li className="flex items-start gap-3"><span style={{ color: "var(--accent)" }}>·</span> Reminders read aloud at their due time</li>
-              <li className="flex items-start gap-3"><span style={{ color: "var(--accent)" }}>·</span> Syncs local folders into your archive (journals, drafts, notes)</li>
-              <li className="flex items-start gap-3"><span style={{ color: "var(--accent)" }}>·</span> Built for a 5090-class PC — but works fine on anything modern</li>
+              <li className="flex items-start gap-3"><span style={{ color: "var(--accent)" }}>·</span> Resizable avatar panel — D-ID talking head when twin speaks, animated waveform when you do</li>
+              <li className="flex items-start gap-3"><span style={{ color: "var(--accent)" }}>·</span> Cloned-voice playback through ElevenLabs — your twin sounds like you</li>
+              <li className="flex items-start gap-3"><span style={{ color: "var(--accent)" }}>·</span> Push-to-talk (Ctrl+Space) — hold, speak, release, twin replies</li>
+              <li className="flex items-start gap-3"><span style={{ color: "var(--accent)" }}>·</span> Pop-out avatar window for OBS streaming overlays</li>
+              <li className="flex items-start gap-3"><span style={{ color: "var(--accent)" }}>·</span> Local Vault — every conversation captured to your disk, your folder, your tier</li>
             </ul>
             <Link
               to="/login"
@@ -188,27 +189,40 @@ export default function Landing() {
               <ArrowRight className="h-4 w-4 ml-1" />
             </Link>
             <p className="mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
-              The download is personalised to your account — sign in once to grab a token-bound copy.
+              Double-click <code>Heirloom.bat</code> — ~60s setup, no Python knowledge needed. Build a real <code>Heirloom.exe</code> later via the bundled PyInstaller script.
             </p>
           </div>
 
           <div
-            className="surface p-8 font-mono text-xs leading-relaxed"
+            className="surface p-7 leading-relaxed"
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}
             data-testid="landing-companion-snippet"
           >
-            <div className="overline mb-3">requirements</div>
-            <div style={{ color: "var(--text-secondary)" }}>· Windows 10/11, macOS, or Linux</div>
-            <div style={{ color: "var(--text-secondary)" }} className="mb-4">· Python 3.10+</div>
-            <div className="overline mb-3">install</div>
-            <pre className="whitespace-pre-wrap mb-4" style={{ color: "var(--accent)" }}>
-{`pip install requests sounddevice
-   soundfile numpy pynput`}
-            </pre>
-            <div className="overline mb-3">run</div>
-            <pre className="whitespace-pre-wrap" style={{ color: "var(--accent)" }}>
-{`python heirloom_companion.py`}
-            </pre>
+            <div className="overline mb-3">three storage tiers — your call</div>
+            <div className="space-y-4">
+              <div>
+                <div className="text-sm font-medium" style={{ color: "var(--accent)" }}>Full</div>
+                <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                  Keep every chat turn + every voice clip forever. True legacy archive. Biggest disk footprint.
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-medium" style={{ color: "var(--accent)" }}>Partial · recommended</div>
+                <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                  Keep audio 30 days, transcripts forever. ~10× smaller. Best balance for most.
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-medium" style={{ color: "var(--accent)" }}>Lite</div>
+                <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                  Keep only the daily summary + extracted facts. Raw conversation is purged the day after.
+                </div>
+              </div>
+            </div>
+            <div className="overline mt-7 mb-2">all tiers</div>
+            <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              A nightly compaction job extracts the durable facts from each day&apos;s conversation and uploads them to your twin&apos;s permanent knowledge — so chat actually grows your twin. Local pruning never affects what your twin remembers.
+            </div>
           </div>
         </div>
       </section>

@@ -785,10 +785,182 @@ export default function Settings() {
       </button>
 
       <DIdKeySection />
+      <LiveBroadcastSection />
       <EmailSection />
       <ConnectedAccountsSection />
       <DangerZone />
     </div>
+  );
+}
+
+function LiveBroadcastSection() {
+  const [profile, setProfile] = useState(null);
+  const [handle, setHandle] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await api.get("/live/me");
+      setProfile(r.data);
+      if (r.data?.handle) setHandle(r.data.handle);
+    } catch {
+      /* not signed in or initial state */
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+
+  const claim = async () => {
+    setSaving(true);
+    try {
+      await api.post("/live/handle", { handle: handle.trim().toLowerCase() });
+      toast.success("Handle saved.");
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Couldn't save handle.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggle = async (field, value) => {
+    try {
+      await api.patch("/live/settings", { [field]: value });
+      toast.success(value ? "On." : "Off.");
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Couldn't update.");
+    }
+  };
+
+  const liveUrl = profile?.handle
+    ? `${window.location.origin}/twin/live/${profile.handle}`
+    : "";
+  const obsUrl = profile?.handle
+    ? `${window.location.origin}/twin/live/${profile.handle}?obs=1`
+    : "";
+
+  return (
+    <section className="surface p-7 mb-6" data-testid="live-broadcast-section">
+      <div className="overline mb-2" style={{ color: "var(--text-muted)" }}>
+        LIVE BROADCAST
+      </div>
+      <h2 className="font-serif text-2xl mb-2">Stream your twin</h2>
+      <p
+        className="text-sm mb-6 leading-relaxed"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        Pick a handle and flip broadcasting on to share a live, public view of
+        your twin at <code>heirloomunbound.com/twin/live/&lt;handle&gt;</code>.
+        Viewers see your avatar speak in real time as you (or anyone using
+        the desktop app) chats with your twin. Off by default — your call.
+      </p>
+
+      <div className="flex gap-2 mb-3">
+        <input
+          type="text"
+          placeholder="your-handle"
+          value={handle}
+          onChange={(e) => setHandle(e.target.value)}
+          maxLength={30}
+          data-testid="live-handle-input"
+          className="flex-1 px-3 py-2 text-sm rounded-sm"
+          style={{
+            background: "var(--bg-base)",
+            border: "1px solid var(--border-default)",
+            color: "var(--text-primary)",
+          }}
+        />
+        <button
+          type="button"
+          onClick={claim}
+          disabled={saving || !handle.trim()}
+          data-testid="live-handle-save"
+          className="px-4 py-2 text-sm rounded-sm"
+          style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+        >
+          {saving ? "Saving…" : profile?.handle === handle.trim().toLowerCase() ? "Saved" : "Claim"}
+        </button>
+      </div>
+      <p className="text-xs mb-6" style={{ color: "var(--text-muted)" }}>
+        3–30 chars · letters, numbers, _ or -. Reserved handles (api, admin, www…) are blocked.
+      </p>
+
+      {profile?.handle && (
+        <>
+          <div
+            className="rounded-sm p-4 mb-4"
+            style={{
+              background: "var(--bg-base)",
+              border: "1px solid var(--border-default)",
+            }}
+          >
+            <div
+              className="overline mb-2"
+              style={{ color: "var(--text-muted)" }}
+            >
+              YOUR LIVE LINK
+            </div>
+            <div
+              className="text-sm break-all mb-3"
+              style={{ color: "var(--text-primary)" }}
+              data-testid="live-public-url"
+            >
+              {liveUrl}
+            </div>
+            <div
+              className="overline mb-2"
+              style={{ color: "var(--text-muted)" }}
+            >
+              OBS BROWSER SOURCE URL
+            </div>
+            <div
+              className="text-sm break-all"
+              style={{ color: "var(--text-secondary)" }}
+              data-testid="live-obs-url"
+            >
+              {obsUrl}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3 mb-3">
+            <button
+              type="button"
+              data-testid="live-toggle-enabled"
+              onClick={() => toggle("enabled", !profile.enabled)}
+              className="px-4 py-2 text-sm rounded-sm"
+              style={{
+                background: profile.enabled ? "var(--ok)" : "transparent",
+                color: profile.enabled ? "var(--text-inverse)" : "var(--text-primary)",
+                border: `1px solid ${profile.enabled ? "var(--ok)" : "var(--border-default)"}`,
+              }}
+            >
+              {profile.enabled ? "● Broadcasting — click to stop" : "Start broadcasting"}
+            </button>
+            <button
+              type="button"
+              data-testid="live-toggle-private"
+              onClick={() => toggle("private_mode", !profile.private_mode)}
+              disabled={!profile.enabled}
+              className="px-4 py-2 text-sm rounded-sm"
+              style={{
+                background: profile.private_mode ? "var(--accent-muted)" : "transparent",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-default)",
+                opacity: profile.enabled ? 1 : 0.5,
+              }}
+            >
+              {profile.private_mode ? "Resume — exit private chat" : "Pause — go private for next chat"}
+            </button>
+          </div>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Private mode is your kill-switch — toggle it before a sensitive chat
+            and turns won&apos;t broadcast until you flip it off.
+          </p>
+        </>
+      )}
+    </section>
   );
 }
 

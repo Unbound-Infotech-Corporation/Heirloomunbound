@@ -15,6 +15,7 @@ from routers.memory import (
     format_memory_pack_for_prompt,
     maybe_summarise_episode,
 )
+from routers.live import publish_turn as live_publish_turn
 from routers.music import detect_music_intent, play_for_user
 from routers.personas import get_active_persona
 from routers.skills import invoke_skill_internal, match_skill_trigger
@@ -356,6 +357,12 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         # Fire-and-forget episodic summary (won't block the SSE close)
         try:
             await maybe_summarise_episode(user["user_id"], payload.conversation_id)
+        except Exception:  # noqa: BLE001
+            pass
+        # Fan out to live-stream viewers (no-op if broadcast is off)
+        try:
+            await live_publish_turn(user["user_id"], "user", payload.message, source="web")
+            await live_publish_turn(user["user_id"], "assistant", full, source="web")
         except Exception:  # noqa: BLE001
             pass
         yield "event: done\ndata: {}\n\n"

@@ -333,7 +333,9 @@ class TestDesktopPackageEndpoint:
 # ============== Python syntax compile check ==============
 class TestDesktopAppSyntax:
     def test_all_python_files_compile(self):
-        pkg = Path("/app/companion_desktop/heirloom")
+        pkg = Path("/app/backend/companion_desktop/heirloom")
+        if not pkg.exists():
+            pkg = Path("/app/companion_desktop/heirloom")
         py_files = list(pkg.rglob("*.py"))
         assert py_files, "no python files under heirloom/"
         errors = []

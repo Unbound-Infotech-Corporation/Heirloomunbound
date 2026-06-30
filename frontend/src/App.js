@@ -12,6 +12,7 @@ import Library from "@/pages/Library";
 import Photos from "@/pages/Photos";
 import Import from "@/pages/Import";
 import Twin from "@/pages/Twin";
+import TwinLive from "@/pages/TwinLive";
 import Skills from "@/pages/Skills";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
@@ -49,6 +50,7 @@ function AppRouter() {
       <Route path="/support" element={<Support />} />
       <Route path="/auth/magic/:token" element={<MagicLink />} />
       <Route path="/heir/:token" element={<HeirPortal />} />
+      <Route path="/twin/live/:handle" element={<TwinLive />} />
       <Route
         path="/onboarding"
         element={

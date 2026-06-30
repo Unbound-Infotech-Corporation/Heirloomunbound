@@ -245,7 +245,9 @@ class TestDesktopZipExePipeline:
             f"Build-Heirloom-Exe.bat missing from zip. names={sorted(names)}"
 
     def test_heirloom_spec_is_valid_python(self):
-        spec_path = Path("/app/companion_desktop/heirloom.spec")
+        spec_path = Path("/app/backend/companion_desktop/heirloom.spec")
+        if not spec_path.is_file():
+            spec_path = Path("/app/companion_desktop/heirloom.spec")
         assert spec_path.is_file(), f"missing {spec_path}"
         src = spec_path.read_text(encoding="utf-8")
         # ast.parse will raise SyntaxError on bad spec

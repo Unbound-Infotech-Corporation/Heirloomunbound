@@ -259,6 +259,7 @@ class TestLocalVaultSQLite:
             from pathlib import Path
             from datetime import datetime, timedelta
 
+            sys.path.insert(0, '/app/backend/companion_desktop')
             sys.path.insert(0, '/app/companion_desktop')
             # Stub config so vault_root() resolves to our tempdir without
             # importing real config-file persistence machinery.
