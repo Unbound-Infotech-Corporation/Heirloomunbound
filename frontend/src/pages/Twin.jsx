@@ -1,6 +1,43 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Loader2, Video, Volume2 } from "lucide-react";
+import { ArrowRight, BookOpen, Cloud, Globe, Link as LinkIcon, Loader2, Save, Search, Sparkles, Timer, Video, Volume2, Zap } from "lucide-react";
 import { api, streamSSE } from "../lib/api";
+
+const TOOL_META = {
+  search_archive: { label: "searching your archive", icon: Search },
+  save_memory: { label: "saving to your archive", icon: Save },
+  set_reminder: { label: "setting a reminder", icon: Timer },
+  list_recent_memories: { label: "reading recent memories", icon: BookOpen },
+  get_weather: { label: "checking the weather", icon: Cloud },
+  web_search: { label: "searching the web", icon: Globe },
+  web_fetch: { label: "reading a page", icon: LinkIcon },
+  run_skill: { label: "firing a skill", icon: Zap },
+};
+
+function ToolChip({ tool }) {
+  const meta = TOOL_META[tool.name] || { label: tool.name, icon: Sparkles };
+  const Icon = meta.icon;
+  const done = tool.done;
+  const argsPreview = tool.args ? Object.values(tool.args)[0] : "";
+  return (
+    <div
+      className="inline-flex items-center gap-2 px-2.5 py-1 text-xs rounded-sm"
+      data-testid={`tool-chip-${tool.name}`}
+      style={{
+        background: done ? "var(--accent-muted, rgba(212,163,115,0.12))" : "rgba(255,255,255,0.03)",
+        border: `1px solid ${done ? "var(--accent)" : "var(--border-default)"}`,
+        color: done ? "var(--accent)" : "var(--text-muted)",
+      }}
+    >
+      {done ? <Icon className="h-3 w-3" /> : <Loader2 className="h-3 w-3 animate-spin" />}
+      <span>{meta.label}</span>
+      {argsPreview && (
+        <span className="italic max-w-[220px] truncate" style={{ color: "var(--text-muted)" }}>
+          · {String(argsPreview).slice(0, 40)}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export default function Twin() {
   const [conv, setConv] = useState(null);
@@ -12,6 +49,7 @@ export default function Twin() {
   const audioRef = useRef(null);
   // Avatar video state: { [msgIdx]: { state: 'loading'|'ready'|'error', url?, err? } }
   const [videos, setVideos] = useState({});
+  const [liveTools, setLiveTools] = useState([]);
   const feedRef = useRef(null);
 
   useEffect(() => {
@@ -75,6 +113,7 @@ export default function Twin() {
 
     let full = "";
     let action = null;
+    const toolTrace = [];
     await streamSSE(
       "/twin/message",
       { conversation_id: conv.conversation_id, message: text },
@@ -86,7 +125,16 @@ export default function Twin() {
         const newIdx = (conv.messages?.length || 0) + 1;
         setConv((c) => ({
           ...c,
-          messages: [...c.messages, { role: "assistant", content: full, ts: new Date().toISOString(), action }],
+          messages: [
+            ...c.messages,
+            {
+              role: "assistant",
+              content: full,
+              ts: new Date().toISOString(),
+              action,
+              tool_trace: toolTrace.length ? toolTrace : undefined,
+            },
+          ],
         }));
         setStreaming("");
         setPending(false);
@@ -100,9 +148,20 @@ export default function Twin() {
       (eventName, data) => {
         if (eventName === "action") {
           action = data;
+        } else if (eventName === "tool") {
+          // Merge start + result rows by id so the chip updates in place
+          const idx = toolTrace.findIndex((t) => t.id === data.id);
+          if (idx === -1) {
+            toolTrace.push({ id: data.id, name: data.name, args: data.args, ui: null, done: false });
+          } else if (data.phase === "result") {
+            toolTrace[idx] = { ...toolTrace[idx], ui: data.ui, done: true };
+          }
+          // Force a re-render so the chip appears live during streaming
+          setLiveTools([...toolTrace]);
         }
       },
     );
+    setLiveTools([]);
   };
 
   const messages = conv?.messages || [];
@@ -251,6 +310,14 @@ export default function Twin() {
                     </span>
                   </div>
                 )}
+                {/* Per-message tool trace (persisted after the reply finishes) */}
+                {m.tool_trace && m.tool_trace.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3" data-testid={`tool-trace-${i}`}>
+                    {m.tool_trace.map((t) => (
+                      <ToolChip key={t.id} tool={{ ...t, done: true }} />
+                    ))}
+                  </div>
+                )}
                 {/* Play-as-video (D-ID talking head) */}
                 {!m.action && (
                   <div className="mt-4">
@@ -301,13 +368,22 @@ export default function Twin() {
             )}
           </div>
         ))}
-        {streaming && (
+        {(streaming || liveTools.length > 0) && (
           <div className="border-l-2 pl-6" style={{ borderColor: "var(--accent)" }}>
             <div className="overline mb-2">you (the twin)</div>
-            <p className="font-serif text-xl lg:text-2xl leading-snug" style={{ color: "var(--text-primary)" }}>
-              {streaming}
-              <span className="inline-block w-2 h-5 ml-1 align-middle animate-pulse" style={{ background: "var(--accent)" }} />
-            </p>
+            {liveTools.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-3" data-testid="tool-live">
+                {liveTools.map((t) => (
+                  <ToolChip key={t.id} tool={t} />
+                ))}
+              </div>
+            )}
+            {streaming && (
+              <p className="font-serif text-xl lg:text-2xl leading-snug" style={{ color: "var(--text-primary)" }}>
+                {streaming}
+                <span className="inline-block w-2 h-5 ml-1 align-middle animate-pulse" style={{ background: "var(--accent)" }} />
+              </p>
+            )}
           </div>
         )}
       </div>

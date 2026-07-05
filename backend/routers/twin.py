@@ -19,6 +19,7 @@ from routers.live import publish_turn as live_publish_turn
 from routers.music import detect_music_intent, play_for_user
 from routers.personas import get_active_persona
 from routers.skills import invoke_skill_internal, match_skill_trigger
+from twin_tools import TOOL_SCHEMAS, execute_tool
 from utils import rate_limit
 
 router = APIRouter(prefix="/twin", tags=["twin"])
@@ -75,11 +76,23 @@ Voice rules:
 - Be warm with family. Be honest about not remembering when you don't.
 - Keep replies to 2-6 sentences unless asked for a longer story.
 
-Skills available (you can offer to invoke these by name when they're relevant to the user's request):
+Tools available to you (call them silently — the UI shows a chip when a tool fires):
+- `search_archive(query)` — PRIMARY source of truth about the owner. Call this any time the user asks about the owner's past, opinions, or preferences. Prefer it over guessing.
+- `save_memory(content, type, title)` — when the user shares something worth remembering long-term (a story, belief, value), quietly capture it so the archive grows.
+- `set_reminder(what, when)` — when the user says "remind me…". `when` can be ISO or natural ("tomorrow 9am").
+- `list_recent_memories(days, limit)` — for "what have I been thinking about?" style questions.
+- `get_weather(location)` — current conditions via Open-Meteo.
+- `web_search(query)` — ONLY for outside-world facts (news, prices, releases). Never use it for questions about the owner themselves.
+- `web_fetch(url)` — read the readable text of a specific URL.
+- `run_skill(skill_id)` — invoke a configured webhook skill by its ID from the list below.
+
+Use tools sparingly: one call is usually enough. Don't announce that you're calling a tool — just do it and weave the result into your natural reply.
+
+Skills available (call `run_skill` with the skill_id, only when the user explicitly asks for the action):
 {skills_blob or "(no skills configured yet)"}
 {memory_section}{persona_section}{brand_section}
 === RELEVANT ARCHIVE EXCERPTS ===
-{archive_blob or "(no archive entries retrieved for this turn)"}
+{archive_blob or "(no archive entries retrieved for this turn — use search_archive if the user asks about specifics)"}
 """
 
 
@@ -317,40 +330,82 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         if m.get("role") in ("user", "assistant") and m.get("content"):
             initial_messages.append({"role": m["role"], "content": m["content"]})
 
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=payload.conversation_id,
-        system_message=system,
-        initial_messages=initial_messages,
-    ).with_model("anthropic", "claude-sonnet-4-6")
+    chat = (
+        LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=payload.conversation_id,
+            system_message=system,
+            initial_messages=initial_messages,
+        )
+        .with_model("anthropic", "claude-sonnet-4-6")
+        .with_tools(TOOL_SCHEMAS)
+    )
 
     user_turn = {"role": "user", "content": payload.message, "ts": datetime.now(timezone.utc).isoformat()}
 
     async def gen():
+        """Streams a tool-use aware conversation.
+
+        Loop:
+          1. Send the user message → get ChatResponse
+          2. If tool_calls, emit `event: tool` for each, execute, feed results back
+          3. Loop until finish_reason != "tool_calls" (max 6 iterations)
+          4. Stream the final text as one JSON `data:` event (frontend already
+             handles this cleanly — same shape as single-shot deltas)
+        """
         full = ""
+        tool_trace: list[dict] = []
         try:
-            async for ev in chat.stream_message(UserMessage(text=payload.message)):
-                if isinstance(ev, TextDelta):
-                    full += ev.content
-                    # JSON-encode so embedded newlines don't break SSE framing
-                    yield "data: " + json.dumps({"text": ev.content}) + "\n\n"
-                elif isinstance(ev, StreamDone):
+            # First call — carries the user message
+            resp = await chat.send_message_with_tools(UserMessage(text=payload.message))
+            for _iteration in range(6):
+                if resp.finish_reason != "tool_calls" or not resp.tool_calls:
                     break
+                # Emit tool_start for each call, execute, add result
+                for tc in resp.tool_calls:
+                    yield "event: tool\ndata: " + json.dumps({
+                        "phase": "start",
+                        "id": tc.id,
+                        "name": tc.name,
+                        "args": tc.arguments,
+                    }) + "\n\n"
+                    result = await execute_tool(tc.name, user["user_id"], tc.arguments or {})
+                    chat.add_tool_result(tc.id, result.get("summary", ""))
+                    tool_trace.append({
+                        "id": tc.id,
+                        "name": tc.name,
+                        "args": tc.arguments,
+                        "ui": result.get("ui") or {},
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                    })
+                    yield "event: tool\ndata: " + json.dumps({
+                        "phase": "result",
+                        "id": tc.id,
+                        "name": tc.name,
+                        "ui": result.get("ui") or {},
+                    }) + "\n\n"
+                # Continue the conversation — no new user message
+                resp = await chat.send_message_with_tools()
+            full = (resp.content or "").strip()
+            if full:
+                # One-shot delta so the frontend renders it in the same pipeline
+                yield "data: " + json.dumps({"text": full}) + "\n\n"
         except Exception as exc:  # noqa: BLE001
             yield "event: error\ndata: " + json.dumps({"error": str(exc)}) + "\n\n"
             return
 
+        assistant_turn = {
+            "role": "assistant",
+            "content": full,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+        if tool_trace:
+            assistant_turn["tool_trace"] = tool_trace
+
         await db.conversations.update_one(
             {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},
             {
-                "$push": {
-                    "messages": {
-                        "$each": [
-                            user_turn,
-                            {"role": "assistant", "content": full, "ts": datetime.now(timezone.utc).isoformat()},
-                        ]
-                    }
-                },
+                "$push": {"messages": {"$each": [user_turn, assistant_turn]}},
                 "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
             },
         )
