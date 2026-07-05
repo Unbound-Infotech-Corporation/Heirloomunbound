@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from . import config
 from .maintenance import Maintenance
 from .ui.main_window import MainWindow, TrayProxy
+from .ui.splash import Splash
 
 
 def _schedule_midnight_maintenance(window: MainWindow) -> None:
@@ -62,7 +63,12 @@ def main() -> int:
     window.quit_requested.connect(app.quit)
     app.aboutToQuit.connect(window.shutdown)
     _schedule_midnight_maintenance(window)
-    window.show()
+
+    # Serif boot fade — 800ms, then reveal the main window
+    splash = Splash()
+    splash.finished.connect(window.show)
+    splash.start()
+
     return app.exec()
 
 

@@ -1,13 +1,11 @@
 """Main window — orchestrates avatar / conversation / sidebar / quick-capture.
 
-Layout (3-pane QSplitter, all resizable):
-   ┌─────────────────────────────────────────────────────────────────┐
-   │ Titlebar: Heirloom logo · status · push-to-talk · settings · _x │
-   ├──────────┬─────────────────────────────────────────┬────────────┤
-   │ Memories │ Avatar panel (top)                       │  Quick    │
-   │ sidebar  │ ─────────────────────────────            │  capture  │
-   │          │ Conversation (bottom)                   │           │
-   └──────────┴─────────────────────────────────────────┴────────────┘
+Elite mode:
+- Frameless native window on Windows 11 with Mica backdrop tint
+- Custom titlebar (drag / double-click max / traffic lights)
+- Command Palette (Ctrl+K) with dynamic "speak"/"capture" rows
+- Ambient aura behind avatar tied to speaking state
+- Micro-motion on message reveal, breathing status dot
 """
 from __future__ import annotations
 
@@ -20,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QSizeGrip,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -30,9 +29,12 @@ from ..maintenance import Maintenance
 from ..vault import Vault
 from . import PALETTE, QSS
 from .avatar_panel import AvatarPanel
+from .command_palette import Command, CommandPalette
 from .conversation import ConversationPanel
+from .mica import apply as apply_mica
 from .panels import QuickCapture, RecentMemories
 from .settings_dialog import SettingsDialog
+from .titlebar import TitleBar
 
 
 class MainWindow(QMainWindow):
@@ -42,10 +44,16 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._settings = config.load_settings()
         self._user: dict = {}
+        self._palette: Optional[CommandPalette] = None
+        self._mica_applied = False
 
-        self.setWindowTitle("Heirloom · your digital twin")
+        self.setWindowTitle("Heirloom")
         self.resize(1280, 800)
         self.setMinimumSize(960, 620)
+
+        # Frameless + translucent so Mica shows through the empty regions
+        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setStyleSheet(QSS)
 
         self._build_ui()
@@ -55,58 +63,36 @@ class MainWindow(QMainWindow):
 
     # ----- UI -----
     def _build_ui(self) -> None:
+        # Root is transparent — the "card" below is the visible surface
         root = QWidget()
         root.setObjectName("root")
+        root.setAttribute(Qt.WA_StyledBackground, True)
         self.setCentralWidget(root)
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        outer = QVBoxLayout(root)
+        # Small margin gives Mica a visible bezel around the card
+        outer.setContentsMargins(1, 1, 1, 1)
+        outer.setSpacing(0)
 
-        # ---- titlebar ----
-        title = QWidget()
-        title.setObjectName("titlebar")
-        title.setFixedHeight(54)
-        title_layout = QHBoxLayout(title)
-        title_layout.setContentsMargins(18, 0, 18, 0)
-        brand_block = QVBoxLayout()
-        overline = QLabel("HEIRLOOM · UNBOUND INFOTECH")
-        overline.setStyleSheet(
-            f"color: {PALETTE['text_muted']}; letter-spacing: 2px; font-size: 9px;"
+        card = QWidget()
+        card.setObjectName("card")
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        outer.addWidget(card, 1)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setSpacing(0)
+
+        # ---- custom titlebar ----
+        self.titlebar = TitleBar(
+            self,
+            on_minimize=self.showMinimized,
+            on_maximize=self._toggle_max,
+            on_close=self.close,
         )
-        self.user_label = QLabel("Loading…")
-        self.user_label.setStyleSheet(
-            f"color: {PALETTE['text_primary']};"
-            " font-family: 'Cormorant Garamond', serif; font-size: 18px;"
-        )
-        brand_block.setSpacing(0)
-        brand_block.addWidget(overline)
-        brand_block.addWidget(self.user_label)
-        title_layout.addLayout(brand_block)
-        title_layout.addStretch(1)
-
-        self.status_pill = QLabel("idle")
-        self.status_pill.setStyleSheet(
-            f"color: {PALETTE['text_muted']}; letter-spacing: 2px; font-size: 10px;"
-            " padding: 4px 10px;"
-            f" border: 1px solid {PALETTE['border']}; border-radius: 12px;"
-        )
-        title_layout.addWidget(self.status_pill)
-
-        self.ptt_btn = QPushButton("Hold to talk  (Ctrl+Space)")
-        self.ptt_btn.setObjectName("primary")
-        self.ptt_btn.setMinimumWidth(220)
-        self.ptt_btn.pressed.connect(self._ptt_start)
-        self.ptt_btn.released.connect(self._ptt_stop)
-        title_layout.addWidget(self.ptt_btn)
-
-        self.settings_btn = QPushButton("⚙")
-        self.settings_btn.setObjectName("ghost")
-        self.settings_btn.setFixedWidth(36)
-        self.settings_btn.setToolTip("Vault, storage tier, maintenance")
-        self.settings_btn.clicked.connect(self._open_settings)
-        title_layout.addWidget(self.settings_btn)
-
-        layout.addWidget(title)
+        self.titlebar.ptt_pressed.connect(self._ptt_start)
+        self.titlebar.ptt_released.connect(self._ptt_stop)
+        self.titlebar.settings_clicked.connect(self._open_settings)
+        self.titlebar.palette_clicked.connect(self._open_palette)
+        card_layout.addWidget(self.titlebar)
 
         # ---- 3-pane splitter ----
         splitter = QSplitter(Qt.Horizontal)
@@ -118,7 +104,7 @@ class MainWindow(QMainWindow):
         self.memories.setMinimumWidth(220)
         splitter.addWidget(self.memories)
 
-        # center: avatar over conversation (vertical splitter)
+        # center: avatar over conversation
         center_split = QSplitter(Qt.Vertical)
         center_split.setHandleWidth(1)
         center_split.setChildrenCollapsible(False)
@@ -126,7 +112,7 @@ class MainWindow(QMainWindow):
         self.conversation = ConversationPanel(self._settings)
         center_split.addWidget(self.avatar)
         center_split.addWidget(self.conversation)
-        center_split.setSizes([320, 460])
+        center_split.setSizes([360, 440])
         splitter.addWidget(center_split)
 
         # right: quick capture
@@ -135,7 +121,16 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.quickcap)
 
         splitter.setSizes([260, 760, 280])
-        layout.addWidget(splitter, 1)
+        card_layout.addWidget(splitter, 1)
+
+        # ---- resize grip strip at the bottom-right ----
+        grip_row = QHBoxLayout()
+        grip_row.setContentsMargins(0, 0, 4, 4)
+        grip_row.addStretch(1)
+        grip = QSizeGrip(self)
+        grip.setStyleSheet("background: transparent;")
+        grip_row.addWidget(grip, 0, Qt.AlignRight | Qt.AlignBottom)
+        card_layout.addLayout(grip_row)
 
         # Audio recorder
         self.recorder = audio.Recorder(self)
@@ -145,7 +140,6 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # noqa: BLE001
             print(f"[vault] init failed: {exc}")
             self._vault = None
-        # Active conversation id for vault grouping (filled by /me load)
         self._active_conv_id = "comp_local"
 
     def _wire_signals(self) -> None:
@@ -156,21 +150,49 @@ class MainWindow(QMainWindow):
         # Vault capture — every text turn (user + assistant)
         self.conversation.message_sent.connect(lambda t: self._vault_capture("user", t, "chat"))
         self.conversation.reply_received.connect(lambda t: self._vault_capture("assistant", t, "chat"))
-        # Avatar status → pill
-        self.avatar.status_changed.connect(self._update_status_pill)
+        # Avatar status → titlebar pill + aura
+        self.avatar.status_changed.connect(self._update_status)
         # Recorder
         self.recorder.level.connect(self.avatar.set_level)
         self.recorder.wav_bytes.connect(self._upload_voice)
-        self.recorder.error.connect(lambda msg: self._update_status_pill(f"mic: {msg}"))
-        # Hotkey
-        sc = QShortcut(QKeySequence("Ctrl+Space"), self)
-        sc.setContext(Qt.ApplicationShortcut)
-        sc.activated.connect(self._ptt_toggle)
+        self.recorder.error.connect(lambda msg: self._update_status(f"mic: {msg}"))
+
+        # Global shortcuts
+        for seq in ("Ctrl+K", "Ctrl+P"):
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.ApplicationShortcut)
+            sc.activated.connect(self._open_palette)
+        sc_ptt = QShortcut(QKeySequence("Ctrl+Space"), self)
+        sc_ptt.setContext(Qt.ApplicationShortcut)
+        sc_ptt.activated.connect(self._ptt_toggle)
 
     def _restore_geometry(self) -> None:
         geo = self._settings.get("window_geometry")
         if isinstance(geo, list) and len(geo) == 4:
             self.setGeometry(*geo)
+
+    # ----- native events -----
+    def showEvent(self, ev):  # noqa: N802
+        super().showEvent(ev)
+        # Enable Mica once — must happen after the HWND exists
+        if not self._mica_applied:
+            self._mica_applied = True
+            result = apply_mica(self)
+            if result:
+                print(f"[mica] enabled ({result})")
+
+    def changeEvent(self, ev):  # noqa: N802
+        from PySide6.QtCore import QEvent
+
+        if ev.type() == QEvent.WindowStateChange:
+            self.titlebar.set_maximized(self.isMaximized())
+        super().changeEvent(ev)
+
+    def _toggle_max(self) -> None:
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
 
     def closeEvent(self, ev):  # noqa: N802
         # Persist geometry, then hide-to-tray instead of quitting
@@ -191,10 +213,8 @@ class MainWindow(QMainWindow):
             return
         if self._vault is None:
             return
-        # Fire-and-forget: we have ~10s before the OS kills us. Run synchronously
-        # on a background thread but cap the wait.
         try:
-            self._update_status_pill("end-of-day compaction…")
+            self._update_status("end-of-day compaction…")
             m = Maintenance()
             m.run_async()
         except Exception as exc:  # noqa: BLE001
@@ -208,10 +228,9 @@ class MainWindow(QMainWindow):
 
     def _on_me(self, data: dict) -> None:
         self._user = data or {}
-        name = data.get("name") or data.get("email") or "Your archive"
-        self.user_label.setText(f"{name}'s twin")
+        name = data.get("name") or data.get("email") or "your archive"
+        self.titlebar.set_user_name(f"{name}'s twin")
         self.avatar.set_portrait_url(data.get("avatar_source_url"))
-        # Pull the shared companion_twin conv_id so vault rows group correctly
         api.get_async(
             "/desktop/conversation?limit=1",
             on_ok=lambda d: setattr(self, "_active_conv_id", (d or {}).get("conversation_id") or "comp_local"),
@@ -219,15 +238,16 @@ class MainWindow(QMainWindow):
         )
 
     def _on_me_err(self, msg: str) -> None:
-        self.user_label.setText("Sign in required")
-        self.status_pill.setText("not authed")
+        self.titlebar.set_user_name("sign-in required")
+        self._update_status("not authed")
 
     # ----- twin → avatar -----
     def _on_twin_reply(self, text: str) -> None:
         self.avatar.speak(text)
 
-    def _update_status_pill(self, status: str) -> None:
-        self.status_pill.setText(status)
+    def _update_status(self, status: str) -> None:
+        self.titlebar.set_status(status)
+        self.avatar.set_aura_state(status)
 
     # ----- push-to-talk -----
     def _ptt_toggle(self) -> None:
@@ -239,27 +259,27 @@ class MainWindow(QMainWindow):
     def _ptt_start(self) -> None:
         if self.recorder.is_recording():
             return
-        self._update_status_pill("listening…")
+        self._update_status("listening…")
         self.recorder.start()
 
     def _ptt_stop(self) -> None:
         if not self.recorder.is_recording():
             return
-        self._update_status_pill("thinking…")
+        self._update_status("thinking…")
         self.recorder.stop()
 
     def _upload_voice(self, wav: bytes) -> None:
         if not wav:
-            self._update_status_pill("idle")
+            self._update_status("idle")
             return
-        self._pending_voice_audio = wav  # stashed for vault capture after reply
+        self._pending_voice_audio = wav
         files = {"audio": ("ptt.wav", wav, "audio/wav")}
         api.post_multipart_async(
             "/companion/voice",
             files=files,
             data={"save_to_archive": "false"},
             on_ok=self._on_voice_reply,
-            on_err=lambda msg: self._update_status_pill(f"voice err: {msg[:40]}"),
+            on_err=lambda msg: self._update_status(f"voice err: {msg[:40]}"),
         )
 
     def _on_voice_reply(self, data: dict) -> None:
@@ -269,7 +289,6 @@ class MainWindow(QMainWindow):
         self._pending_voice_audio = None
         if user_text:
             self.conversation.append("user", user_text)
-            # Capture voice turn WITH audio bytes so Full tier keeps the recording
             self._vault_capture("user", user_text, "voice", audio_bytes=wav)
         if reply:
             self.conversation.append("assistant", reply)
@@ -299,25 +318,124 @@ class MainWindow(QMainWindow):
         dlg = SettingsDialog(self)
         dlg.exec()
 
+    # ----- command palette -----
+    def _open_palette(self) -> None:
+        if self._palette is not None and self._palette.isVisible():
+            self._palette.raise_()
+            return
+        cmds = self._build_commands()
+        self._palette = CommandPalette(self, cmds)
+        self._palette.show()
+
+    def _build_commands(self):
+        # Dynamic rows (consume the palette query)
+        def speak_query(q: str):
+            if not q:
+                return
+            self.conversation.input.setPlainText("")
+            self.conversation.append("user", q)
+            self.conversation.message_sent.emit(q)
+            self.conversation._busy = True  # type: ignore[attr-defined]
+            api.post_async(
+                "/desktop/chat",
+                {"text": q},
+                on_ok=lambda d: self.conversation._on_reply(d),  # type: ignore[attr-defined]
+                on_err=lambda m: self.conversation._on_error(m),  # type: ignore[attr-defined]
+            )
+
+        def capture_query(q: str):
+            if not q:
+                return
+            api.post_async(
+                "/desktop/capture",
+                {"title": None, "content": q, "type": "note", "tags": []},
+                on_ok=lambda _d: self.memories.refresh(),
+                on_err=lambda m: self._update_status(f"save err: {m[:40]}"),
+            )
+
+        # Static commands
+        return [
+            Command(
+                id="speak",
+                label="Speak to twin",
+                hint="Send the current text as a message to your twin",
+                dynamic=True,
+                action=speak_query,
+            ),
+            Command(
+                id="capture",
+                label="Capture",
+                hint="Save the current text as a quick note",
+                dynamic=True,
+                action=capture_query,
+            ),
+            Command(
+                id="ptt",
+                label="Push-to-talk",
+                hint="Start listening from your microphone",
+                shortcut="ctrl · space",
+                action=self._ptt_toggle,
+            ),
+            Command(
+                id="popout",
+                label="Pop out avatar for OBS",
+                hint="Detach the twin as a transparent always-on-top window",
+                action=self.avatar.pop_out,
+            ),
+            Command(
+                id="mode",
+                label="Toggle avatar mode",
+                hint="Switch between talking-head video and waveform",
+                action=self.avatar._toggle_mode,  # type: ignore[attr-defined]
+            ),
+            Command(
+                id="compact",
+                label="Compact vault now",
+                hint="Run end-of-day memory compaction",
+                action=lambda: Maintenance().run_async(),
+            ),
+            Command(
+                id="settings",
+                label="Open settings",
+                hint="Vault, storage tier, maintenance schedule",
+                shortcut="···",
+                action=self._open_settings,
+            ),
+            Command(
+                id="focus_input",
+                label="Focus conversation composer",
+                hint="Jump to the message box",
+                action=lambda: self.conversation.input.setFocus(),
+            ),
+            Command(
+                id="quit",
+                label="Quit Heirloom",
+                hint="Close the app entirely (bypasses tray)",
+                action=self.quit_requested.emit,
+            ),
+        ]
+
 
 class TrayProxy:
     """Wraps QSystemTrayIcon so MainWindow can show/hide via tray actions."""
 
     def __init__(self, window: MainWindow):
         from PySide6.QtGui import QAction
-        from PySide6.QtWidgets import QMenu, QSystemTrayIcon
+        from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QStyle
 
         self.window = window
         icon = window.style().standardIcon
-        from PySide6.QtWidgets import QStyle
 
         self.tray = QSystemTrayIcon(window)
         self.tray.setIcon(icon(QStyle.SP_ComputerIcon))
         self.tray.setToolTip("Heirloom — your digital twin")
 
         menu = QMenu()
+        menu.setStyleSheet(window.styleSheet())
         show = QAction("Open Heirloom", menu)
         show.triggered.connect(self._show)
+        palette = QAction("Command palette  (Ctrl+K)", menu)
+        palette.triggered.connect(window._open_palette)
         ptt = QAction("Push-to-talk", menu)
         ptt.triggered.connect(window._ptt_toggle)
         popout = QAction("Pop out avatar for OBS", menu)
@@ -325,6 +443,7 @@ class TrayProxy:
         quit_act = QAction("Quit Heirloom", menu)
         quit_act.triggered.connect(window.quit_requested.emit)
         menu.addAction(show)
+        menu.addAction(palette)
         menu.addSeparator()
         menu.addAction(ptt)
         menu.addAction(popout)

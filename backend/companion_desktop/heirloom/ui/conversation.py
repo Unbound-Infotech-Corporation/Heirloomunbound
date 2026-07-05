@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -168,6 +169,17 @@ class ConversationPanel(QWidget):
         widget = _Message(role, msg.get("content", ""), bubbles)
         # Insert before the trailing stretch
         self._thread_layout.insertWidget(self._thread_layout.count() - 1, widget)
+        # Fade-in reveal — 240ms opacity ease-out
+        eff = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(eff)
+        eff.setOpacity(0.0)
+        anim = QPropertyAnimation(eff, b"opacity", widget)
+        anim.setDuration(240)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.start()
+        widget._reveal_anim = anim  # keep reference
         # Scroll to bottom on next tick
         bar = self.scroll.verticalScrollBar()
         from PySide6.QtCore import QTimer

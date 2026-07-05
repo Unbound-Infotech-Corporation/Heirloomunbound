@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QStackedLayout,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -38,6 +39,7 @@ from PySide6.QtWidgets import (
 
 from .. import api, config
 from . import PALETTE
+from .aura import Aura
 
 
 class _Waveform(QWidget):
@@ -92,12 +94,12 @@ class _PortraitVideo(QStackedWidget):
         self._portrait = QLabel()
         self._portrait.setAlignment(Qt.AlignCenter)
         self._portrait.setStyleSheet(
-            f"background: {PALETTE['bg_elevated']}; border-radius: 4px;"
+            "background: transparent; border-radius: 6px;"
         )
         self.addWidget(self._portrait)
 
         self._video = QVideoWidget()
-        self._video.setStyleSheet(f"background: {PALETTE['bg_base']};")
+        self._video.setStyleSheet("background: transparent;")
         self.addWidget(self._video)
 
         self.setCurrentIndex(0)
@@ -240,9 +242,18 @@ class AvatarPanel(QFrame):
         header.addWidget(self.btn_popout)
         root.addLayout(header)
 
-        # Stage
-        self.portrait_video = _PortraitVideo(self)
-        root.addWidget(self.portrait_video, 1)
+        # Stage — aura underneath, portrait_video on top (StackAll = z-order overlay)
+        stage = QWidget()
+        stage.setAttribute(Qt.WA_StyledBackground, False)
+        stack = QStackedLayout(stage)
+        stack.setStackingMode(QStackedLayout.StackAll)
+        stack.setContentsMargins(0, 0, 0, 0)
+        self.aura = Aura(stage)
+        self.portrait_video = _PortraitVideo(stage)
+        # Add aura FIRST so it's beneath (StackAll draws in insertion order)
+        stack.addWidget(self.aura)
+        stack.addWidget(self.portrait_video)
+        root.addWidget(stage, 1)
 
         self.waveform = _Waveform(self)
         self.waveform.hide()
@@ -265,6 +276,14 @@ class AvatarPanel(QFrame):
 
     def set_level(self, level: float) -> None:
         self.waveform.set_level(level)
+        # Feed the aura too — makes the halo pulse with the voice
+        if hasattr(self, "aura"):
+            self.aura.set_level(level)
+
+    def set_aura_state(self, status: str) -> None:
+        """Public — main_window drives this from unified status updates."""
+        if hasattr(self, "aura"):
+            self.aura.set_state(status)
 
     def set_status(self, status: str) -> None:
         labels = {
@@ -275,6 +294,8 @@ class AvatarPanel(QFrame):
             "rendering": "rendering twin…",
         }
         self.status_label.setText(labels.get(status, status))
+        if hasattr(self, "aura"):
+            self.aura.set_state(status)
         self.status_changed.emit(status)
 
     def speak(self, text: str) -> None:
