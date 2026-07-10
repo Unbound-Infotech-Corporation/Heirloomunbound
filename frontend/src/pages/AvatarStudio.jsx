@@ -63,7 +63,7 @@ export default function AvatarStudio() {
 
   const openEnhance = (img) => {
     if (!data?.fal_configured) {
-      toast.error("Beautify isn't available yet — admin hasn't configured the enhancement key.");
+      toast.error("Beautify needs a fal.ai key — add yours in Setup → Keys & Integrations.");
       return;
     }
     setEnhanceState({
@@ -159,7 +159,14 @@ export default function AvatarStudio() {
 
 function UploadTile({ angle, img, uploading, activeUrl, onUpload, onUse, onEnhance, falConfigured }) {
   const fileInput = useRef(null);
+  const [dragOver, setDragOver] = useState(false);
   const isActive = img && activeUrl === img.serve_url;
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) onUpload(file);
+  };
   return (
     <div
       className="surface p-5"
@@ -168,13 +175,24 @@ function UploadTile({ angle, img, uploading, activeUrl, onUpload, onUse, onEnhan
     >
       <div className="overline mb-2">{angle.label.toUpperCase()}</div>
       <div
-        className="aspect-square rounded-sm mb-3 overflow-hidden flex items-center justify-center"
-        style={{ background: "var(--bg-base)", border: "1px dashed var(--border-default)" }}
+        className="aspect-square rounded-sm mb-3 overflow-hidden flex items-center justify-center cursor-pointer transition-colors"
+        style={{
+          background: dragOver ? "var(--accent-muted, rgba(212,163,115,0.12))" : "var(--bg-base)",
+          border: `1px dashed ${dragOver ? "var(--accent)" : "var(--border-default)"}`,
+        }}
+        onClick={() => fileInput.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        data-testid={`avatar-dropzone-${angle.key}`}
       >
         {img?.serve_url ? (
           <img src={img.serve_url} alt={angle.label} className="w-full h-full object-cover" />
         ) : (
-          <Camera className="h-8 w-8" style={{ color: "var(--text-muted)" }} />
+          <div className="flex flex-col items-center gap-2" style={{ color: "var(--text-muted)" }}>
+            <Camera className="h-8 w-8" />
+            <span className="text-xs">click or drop a photo</span>
+          </div>
         )}
       </div>
       <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>
@@ -222,7 +240,7 @@ function UploadTile({ angle, img, uploading, activeUrl, onUpload, onUse, onEnhan
               disabled={!falConfigured}
               className="inline-flex items-center gap-1 text-xs px-3 py-2 rounded-sm"
               style={{ border: "1px solid var(--accent)", color: "var(--accent)", opacity: falConfigured ? 1 : 0.5 }}
-              title={falConfigured ? "Subtle enhance" : "Beautify is unavailable — needs FAL_KEY"}
+              title={falConfigured ? "Subtle enhance" : "Beautify needs a fal.ai key — add yours in Setup → Keys & Integrations"}
             >
               <Sparkles className="h-3.5 w-3.5" /> Beautify
             </button>

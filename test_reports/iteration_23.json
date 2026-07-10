@@ -1,0 +1,27 @@
+{
+  "summary": "Iteration 23 — Verified twin heuristic refinement, /twin conversation persistence, /twin new-conversation button, Avatar Studio (upload/me/serve/use), and Avatar enhance clean-400 fal.ai error path. 9/9 backend pytest PASS + full frontend flow PASS incl. reload-restore of conversation with prior messages, empty new-conversation, avatar upload via hidden input, use-front → 'Active' disabled, and sonner toast surfacing the fal.ai balance error verbatim.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration23_persistence_avatar.py",
+    "/app/test_reports/pytest/iteration_23_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AvatarStudio.jsx: 'Use as twin' button only exists on the front tile (avatar-use-front). This is by design per the review request (front is the twin's face; left/right are staged for future 3D upgrade) but worth documenting in UX copy so users know why left/right have no 'Use' CTA.",
+    "Twin.jsx line 55-68: useEffect reads localStorage 'twin_conv_id' and passes it to POST /twin/start; also writes back the returned conversation_id. Clean, no race conditions observed across multiple reloads.",
+    "twin.py _build_twin_system heuristic at line 80 is well-worded and now correctly steers Claude: greetings + 'what do you think about life?' produce 0 tool events; 'where did you grow up and what was your first job?' fires search_archive twice (once per sub-question). Behavior on the fork23 user (empty archive) matches expectation.",
+    "Note: If archive_blob already contains relevant retrieval context for the factual question, the model may correctly skip search_archive — that is fine (test intentionally seeds no memory to force the tool call).",
+    "avatar_studio.py /enhance returns HTTP 400 (not 502) with JSON body {detail: 'fal.ai failed: ...'} — verified via pytest + confirmed via UI sonner toast rendering the message verbatim."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration23_persistence_avatar.py (NEW, 9 tests)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (all target flows verified)"},
+  "test_credentials": "session_token=test_session_fork23, user_id=test-user-fork23 (patched: setup_complete/onboarded/tour_completed=true so /twin and /avatar-studio load without redirect). Also per-module ephemeral test user in pytest fixture.",
+  "seed_data_creation": "Per-module test user + session (auto-cleaned in teardown). Avatar upload via pytest test persists an image_id which is later used for /use and /enhance chained tests.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Both action items from iter22 are resolved: (A) Twin.jsx now persists conversation_id in localStorage and restores prior feed on reload — verified live (send 'hi, how are you?' -> reload -> message restored, same conv_id). (B) 'new conversation' button (data-testid='twin-new-conversation') clears feed and starts a fresh conv that also survives reload. Twin search_archive heuristic tightened: open-ended/greeting = 0 tools; specific factual owner-past = search_archive fires. Avatar Studio: 3 tiles (front/left/right) each with data-testid avatar-tile-<a>, avatar-dropzone-<a>, avatar-input-<a>, avatar-upload-<a>. Only 'front' has avatar-use-front + avatar-enhance-front (by design). Enhance dialog testids: enhance-dialog, enhance-close, enhance-strength, enhance-run, enhance-commit, enhance-preview-image. On /enhance click, backend returns clean HTTP 400 with fal.ai detail; sonner toast renders it verbatim ('User is locked. Reason: Exhausted balance...') — this is expected until fal balance is topped up.",
+  "rca of the issue": "N/A — no bugs found this iteration. All 7 review-request items verified passing."
+}

@@ -53,7 +53,12 @@ export default function Twin() {
   const feedRef = useRef(null);
 
   useEffect(() => {
-    api.post("/twin/start", {}).then(({ data }) => setConv(data));
+    let savedId = null;
+    try { savedId = localStorage.getItem("twin_conv_id"); } catch (_) { /* noop */ }
+    api.post("/twin/start", savedId ? { conversation_id: savedId } : {}).then(({ data }) => {
+      setConv(data);
+      try { localStorage.setItem("twin_conv_id", data.conversation_id); } catch (_) { /* noop */ }
+    });
     return () => {
       if (audioRef.current) {
         try { audioRef.current.pause(); } catch (_) { /* noop */ }
@@ -210,6 +215,24 @@ export default function Twin() {
             Your twin draws from everything you&apos;ve put into the archive. The more you&apos;ve added, the truer it sounds.
           </p>
         </div>
+        <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            try { localStorage.removeItem("twin_conv_id"); } catch (_) { /* noop */ }
+            stopAudio();
+            setConv(null);
+            api.post("/twin/start", {}).then(({ data }) => {
+              setConv(data);
+              try { localStorage.setItem("twin_conv_id", data.conversation_id); } catch (_) { /* noop */ }
+            });
+          }}
+          data-testid="twin-new-conversation"
+          className="text-xs px-4 py-2 rounded-sm transition-colors hover:text-[var(--accent)]"
+          style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+        >
+          new conversation
+        </button>
         <label
           className="flex items-center gap-3 text-xs px-4 py-2 rounded-sm cursor-pointer"
           style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
@@ -224,6 +247,7 @@ export default function Twin() {
           <Volume2 className="h-3.5 w-3.5" />
           speak replies aloud
         </label>
+        </div>
       </header>
 
       <div ref={feedRef} className="space-y-10 mb-10 max-h-[58vh] overflow-y-auto pr-2" data-testid="twin-feed">

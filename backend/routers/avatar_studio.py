@@ -295,21 +295,21 @@ async def enhance_avatar(body: EnhanceReq, user: dict = Depends(get_current_user
 
     try:
         handler = await fal_client.submit_async(
-            "fal-ai/gfpgan",
-            arguments={"image_url": data_url},
+            "fal-ai/codeformer",
+            arguments={"image_url": data_url, "fidelity": 0.7},
         )
         result = await handler.get()
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"fal.ai failed: {exc!s}") from exc
+        raise HTTPException(status_code=400, detail=f"fal.ai failed: {exc!s}") from exc
 
     enhanced_url = (result or {}).get("image", {}).get("url") if isinstance(result, dict) else None
     if not enhanced_url:
-        raise HTTPException(status_code=502, detail="fal.ai returned no image")
+        raise HTTPException(status_code=400, detail="fal.ai returned no image")
 
     # Pull the enhanced bytes + blend with original by `strength` to preserve identity
     er = requests.get(enhanced_url, timeout=60)
     if er.status_code >= 400:
-        raise HTTPException(status_code=502, detail="Couldn't fetch fal.ai output")
+        raise HTTPException(status_code=400, detail="Couldn't fetch fal.ai output")
     enhanced_bytes = er.content
 
     if strength < 0.99:
