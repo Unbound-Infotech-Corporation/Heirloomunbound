@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__, api, audio, config
+from ..commands import CommandPoller
 from ..maintenance import Maintenance
 from ..vault import Vault
 from . import PALETTE, QSS
@@ -208,6 +209,12 @@ class MainWindow(QMainWindow):
 
     def shutdown(self) -> None:
         """Called by app.aboutToQuit — runs final maintenance if scheduled."""
+        try:
+            if getattr(self, "_cmd_poller", None) is not None:
+                self._cmd_poller.stop()
+                self._cmd_poller.wait(2000)
+        except Exception:  # noqa: BLE001
+            pass
         sched = (self._settings.get("maintenance_schedule") or "on_quit").lower()
         if sched != "on_quit":
             return
@@ -225,6 +232,11 @@ class MainWindow(QMainWindow):
         api.get_async("/desktop/me", on_ok=self._on_me, on_err=self._on_me_err)
         self.conversation.load_history()
         self.memories.refresh()
+        # Start listening for OS commands the Twin queues (open apps, volume,
+        # screen vision, etc.). Runs in its own thread; UI never blocks.
+        self._cmd_poller = CommandPoller(self)
+        self._cmd_poller.ran.connect(lambda label: self._update_status(f"twin: {label}"))
+        self._cmd_poller.start()
 
     def _on_me(self, data: dict) -> None:
         self._user = data or {}

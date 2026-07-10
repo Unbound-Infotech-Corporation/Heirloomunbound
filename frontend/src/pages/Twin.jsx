@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, BookOpen, Cloud, Globe, Link as LinkIcon, Loader2, Save, Search, Sparkles, Timer, Video, Volume2, Zap } from "lucide-react";
+import { ArrowRight, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Monitor, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
 import { api, streamSSE } from "../lib/api";
 
 const TOOL_META = {
@@ -11,6 +11,17 @@ const TOOL_META = {
   web_search: { label: "searching the web", icon: Globe },
   web_fetch: { label: "reading a page", icon: LinkIcon },
   run_skill: { label: "firing a skill", icon: Zap },
+  open_on_pc: { label: "opening on your PC", icon: Monitor },
+  control_media: { label: "controlling playback", icon: Volume2 },
+  set_volume: { label: "setting volume", icon: Volume2 },
+  power_action: { label: "power control", icon: Power },
+  notify_on_pc: { label: "notifying your PC", icon: Zap },
+  type_text: { label: "typing on your PC", icon: Keyboard },
+  clipboard: { label: "using your clipboard", icon: Clipboard },
+  see_screen: { label: "looking at your screen", icon: Eye },
+  system_status: { label: "checking your rig", icon: Cpu },
+  run_command: { label: "running a command", icon: Terminal },
+  find_file: { label: "finding a file", icon: SearchIcon },
 };
 
 function ToolChip({ tool }) {
