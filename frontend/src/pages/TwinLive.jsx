@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Eye, Radio } from "lucide-react";
 import { usePageMeta } from "../lib/usePageMeta";
+import { isTester } from "../lib/tester";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND}/api`;
@@ -311,15 +312,20 @@ export default function TwinLive() {
         >
           Heirloom
         </a>{" "}
-        by Unbound Infotech. Want your own twin you can stream?{" "}
-        <a
-          href="/buy"
-          className="underline"
-          style={{ color: "var(--accent)" }}
-        >
-          $79, lifetime
-        </a>
-        .{" "}
+        by Unbound Infotech.{" "}
+        {!isTester() && (
+          <>
+            Want your own twin you can stream?{" "}
+            <a
+              href="/buy"
+              className="underline"
+              style={{ color: "var(--accent)" }}
+            >
+              $79, lifetime
+            </a>
+            .{" "}
+          </>
+        )}
         Streamers: use{" "}
         <code style={{ color: "var(--text-secondary)" }}>
           /twin/live/{profile.handle}?obs=1

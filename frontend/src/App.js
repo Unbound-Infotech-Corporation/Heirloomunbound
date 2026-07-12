@@ -5,6 +5,7 @@ import { AuthCallback, ProtectedRoute } from "@/components/Auth";
 import AppLayout from "@/components/AppLayout";
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
+import TesterEntry from "@/pages/TesterEntry";
 import Dashboard from "@/pages/Dashboard";
 import Interviewer from "@/pages/Interviewer";
 import Journal from "@/pages/Journal";
@@ -45,6 +46,7 @@ function AppRouter() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/test" element={<TesterEntry />} />
       <Route path="/buy" element={<Buy />} />
       <Route path="/buy/success" element={<BuySuccess />} />
       <Route path="/privacy" element={<Privacy />} />

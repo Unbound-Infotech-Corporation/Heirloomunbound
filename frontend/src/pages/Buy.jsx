@@ -2,7 +2,9 @@ import axios from "axios";
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowUpRight, ScanLine, ShieldCheck, Smartphone } from "lucide-react";
+import { Link } from "react-router-dom";
 import { usePageMeta } from "../lib/usePageMeta";
+import { isTester } from "../lib/tester";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND}/api`;
@@ -16,6 +18,7 @@ export default function Buy() {
 
   const [link, setLink] = useState(null);
   const [email, setEmail] = useState("");
+  const tester = isTester();
 
   useEffect(() => {
     axios
@@ -32,6 +35,36 @@ export default function Buy() {
     const sep = link.url.includes("?") ? "&" : "?";
     return `${link.url}${sep}prefilled_email=${encodeURIComponent(email.trim())}`;
   }, [link, email]);
+
+  // Testers never see the paid funnel — send them to free sign-in instead.
+  if (tester) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center px-6"
+        style={{ background: "var(--bg-base)" }}
+        data-testid="buy-tester-panel"
+      >
+        <div className="w-full max-w-md text-center">
+          <div className="overline mb-3">tester access</div>
+          <h1 className="font-serif text-4xl font-light tracking-tight mb-4">
+            No payment needed.
+          </h1>
+          <p className="text-base mb-8" style={{ color: "var(--text-secondary)" }}>
+            You're testing Heirloom — every feature is unlocked for free. Just sign in
+            to start.
+          </p>
+          <Link
+            to="/login"
+            data-testid="buy-tester-continue"
+            className="w-full inline-flex items-center justify-center gap-2 px-6 py-4 rounded-sm text-base font-medium tracking-wide transition-opacity hover:opacity-95"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          >
+            Continue with Google
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

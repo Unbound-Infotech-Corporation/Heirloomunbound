@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { ArrowRight, Brain, Heart, Lock, MessageCircleHeart, Mic, MonitorDown, Server } from "lucide-react";
 import { Link } from "react-router-dom";
 import { usePageMeta } from "../lib/usePageMeta";
+import { isTester } from "../lib/tester";
 
 export default function Landing() {
   usePageMeta({
@@ -40,6 +41,7 @@ export default function Landing() {
         <div className="flex items-center gap-7 text-sm">
           <a href="#how" data-testid="landing-how-link" className="hidden sm:inline" style={{ color: "var(--text-secondary)" }}>How it works</a>
           <a href="#windows" data-testid="landing-download-link" className="hidden sm:inline" style={{ color: "var(--text-secondary)" }}>Windows app</a>
+          {!isTester() && (
           <Link
             to="/buy"
             data-testid="landing-buy-link"
@@ -48,6 +50,7 @@ export default function Landing() {
           >
             $79 — Buy lifetime
           </Link>
+          )}
           <Link
             to="/login"
             data-testid="landing-signin-link"
