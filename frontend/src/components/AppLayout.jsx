@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   BookOpen,
+  Camera,
   Database,
   Feather,
   Home,
@@ -36,6 +37,7 @@ const navItems = [
   { to: "/journal", label: "Voice journal", icon: Feather, tid: "nav-journal" },
   { to: "/library", label: "Library", icon: BookOpen, tid: "nav-library" },
   { to: "/photos", label: "Photos", icon: ImageIcon, tid: "nav-photos" },
+  { to: "/photo-story", label: "Photo → Story", icon: Camera, tid: "nav-photo-story" },
   { to: "/sources", label: "Sources", icon: Database, tid: "nav-sources" },
   { to: "/import", label: "Import", icon: Upload, tid: "nav-import" },
   { to: "/twin", label: "Talk to twin", icon: Sparkles, tid: "nav-twin" },

@@ -35,6 +35,7 @@ from routers import (
     archive,
     abilities,
     auth,
+    photo_story,
     avatar,
     avatar_studio,
     billing,
@@ -93,6 +94,7 @@ async def root():
 api_router.include_router(auth.router)
 api_router.include_router(archive.router)
 api_router.include_router(abilities.router)
+api_router.include_router(photo_story.router)
 api_router.include_router(interviewer.router)
 api_router.include_router(voice.router)
 api_router.include_router(voice_clone.router)

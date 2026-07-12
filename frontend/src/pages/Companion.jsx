@@ -1,20 +1,47 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Copy, Download, Loader2, MonitorSpeaker, Power, Trash2 } from "lucide-react";
+import { Ban, Bell, CheckCircle2, Clipboard, Copy, Cpu, Download, Eye, Globe, Keyboard, Loader2, MessageCircle, Monitor, MonitorSpeaker, Power, Search, Terminal, Trash2, Volume2 } from "lucide-react";
 import { api, API_BASE } from "../lib/api";
+
+const KIND_ICONS = {
+  open_url: Globe, open_app: Monitor, say: MessageCircle, set_volume: Volume2,
+  media_key: Volume2, power: Power, notify: Bell, type_text: Keyboard,
+  clipboard_get: Clipboard, clipboard_set: Clipboard, system_status: Cpu,
+  find_file: Search, screenshot: Eye, shell: Terminal,
+};
+
+const STATUS_META = {
+  done: { label: "done", color: "var(--accent)" },
+  error: { label: "failed", color: "var(--danger)" },
+  cancelled: { label: "cancelled", color: "var(--text-muted)" },
+  queued: { label: "queued", color: "var(--text-muted)" },
+  dispatched: { label: "running", color: "var(--accent)" },
+};
+
+function timeAgo(iso) {
+  if (!iso) return "";
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
 
 export default function Companion() {
   const [devices, setDevices] = useState([]);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("My PC");
   const [issued, setIssued] = useState(null); // { device_id, device_token, name } shown ONCE
-  const [commands, setCommands] = useState([]);
+  const [activity, setActivity] = useState([]);
   const [cmdDraft, setCmdDraft] = useState({ kind: "shell", text: "" });
   const [busy, setBusy] = useState(false);
 
   const loadAll = async () => {
-    const [d, c] = await Promise.all([api.get("/companion/devices"), api.get("/companion/commands")]);
+    const [d, a] = await Promise.all([
+      api.get("/companion/devices"),
+      api.get("/companion/activity"),
+    ]);
     setDevices(d.data);
-    setCommands(c.data);
+    setActivity(a.data.items || []);
   };
   useEffect(() => {
     loadAll();
@@ -80,6 +107,17 @@ export default function Companion() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const cancelCmd = async (cmdId) => {
+    // optimistic
+    setActivity((prev) => prev.map((it) => (it.cmd_id === cmdId ? { ...it, status: "cancelled", cancellable: false } : it)));
+    try {
+      await api.post(`/companion/activity/${cmdId}/cancel`);
+    } catch (_) {
+      /* refresh will correct state */
+    }
+    loadAll();
   };
 
   return (
@@ -272,49 +310,64 @@ export default function Companion() {
         </p>
       </section>
 
-      {/* History */}
-      <section>
-        <div className="overline mb-4">command history</div>
-        {commands.length === 0 ? (
+      {/* Activity log — what your twin did on this machine */}
+      <section data-testid="activity-log">
+        <div className="flex items-baseline justify-between mb-4">
+          <div className="overline">activity — what your twin did</div>
+          <div className="text-xs" style={{ color: "var(--text-muted)" }}>auto-refreshes</div>
+        </div>
+        {activity.length === 0 ? (
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            No commands sent yet.
+            Nothing yet. When your twin opens an app, checks your screen, or runs a command, it shows up here.
           </p>
         ) : (
-          <div className="space-y-3">
-            {commands.map((c) => (
-              <div key={c.cmd_id} className="surface p-4" data-testid={`cmd-${c.cmd_id}`}>
-                <div className="flex justify-between items-baseline mb-1">
-                  <div className="font-mono text-xs">
-                    <span className="overline mr-2">{c.kind}</span>
-                    <span style={{ color: "var(--text-muted)" }}>{c.cmd_id}</span>
-                  </div>
+          <div className="space-y-2">
+            {activity.map((it) => {
+              const Icon = KIND_ICONS[it.kind] || Terminal;
+              const meta = STATUS_META[it.status] || STATUS_META.queued;
+              return (
+                <div
+                  key={it.cmd_id}
+                  className="surface p-4 flex items-center gap-4"
+                  data-testid={`activity-${it.cmd_id}`}
+                >
                   <div
-                    className="overline"
-                    style={{
-                      color:
-                        c.status === "done"
-                          ? "var(--accent)"
-                          : c.status === "error"
-                          ? "var(--danger)"
-                          : "var(--text-muted)",
-                    }}
+                    className="h-9 w-9 rounded-sm flex items-center justify-center shrink-0"
+                    style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
                   >
-                    {c.status}
+                    <Icon className="h-4 w-4" />
                   </div>
-                </div>
-                <div className="text-sm font-mono break-all" style={{ color: "var(--text-secondary)" }}>
-                  {JSON.stringify(c.payload)}
-                </div>
-                {c.result && (
-                  <div
-                    className="mt-2 text-xs font-mono p-2 rounded-sm"
-                    style={{ background: "var(--bg-base)", color: "var(--text-secondary)" }}
-                  >
-                    {c.result.slice(0, 400)}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm" style={{ color: "var(--text-primary)" }}>
+                      {it.label}
+                      {it.summary && (
+                        <span style={{ color: "var(--text-muted)" }}> · {it.summary}</span>
+                      )}
+                    </div>
+                    <div className="text-xs mt-0.5 flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
+                      <span style={{ color: meta.color }}>{meta.label}</span>
+                      <span>·</span>
+                      <span>{timeAgo(it.completed_at || it.created_at)}</span>
+                      {it.result_snippet && (
+                        <span className="truncate" style={{ color: "var(--danger)" }}>· {it.result_snippet}</span>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+                  {it.cancellable && (
+                    <button
+                      type="button"
+                      onClick={() => cancelCmd(it.cmd_id)}
+                      data-testid={`activity-cancel-${it.cmd_id}`}
+                      title="Cancel this action"
+                      className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-sm shrink-0 transition-colors hover:border-[var(--danger)]"
+                      style={{ border: "1px solid var(--border-default)", color: "var(--danger)" }}
+                    >
+                      <Ban className="h-3.5 w-3.5" /> Stop
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </section>

@@ -106,6 +106,98 @@ async def list_commands(user: dict = Depends(get_current_user), limit: int = 50)
     return await cursor.to_list(length=limit)
 
 
+# ---------- Activity log (human-friendly feed + kill switch) ----------
+_KIND_LABELS = {
+    "open_url": "Opened a website",
+    "open_app": "Opened an app",
+    "say": "Spoke aloud",
+    "set_volume": "Set the volume",
+    "media_key": "Media control",
+    "power": "Power action",
+    "notify": "Sent a notification",
+    "type_text": "Typed text",
+    "clipboard_get": "Read the clipboard",
+    "clipboard_set": "Set the clipboard",
+    "system_status": "Checked system status",
+    "find_file": "Searched for a file",
+    "screenshot": "Looked at the screen",
+    "shell": "Ran a command",
+}
+
+
+def _activity_summary(kind: str, payload: dict) -> str:
+    """A short, privacy-aware one-liner describing what the command did."""
+    p = payload or {}
+    def clip(s, n=48):
+        s = str(s or "")
+        return s if len(s) <= n else s[: n - 1] + "…"
+    if kind == "open_url":
+        return clip(p.get("url"))
+    if kind == "open_app":
+        return clip(p.get("name"))
+    if kind == "say":
+        return clip(p.get("text"))
+    if kind == "set_volume":
+        return f"{p.get('level', '?')}%"
+    if kind in ("media_key", "power"):
+        return clip(p.get("action"))
+    if kind == "notify":
+        return clip(p.get("title") or p.get("message"))
+    if kind == "type_text":  # redact — only show length
+        return f"{len(str(p.get('text') or ''))} characters"
+    if kind == "clipboard_set":
+        return "copied text to clipboard"
+    if kind == "find_file":
+        return clip(p.get("query"))
+    if kind == "shell":
+        return clip(p.get("command"))
+    return ""
+
+
+@router.get("/activity")
+async def activity(user: dict = Depends(get_current_user), limit: int = 30):
+    """Formatted feed of everything the twin did on the user's PC."""
+    docs = await db.companion_commands.find(
+        {"user_id": user["user_id"]}, {"_id": 0}
+    ).sort("created_at", -1).limit(min(limit, 100)).to_list(length=min(limit, 100))
+    items = []
+    for d in docs:
+        kind = d.get("kind", "")
+        status = d.get("status", "queued")
+        result = d.get("result")
+        items.append({
+            "cmd_id": d.get("cmd_id"),
+            "kind": kind,
+            "label": _KIND_LABELS.get(kind, kind),
+            "summary": _activity_summary(kind, d.get("payload")),
+            "status": status,
+            "result_snippet": (str(result)[:140] if result and status == "error" else None),
+            "created_at": d.get("created_at"),
+            "completed_at": d.get("completed_at"),
+            "cancellable": status in ("queued", "dispatched"),
+        })
+    return {"items": items}
+
+
+@router.post("/activity/{cmd_id}/cancel")
+async def cancel_command(cmd_id: str, user: dict = Depends(get_current_user)):
+    """Kill switch — cancel a command that hasn't finished. Queued commands are
+    never dispatched; dispatched ones are marked cancelled so a late result is
+    ignored (the PC may already have run a fast command)."""
+    doc = await db.companion_commands.find_one(
+        {"cmd_id": cmd_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Command not found")
+    if doc["status"] not in ("queued", "dispatched"):
+        raise HTTPException(status_code=409, detail=f"Already {doc['status']}")
+    await db.companion_commands.update_one(
+        {"cmd_id": cmd_id, "user_id": user["user_id"]},
+        {"$set": {"status": "cancelled", "completed_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True, "cmd_id": cmd_id, "status": "cancelled"}
+
+
 # ---------- Companion-side polling + result reporting ----------
 @router.get("/poll")
 async def poll(ctx: dict = Depends(get_device_user)):
@@ -176,7 +268,7 @@ class CompanionResult(BaseModel):
 async def companion_result(payload: CompanionResult, ctx: dict = Depends(get_device_user)):
     user = ctx["user"]
     res = await db.companion_commands.update_one(
-        {"cmd_id": payload.cmd_id, "user_id": user["user_id"]},
+        {"cmd_id": payload.cmd_id, "user_id": user["user_id"], "status": {"$ne": "cancelled"}},
         {
             "$set": {
                 "status": "done" if payload.status == "ok" else "error",
@@ -186,6 +278,12 @@ async def companion_result(payload: CompanionResult, ctx: dict = Depends(get_dev
         },
     )
     if res.matched_count == 0:
+        # Either unknown, or the user cancelled it — ignore cancelled quietly.
+        exists = await db.companion_commands.find_one(
+            {"cmd_id": payload.cmd_id, "user_id": user["user_id"]}, {"_id": 0, "status": 1}
+        )
+        if exists:
+            return {"ok": True, "ignored": True}
         raise HTTPException(status_code=404, detail="Command not found")
     return {"ok": True}
 
