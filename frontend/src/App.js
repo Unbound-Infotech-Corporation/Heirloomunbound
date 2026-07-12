@@ -16,6 +16,7 @@ import TwinLive from "@/pages/TwinLive";
 import AvatarStudio from "@/pages/AvatarStudio";
 import SetupKeys from "@/pages/SetupKeys";
 import Skills from "@/pages/Skills";
+import Abilities from "@/pages/Abilities";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import HeirPortal from "@/pages/HeirPortal";
@@ -79,6 +80,7 @@ function AppRouter() {
         <Route path="/import" element={<Import />} />
         <Route path="/twin" element={<Twin />} />
         <Route path="/skills" element={<Skills />} />
+        <Route path="/abilities" element={<Abilities />} />
         <Route path="/companion" element={<Companion />} />
         <Route path="/heirs" element={<Heirs />} />
         <Route path="/letters" element={<Letters />} />

@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 25 — Abilities framework fully verified. Backend catalog + toggle/permission-gate + tool-gating + twin SSE gating all pass (8/8 pytest). Frontend /abilities page renders, 6 ability cards grouped by category, permission dialog + toggle-on/off flow works. Restored fork23 to defaults post-test.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration25_abilities.py",
+    "/app/test_reports/pytest/iteration_25_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "abilities.py + routers/abilities.py are clean, single-purpose modules (~215 + 63 lines). Permission validation is strict (subset check). Defaults sensible (terminal opt-in).",
+    "twin.py correctly gates music short-circuit on 'music' ability, smart-home auto-skill on 'smart_home', and filters TOOL_SCHEMAS via enabled_tool_names. Core memory tools always injected — good separation.",
+    "Frontend Abilities.jsx uses data-testid pervasively (root/card/toggle/dialog/confirm). Permission dialog only opens for OFF→ON; disable is one-click. Good UX.",
+    "Minor: teardown_module in the pytest file is best-effort and requires REACT_APP_BACKEND_URL env var to be set when invoking pytest (I passed it explicitly). Consider a conftest fixture that reads from /app/frontend/.env for future-proofing."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration25_abilities.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (6 cards + dialog + toggle-on/off)"},
+  "test_credentials": "Session cookie/Bearer: test_session_fork23 (user_id: test-user-fork23).",
+  "seed_data_creation": "None. Test operates on fork23 user_abilities collection and restores defaults on teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The pytest requires REACT_APP_BACKEND_URL to be exported (it's read from env, no default). Run: `export REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) && cd /app/backend && python -m pytest tests/test_iteration25_abilities.py -q`. fork23 abilities are restored to defaults (web/music/smart_home/pc_control/screen_vision enabled, terminal off).",
+  "rca of the issue": "N/A — no issues found."
+}

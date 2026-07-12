@@ -21,6 +21,7 @@ from routers.personas import get_active_persona
 from routers.skills import invoke_skill_internal, match_skill_trigger
 from twin_tools import TOOL_SCHEMAS, execute_tool
 from utils import rate_limit
+import abilities as ab
 
 router = APIRouter(prefix="/twin", tags=["twin"])
 
@@ -33,6 +34,7 @@ def _build_twin_system(
     safe_topics: list[str] | None = None,
     persona: dict | None = None,
     brand: dict | None = None,
+    abilities_block: str = "",
 ) -> str:
     fence = ""
     if safe_topics:
@@ -76,28 +78,12 @@ Voice rules:
 - Be warm with family. Be honest about not remembering when you don't.
 - Keep replies to 2-6 sentences unless asked for a longer story.
 
-Tools available to you (call them silently — the UI shows a chip when a tool fires):
+Your memory tools (always available — call them silently, the UI shows a chip when a tool fires):
 - `search_archive(query)` — the owner's factual record. Call it ONLY when the user asks about the owner's past, life, or specific facts (a person, place, date, job, event, or story — e.g. "where did you grow up", "what was your first job"). ONE focused call is enough. Do NOT call it for greetings, small talk, or opinion/feeling questions ("what do you think…", "how are you", "what's your take on life") — for those, answer directly from the archive excerpts and long-term memory already included below.
 - `save_memory(content, type, title)` — when the user shares something worth remembering long-term (a story, belief, value), quietly capture it so the archive grows.
 - `set_reminder(what, when)` — when the user says "remind me…". `when` can be ISO or natural ("tomorrow 9am").
 - `list_recent_memories(days, limit)` — for "what have I been thinking about?" style questions.
-- `get_weather(location)` — current conditions via Open-Meteo.
-- `web_search(query)` — ONLY for outside-world facts (news, prices, releases). Never use it for questions about the owner themselves.
-- `web_fetch(url)` — read the readable text of a specific URL.
-- `run_skill(skill_id)` — invoke a configured webhook skill by its ID from the list below.
-
-Computer control (only works when the owner's Heirloom desktop app is running — if a tool says no PC is connected, tell them warmly to open it):
-- `open_on_pc(target)` — launch an app or open a website on their PC ("open Spotify", "pull up youtube").
-- `control_media(action)` / `set_volume(level)` — playback + volume.
-- `power_action(action)` — lock/sleep/shutdown/restart. For shutdown & restart you MUST first explain and get an explicit yes, then call again with confirmed=true.
-- `notify_on_pc(title, message)` — desktop toast.
-- `type_text(text)` — type into their focused window.
-- `clipboard(mode)` — read or write their clipboard.
-- `see_screen(question)` — screenshot + look at what's on their screen ("what's on my screen?", "read this error").
-- `system_status()` — CPU/RAM/GPU/disk/battery ("how's my rig doing?").
-- `run_command(command)` — shell command; risky, so always confirm first then call with confirmed=true.
-- `find_file(query)` — locate/open a file in their common folders.
-
+{abilities_block}
 Use tools sparingly: most conversational turns need NO tool at all. One call is usually enough when you do. Don't announce that you're calling a tool — just do it and weave the result into your natural reply.
 
 Skills available (call `run_skill` with the skill_id, only when the user explicitly asks for the action):
@@ -213,8 +199,12 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # ---- Music intent short-circuit ----
-    music_query = detect_music_intent(payload.message)
+    # Which abilities has the owner turned on? Gates short-circuits + tool set.
+    enabled_ids = await ab.enabled_ability_ids(user["user_id"])
+    enabled_tools = await ab.enabled_tool_names(user["user_id"])
+
+    # ---- Music intent short-circuit (only if the Music ability is on) ----
+    music_query = detect_music_intent(payload.message) if "music" in enabled_ids else None
     if music_query:
         await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
         result = await play_for_user(user["user_id"], music_query)
@@ -264,8 +254,8 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
         )
 
-    # ---- Auto-skill intent short-circuit ----
-    matched_skill = await match_skill_trigger(user["user_id"], payload.message)
+    # ---- Auto-skill intent short-circuit (only if Smart Home ability is on) ----
+    matched_skill = await match_skill_trigger(user["user_id"], payload.message) if "smart_home" in enabled_ids else None
     if matched_skill:
         await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
         result = await invoke_skill_internal(user["user_id"], matched_skill["skill_id"])
@@ -331,9 +321,10 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     }
     if not any(brand.values()):
         brand = None
+    abilities_block = ab.build_abilities_prompt(enabled_ids)
     system = _build_twin_system(
         user.get("name", ""), memory_blob, archive, skills, merged_safe,
-        persona=persona, brand=brand,
+        persona=persona, brand=brand, abilities_block=abilities_block,
     )
 
     # Replay prior turns so the twin remembers what was just said.
@@ -341,6 +332,9 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     for m in conv.get("messages", []):
         if m.get("role") in ("user", "assistant") and m.get("content"):
             initial_messages.append({"role": m["role"], "content": m["content"]})
+
+    # Only expose the tools from abilities the owner has enabled (+ core memory).
+    active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
 
     chat = (
         LlmChat(
@@ -350,7 +344,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             initial_messages=initial_messages,
         )
         .with_model("anthropic", "claude-sonnet-4-6")
-        .with_tools(TOOL_SCHEMAS)
+        .with_tools(active_schemas)
     )
 
     user_turn = {"role": "user", "content": payload.message, "ts": datetime.now(timezone.utc).isoformat()}
