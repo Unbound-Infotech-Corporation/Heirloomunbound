@@ -77,6 +77,12 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 28 — Feb, 2026 (Phase 2: Activity Log + Photo→Story)
+- ✅ **Companion Activity Log** (2a): GET `/api/companion/activity` — a privacy-redacted feed of every action the twin took on the PC (type_text/clipboard content is redacted to a length/label). Kill switch POST `/api/companion/activity/{cmd_id}/cancel` (409 if finished, 404 if missing); `/companion/result` no longer resurrects a cancelled command. New polished activity section on `/companion` with icons, status badges, relative time, and a "Stop" button. Replaced the old raw-JSON command history.
+- ✅ **Photo → Story** (2d): new `photo_story.py` router — upload a photo → Claude vision describes it + asks 3 tailored questions → answers composed into a first-person memory filed in the archive (`db.entries`, type=story, source=photo_story). New `/photo-story` page (drag/drop → questions → story) + nav link. Image stored/served privately per photo_story_id.
+- ℹ️ **Time-Capsule Letters** (2g): already existed as **Sealed Letters** (`letters.py` — deliver on_date / on_age / on_release to heirs). Not rebuilt.
+- ✅ Tested: iteration_27.json — 5/5 backend pytest + full frontend E2E for both features. 100%.
+
 ### Phase 27 — Feb, 2026 (Tester mode — free access for invited testers)
 - ✅ **Tester mode** (`lib/tester.js`): browser-local flag `heirloom_tester`. New public `/test` route (`TesterEntry.jsx`) sets the flag and invites Google sign-in — full free access, no payment.
 - ✅ **Buy CTAs gated** for testers only (real sales funnel untouched for normal visitors): Landing nav Buy link hidden; `/buy` shows a free "No payment needed" panel instead of Stripe; TwinLive footer "$79, lifetime" link hidden.
