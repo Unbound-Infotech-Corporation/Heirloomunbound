@@ -77,6 +77,15 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 26 — Feb, 2026 (Abilities framework — Heirloom becomes a platform)
+Phase 1 of the "go big" build. Introduced **Abilities**: modular, togglable capabilities the owner switches on for their twin, each with browser-style permission grants. Only enabled abilities inject their tools into the twin, keeping the model lean.
+- ✅ **Framework** (`abilities.py`): catalog of 6 first-party abilities + `user_abilities` state collection; `enabled_tool_names`, `build_abilities_prompt`, `set_state`. The 4 memory tools (search_archive/save_memory/set_reminder/list_recent_memories) are always-on CORE, not abilities.
+- ✅ **Abilities**: Web & Weather, Music, Smart Home & Skills, PC Control, Screen Vision (all on by default), Terminal Access (off by default — most powerful). Migrated existing capabilities into this rail.
+- ✅ **API** (`routers/abilities.py`): GET /api/abilities (catalog + per-user state + companion_connected), POST /{id}/enable (validates all required permissions granted, else 400), POST /{id}/disable.
+- ✅ **Twin gating** (`twin.py`): tool schemas filtered to enabled abilities; music + auto-skill short-circuits gated on their abilities; system prompt's capability section built dynamically from enabled abilities.
+- ✅ **UI** (`Abilities.jsx` + nav): cards grouped by category with a permission-grant dialog on enable, one-tap disable. New "Abilities" sidebar link.
+- ✅ Tested: iteration_25.json — 8/8 backend pytest (`test_iteration25_abilities.py`, gating + prompt), toggle/permission/404/400 API, twin SSE gating, frontend page + dialog. 100%.
+
 ### Phase 25 — Feb, 2026 (Twin can use your computer — 11 PC-control tools)
 Big usefulness upgrade: the Twin (Claude) can now DO things on the user's connected companion PC via function-calling. Tools queue commands to the PC (like music's open_url) and, when useful, wait for the result to return. Tool registry grew 8 → 19.
 - ✅ **New tools** (`twin_tools.py`): `open_on_pc` (app/website), `control_media`, `set_volume`, `power_action` (lock/sleep/shutdown/restart), `notify_on_pc` (desktop toast), `type_text`, `clipboard` (get/set), `see_screen` (screenshot + Claude vision), `system_status` (CPU/RAM/GPU incl. NVIDIA/disk/battery), `run_command` (shell), `find_file`.
