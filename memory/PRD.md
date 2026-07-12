@@ -77,6 +77,14 @@ Researched Zoice, Gemelo, Synthesia, Veed.io, Kapwing. Shipped 3 features that s
 - ✅ **Talking-head video avatar** (`routers/avatar.py` + `/api/avatar/*`) — D-ID API integration with async create + poll architecture. `POST /api/avatar/talk` returns a `talk_id` immediately (no blocking on render); `GET /api/avatar/talks/{id}` polls D-ID until ready. Twin chat page shows a "Play as video" button on each assistant message → loading indicator → inline `<video>` player with the rendered .mp4. Voice provider is the user's ElevenLabs cloned voice when available (drops to Microsoft Jenny otherwise). Source photo configured in Settings via public https URL (D-ID requires public-fetchable source).
 - ✅ Frontend polling: 60 attempts × 2s = 120s cap, resilient to transient poll errors.
 
+### Phase 27 — Feb, 2026 (Tester mode — free access for invited testers)
+- ✅ **Tester mode** (`lib/tester.js`): browser-local flag `heirloom_tester`. New public `/test` route (`TesterEntry.jsx`) sets the flag and invites Google sign-in — full free access, no payment.
+- ✅ **Buy CTAs gated** for testers only (real sales funnel untouched for normal visitors): Landing nav Buy link hidden; `/buy` shows a free "No payment needed" panel instead of Stripe; TwinLive footer "$79, lifetime" link hidden.
+- ✅ Confirmed there is NO functional paywall anywhere — `/auth/session` accepts any Google sign-in (no allowlist/purchase check), no feature route gates on payment, companion download only needs login. `$79` is purely marketing.
+- ✅ Tested: iteration_26.json — 6/6 frontend checks pass, no hook-order/console errors.
+- 📌 **Stripe (owner's live key) setup** — the app uses `emergentintegrations StripeCheckout` (create + get_checkout_status) + webhook `/api/webhook/stripe`. A standard secret key works; for a restricted key: Checkout Sessions=Write, Customers=Write, Products/Prices=Read, Payment Links=Read, PaymentIntents/Charges=Read, rest None. Webhook events: checkout.session.completed, charge.refunded, charge.dispute.created, charge.dispute.funds_withdrawn. Env: STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PAYMENT_LINK_URL, STRIPE_PAYMENT_LINK_ID.
+- ⚠️ Deployment: production build previously failed — likely `litellm` pinned to a URL wheel in requirements.txt. Not yet fixed (preview link works for testing).
+
 ### Phase 26 — Feb, 2026 (Abilities framework — Heirloom becomes a platform)
 Phase 1 of the "go big" build. Introduced **Abilities**: modular, togglable capabilities the owner switches on for their twin, each with browser-style permission grants. Only enabled abilities inject their tools into the twin, keeping the model lean.
 - ✅ **Framework** (`abilities.py`): catalog of 6 first-party abilities + `user_abilities` state collection; `enabled_tool_names`, `build_abilities_prompt`, `set_state`. The 4 memory tools (search_archive/save_memory/set_reminder/list_recent_memories) are always-on CORE, not abilities.
