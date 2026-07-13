@@ -61,6 +61,28 @@ export default function Twin() {
   // Avatar video state: { [msgIdx]: { state: 'loading'|'ready'|'error', url?, err? } }
   const [videos, setVideos] = useState({});
   const [liveTools, setLiveTools] = useState([]);
+  const [abilities, setAbilities] = useState([]);
+
+  useEffect(() => {
+    api.get("/abilities").then(({ data }) => setAbilities(data.abilities || [])).catch(() => {});
+  }, []);
+
+  const toggleAbility = async (ab) => {
+    // optimistic
+    setAbilities((prev) => prev.map((a) => (a.id === ab.id ? { ...a, enabled: !a.enabled } : a)));
+    try {
+      if (ab.enabled) {
+        await api.post(`/abilities/${ab.id}/disable`);
+      } else {
+        await api.post(`/abilities/${ab.id}/enable`, {
+          granted_permissions: (ab.permissions || []).map((p) => p.id),
+        });
+      }
+    } catch (_) {
+      // revert on failure
+      setAbilities((prev) => prev.map((a) => (a.id === ab.id ? { ...a, enabled: ab.enabled } : a)));
+    }
+  };
   const feedRef = useRef(null);
 
   useEffect(() => {
@@ -260,6 +282,29 @@ export default function Twin() {
         </label>
         </div>
       </header>
+
+      {abilities.length > 0 && (
+        <div className="flex items-center flex-wrap gap-2 mb-8" data-testid="twin-abilities-bar">
+          <span className="text-xs mr-1" style={{ color: "var(--text-muted)" }}>abilities:</span>
+          {abilities.map((ab) => (
+            <button
+              key={ab.id}
+              type="button"
+              onClick={() => toggleAbility(ab)}
+              data-testid={`twin-ability-chip-${ab.id}`}
+              title={ab.tagline}
+              className="text-xs px-3 py-1 rounded-full transition-colors"
+              style={{
+                border: `1px solid ${ab.enabled ? "var(--accent)" : "var(--border-default)"}`,
+                background: ab.enabled ? "var(--accent-muted, rgba(212,163,115,0.12))" : "transparent",
+                color: ab.enabled ? "var(--accent)" : "var(--text-muted)",
+              }}
+            >
+              {ab.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div ref={feedRef} className="space-y-10 mb-10 max-h-[58vh] overflow-y-auto pr-2" data-testid="twin-feed">
         {messages.length === 0 && !streaming && (

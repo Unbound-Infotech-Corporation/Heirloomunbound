@@ -10,10 +10,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+from emergentintegrations.llm.chat import LlmChat, StreamDone, TextDelta, UserMessage
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from deps import db, get_current_user
+from deps import EMERGENT_LLM_KEY, db, get_current_user
 
 router = APIRouter(prefix="/letters", tags=["letters"])
 
@@ -187,3 +188,124 @@ async def delete_letter(letter_id: str, user: dict = Depends(get_current_user)):
         {"letter_id": letter_id, "user_id": user["user_id"]}
     )
     return {"ok": True}
+
+
+# ----------------------------- Twin-assisted writing -----------------------------
+class AssistReq(BaseModel):
+    notes: str = Field(min_length=1, max_length=4000)
+    recipient_name: Optional[str] = None
+    occasion: Optional[str] = None  # e.g. "18th birthday", "wedding day"
+    tone: Optional[str] = None      # e.g. "warm", "funny", "solemn"
+
+
+@router.post("/assist")
+async def assist(payload: AssistReq, user: dict = Depends(get_current_user)):
+    """Draft a heartfelt letter in the owner's own voice from a few notes.
+
+    Pulls a little of the owner's archive so the voice rings true. Returns a
+    suggested title + body for the owner to edit before sealing — never saved
+    automatically."""
+    # A light voice sample from the owner's own writing.
+    voice_docs = await db.entries.find(
+        {"user_id": user["user_id"], "content": {"$exists": True, "$ne": ""}}, {"_id": 0, "content": 1}
+    ).sort("created_at", -1).limit(4).to_list(length=4)
+    voice_blob = "\n---\n".join((d.get("content") or "")[:400] for d in voice_docs) or "(no writing samples yet)"
+
+    recipient = (payload.recipient_name or "the recipient").strip()
+    occasion = f" for their {payload.occasion.strip()}" if payload.occasion else ""
+    tone = (payload.tone or "warm and sincere").strip()
+
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=f"letter_{uuid.uuid4().hex[:8]}",
+        system_message=(
+            f"You help {user.get('name', 'the writer')} write a deeply personal sealed letter to {recipient}{occasion}, "
+            f"to be delivered in the future. Write it in FIRST PERSON as the writer, matching the voice in their "
+            f"writing samples below. Tone: {tone}. Draw ONLY on the notes and samples — invent no facts. "
+            f"150–300 words, honest and specific, no greeting-card clichés. "
+            f'Return STRICT JSON: {{"title": "<short title>", "body": "<the letter>"}}. No markdown, no preamble.\n\n'
+            f"=== The writer's voice (samples) ===\n{voice_blob}"
+        ),
+    ).with_model("anthropic", "claude-sonnet-4-6")
+
+    text = ""
+    async for ev in chat.stream_message(UserMessage(text=f"Notes for the letter:\n{payload.notes}")):
+        if isinstance(ev, TextDelta):
+            text += ev.content
+        elif isinstance(ev, StreamDone):
+            break
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text[text.find("{"): text.rfind("}") + 1]
+    import json
+    try:
+        data = json.loads(text)
+        title = str(data.get("title", "")).strip() or "A letter for you"
+        body = str(data.get("body", "")).strip()
+    except Exception:  # noqa: BLE001
+        title, body = "A letter for you", text
+    if not body:
+        raise HTTPException(status_code=502, detail="Couldn't draft the letter — try again.")
+    return {"title": title, "body": body}
+
+
+# ----------------------------- Auto-delivery scheduler -----------------------------
+async def deliver_due_letters(user_id: Optional[str] = None) -> dict:
+    """Deliver sealed, date-triggered letters whose date has arrived.
+
+    Emails the letter to the linked heir and marks it delivered. Scoped to one
+    user when user_id is given (manual trigger), otherwise scans everyone
+    (background scheduler). Letters without a linked heir email are skipped.
+    """
+    from email_service import send_letter_email
+
+    now_iso = _now_iso()
+    query = {
+        "sealed": True,
+        "delivered": False,
+        "trigger": "on_date",
+        "delivery_date": {"$lte": now_iso},
+    }
+    if user_id:
+        query["user_id"] = user_id
+
+    due = await db.sealed_letters.find(query, {"_id": 0}).to_list(length=500)
+    delivered, skipped = 0, 0
+    for lt in due:
+        heir = None
+        if lt.get("recipient_heir_id"):
+            heir = await db.heirs.find_one(
+                {"heir_id": lt["recipient_heir_id"], "user_id": lt["user_id"]}, {"_id": 0}
+            )
+        to_email = (heir or {}).get("email")
+        if not to_email:
+            skipped += 1
+            continue
+        owner = await db.users.find_one({"user_id": lt["user_id"]}, {"_id": 0, "name": 1}) or {}
+        try:
+            res = await send_letter_email(
+                to=to_email,
+                recipient_name=(heir or {}).get("name") or lt.get("recipient_name") or "",
+                owner_name=owner.get("name", ""),
+                title=lt.get("title", "A letter for you"),
+                body=lt.get("body", ""),
+            )
+            if res.get("skipped"):  # email service not configured — don't mark delivered
+                skipped += 1
+                continue
+        except Exception:  # noqa: BLE001
+            skipped += 1
+            continue
+        await db.sealed_letters.update_one(
+            {"letter_id": lt["letter_id"]},
+            {"$set": {"delivered": True, "delivered_at": now_iso, "delivered_to": to_email}},
+        )
+        delivered += 1
+    return {"delivered": delivered, "skipped": skipped, "considered": len(due)}
+
+
+@router.post("/run-delivery")
+async def run_delivery(user: dict = Depends(get_current_user)):
+    """Owner-triggered: deliver any of the owner's letters that are due right now."""
+    return await deliver_due_letters(user_id=user["user_id"])

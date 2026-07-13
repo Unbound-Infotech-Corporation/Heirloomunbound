@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Lock, Mail, Plus, Trash2, Unlock } from "lucide-react";
+import { Lock, Mail, Plus, Sparkles, Trash2, Unlock } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../lib/api";
 
@@ -25,6 +25,32 @@ export default function Letters() {
   const [draft, setDraft] = useState(emptyDraft);
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [assist, setAssist] = useState({ open: false, notes: "", occasion: "", tone: "warm", busy: false });
+
+  const draftWithTwin = async () => {
+    if (!assist.notes.trim()) {
+      toast.error("Give the twin a few notes to work from.");
+      return;
+    }
+    setAssist((a) => ({ ...a, busy: true }));
+    try {
+      const recipientName =
+        draft.recipient_name.trim() ||
+        (heirs.find((h) => h.heir_id === draft.recipient_heir_id)?.name || "");
+      const { data } = await api.post("/letters/assist", {
+        notes: assist.notes.trim(),
+        recipient_name: recipientName || null,
+        occasion: assist.occasion.trim() || null,
+        tone: assist.tone,
+      });
+      setDraft((d) => ({ ...d, title: data.title, body: data.body }));
+      setAssist((a) => ({ ...a, open: false, busy: false }));
+      toast.success("Your twin drafted it — edit anything before sealing.");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Couldn't draft it. Try again.");
+      setAssist((a) => ({ ...a, busy: false }));
+    }
+  };
 
   const load = async () => {
     const [{ data: l }, { data: h }] = await Promise.all([
@@ -143,6 +169,81 @@ export default function Letters() {
 
       {showNew && (
         <div className="surface p-6 mb-10 space-y-4" data-testid="letter-form">
+          {/* Twin-assisted writing */}
+          <div className="rounded-sm p-4" style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)" }}>
+            {!assist.open ? (
+              <button
+                type="button"
+                onClick={() => setAssist((a) => ({ ...a, open: true }))}
+                data-testid="assist-open"
+                className="inline-flex items-center gap-2 text-sm"
+                style={{ color: "var(--accent)" }}
+              >
+                <Sparkles className="h-4 w-4" /> Help me write this with my twin
+              </button>
+            ) : (
+              <div className="space-y-3">
+                <div className="overline flex items-center gap-2" style={{ color: "var(--accent)" }}>
+                  <Sparkles className="h-3.5 w-3.5" /> draft with your twin
+                </div>
+                <textarea
+                  value={assist.notes}
+                  onChange={(e) => setAssist((a) => ({ ...a, notes: e.target.value }))}
+                  placeholder="A few notes — who it's for, what you want to say, a memory or two…"
+                  rows={3}
+                  data-testid="assist-notes"
+                  className="w-full px-3 py-2 text-sm rounded-sm resize-none"
+                  style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    value={assist.occasion}
+                    onChange={(e) => setAssist((a) => ({ ...a, occasion: e.target.value }))}
+                    placeholder="Occasion (e.g. 18th birthday)"
+                    data-testid="assist-occasion"
+                    className="w-full px-3 py-2 text-sm rounded-sm"
+                    style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                  />
+                  <select
+                    value={assist.tone}
+                    onChange={(e) => setAssist((a) => ({ ...a, tone: e.target.value }))}
+                    data-testid="assist-tone"
+                    className="w-full px-3 py-2 text-sm rounded-sm"
+                    style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                  >
+                    <option value="warm and sincere">Warm & sincere</option>
+                    <option value="funny and light">Funny & light</option>
+                    <option value="solemn and reflective">Solemn & reflective</option>
+                    <option value="short and direct">Short & direct</option>
+                  </select>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={draftWithTwin}
+                    disabled={assist.busy}
+                    data-testid="assist-generate"
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-sm disabled:opacity-50"
+                    style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+                  >
+                    <Sparkles className="h-4 w-4" /> {assist.busy ? "Writing…" : "Draft it"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAssist((a) => ({ ...a, open: false }))}
+                    className="px-4 py-2 text-sm rounded-sm"
+                    style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Your twin writes in your voice from your archive. You can edit every word before sealing.
+                </p>
+              </div>
+            )}
+          </div>
+
           <input
             value={draft.title}
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}

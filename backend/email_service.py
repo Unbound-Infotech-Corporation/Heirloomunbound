@@ -200,3 +200,41 @@ async def send_heir_release_email(
             "This link is yours alone."
         ),
     )
+
+
+async def send_letter_email(
+    *,
+    to: str,
+    recipient_name: str,
+    owner_name: str,
+    title: str,
+    body: str,
+) -> dict:
+    """A sealed letter reaching its delivery date — the message itself, enclosed."""
+    greeting = f"Dear {recipient_name.split()[0]}," if recipient_name else "Dear friend,"
+    # Preserve the writer's line breaks in HTML.
+    body_html = (body or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+    inner = f"""
+<p style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#7a6f5e;margin:0 0 6px 0;">a sealed letter, now opened</p>
+<p style="font-family:Georgia,serif;font-size:24px;font-weight:300;line-height:1.3;margin:0 0 18px 0;color:{_TEXT_PRIMARY};">
+  {title}
+</p>
+<p style="font-family:Georgia,serif;font-size:16px;line-height:1.4;margin:0 0 14px 0;color:{_TEXT_SECONDARY};">
+  {greeting}
+</p>
+<div style="font-family:Georgia,serif;font-size:17px;line-height:1.65;margin:0 0 22px 0;color:{_TEXT_PRIMARY};">
+  {body_html}
+</div>
+<p style="font-family:Arial,sans-serif;font-size:13px;line-height:1.55;margin:22px 0 0 0;color:#7a6f5e;border-top:1px solid {_BORDER};padding-top:18px;">
+  {owner_name or "Someone who loved you"} wrote this for you and asked Heirloom to deliver it today.
+</p>
+"""
+    return await _send(
+        to=to,
+        subject=f"{owner_name or 'Someone who loved you'} left you a letter: {title}",
+        html=_wrap(inner, preheader=f"A sealed letter from {owner_name or 'someone who loved you'} has reached its day."),
+        text=(
+            f"{title}\n\n{greeting}\n\n{body}\n\n"
+            f"— {owner_name or 'Someone who loved you'} asked Heirloom to deliver this to you today."
+        ),
+    )

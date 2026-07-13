@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 28 (Sealed Letters twin-assist + auto-delivery scheduler, Twin abilities chips) fully verified. 6/6 pytests pass; both frontend flows verified via Playwright.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "detailed_results": {
+    "backend": {
+      "test_letters_list": "PASS — GET /api/letters 200 with list",
+      "test_letters_full_crud": "PASS — POST create → POST /seal → GET verifies sealed=true → DELETE → GET 404",
+      "test_assist_empty_notes": "PASS — POST /letters/assist with empty notes → 422",
+      "test_assist_success": "PASS — POST /letters/assist returned {title, body} in first person referencing notes' pancake+maple tree keywords (~4s)",
+      "test_run_delivery_shape_no_due": "PASS — POST /letters/run-delivery returns {delivered, skipped, considered} ints (all 0 with no due letters)",
+      "test_run_delivery_considers_due_letter": "PASS — Created heir(email) + sealed on_date letter with delivery_date=2020-01-01 → run-delivery returned considered>=1 and (delivered+skipped)>=1. In this env delivered=1 (email service accepted the send in test mode)."
+    },
+    "frontend": {
+      "twin_abilities_bar": "PASS — [data-testid='twin-abilities-bar'] renders 6 chips (web, music, smart_home, pc_control, screen_vision, terminal). Enabled chips use var(--accent), disabled use var(--text-muted).",
+      "twin_ability_chip_toggle": "PASS — Clicked twin-ability-chip-terminal (muted→accent optimistic). Reload /twin → still accent (persisted). GET /api/abilities confirms terminal.enabled=true then false after second click. Restored terminal=disabled at end.",
+      "twin_streaming_reply": "PASS — Sent 'Say hi in five words' via twin-input/twin-send → twin-msg-1 populated with 'Hey there, good to see you!' after streaming.",
+      "letters_assist_flow": "PASS — new-letter-toggle → letter-form → assist-open → assist-notes/assist-occasion/assist-tone filled → assist-generate. After ~10-15s letter-title populated ('The Tree and the Pancakes') and letter-body populated with a warm first-person letter referencing pancakes + maple tree from notes. Toast: 'Your twin drafted it — edit anything before sealing.'"
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration28_letters.py",
+    "/app/test_reports/pytest/iteration_28_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "letters.py deliver_due_letters(): if send_letter_email raises OR returns skipped, the letter is left in due-set and will be retried on every scheduler tick (every 15 min). For a persistently failing address this is harmless but noisy — consider a retry cap / permanent-failure flag after N attempts.",
+    "letters.py assist(): system_message inlines the user's writing samples verbatim (first 400 chars × 4 entries). For long/sensitive entries this is fine for MVP but no size cap — could push token counts if entries are long-form.",
+    "letters.py: fenced-code stripping (text.startswith('```')) is fragile — if the model wraps in ```json ... ``` the trim of backticks may not perfectly land the JSON braces. Current substring-by-{}/} search compensates, but a proper regex would be safer.",
+    "Twin.jsx toggleAbility uses `_` as an unused catch var — lint-clean but no user feedback on error (silent revert). Consider a toast on failure.",
+    "email_service.send_letter_email behaviour in test mode — auto-delivery test showed delivered=1 in preview env; make sure production SMTP/SendGrid is behind a feature flag so scheduler cannot accidentally send real emails during rehearsals."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration28_letters.py"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% (all data-testids present, both flows E2E green)"},
+  "test_credentials": "session_token=test_session_fork23, user_id=test-user-fork23. Abilities restored to defaults at end (terminal disabled).",
+  "seed_data_creation": "Test-created heir + sealed on_date letter were cleaned up (letter was delivered=true in test-mode email but DB now shows 0 residual TEST_iter28 rows for fork23).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 28 fully green. Reusable pytest at /app/backend/tests/test_iteration28_letters.py covers assist + run-delivery + CRUD regression. Note: email_service appears to actually deliver in the preview env (test test_run_delivery_considers_due_letter observed delivered=1). If future tests need to avoid delivery, either mock email_service or use trigger=on_release / future delivery_date."
+}

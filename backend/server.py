@@ -1,4 +1,5 @@
 """FastAPI entrypoint for the Digital Heirloom / AI Twin app."""
+import asyncio
 import logging
 import os
 import re
@@ -81,6 +82,18 @@ app = FastAPI(title="Digital Heirloom — AI Twin", version="0.3.0")
 async def _startup():
     init_storage()
     await ensure_indexes()
+
+    async def _letter_delivery_loop():
+        # Deliver date-triggered sealed letters shortly after their day arrives.
+        from routers.letters import deliver_due_letters
+        while True:
+            try:
+                await deliver_due_letters()
+            except Exception as exc:  # noqa: BLE001
+                logging.getLogger("server").warning("letter delivery loop error: %s", exc)
+            await asyncio.sleep(900)  # every 15 minutes
+
+    app.state.letter_task = asyncio.create_task(_letter_delivery_loop())
 
 
 api_router = APIRouter(prefix="/api")
@@ -176,5 +189,8 @@ app.add_middleware(
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    task = getattr(app.state, "letter_task", None)
+    if task:
+        task.cancel()
     from deps import client
     client.close()
