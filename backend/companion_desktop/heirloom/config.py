@@ -54,6 +54,9 @@ _DEFAULTS: Dict[str, Any] = {
     "storage_tier": "partial",        # "full" | "partial" | "lite"
     "maintenance_schedule": "on_quit",  # "midnight" | "on_quit" | "manual"
     "last_maintenance_at": None,
+    "heir_kiosk_mode": False,           # lock down UI for family after release
+    "autostart": True,                  # Windows Startup folder shortcut
+    "death_watch_heartbeat": True,      # POST /legacy/heartbeat while running
 }
 
 

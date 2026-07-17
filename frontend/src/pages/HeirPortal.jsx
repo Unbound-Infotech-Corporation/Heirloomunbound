@@ -2,7 +2,7 @@ import axios from "axios";
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { BookOpen, Loader2, Mail, MessageCircle, Send, Sparkles } from "lucide-react";
+import { BookOpen, Loader2, Mail, MessageCircle, Send, Sparkles, Volume2 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const PORTAL_BASE = `${BACKEND_URL}/api/heir-portal`;
@@ -26,6 +26,7 @@ export default function HeirPortal() {
   const [sessionId, setSessionId] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [speakingIdx, setSpeakingIdx] = useState(null);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -72,7 +73,14 @@ export default function HeirPortal() {
         session_id: sessionId,
       });
       setSessionId(data.session_id);
-      setChat((c) => [...c, { role: "assistant", content: data.reply }]);
+      setChat((c) => [
+        ...c,
+        {
+          role: "assistant",
+          content: data.reply,
+          fidelity: data.fidelity,
+        },
+      ]);
     } catch (e) {
       setChat((c) => [
         ...c,
@@ -84,6 +92,24 @@ export default function HeirPortal() {
       ]);
     } finally {
       setChatBusy(false);
+    }
+  };
+
+  const speak = async (text, idx) => {
+    if (!text || speakingIdx !== null) return;
+    setSpeakingIdx(idx);
+    try {
+      const { data } = await axios.post(`${PORTAL_BASE}/${token}/twin/speak`, {
+        text,
+      });
+      const audio = new Audio(
+        `data:${data.mime || "audio/mpeg"};base64,${data.audio_base64}`
+      );
+      audio.onended = () => setSpeakingIdx(null);
+      audio.onerror = () => setSpeakingIdx(null);
+      await audio.play();
+    } catch {
+      setSpeakingIdx(null);
     }
   };
 
@@ -305,9 +331,16 @@ export default function HeirPortal() {
         {tab === "twin" && (
           <section data-testid="portal-twin">
             <div className="overline mb-3">talk to {ownerName}</div>
-            <h2 className="font-serif text-3xl lg:text-4xl font-light mb-8">
+            <h2 className="font-serif text-3xl lg:text-4xl font-light mb-2">
               Ask them anything.
             </h2>
+            <p className="text-sm mb-8" style={{ color: "var(--text-muted)" }}>
+              This is the same twin they lived with — personality, long-term memory,
+              and the archive.{" "}
+              {summary?.voice_available
+                ? "Tap the speaker on any reply to hear their voice."
+                : ""}
+            </p>
             <div
               className="surface p-6 mb-4 min-h-[300px] max-h-[60vh] overflow-y-auto"
             >
@@ -326,12 +359,29 @@ export default function HeirPortal() {
                   className="mb-4"
                   data-testid={`portal-msg-${m.role}-${i}`}
                 >
-                  <div className="overline mb-1">
+                  <div className="overline mb-1 flex items-center gap-2">
                     {m.role === "user"
                       ? "you"
                       : m.role === "system"
                       ? "system"
                       : ownerName}
+                    {m.role === "assistant" && summary?.voice_available ? (
+                      <button
+                        onClick={() => speak(m.content, i)}
+                        disabled={speakingIdx !== null}
+                        data-testid={`portal-speak-${i}`}
+                        className="inline-flex items-center gap-1 text-[10px] tracking-wider uppercase disabled:opacity-40"
+                        style={{ color: "var(--accent)" }}
+                        title="Hear their voice"
+                      >
+                        {speakingIdx === i ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Volume2 className="h-3 w-3" />
+                        )}
+                        hear them
+                      </button>
+                    ) : null}
                   </div>
                   <p
                     className="font-serif text-base leading-relaxed whitespace-pre-wrap"

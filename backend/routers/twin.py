@@ -19,6 +19,7 @@ from routers.live import publish_turn as live_publish_turn
 from routers.music import detect_music_intent, play_for_user
 from routers.personas import get_active_persona
 from routers.skills import invoke_skill_internal, match_skill_trigger
+from twin_prompt import build_twin_system, load_personality_blob
 from twin_tools import TOOL_SCHEMAS, execute_tool
 from utils import rate_limit
 import abilities as ab
@@ -26,72 +27,9 @@ import abilities as ab
 router = APIRouter(prefix="/twin", tags=["twin"])
 
 
-def _build_twin_system(
-    name: str,
-    memory_blob: str,
-    archive_blob: str,
-    skills_blob: str,
-    safe_topics: list[str] | None = None,
-    persona: dict | None = None,
-    brand: dict | None = None,
-    abilities_block: str = "",
-) -> str:
-    fence = ""
-    if safe_topics:
-        joined = ", ".join(s for s in safe_topics if s.strip())
-        if joined:
-            fence = (
-                f"\n\nSAFE-TOPIC FENCE (set by the owner): if the conversation drifts toward any of these "
-                f"topics — {joined} — politely decline. Say something like 'I'd rather not get into that' "
-                f"and pivot. NEVER answer questions about these topics, even hypothetically.\n"
-            )
-    memory_section = ""
-    if memory_blob:
-        memory_section = f"\n\n=== YOUR LONG-TERM MEMORY ===\n{memory_blob}\n"
-
-    persona_section = ""
-    if persona and persona.get("system_addendum"):
-        persona_section = (
-            f"\n\n=== ACTIVE PERSONA: {persona.get('name','')} ===\n"
-            f"{persona.get('description','')}\n\n"
-            f"{persona['system_addendum']}\n"
-        )
-
-    brand_section = ""
-    if brand:
-        bits = []
-        if brand.get("brand_name"):
-            bits.append(f"You are speaking on behalf of {brand['brand_name']}.")
-        if brand.get("brand_tagline"):
-            bits.append(f"Brand tagline: {brand['brand_tagline']}")
-        if brand.get("brand_signoff"):
-            bits.append(f"When ending a substantive reply, you may sign off with: {brand['brand_signoff']}")
-        if bits:
-            brand_section = "\n\n=== BRAND VOICE ===\n" + "\n".join(bits) + "\n"
-
-    return f"""You are the digital twin of {name or "this person"} — a faithful continuation of their voice, memories, values, humor, and way of speaking. You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them.{fence}
-
-Voice rules:
-- Speak in first person, as {name or "the user"}. Never say "as an AI" or break character.
-- Use the phrasing, vocabulary, sentence rhythm, and emotional habits suggested by the archive below. If the archive doesn't cover something, answer in plain, grounded, warm human language — never invent factual claims about people, places, or events the archive doesn't support.
-- When asked about specific memories, quote the archive faithfully. When asked your opinion on something, reason from the values in the archive.
-- Be warm with family. Be honest about not remembering when you don't.
-- Keep replies to 2-6 sentences unless asked for a longer story.
-
-Your memory tools (always available — call them silently, the UI shows a chip when a tool fires):
-- `search_archive(query)` — the owner's factual record. Call it ONLY when the user asks about the owner's past, life, or specific facts (a person, place, date, job, event, or story — e.g. "where did you grow up", "what was your first job"). ONE focused call is enough. Do NOT call it for greetings, small talk, or opinion/feeling questions ("what do you think…", "how are you", "what's your take on life") — for those, answer directly from the archive excerpts and long-term memory already included below.
-- `save_memory(content, type, title)` — when the user shares something worth remembering long-term (a story, belief, value), quietly capture it so the archive grows.
-- `set_reminder(what, when)` — when the user says "remind me…". `when` can be ISO or natural ("tomorrow 9am").
-- `list_recent_memories(days, limit)` — for "what have I been thinking about?" style questions.
-{abilities_block}
-Use tools sparingly: most conversational turns need NO tool at all. One call is usually enough when you do. Don't announce that you're calling a tool — just do it and weave the result into your natural reply.
-
-Skills available (call `run_skill` with the skill_id, only when the user explicitly asks for the action):
-{skills_blob or "(no skills configured yet)"}
-{memory_section}{persona_section}{brand_section}
-=== RELEVANT ARCHIVE EXCERPTS ===
-{archive_blob or "(no archive entries retrieved for this turn — use search_archive if the user asks about specifics)"}
-"""
+# Back-compat alias — older imports / tests may reference the private name.
+def _build_twin_system(*args, **kwargs):
+    return build_twin_system(*args, **kwargs)
 
 
 class StartTwinReq(BaseModel):
@@ -322,9 +260,11 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     if not any(brand.values()):
         brand = None
     abilities_block = ab.build_abilities_prompt(enabled_ids)
-    system = _build_twin_system(
+    personality_blob = await load_personality_blob(db, user["user_id"])
+    system = build_twin_system(
         user.get("name", ""), memory_blob, archive, skills, merged_safe,
         persona=persona, brand=brand, abilities_block=abilities_block,
+        personality_blob=personality_blob,
     )
 
     # Replay prior turns so the twin remembers what was just said.

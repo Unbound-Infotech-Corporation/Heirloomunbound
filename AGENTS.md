@@ -80,6 +80,18 @@ all optional and degrade gracefully when their keys are unset.
   assertions fail without `EMERGENT_LLM_KEY`.
 - **Build (frontend prod)**: `cd frontend && yarn build` (not needed for dev).
 
+### Legacy Continuity (posthumous twin)
+
+- Web page: `/legacy` — readiness score, death-watch, Inheritance Package download.
+- API: `/api/legacy/*` (status, check-in, settings, export, heartbeat, export-device).
+- Heir portal twin now uses the same personality + memory pack + safe-topic fence as the
+  owner twin (`twin_prompt.py`). Optional `/heir-portal/{token}/twin/speak` for cloned voice.
+- Windows companion (`backend/companion_desktop/`): death-watch heartbeat, Inheritance Package
+  export, Family Kiosk mode, Windows Autostart, fixed `say` TTS. After editing the desktop
+  package, re-run `backend/build_desktop_data.py` so `companion_desktop_data.py` stays in sync.
+- Inactivity release for heirs uses the freshest of heir check-in, owner legacy check-in, and
+  companion `last_seen` — so a running Windows twin prevents false releases.
+
 ### Gotchas
 
 - Python here is 3.12; backend deps live in `backend/.venv`. `emergentintegrations` (imported at

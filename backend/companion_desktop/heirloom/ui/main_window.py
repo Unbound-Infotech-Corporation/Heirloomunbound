@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__, api, audio, config
-from ..commands import CommandPoller
+from ..commands import CommandPoller, Heartbeat
 from ..maintenance import Maintenance
 from ..vault import Vault
 from . import PALETTE, QSS
@@ -213,6 +213,9 @@ class MainWindow(QMainWindow):
             if getattr(self, "_cmd_poller", None) is not None:
                 self._cmd_poller.stop()
                 self._cmd_poller.wait(2000)
+            if getattr(self, "_heartbeat", None) is not None:
+                self._heartbeat.stop()
+                self._heartbeat.wait(2000)
         except Exception:  # noqa: BLE001
             pass
         sched = (self._settings.get("maintenance_schedule") or "on_quit").lower()
@@ -237,6 +240,26 @@ class MainWindow(QMainWindow):
         self._cmd_poller = CommandPoller(self)
         self._cmd_poller.ran.connect(lambda label: self._update_status(f"twin: {label}"))
         self._cmd_poller.start()
+        # Death-watch heartbeat — keeps inactivity release honest while the
+        # Windows twin is running in the tray.
+        self._heartbeat = None
+        if self._settings.get("death_watch_heartbeat", True):
+            self._heartbeat = Heartbeat(self)
+            self._heartbeat.start()
+        self._apply_heir_kiosk()
+
+    def _apply_heir_kiosk(self) -> None:
+        """Family kiosk: hide capture / settings / admin surfaces, keep talk + avatar."""
+        if not self._settings.get("heir_kiosk_mode"):
+            return
+        self.quickcap.hide()
+        self.memories.hide()
+        try:
+            self.titlebar.settings_clicked.disconnect()
+        except Exception:
+            pass
+        self.setWindowTitle("Heirloom · Family")
+        self.titlebar.set_user_name("talk to them")
 
     def _on_me(self, data: dict) -> None:
         self._user = data or {}

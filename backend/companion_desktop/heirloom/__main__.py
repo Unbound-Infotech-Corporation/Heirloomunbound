@@ -64,6 +64,15 @@ def main() -> int:
     app.aboutToQuit.connect(window.shutdown)
     _schedule_midnight_maintenance(window)
 
+    # Optional: ensure Windows Startup shortcut exists so the twin is always-on
+    try:
+        settings = config.load_settings()
+        if settings.get("autostart", True):
+            from .inheritance import enable_windows_autostart
+            enable_windows_autostart()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[autostart] {exc}")
+
     # Serif boot fade — 800ms, then reveal the main window
     splash = Splash()
     splash.finished.connect(window.show)

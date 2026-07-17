@@ -120,10 +120,14 @@ async def check_in(_: CheckIn = None, user: dict = Depends(get_current_user)):
         {"user_id": user["user_id"]},
         {"$set": {"last_check_in": now}},
     )
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"legacy_last_check_in": now, "last_check_in": now}},
+    )
     return {"ok": True, "heirs_updated": res.modified_count, "last_check_in": now}
 
 
-def _should_release(heir: dict, now: datetime) -> bool:
+def _should_release(heir: dict, now: datetime, owner_presence: datetime | None = None) -> bool:
     if heir.get("released"):
         return False
     # Date trigger
@@ -137,19 +141,65 @@ def _should_release(heir: dict, now: datetime) -> bool:
                 return True
         except Exception:
             pass
-    # Inactivity trigger
+    # Inactivity trigger — use the freshest presence signal (heir check-in OR
+    # owner desktop heartbeat / legacy check-in) so a Windows companion that
+    # heartbeats daily keeps the twin locked for heirs.
     inactivity = heir.get("inactivity_days")
     last_in = heir.get("last_check_in")
-    if inactivity and last_in:
-        try:
-            last_dt = datetime.fromisoformat(last_in)
-            if last_dt.tzinfo is None:
-                last_dt = last_dt.replace(tzinfo=timezone.utc)
-            if now - last_dt > timedelta(days=int(inactivity)):
+    if inactivity:
+        candidates = []
+        for raw in (last_in, owner_presence.isoformat() if owner_presence else None):
+            if not raw:
+                continue
+            try:
+                dt = raw if isinstance(raw, datetime) else datetime.fromisoformat(raw)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                candidates.append(dt)
+            except Exception:
+                pass
+        if owner_presence:
+            candidates.append(owner_presence)
+        if candidates:
+            freshest = max(candidates)
+            if now - freshest > timedelta(days=int(inactivity)):
                 return True
+    return False
+
+
+async def _owner_presence(user_id: str) -> datetime | None:
+    """Freshest signal that the owner is still around (desktop heartbeat / check-in)."""
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "legacy_last_check_in": 1, "last_check_in": 1}) or {}
+    best: datetime | None = None
+    for key in ("legacy_last_check_in", "last_check_in"):
+        raw = user.get(key)
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if best is None or dt > best:
+                best = dt
         except Exception:
             pass
-    return False
+    cursor = db.companion_devices.find(
+        {"user_id": user_id, "revoked": {"$ne": True}},
+        {"_id": 0, "last_seen": 1},
+    )
+    async for d in cursor:
+        raw = d.get("last_seen")
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if best is None or dt > best:
+                best = dt
+        except Exception:
+            pass
+    return best
 
 
 async def _do_release(heir: dict) -> str:
@@ -185,11 +235,12 @@ async def _do_release(heir: dict) -> str:
 async def check_releases(user: dict = Depends(get_current_user)):
     """Sweep this user's heirs and release any whose triggers have fired."""
     now = _now()
+    presence = await _owner_presence(user["user_id"])
     cursor = db.heirs.find({"user_id": user["user_id"], "released": False}, {"_id": 0})
     candidates = await cursor.to_list(length=200)
     released = []
     for h in candidates:
-        if _should_release(h, now):
+        if _should_release(h, now, owner_presence=presence):
             token = await _do_release(h)
             released.append({
                 "heir_id": h["heir_id"],
@@ -198,7 +249,7 @@ async def check_releases(user: dict = Depends(get_current_user)):
                 "release_token": token,
                 "portal_path": f"/heir/{token}",
             })
-    return {"released": released, "checked": len(candidates)}
+    return {"released": released, "checked": len(candidates), "owner_presence": presence.isoformat() if presence else None}
 
 
 @router.post("/{heir_id}/release-now")
