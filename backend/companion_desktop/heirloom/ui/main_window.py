@@ -163,9 +163,20 @@ class MainWindow(QMainWindow):
             sc = QShortcut(QKeySequence(seq), self)
             sc.setContext(Qt.ApplicationShortcut)
             sc.activated.connect(self._open_palette)
-        sc_ptt = QShortcut(QKeySequence("Ctrl+Space"), self)
-        sc_ptt.setContext(Qt.ApplicationShortcut)
-        sc_ptt.activated.connect(self._ptt_toggle)
+        # Ctrl+Space: hold-to-talk (press = start, release = stop).
+        # Fall back to toggle if the platform only fires activated.
+        self._ptt_shortcut = QShortcut(QKeySequence("Ctrl+Space"), self)
+        self._ptt_shortcut.setContext(Qt.ApplicationShortcut)
+        self._ptt_shortcut.setAutoRepeat(False)
+        self._ptt_shortcut.activated.connect(self._ptt_start)
+        try:
+            self._ptt_shortcut.activatedAmbiguously.connect(self._ptt_start)
+        except Exception:  # noqa: BLE001
+            pass
+        # Capture key release via event filter on the app so hold-to-talk works
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.instance().installEventFilter(self)
 
     def _restore_geometry(self) -> None:
         geo = self._settings.get("window_geometry")
@@ -223,7 +234,8 @@ class MainWindow(QMainWindow):
         try:
             self._update_status("end-of-day compaction…")
             m = Maintenance()
-            m.run_async()
+            # Block briefly so compaction can finish before the process exits.
+            m.run()
         except Exception as exc:  # noqa: BLE001
             print(f"[shutdown] maintenance failed: {exc}")
 
@@ -236,7 +248,14 @@ class MainWindow(QMainWindow):
         # screen vision, etc.). Runs in its own thread; UI never blocks.
         self._cmd_poller = CommandPoller(self)
         self._cmd_poller.ran.connect(lambda label: self._update_status(f"twin: {label}"))
+        self._cmd_poller.status.connect(self._on_poller_status)
         self._cmd_poller.start()
+        # Preflight: cloned-voice status for Waveform mode
+        api.get_async(
+            "/desktop/voice/status",
+            on_ok=self._on_voice_status,
+            on_err=lambda _m: None,
+        )
 
     def _on_me(self, data: dict) -> None:
         self._user = data or {}
@@ -252,6 +271,19 @@ class MainWindow(QMainWindow):
     def _on_me_err(self, msg: str) -> None:
         self.titlebar.set_user_name("sign-in required")
         self._update_status("not authed")
+
+    def _on_poller_status(self, msg: str) -> None:
+        if not msg:
+            return
+        self._update_status(msg)
+
+    def _on_voice_status(self, data: dict) -> None:
+        configured = bool((data or {}).get("configured"))
+        self._settings["voice_configured"] = configured
+        config.save_settings(self._settings)
+        if configured:
+            name = (data or {}).get("voice_name") or "cloned voice"
+            self._update_status(f"voice ready · {name}")
 
     # ----- twin → avatar -----
     def _on_twin_reply(self, text: str) -> None:
@@ -280,6 +312,20 @@ class MainWindow(QMainWindow):
         self._update_status("thinking…")
         self.recorder.stop()
 
+    def eventFilter(self, obj, event):  # noqa: N802
+        """Hold-to-talk: stop recording when Ctrl or Space is released."""
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QKeyEvent
+
+        if event.type() == QEvent.KeyRelease and self.recorder.is_recording():
+            ke: QKeyEvent = event  # type: ignore[assignment]
+            if ke.key() in (Qt.Key_Space, Qt.Key_Control):
+                # Only stop if the other half of Ctrl+Space is also up
+                mods = ke.modifiers()
+                if not (mods & Qt.ControlModifier) or ke.key() == Qt.Key_Space:
+                    self._ptt_stop()
+        return super().eventFilter(obj, event)
+
     def _upload_voice(self, wav: bytes) -> None:
         if not wav:
             self._update_status("idle")
@@ -297,11 +343,18 @@ class MainWindow(QMainWindow):
     def _on_voice_reply(self, data: dict) -> None:
         user_text = (data or {}).get("user_text", "")
         reply = (data or {}).get("reply", "")
+        tools = (data or {}).get("tool_trace") or []
         wav = getattr(self, "_pending_voice_audio", None)
         self._pending_voice_audio = None
         if user_text:
             self.conversation.append("user", user_text)
             self._vault_capture("user", user_text, "voice", audio_bytes=wav)
+        if tools:
+            labels = ", ".join(
+                (t.get("ui") or {}).get("label") or t.get("name") or "tool"
+                for t in tools
+            )
+            self.conversation.append("assistant", f"⚙ {labels}")
         if reply:
             self.conversation.append("assistant", reply)
             self._vault_capture("assistant", reply, "voice")

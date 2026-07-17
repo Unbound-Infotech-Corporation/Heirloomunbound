@@ -214,6 +214,18 @@ class ConversationPanel(QWidget):
     def _on_reply(self, data: dict) -> None:
         self._busy = False
         reply = (data or {}).get("reply", "")
+        tools = (data or {}).get("tool_trace") or []
+        action = (data or {}).get("action")
+        if tools:
+            labels = ", ".join(
+                (t.get("ui") or {}).get("label") or t.get("name") or "tool"
+                for t in tools
+            )
+            self.append("assistant", f"⚙ {labels}")
+        if action and action.get("kind") == "music":
+            q = action.get("query") or ""
+            provider = action.get("provider_name") or action.get("provider") or "music"
+            self.append("assistant", f"♪ {q} · {provider}")
         if reply:
             self.append("assistant", reply)
             self.reply_received.emit(reply)

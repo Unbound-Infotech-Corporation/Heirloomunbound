@@ -277,17 +277,48 @@ def find_file(query, open_it):
     return "ok", result
 
 
+def speak_locally(text: str) -> None:
+    """Speak reminder / say-command text through the OS TTS engine."""
+    if not text:
+        return
+    try:
+        system = platform.system()
+        # Escape quotes for shell embedding
+        safe = text.replace('"', "'")[:500]
+        if system == "Darwin":
+            subprocess.Popen(["say", safe])
+        elif system == "Windows":
+            ps = (
+                "Add-Type -AssemblyName System.Speech;"
+                f'(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{safe}")'
+            )
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-Command", ps],
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        else:
+            subprocess.Popen(["espeak", safe])
+    except Exception as exc:  # noqa: BLE001
+        print(f"[say] TTS failed: {exc}")
+
+
 def capture_and_upload_screenshot(cmd_id):
     img = None
+    errors = []
     try:
         from PIL import ImageGrab
         img = ImageGrab.grab()
-    except Exception:
-        import mss
-        from PIL import Image
-        with mss.mss() as s:
-            raw = s.grab(s.monitors[0])
-            img = Image.frombytes("RGB", raw.size, raw.rgb)
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"ImageGrab: {exc}")
+        try:
+            import mss
+            from PIL import Image
+            with mss.mss() as s:
+                raw = s.grab(s.monitors[0])
+                img = Image.frombytes("RGB", raw.size, raw.rgb)
+        except Exception as exc2:  # noqa: BLE001
+            errors.append(f"mss: {exc2}")
+            return "error", "screenshot failed — install Pillow + mss. " + "; ".join(errors)
     img = img.convert("RGB")
     max_w = 1600
     if img.width > max_w:
@@ -296,8 +327,16 @@ def capture_and_upload_screenshot(cmd_id):
     img.save(buf, format="JPEG", quality=75)
     buf.seek(0)
     files = {"file": ("screen.jpg", buf, "image/jpeg")}
-    r = requests.post(_api("/companion/screenshot"), headers=_headers(),
-                      data={"cmd_id": cmd_id}, files=files, timeout=30)
+    try:
+        r = requests.post(
+            _api("/companion/screenshot"),
+            headers=_headers(),
+            data={"cmd_id": cmd_id},
+            files=files,
+            timeout=30,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return "error", f"upload failed: {exc}"
     if r.status_code == 200:
         return "ok", "captured"
     return "error", f"upload failed ({r.status_code})"
@@ -337,7 +376,8 @@ def execute(cmd: dict):
         if kind == "screenshot":
             return capture_and_upload_screenshot(cmd.get("cmd_id", ""))
         if kind == "say":
-            return "ok", "spoken"  # desktop app speaks replies elsewhere
+            speak_locally(payload.get("text", ""))
+            return "ok", "spoken"
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)
@@ -347,33 +387,69 @@ class CommandPoller(QThread):
     """Polls /companion/poll every few seconds and executes queued commands."""
 
     ran = Signal(str)  # emits a short human label when a command runs
+    status = Signal(str)  # emits connection / account status for the UI
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._running = True
+        self._consecutive_errors = 0
 
     def stop(self) -> None:
         self._running = False
 
     def run(self) -> None:  # pragma: no cover — runs in a worker thread
         if not config.DEVICE_TOKEN:
+            self.status.emit("no device token")
             return
         while self._running:
             try:
                 r = requests.get(_api("/companion/poll"), headers=_headers(), timeout=15)
+                if r.status_code == 403:
+                    detail = ""
+                    try:
+                        detail = (r.json() or {}).get("detail", "")
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self.status.emit(
+                        "account inactive" if detail == "account_inactive" else "forbidden"
+                    )
+                    # Back off harder when the account is locked out
+                    for _ in range(30):
+                        if not self._running:
+                            break
+                        time.sleep(1)
+                    continue
+                if r.status_code == 401:
+                    self.status.emit("auth failed — re-download the app")
+                    time.sleep(15)
+                    continue
                 if r.status_code == 200:
+                    self._consecutive_errors = 0
                     for cmd in (r.json() or {}).get("commands", []):
                         status, output = execute(cmd)
                         label = cmd.get("kind", "command")
                         self.ran.emit(f"{label} · {status}")
                         try:
-                            requests.post(_api("/companion/result"), headers=_headers(),
-                                          json={"cmd_id": cmd.get("cmd_id"), "status": status, "output": output},
-                                          timeout=15)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                            requests.post(
+                                _api("/companion/result"),
+                                headers=_headers(),
+                                json={
+                                    "cmd_id": cmd.get("cmd_id"),
+                                    "status": status,
+                                    "output": output,
+                                },
+                                timeout=15,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            print(f"[poller] result post failed: {exc}")
+                else:
+                    self._consecutive_errors += 1
+                    if self._consecutive_errors <= 3 or self._consecutive_errors % 10 == 0:
+                        self.status.emit(f"poll HTTP {r.status_code}")
+            except Exception as exc:  # noqa: BLE001
+                self._consecutive_errors += 1
+                if self._consecutive_errors <= 3 or self._consecutive_errors % 10 == 0:
+                    self.status.emit(f"offline: {exc!s}"[:60])
             for _ in range(POLL_INTERVAL_SEC * 2):
                 if not self._running:
                     break

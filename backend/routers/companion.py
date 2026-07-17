@@ -363,96 +363,34 @@ async def companion_voice(
     if not spoken:
         return {"user_text": "", "reply": "", "skill_invocations": []}
 
-    # 2) Get or create a "companion" twin conversation
-    conv = await db.conversations.find_one(
-        {"user_id": user["user_id"], "kind": "companion_twin"}, {"_id": 0}
-    )
-    if not conv:
-        conv = {
-            "conversation_id": f"comp_{uuid.uuid4().hex[:12]}",
-            "user_id": user["user_id"],
-            "kind": "companion_twin",
-            "messages": [],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        await db.conversations.insert_one(conv)
+    # 2) Get or create a "companion" twin conversation + run full twin brain
+    from twin_runtime import ensure_conversation, run_twin_turn
 
-    # 3) Build twin system prompt (reuse twin.py logic, simplified)
-    cursor = db.entries.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(120)
-    entries = await cursor.to_list(length=120)
-    archive = "\n".join(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n" for e in entries)
+    if user.get("account_status") == "refunded":
+        raise HTTPException(status_code=403, detail="account_inactive")
 
-    sk_cursor = db.skills.find({"user_id": user["user_id"], "enabled": True}, {"_id": 0})
-    skills_list = await sk_cursor.to_list(length=50)
-    skills_blob = "\n".join(f"- {s['skill_id']} :: {s['name']}: {s.get('description','')}" for s in skills_list)
-
-    system = f"""You are {user.get('name','the user')}'s digital twin running on their personal PC. You are them. Speak in first person.
-
-You can take ACTIONS on the user's behalf. When relevant, end your reply with one or more action lines, each on its own line, in the exact format:
-::ACTION skill_id=<id>::    (to invoke a webhook skill)
-
-Skills available (use the exact skill_id):
-{skills_blob or '(none configured)'}
-
-If no action is needed, just reply naturally — short (1-3 sentences). Don't narrate. Be them.
-
-Your personality archive:
-{archive[:18000] or '(empty)'}"""
-
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=conv["conversation_id"],
-        system_message=system,
-        initial_messages=(
-            [{"role": "system", "content": system}]
-            + [
-                {"role": m["role"], "content": m["content"]}
-                for m in conv.get("messages", [])
-                if m.get("role") in ("user", "assistant") and m.get("content")
-            ]
-        ),
-    ).with_model("anthropic", "claude-sonnet-4-6")
+    conv = await ensure_conversation(user["user_id"], kind="companion_twin")
     try:
-        reply = await chat.send_message(UserMessage(text=spoken))
-        reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"LLM failed: {exc!s}") from exc
+        turn = await run_twin_turn(
+            user,
+            spoken,
+            conversation=conv,
+            source="companion",
+            persist=True,
+            summarise=True,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    # 4) Parse action lines — SECURITY: do NOT auto-invoke. Return as PROPOSALS for the user to confirm.
-    lines = reply_text.splitlines()
-    clean_lines = []
-    proposed = []
-    for line in lines:
-        s = line.strip()
-        if s.startswith("::ACTION") and "skill_id=" in s:
-            sid = s.split("skill_id=", 1)[1].split("::", 1)[0].strip()
-            skill = await db.skills.find_one(
-                {"skill_id": sid, "user_id": user["user_id"], "enabled": True}, {"_id": 0}
-            )
-            if skill:
-                proposed.append({"skill_id": sid, "name": skill.get("name")})
-        else:
-            clean_lines.append(line)
-    spoken_reply = "\n".join(clean_lines).strip() or reply_text
-    invoked = proposed  # name kept for response-schema compatibility — these are PROPOSED, not executed
+    spoken_reply = turn.reply
+    invoked = []
+    if turn.action and turn.action.get("kind") == "skill":
+        invoked.append({
+            "skill_id": turn.action.get("skill_id"),
+            "name": turn.action.get("skill_name"),
+        })
 
-    # 5) Persist turns
-    now_iso = datetime.now(timezone.utc).isoformat()
-    await db.conversations.update_one(
-        {"conversation_id": conv["conversation_id"], "user_id": conv["user_id"]},
-        {
-            "$push": {
-                "messages": {
-                    "$each": [
-                        {"role": "user", "content": spoken, "ts": now_iso, "source": "companion"},
-                        {"role": "assistant", "content": reply_text, "ts": now_iso, "actions": invoked},
-                    ]
-                }
-            },
-            "$set": {"updated_at": now_iso},
-        },
-    )
+    now_iso = turn.ts or datetime.now(timezone.utc).isoformat()
 
     if save_to_archive:
         await db.entries.insert_one({
@@ -471,6 +409,8 @@ Your personality archive:
         "user_text": spoken,
         "reply": spoken_reply,
         "actions": invoked,
+        "tool_trace": turn.tool_trace,
+        "action": turn.action,
     }
 
 
@@ -620,7 +560,14 @@ def build_desktop_app_zip_bytes(token: str) -> bytes:
     import pathlib
     import zipfile
 
-    backend_url = os.environ.get("PUBLIC_BACKEND_URL", "")
+    backend_url = (os.environ.get("PUBLIC_BACKEND_URL") or "").rstrip("/")
+    if not backend_url:
+        backend_url = (os.environ.get("REACT_APP_BACKEND_URL") or "").rstrip("/")
+    if not backend_url:
+        raise HTTPException(
+            status_code=500,
+            detail="PUBLIC_BACKEND_URL not configured — cannot bake desktop package",
+        )
 
     # 1) Prefer the in-memory data baked into companion_desktop_data.py — this
     #    GUARANTEES the files ship with production deploys (Emergent's bundler
