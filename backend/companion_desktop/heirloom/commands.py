@@ -23,6 +23,8 @@ from PySide6.QtCore import QThread, Signal
 from . import config
 
 POLL_INTERVAL_SEC = 3
+POLL_IDLE_SEC = 12  # back off when the queue is empty to cut API load
+POLL_BUSY_SEC = 3
 
 
 def _api(path: str) -> str:
@@ -337,10 +339,105 @@ def execute(cmd: dict):
         if kind == "screenshot":
             return capture_and_upload_screenshot(cmd.get("cmd_id", ""))
         if kind == "say":
-            return "ok", "spoken"  # desktop app speaks replies elsewhere
+            return speak_text(payload.get("text") or payload.get("message") or "")
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)
+
+
+def speak_text(text: str):
+    """Speak a reminder / announce locally.
+
+    Prefer the owner's cloned voice via `/desktop/speak` when the cloud is
+    reachable; fall back to Windows SAPI so heirs/reminders still hear something
+    offline.
+    """
+    text = (text or "").strip()
+    if not text:
+        return "ok", "empty"
+    # Cap length — TTS endpoints reject huge payloads
+    if len(text) > 800:
+        text = text[:800]
+
+    # Try cloud cloned voice first
+    try:
+        r = requests.post(
+            _api("/desktop/speak"),
+            headers={**_headers(), "Content-Type": "application/json"},
+            json={"text": text},
+            timeout=45,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            b64 = data.get("audio_base64") or data.get("audio")
+            if b64:
+                import base64
+                import tempfile
+                raw = base64.b64decode(b64)
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                    f.write(raw)
+                    path = f.name
+                # Best-effort play via Windows start / afplay / mpg123
+                system = platform.system()
+                if system == "Windows":
+                    # PowerShell MediaPlayer
+                    _ps(
+                        f"$p=New-Object -ComObject WMPlayer.OCX.7;"
+                        f"$p.URL='{path}';$p.controls.play();"
+                        f"Start-Sleep -Seconds 2;"
+                        f"while($p.playState -eq 3){{Start-Sleep -Milliseconds 200}}"
+                    )
+                    return "ok", "spoken (clone)"
+                if system == "Darwin":
+                    subprocess.run(["afplay", path], check=False)
+                    return "ok", "spoken (clone)"
+                subprocess.run(["mpg123", "-q", path], check=False)
+                return "ok", "spoken (clone)"
+    except Exception:
+        pass
+
+    # Offline / fallback: Windows SAPI
+    system = platform.system()
+    if system == "Windows":
+        safe = text.replace("'", "''")
+        ok, out = _ps(
+            "Add-Type -AssemblyName System.Speech;"
+            "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+            f"$s.Speak('{safe}')"
+        )
+        return ("ok" if ok else "error"), ("spoken (sapi)" if ok else out)
+    if system == "Darwin":
+        subprocess.run(["say", text], check=False)
+        return "ok", "spoken (say)"
+    # Linux espeak
+    subprocess.run(["espeak", text], check=False)
+    return "ok", "spoken (espeak)"
+
+
+class Heartbeat(QThread):
+    """Posts /legacy/heartbeat every few minutes so inactivity release stays honest."""
+
+    INTERVAL_SEC = 120
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._running = True
+
+    def stop(self) -> None:
+        self._running = False
+
+    def run(self) -> None:  # pragma: no cover
+        if not config.DEVICE_TOKEN:
+            return
+        while self._running:
+            try:
+                requests.post(_api("/legacy/heartbeat"), headers=_headers(), timeout=15)
+            except Exception:
+                pass
+            for _ in range(self.INTERVAL_SEC * 2):
+                if not self._running:
+                    break
+                time.sleep(0.5)
 
 
 class CommandPoller(QThread):
@@ -351,6 +448,7 @@ class CommandPoller(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._running = True
+        self._interval = POLL_BUSY_SEC
 
     def stop(self) -> None:
         self._running = False
@@ -359,10 +457,13 @@ class CommandPoller(QThread):
         if not config.DEVICE_TOKEN:
             return
         while self._running:
+            had_work = False
             try:
                 r = requests.get(_api("/companion/poll"), headers=_headers(), timeout=15)
                 if r.status_code == 200:
-                    for cmd in (r.json() or {}).get("commands", []):
+                    commands = (r.json() or {}).get("commands", []) or []
+                    had_work = bool(commands)
+                    for cmd in commands:
                         status, output = execute(cmd)
                         label = cmd.get("kind", "command")
                         self.ran.emit(f"{label} · {status}")
@@ -374,7 +475,10 @@ class CommandPoller(QThread):
                             pass
             except Exception:
                 pass
-            for _ in range(POLL_INTERVAL_SEC * 2):
+            # Idle backoff when the twin isn't queuing work — big win for
+            # always-on desktop companions sharing the API.
+            self._interval = POLL_BUSY_SEC if had_work else POLL_IDLE_SEC
+            for _ in range(self._interval * 2):
                 if not self._running:
                     break
                 time.sleep(0.5)

@@ -8,7 +8,7 @@ Last reviewed: Feb 27, 2026.
 | --- | --- | --- |
 | Push code to production | Emergent web UI → "Deploy" | Per release |
 | Run pre-deploy tests | `testing_agent_v3` in this app | Per release |
-| Verify production health | https://voice-clone-hub-20.emergent.host | Per release + weekly |
+| Verify production health | https://heirloomunbound.com/api/ | Per release + weekly |
 | Check error logs | Emergent dashboard → logs | After every deploy + on customer complaints |
 | MongoDB backup | Emergent infra (verify with support) | Daily — confirm SLO |
 | Rotate API keys | Anthropic / ElevenLabs / D-ID / Stripe portals | Every 6 months |
@@ -19,7 +19,18 @@ Last reviewed: Feb 27, 2026.
 | Env | URL | Purpose |
 | --- | --- | --- |
 | Preview (dev) | `voice-clone-hub-20.preview.emergentagent.com` | Where the agent edits code. Auto-redeploys on every save. |
-| Production | `voice-clone-hub-20.emergent.host` (or your custom domain) | What customers see. Manually promoted from preview. |
+| Production | **https://heirloomunbound.com** | What customers see. Custom domain on Emergent (www → apex). |
+
+### Production env vars Emergent must set
+
+| Var | Value |
+| --- | --- |
+| `PUBLIC_BACKEND_URL` | `https://heirloomunbound.com` |
+| `PUBLIC_FRONTEND_URL` | `https://heirloomunbound.com` |
+| `CORS_ORIGINS` | `https://heirloomunbound.com` (optional if `PUBLIC_BACKEND_URL` is set — CORS derives from it) |
+| `REACT_APP_BACKEND_URL` | `https://heirloomunbound.com` (frontend build) |
+
+Post-deploy smoke: `curl https://heirloomunbound.com/api/` → `{"app":"digital-heirloom","status":"ok"}`.
 
 ## Stripe — production setup
 
@@ -62,8 +73,8 @@ If you want the archive auto-deleted on refund, change `_revoke_access_for_event
 2. **Manual smoke** in preview: log in, send a Twin message, queue a companion command, render a D-ID clip, complete a $1 Stripe test checkout.
 3. **Click "Deploy" in the Emergent UI.** This promotes the preview build to production.
 4. **Post-deploy verification** (within 5 min):
-   - `curl https://voice-clone-hub-20.emergent.host/api/` — should return `{"app":"digital-heirloom","status":"ok"}`
-   - Load the landing page in incognito — check OG image renders
+   - `curl https://heirloomunbound.com/api/` — should return `{"app":"digital-heirloom","status":"ok"}`
+   - Load https://heirloomunbound.com in incognito — check OG image renders
    - Sign in as yourself in production — confirm no console errors
 5. **If something is broken in production:** rollback from the Emergent dashboard before debugging. Never debug in production.
 

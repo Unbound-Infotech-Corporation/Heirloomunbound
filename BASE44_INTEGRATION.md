@@ -214,7 +214,7 @@ When you want Heirloom on `heirloom.unboundinfotech.com`:
    - Value: `voice-clone-hub-20.preview.emergentagent.com` (or the production Emergent domain when you deploy)
    - TTL: 300s
 2. **In Emergent / your hosting**: when you deploy to production, add `heirloom.unboundinfotech.com` as a custom domain.
-3. Replace every `https://voice-clone-hub-20.preview.emergentagent.com` in the snippets above with `https://heirloom.unboundinfotech.com`.
+3. Replace every `https://voice-clone-hub-20.preview.emergentagent.com` in the snippets above with `https://heirloomunbound.com`.
 
 ---
 

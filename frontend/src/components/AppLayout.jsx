@@ -6,6 +6,7 @@ import {
   Camera,
   Database,
   Feather,
+  HeartHandshake,
   Home,
   Image as ImageIcon,
   ListTodo,
@@ -47,6 +48,7 @@ const navItems = [
   { to: "/companion", label: "Local PC", icon: MonitorSpeaker, tid: "nav-companion" },
   { to: "/heirs", label: "Heirs", icon: Users, tid: "nav-heirs" },
   { to: "/letters", label: "Sealed letters", icon: Mail, tid: "nav-letters" },
+  { to: "/legacy", label: "Legacy", icon: HeartHandshake, tid: "nav-legacy" },
   { to: "/settings", label: "Settings", icon: SettingsIcon, tid: "nav-settings" },
 ];
 

@@ -102,7 +102,7 @@ export default function Twin() {
 
   useEffect(() => {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
-  }, [conv, streaming]);
+  }, [conv?.messages?.length, pending]);
 
   const stopAudio = () => {
     if (audioRef.current) {
@@ -152,14 +152,24 @@ export default function Twin() {
     let full = "";
     let action = null;
     const toolTrace = [];
+    let raf = 0;
+    let pendingText = "";
+    const flushStream = () => {
+      raf = 0;
+      setStreaming(pendingText);
+    };
     await streamSSE(
       "/twin/message",
       { conversation_id: conv.conversation_id, message: text },
       (chunk) => {
         full += chunk;
-        setStreaming(full);
+        pendingText = full;
+        // Batch React updates to one per animation frame — avoids re-rendering
+        // the whole feed on every SSE chunk.
+        if (!raf) raf = requestAnimationFrame(flushStream);
       },
       async () => {
+        if (raf) cancelAnimationFrame(raf);
         const newIdx = (conv.messages?.length || 0) + 1;
         setConv((c) => ({
           ...c,
@@ -179,6 +189,7 @@ export default function Twin() {
         if (voiceOn && full) speak(full, newIdx);
       },
       (err) => {
+        if (raf) cancelAnimationFrame(raf);
         console.error(err);
         setStreaming("");
         setPending(false);

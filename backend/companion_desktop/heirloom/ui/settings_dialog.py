@@ -127,6 +127,43 @@ class SettingsDialog(QDialog):
         form.addRow(_label("Maintenance schedule"), self.schedule)
         root.addLayout(form)
 
+        # ---- Legacy Continuity ----
+        legacy_overline = QLabel("LEGACY CONTINUITY")
+        legacy_overline.setStyleSheet(
+            f"color: {PALETTE['text_muted']}; letter-spacing: 2px; font-size: 10px; margin-top: 8px;"
+        )
+        root.addWidget(legacy_overline)
+        legacy_sub = QLabel(
+            "Export a portable Inheritance Package for your heirs, keep the twin "
+            "alive in the Windows Startup folder, or lock this PC into Family Kiosk "
+            "mode after release."
+        )
+        legacy_sub.setWordWrap(True)
+        legacy_sub.setStyleSheet(f"color: {PALETTE['text_secondary']}; font-size: 12px;")
+        root.addWidget(legacy_sub)
+
+        legacy_row = QHBoxLayout()
+        export_btn = QPushButton("Export Inheritance Package…")
+        export_btn.setObjectName("primary")
+        export_btn.clicked.connect(self._export_inheritance)
+        legacy_row.addWidget(export_btn)
+
+        autostart_btn = QPushButton("Enable Windows Autostart")
+        autostart_btn.clicked.connect(self._enable_autostart)
+        legacy_row.addWidget(autostart_btn)
+        root.addLayout(legacy_row)
+
+        from PySide6.QtWidgets import QCheckBox
+        self.kiosk_cb = QCheckBox("Family Kiosk mode (hide capture & settings — heirs talk only)")
+        self.kiosk_cb.setChecked(bool(self._settings.get("heir_kiosk_mode")))
+        self.kiosk_cb.setStyleSheet(f"color: {PALETTE['text_secondary']}; font-size: 12px;")
+        root.addWidget(self.kiosk_cb)
+
+        self.heartbeat_cb = QCheckBox("Death-watch heartbeat (tell the cloud this PC is alive)")
+        self.heartbeat_cb.setChecked(bool(self._settings.get("death_watch_heartbeat", True)))
+        self.heartbeat_cb.setStyleSheet(f"color: {PALETTE['text_secondary']}; font-size: 12px;")
+        root.addWidget(self.heartbeat_cb)
+
         # Storage indicator
         usage_box = QFrame()
         usage_box.setStyleSheet(
@@ -197,11 +234,40 @@ class SettingsDialog(QDialog):
         s["vault_folder"] = self.folder_input.text().strip() or None
         s["storage_tier"] = self.tier.currentData()
         s["maintenance_schedule"] = self.schedule.currentData()
+        s["heir_kiosk_mode"] = bool(self.kiosk_cb.isChecked())
+        s["death_watch_heartbeat"] = bool(self.heartbeat_cb.isChecked())
         config.save_settings(s)
         self._settings = s
         self.log.appendPlainText("⚙  Settings saved.")
         self._refresh_storage()
         self.changed.emit()
+
+    def _export_inheritance(self) -> None:
+        try:
+            from ..inheritance import export_inheritance_package
+            path = export_inheritance_package()
+            self.log.appendPlainText(f"✓  Inheritance Package written to:\n   {path}")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self,
+                "Inheritance Package",
+                f"Saved to:\n{path}\n\nGive this zip to your heirs alongside their portal link.",
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.log.appendPlainText(f"✗  Export failed: {exc}")
+
+    def _enable_autostart(self) -> None:
+        try:
+            from ..inheritance import enable_windows_autostart
+            ok = enable_windows_autostart()
+            s = config.load_settings()
+            s["autostart"] = True
+            config.save_settings(s)
+            self.log.appendPlainText(
+                "✓  Windows Startup shortcut created." if ok else "·  Autostart skipped (non-Windows or failed)."
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.log.appendPlainText(f"✗  Autostart failed: {exc}")
 
     def _run_now(self) -> None:
         self.run_btn.setEnabled(False)
