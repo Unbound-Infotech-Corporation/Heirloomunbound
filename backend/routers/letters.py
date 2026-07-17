@@ -57,6 +57,8 @@ def _validate_trigger(payload_trigger: str, delivery_date, delivery_age) -> None
 
 @router.post("")
 async def create_letter(payload: LetterCreate, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable
+    await assert_writable(user["user_id"])
     _validate_trigger(payload.trigger, payload.delivery_date, payload.delivery_age)
 
     if payload.recipient_heir_id:
@@ -108,6 +110,8 @@ async def get_letter(letter_id: str, user: dict = Depends(get_current_user)):
 async def update_letter(
     letter_id: str, payload: LetterUpdate, user: dict = Depends(get_current_user)
 ):
+    from routers.executor_lock import assert_writable
+    await assert_writable(user["user_id"])
     existing = await db.sealed_letters.find_one(
         {"letter_id": letter_id, "user_id": user["user_id"]}, {"_id": 0}
     )
@@ -144,6 +148,8 @@ async def update_letter(
 
 @router.post("/{letter_id}/seal")
 async def seal_letter(letter_id: str, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable
+    await assert_writable(user["user_id"])
     res = await db.sealed_letters.update_one(
         {"letter_id": letter_id, "user_id": user["user_id"], "sealed": False},
         {"$set": {"sealed": True, "updated_at": _now_iso()}},
@@ -158,6 +164,8 @@ async def seal_letter(letter_id: str, user: dict = Depends(get_current_user)):
 
 @router.post("/{letter_id}/unseal")
 async def unseal_letter(letter_id: str, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable
+    await assert_writable(user["user_id"])
     existing = await db.sealed_letters.find_one(
         {"letter_id": letter_id, "user_id": user["user_id"]}, {"_id": 0}
     )
@@ -177,6 +185,8 @@ async def unseal_letter(letter_id: str, user: dict = Depends(get_current_user)):
 
 @router.delete("/{letter_id}")
 async def delete_letter(letter_id: str, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable
+    await assert_writable(user["user_id"])
     existing = await db.sealed_letters.find_one(
         {"letter_id": letter_id, "user_id": user["user_id"]}, {"_id": 0}
     )

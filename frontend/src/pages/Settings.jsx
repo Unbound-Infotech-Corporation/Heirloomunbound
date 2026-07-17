@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { CheckCircle2, Download, Languages, Loader2, Lock, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -39,6 +39,18 @@ export default function Settings() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [avatarDefault, setAvatarDefault] = useState("");
   const [avatarConfigured, setAvatarConfigured] = useState(false);
+  const [authenticityMode, setAuthenticityMode] = useState("balanced");
+  const [legacyLocked, setLegacyLocked] = useState(false);
+  const [executorLock, setExecutorLock] = useState(null);
+  const [executorForm, setExecutorForm] = useState({
+    enabled: true,
+    executor_name: "",
+    executor_email: "",
+    wait_hours: 72,
+    post_death_mode: "read_only",
+    notes: "",
+  });
+  const [executorBusy, setExecutorBusy] = useState(false);
 
   const loadSettings = async () => {
     const { data } = await api.get("/voice-clone/settings");
@@ -71,6 +83,22 @@ export default function Settings() {
     });
     setTtsLang(data.tts_language || "auto");
     setActivePersonaId(data.active_persona_id || null);
+    setAuthenticityMode(data.authenticity_mode || "balanced");
+    setLegacyLocked(!!data.legacy_locked);
+  };
+  const loadExecutorLock = async () => {
+    try {
+      const { data } = await api.get("/executor-lock");
+      setExecutorLock(data);
+      setExecutorForm({
+        enabled: data.enabled !== false,
+        executor_name: data.executor_name || "",
+        executor_email: data.executor_email || "",
+        wait_hours: data.wait_hours || 72,
+        post_death_mode: data.post_death_mode || "read_only",
+        notes: data.notes || "",
+      });
+    } catch { /* noop */ }
   };
   const loadPersonas = async () => {
     try {
@@ -103,7 +131,68 @@ export default function Settings() {
     loadMusicProviders();
     loadPersonas();
     loadAvatar();
+    loadExecutorLock();
   }, []);
+
+  const saveAuthenticity = async (mode) => {
+    setAuthenticityMode(mode);
+    try {
+      await api.put("/auth/me/preferences", { authenticity_mode: mode });
+      toast.success(mode === "retrieve_only" ? "Retrieve-only authenticity on" : "Balanced authenticity on");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+      loadPrefs();
+    }
+  };
+
+  const saveExecutorLock = async () => {
+    if (!executorForm.executor_name.trim() || !executorForm.executor_email.trim()) {
+      toast.error("Executor name and email are required");
+      return;
+    }
+    setExecutorBusy(true);
+    try {
+      const { data } = await api.put("/executor-lock", executorForm);
+      setExecutorLock(data);
+      toast.success("Executor Lock saved");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    } finally {
+      setExecutorBusy(false);
+    }
+  };
+
+  const cancelAttestation = async () => {
+    try {
+      await api.post("/executor-lock/cancel-attestation", { reason: "Owner cancelled" });
+      toast.success("Attestation cancelled");
+      loadExecutorLock();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  };
+
+  const finalizeLock = async () => {
+    try {
+      const { data } = await api.post("/executor-lock/finalize");
+      toast.success(data.message || data.status);
+      loadExecutorLock();
+      loadPrefs();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  };
+
+  const copyExecutorLink = async () => {
+    if (!executorLock?.attest_path) return;
+    const url = `${window.location.origin}${executorLock.attest_path}`;
+    await navigator.clipboard.writeText(url);
+    toast.success("Executor link copied");
+  };
+
+  const openExport = (path) => {
+    window.open(`${API_BASE}${path}`, "_blank", "noopener,noreferrer");
+  };
 
   const saveAvatarUrl = async () => {
     try {
@@ -260,7 +349,167 @@ export default function Settings() {
           <Row label="Name" value={user?.name || "—"} />
           <Row label="Email" value={user?.email || "—"} />
           <Row label="User ID" value={user?.user_id || "—"} mono />
+          {legacyLocked && (
+            <Row label="Legacy" value="Locked (read-only stewardship)" />
+          )}
         </div>
+      </section>
+
+      <section className="surface p-7 mb-6" data-testid="authenticity-section">
+        <div className="overline mb-4 inline-flex items-center gap-2">
+          <Lock className="h-3.5 w-3.5" /> authenticity
+        </div>
+        <h2 className="font-serif text-2xl mb-2">How the twin answers</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Retrieve-only mode answers strictly from your archive — no invented biography.
+          Balanced mode still prefers the archive but allows warmer, grounded replies when gaps exist.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          {[
+            { key: "balanced", label: "Balanced" },
+            { key: "retrieve_only", label: "Retrieve-only" },
+          ].map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              disabled={legacyLocked && m.key !== "retrieve_only"}
+              onClick={() => saveAuthenticity(m.key)}
+              data-testid={`authenticity-${m.key}`}
+              className="px-4 py-2 text-sm rounded-sm disabled:opacity-50"
+              style={{
+                background: authenticityMode === m.key ? "var(--accent)" : "transparent",
+                color: authenticityMode === m.key ? "var(--text-inverse)" : "var(--text-secondary)",
+                border: "1px solid var(--border-default)",
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="surface p-7 mb-6" data-testid="export-section">
+        <div className="overline mb-4 inline-flex items-center gap-2">
+          <Download className="h-3.5 w-3.5" /> export
+        </div>
+        <h2 className="font-serif text-2xl mb-2">Take your archive with you</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Full JSON for backups and lawyers. HTML memoir opens in a new tab — use Print → Save as PDF.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => openExport("/export/archive.json")}
+            data-testid="export-json"
+            className="px-4 py-2 text-sm rounded-sm"
+            style={{ border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+          >
+            Download archive JSON
+          </button>
+          <button
+            type="button"
+            onClick={() => openExport("/export/memoir.html")}
+            data-testid="export-memoir"
+            className="px-4 py-2 text-sm rounded-sm"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          >
+            Open memoir (PDF)
+          </button>
+        </div>
+      </section>
+
+      <section className="surface p-7 mb-6" data-testid="executor-lock-section">
+        <div className="overline mb-4">executor lock</div>
+        <h2 className="font-serif text-2xl mb-2">Posthumous stewardship</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Name an executor while you&apos;re alive. After a death attestation and waiting period,
+          the archive locks read-only and all heirs are released automatically.
+        </p>
+        {executorLock?.status === "locked" ? (
+          <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+            Locked since {executorLock.locked_at?.slice(0, 10) || "—"}. Archive is read-only.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <label className="flex items-center gap-3 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!executorForm.enabled}
+                onChange={(e) => setExecutorForm((f) => ({ ...f, enabled: e.target.checked }))}
+                data-testid="executor-enabled"
+              />
+              Enable Executor Lock
+            </label>
+            <input
+              value={executorForm.executor_name}
+              onChange={(e) => setExecutorForm((f) => ({ ...f, executor_name: e.target.value }))}
+              placeholder="Executor full name"
+              data-testid="executor-name"
+              className="w-full px-3 py-2 text-sm rounded-sm"
+              style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+            />
+            <input
+              type="email"
+              value={executorForm.executor_email}
+              onChange={(e) => setExecutorForm((f) => ({ ...f, executor_email: e.target.value }))}
+              placeholder="Executor email"
+              data-testid="executor-email"
+              className="w-full px-3 py-2 text-sm rounded-sm"
+              style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+            />
+            <div className="flex flex-wrap gap-3 items-center">
+              <label className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Wait hours
+                <input
+                  type="number"
+                  min={24}
+                  max={720}
+                  value={executorForm.wait_hours}
+                  onChange={(e) => setExecutorForm((f) => ({ ...f, wait_hours: Number(e.target.value) || 72 }))}
+                  data-testid="executor-wait"
+                  className="ml-2 w-20 px-2 py-1 text-sm rounded-sm"
+                  style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              onClick={saveExecutorLock}
+              disabled={executorBusy}
+              data-testid="executor-save"
+              className="px-4 py-2 text-sm rounded-sm"
+              style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+            >
+              {executorBusy ? "Saving…" : "Save Executor Lock"}
+            </button>
+            {executorLock?.attest_path && (
+              <button
+                type="button"
+                onClick={copyExecutorLink}
+                data-testid="executor-copy-link"
+                className="ml-3 px-4 py-2 text-sm rounded-sm"
+                style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+              >
+                Copy executor link
+              </button>
+            )}
+            {executorLock?.status === "pending" && (
+              <div className="flex flex-wrap gap-3 pt-2">
+                <button type="button" onClick={cancelAttestation} className="px-4 py-2 text-sm rounded-sm" style={{ border: "1px solid var(--border-default)" }}>
+                  Cancel attestation
+                </button>
+                <button type="button" onClick={finalizeLock} className="px-4 py-2 text-sm rounded-sm" style={{ border: "1px solid var(--border-default)" }}>
+                  Finalize if due
+                </button>
+              </div>
+            )}
+            {executorLock?.status && (
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Status: {executorLock.status}
+              </p>
+            )}
+          </div>
+        )}
       </section>
 
       {/* BYO keys quick-link — full setup wizard */}
