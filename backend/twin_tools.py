@@ -196,22 +196,31 @@ async def exec_search_archive(user_id: str, args: dict) -> dict:
     limit = max(1, min(15, limit))
     if not query:
         return {"summary": "No query provided.", "ui": {"count": 0}}
-    # Cheap regex-anywhere search over title+content — fine for archive sizes < few thousand
-    pattern = re.compile(re.escape(query), re.IGNORECASE)
-    cursor = db.entries.find(
-        {
-            "user_id": user_id,
-            "$or": [
-                {"title": {"$regex": pattern}},
-                {"content": {"$regex": pattern}},
-                {"tags": {"$regex": pattern}},
-            ],
-        },
-        {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "created_at": 1, "tags": 1},
-    ).sort("created_at", -1).limit(limit)
-    rows = await cursor.to_list(length=limit)
+
+    rows: list[dict] = []
+    try:
+        from semantic_search import semantic_search
+        rows = await semantic_search(user_id, query, limit=limit)
+    except Exception:
+        rows = []
+
     if not rows:
-        # Fall back to most recent — helps when the query is a broad topic
+        # Regex fallback
+        pattern = re.compile(re.escape(query), re.IGNORECASE)
+        cursor = db.entries.find(
+            {
+                "user_id": user_id,
+                "$or": [
+                    {"title": {"$regex": pattern}},
+                    {"content": {"$regex": pattern}},
+                    {"tags": {"$regex": pattern}},
+                ],
+            },
+            {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "created_at": 1, "tags": 1},
+        ).sort("created_at", -1).limit(limit)
+        rows = await cursor.to_list(length=limit)
+
+    if not rows:
         cursor = db.entries.find(
             {"user_id": user_id},
             {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "created_at": 1, "tags": 1},
@@ -231,6 +240,19 @@ async def exec_search_archive(user_id: str, args: dict) -> dict:
 
 
 async def exec_save_memory(user_id: str, args: dict) -> dict:
+    from routers.executor_lock import assert_writable, is_legacy_locked
+    import death_governance as dg
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "authenticity_mode": 1, "legacy_locked": 1, "twin_operating_mode": 1},
+    )
+    if (
+        await is_legacy_locked(user_id)
+        or (user or {}).get("authenticity_mode") == "retrieve_only"
+        or dg.normalize_mode((user or {}).get("twin_operating_mode")) == dg.MODE_DEATH_GOVERNANCE
+    ):
+        return {"summary": "Death Governance / retrieve-only — nothing was saved.", "ui": {"saved": False}}
+    await assert_writable(user_id)
     content = (args.get("content") or "").strip()
     if not content:
         return {"summary": "No content given — nothing was saved.", "ui": {"saved": False}}
@@ -264,6 +286,19 @@ async def exec_save_memory(user_id: str, args: dict) -> dict:
 
 
 async def exec_set_reminder(user_id: str, args: dict) -> dict:
+    from routers.executor_lock import assert_writable, is_legacy_locked
+    import death_governance as dg
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "authenticity_mode": 1, "twin_operating_mode": 1},
+    )
+    if (
+        await is_legacy_locked(user_id)
+        or (user or {}).get("authenticity_mode") == "retrieve_only"
+        or dg.normalize_mode((user or {}).get("twin_operating_mode")) == dg.MODE_DEATH_GOVERNANCE
+    ):
+        return {"summary": "Death Governance / retrieve-only — reminders cannot be created.", "ui": {"created": False}}
+    await assert_writable(user_id)
     what = (args.get("what") or "").strip()
     if not what:
         return {"summary": "No reminder text given.", "ui": {"created": False}}

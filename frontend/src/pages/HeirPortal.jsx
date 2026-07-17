@@ -119,7 +119,14 @@ export default function HeirPortal() {
   const ownerName = summary?.owner?.name || "their";
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--bg-base)" }} data-testid="heir-portal">
+    <div
+      className="min-h-screen pb-safe"
+      style={{
+        background: "var(--bg-base)",
+        paddingBottom: "env(safe-area-inset-bottom)",
+      }}
+      data-testid="heir-portal"
+    >
       <header
         className="px-6 lg:px-16 py-8 border-b"
         style={{ borderColor: "var(--border-default)", background: "var(--bg-surface)" }}
@@ -303,13 +310,13 @@ export default function HeirPortal() {
         )}
 
         {tab === "twin" && (
-          <section data-testid="portal-twin">
+          <section data-testid="portal-twin" className="pb-24 sm:pb-0">
             <div className="overline mb-3">talk to {ownerName}</div>
             <h2 className="font-serif text-3xl lg:text-4xl font-light mb-8">
               Ask them anything.
             </h2>
             <div
-              className="surface p-6 mb-4 min-h-[300px] max-h-[60vh] overflow-y-auto"
+              className="surface p-4 sm:p-6 mb-4 min-h-[240px] max-h-[50vh] sm:max-h-[60vh] overflow-y-auto"
             >
               {chat.length === 0 && (
                 <p
@@ -348,7 +355,14 @@ export default function HeirPortal() {
               ))}
               <div ref={messagesEndRef} />
             </div>
-            <div className="flex gap-2">
+            <div
+              className="flex gap-2 fixed sm:static left-0 right-0 bottom-0 sm:bottom-auto p-3 sm:p-0 z-20"
+              style={{
+                background: "rgba(18,17,16,0.96)",
+                borderTop: "1px solid var(--border-default)",
+                paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+              }}
+            >
               <input
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
@@ -356,11 +370,12 @@ export default function HeirPortal() {
                 placeholder="Type a message…"
                 disabled={chatBusy}
                 data-testid="portal-twin-input"
-                className="flex-1 px-3 py-3 text-sm rounded-sm"
+                className="flex-1 px-3 py-3 text-base sm:text-sm rounded-sm"
                 style={{
                   background: "var(--bg-surface)",
                   border: "1px solid var(--border-default)",
                   color: "var(--text-primary)",
+                  fontSize: "16px", // prevent iOS zoom
                 }}
               />
               <button

@@ -113,10 +113,10 @@ In Base44 create a new page named `Heirloom`. Add a **Container Block**, inside 
   </p>
 
   <!-- REPLACE this href with your final Heirloom domain -->
-  <a class="heirloom-cta" href="https://voice-clone-hub-20.preview.emergentagent.com" target="_blank" rel="noopener">
+  <a class="heirloom-cta" href="https://heirloomunbound.com" target="_blank" rel="noopener">
     Try Heirloom →
   </a>
-  <a class="heirloom-cta-ghost" href="https://voice-clone-hub-20.preview.emergentagent.com#how" target="_blank" rel="noopener">
+  <a class="heirloom-cta-ghost" href="https://heirloomunbound.com/#how" target="_blank" rel="noopener">
     How it works
   </a>
 
@@ -195,7 +195,7 @@ On `unboundinfotech.com`, between **Current Capabilities** and **The Next Chapte
       Heirloom is our consumer flagship — a private daily assistant that becomes a digital twin you can leave behind for your family. Built on the same GPU compute stack we offer to enterprises, with voice cloning, push-to-talk, and an extensible local companion that runs on a 5090-class PC.
     </p>
     <a class="ui-feat-cta" href="/products/heirloom">Visit Heirloom →</a>
-    <a class="ui-feat-cta-ghost" href="https://voice-clone-hub-20.preview.emergentagent.com" target="_blank" rel="noopener">Try the app</a>
+    <a class="ui-feat-cta-ghost" href="https://heirloomunbound.com" target="_blank" rel="noopener">Try the app</a>
   </div>
   <div class="ui-feat-card">
     <span class="quote">"</span> A continuation of you — not a chatbot pretending to be you, but the truest pieces of you, gathered in your own words and voice.
@@ -211,10 +211,10 @@ When you want Heirloom on `heirloom.unboundinfotech.com`:
 
 1. **In your DNS provider** (where unboundinfotech.com is hosted): add a CNAME record:
    - Host: `heirloom`
-   - Value: `voice-clone-hub-20.preview.emergentagent.com` (or the production Emergent domain when you deploy)
+   - Value: `heirloomunbound.com` (or the production Emergent domain when you deploy)
    - TTL: 300s
 2. **In Emergent / your hosting**: when you deploy to production, add `heirloom.unboundinfotech.com` as a custom domain.
-3. Replace every `https://voice-clone-hub-20.preview.emergentagent.com` in the snippets above with `https://heirloom.unboundinfotech.com`.
+3. Replace every `https://heirloomunbound.com` in the snippets above with `https://heirloom.unboundinfotech.com`.
 
 ---
 

@@ -8,6 +8,8 @@ const SOURCES = [
   { key: "reddit", label: "Reddit comments" },
   { key: "blog", label: "Blog / website" },
   { key: "discord", label: "Discord chat log" },
+  { key: "whatsapp", label: "WhatsApp chat export" },
+  { key: "sms", label: "SMS / text dump" },
   { key: "other", label: "Other text" },
 ];
 
@@ -54,7 +56,8 @@ export default function Import() {
           Bring the past in.
         </h1>
         <p className="mt-3 text-base max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          Paste posts, blog excerpts, chats, anything written in your voice. We'll extract the memories, beliefs, and stories worth keeping.
+          Paste posts, blog excerpts, chats, anything written in your voice. WhatsApp and SMS dumps
+          are parsed into conversation chunks automatically; other sources use AI extraction.
         </p>
       </header>
 
@@ -80,7 +83,13 @@ export default function Import() {
         <textarea
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
-          placeholder="Paste raw text here — Facebook export, tweets, chat logs, blog posts…"
+          placeholder={
+            source === "whatsapp"
+              ? "Paste a WhatsApp chat export (.txt) — lines like [12/03/2024, 14:22:01] Name: message"
+              : source === "sms"
+              ? "Paste SMS Backup XML or From:/Date: text blocks…"
+              : "Paste raw text here — Facebook export, tweets, chat logs, blog posts…"
+          }
           rows={12}
           data-testid="import-textarea"
           className="w-full px-4 py-3 text-sm rounded-sm leading-relaxed font-mono"

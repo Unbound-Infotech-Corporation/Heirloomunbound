@@ -34,6 +34,20 @@ export function ProtectedRoute({ children }) {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
+
+  // Sale mode: unpaid signed-in users go to /buy (testers + lifetime buyers pass).
+  const purchaseExempt =
+    location.pathname.startsWith("/buy") ||
+    location.pathname === "/onboarding" ||
+    location.pathname.startsWith("/settings");
+  if (
+    user.enforce_purchase &&
+    !user.has_paid_access &&
+    !purchaseExempt
+  ) {
+    return <Navigate to="/buy" replace state={{ reason: "purchase_required" }} />;
+  }
+
   if (onboarded === null) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-base)" }}>
@@ -42,6 +56,10 @@ export function ProtectedRoute({ children }) {
     );
   }
   if (onboarded === false && location.pathname !== "/onboarding") {
+    // Unpaid users should buy first when enforcement is on.
+    if (user.enforce_purchase && !user.has_paid_access) {
+      return <Navigate to="/buy" replace state={{ reason: "purchase_required" }} />;
+    }
     return <Navigate to="/onboarding" replace />;
   }
   return children;

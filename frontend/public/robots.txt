@@ -1,5 +1,5 @@
 # robots.txt for Heirloom by Unbound Infotech
-# https://voice-clone-hub-20.emergent.host
+# https://heirloomunbound.com
 
 User-agent: *
 Allow: /
@@ -30,4 +30,4 @@ Disallow: /buy/success
 # API surface — never index
 Disallow: /api/
 
-Sitemap: https://voice-clone-hub-20.emergent.host/sitemap.xml
+Sitemap: https://heirloomunbound.com/sitemap.xml
