@@ -61,6 +61,14 @@ export default function Settings() {
     notes: "",
   });
   const [executorBusy, setExecutorBusy] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("essentials");
+  const SETTINGS_TABS = [
+    { id: "essentials", label: "Essentials" },
+    { id: "twin", label: "Your twin" },
+    { id: "connections", label: "Connections" },
+    { id: "account", label: "Account" },
+  ];
+
 
   const loadSettings = async () => {
     const { data } = await api.get("/voice-clone/settings");
@@ -402,6 +410,29 @@ export default function Settings() {
         <span className="text-2xl self-center" style={{ color: "var(--accent)" }}>→</span>
       </Link>
 
+      <div className="flex flex-wrap gap-2 mb-8" data-testid="settings-tabs" role="tablist">
+        {SETTINGS_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={settingsTab === t.id}
+            onClick={() => setSettingsTab(t.id)}
+            data-testid={`settings-tab-${t.id}`}
+            className="px-4 py-2 text-sm rounded-sm"
+            style={{
+              background: settingsTab === t.id ? "var(--accent)" : "transparent",
+              color: settingsTab === t.id ? "var(--text-inverse)" : "var(--text-secondary)",
+              border: "1px solid var(--border-default)",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {settingsTab === "essentials" && (
+      <>
       <section className="surface p-7 mb-6">
         <div className="overline mb-4">account</div>
         <div className="space-y-3 text-sm">
@@ -577,19 +608,27 @@ export default function Settings() {
               style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
             />
             <div className="flex flex-wrap gap-3 items-center">
-              <label className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                Wait hours
-                <input
-                  type="number"
-                  min={24}
-                  max={720}
-                  value={executorForm.wait_hours}
-                  onChange={(e) => setExecutorForm((f) => ({ ...f, wait_hours: Number(e.target.value) || 72 }))}
-                  data-testid="executor-wait"
-                  className="ml-2 w-20 px-2 py-1 text-sm rounded-sm"
-                  style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
-                />
-              </label>
+              <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Waiting period</span>
+              {[
+                { h: 24, label: "1 day" },
+                { h: 72, label: "3 days" },
+                { h: 168, label: "1 week" },
+              ].map((opt) => (
+                <button
+                  key={opt.h}
+                  type="button"
+                  onClick={() => setExecutorForm((f) => ({ ...f, wait_hours: opt.h }))}
+                  data-testid={`executor-wait-${opt.h}`}
+                  className="px-3 py-1.5 text-sm rounded-sm"
+                  style={{
+                    background: executorForm.wait_hours === opt.h ? "var(--accent)" : "transparent",
+                    color: executorForm.wait_hours === opt.h ? "var(--text-inverse)" : "var(--text-secondary)",
+                    border: "1px solid var(--border-default)",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
             <button
               type="button"
@@ -631,6 +670,26 @@ export default function Settings() {
         )}
       </section>
 
+      </>
+      )}
+
+      {settingsTab === "connections" && (
+      <>
+      <a
+        href="/abilities"
+        data-testid="settings-abilities-link"
+        className="surface p-5 mb-6 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
+        style={{ border: "1px solid var(--border-default)" }}
+      >
+        <div>
+          <div className="overline mb-1">what your twin can do</div>
+          <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+            Turn abilities on or off — music, smart home, PC control, and more.
+          </p>
+        </div>
+        <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
+      </a>
+
       {/* BYO keys quick-link — full setup wizard */}
       <a
         href="/setup/keys"
@@ -639,17 +698,26 @@ export default function Settings() {
         style={{ border: "1px solid var(--accent)" }}
       >
         <div>
-          <div className="overline mb-1" style={{ color: "var(--accent)" }}>🔑 keys & integrations</div>
+          <div className="overline mb-1" style={{ color: "var(--accent)" }}>connect voice, video & apps</div>
           <p className="text-sm" style={{ color: "var(--text-primary)" }}>
-            Bring your own API keys for fal.ai, ElevenLabs, D-ID + connect Spotify/GitHub.
+            Heirloom AI is included. Optionally add your ElevenLabs, D-ID, or fal key — or connect Spotify in one click.
           </p>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            Step-by-step walkthroughs · live key verification · one-click OAuth.
+            Verify → Save. Large buttons, step-by-step links to each dashboard.
           </p>
         </div>
         <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
       </a>
 
+      <ConnectedAccountsSection />
+      <DIdKeySection />
+      <EmailSection />
+      <LiveBroadcastSection />
+      </>
+      )}
+
+      {settingsTab === "twin" && (
+      <>
       {/* Dashboard widget toggles */}
       <section className="surface p-7 mb-6" data-testid="widgets-section">
         <div className="overline mb-4">today dashboard</div>
@@ -1160,6 +1228,11 @@ export default function Settings() {
         )}
       </section>
 
+      </>
+      )}
+
+      {settingsTab === "account" && (
+      <>
       <section className="surface p-7 mb-6">
         <div className="overline mb-4">on the roadmap</div>
         <ul className="space-y-3 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
@@ -1173,17 +1246,14 @@ export default function Settings() {
       <button
         onClick={logout}
         data-testid="settings-logout"
-        className="px-5 py-3 text-sm rounded-sm"
+        className="px-5 py-3 text-sm rounded-sm mb-6"
         style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
       >
         Sign out
       </button>
-
-      <DIdKeySection />
-      <LiveBroadcastSection />
-      <EmailSection />
-      <ConnectedAccountsSection />
       <DangerZone />
+      </>
+      )}
     </div>
   );
 }

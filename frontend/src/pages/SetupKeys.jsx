@@ -72,20 +72,28 @@ const READ_ONLY = [
   },
 ];
 
-// OAuth services already wired elsewhere
+// OAuth services — authorize URL is fetched from the API (not a static href)
 const OAUTH = [
   {
     id: "spotify",
     name: "Spotify",
-    powers: "Imports your top tracks + recently played to grow your personality archive.",
-    connectPath: "/api/oauth/spotify/login",
+    powers: "One click — imports your top tracks so your twin knows your taste.",
   },
   {
     id: "github",
     name: "GitHub",
-    powers: "Imports your public repos + READMEs so your twin knows what you've built.",
-    connectPath: "/api/oauth/github/login",
+    powers: "One click — imports public repos so your twin knows what you've built.",
   },
+];
+
+const INCLUDED = [
+  {
+    id: "llm",
+    name: "Heirloom AI",
+    powers: "The brain behind your twin, interviewer, and archive search.",
+    note: "Included with Heirloom — no key to paste. If this badge is green, you're ready to talk.",
+  },
+  ...READ_ONLY,
 ];
 
 export default function SetupKeys() {
@@ -168,6 +176,27 @@ export default function SetupKeys() {
     }
   };
 
+  const connectOAuth = async (provider) => {
+    try {
+      const { data } = await api.get(`/oauth/${provider}/connect`);
+      if (!data?.authorize_url) throw new Error("No authorize URL returned");
+      window.location.href = data.authorize_url;
+    } catch (e) {
+      toast.error(e.response?.data?.detail || `Couldn't start ${provider} connection.`);
+    }
+  };
+
+  const disconnectOAuth = async (provider) => {
+    if (!window.confirm(`Disconnect ${provider}? Imported memories stay in your archive.`)) return;
+    try {
+      await api.delete(`/oauth/${provider}`);
+      toast.success(`${provider} disconnected`);
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Couldn't disconnect.");
+    }
+  };
+
   if (!status) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ color: "var(--text-muted)" }}>
@@ -182,13 +211,60 @@ export default function SetupKeys() {
         <div className="overline mb-3 flex items-center gap-2">
           <KeyRound className="h-3.5 w-3.5" /> bring your own keys
         </div>
-        <h1 className="font-serif text-4xl mb-3">Keys &amp; Integrations</h1>
-        <p className="text-sm mb-10 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          Heirloom works out of the box with shared defaults, but using your own keys means
-          higher rate limits, faster responses, and your usage stays under your account. Each
-          step below has a direct link to the dashboard where the key lives.
+        <h1 className="font-serif text-4xl mb-3">Connect extras</h1>
+        <p className="text-base mb-4 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
+          Heirloom already includes the AI that powers your twin. Optional keys below unlock
+          <strong> your voice</strong>, <strong> talking video</strong>, and <strong> photo polish</strong>
+          under your own accounts — with higher limits. Most people start with voice.
         </p>
+        <div className="flex flex-wrap gap-3 mb-10 text-sm">
+          <button
+            type="button"
+            onClick={() => nav("/setup/easy")}
+            className="px-4 py-2 rounded-sm"
+            style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+          >
+            ← Simple Setup
+          </button>
+          <button
+            type="button"
+            onClick={() => nav("/abilities")}
+            className="px-4 py-2 rounded-sm"
+            style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+            data-testid="setup-keys-abilities-link"
+          >
+            What your twin can do →
+          </button>
+        </div>
 
+        {/* Included AI first — reassurance */}
+        <div className="overline mb-3">ALREADY INCLUDED</div>
+        <div className="space-y-3 mb-10">
+          {INCLUDED.map((svc) => {
+            const st = status[svc.id] || { source: "none" };
+            return (
+              <section
+                key={svc.id}
+                className="surface p-5"
+                data-testid={`included-card-${svc.id}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="overline mb-1">{svc.name.toUpperCase()}</div>
+                    <p className="text-sm mb-1" style={{ color: "var(--text-primary)" }}>{svc.powers}</p>
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>{svc.note}</p>
+                  </div>
+                  <StatusBadge source={st.source} />
+                </div>
+              </section>
+            );
+          })}
+        </div>
+
+        <div className="overline mb-3">OPTIONAL — YOUR OWN KEYS</div>
+        <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+          Paste a key, tap Verify, then Save. We never show the full key again after saving.
+        </p>
         <div className="space-y-6 mb-12">
           {SERVICES.map((svc) => {
             const st = status[svc.id] || { source: "none" };
@@ -327,6 +403,9 @@ export default function SetupKeys() {
 
         {/* OAuth section */}
         <div className="overline mb-3">ONE-CLICK CONNECTIONS</div>
+        <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+          No passwords to copy — just sign in and approve.
+        </p>
         <div className="grid sm:grid-cols-2 gap-4 mb-12">
           {OAUTH.map((svc) => {
             const st = status[svc.id] || { source: "none" };
@@ -343,42 +422,27 @@ export default function SetupKeys() {
                   <StatusBadge source={st.source} oauth />
                 </div>
                 <p className="text-xs mb-4" style={{ color: "var(--text-secondary)" }}>{svc.powers}</p>
-                <a
-                  href={svc.connectPath}
-                  data-testid={`oauth-connect-${svc.id}`}
-                  className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded-sm"
-                  style={{
-                    background: connected ? "transparent" : "var(--accent)",
-                    color: connected ? "var(--text-primary)" : "var(--text-inverse)",
-                    border: `1px solid ${connected ? "var(--border-default)" : "var(--accent)"}`,
-                  }}
-                >
-                  {connected ? "Reconnect" : `Connect ${svc.name}`}
-                </a>
-              </section>
-            );
-          })}
-        </div>
-
-        {/* Read-only services */}
-        <div className="overline mb-3">PROVIDED BY HEIRLOOM</div>
-        <div className="space-y-3 mb-12">
-          {READ_ONLY.map((svc) => {
-            const st = status[svc.id] || { source: "none" };
-            return (
-              <section
-                key={svc.id}
-                className="surface p-5"
-                data-testid={`readonly-card-${svc.id}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="overline mb-1">{svc.name.toUpperCase()}</div>
-                    <p className="text-sm mb-1" style={{ color: "var(--text-primary)" }}>{svc.powers}</p>
-                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>{svc.note}</p>
-                  </div>
-                  <StatusBadge source={st.source} />
-                </div>
+                {connected ? (
+                  <button
+                    type="button"
+                    onClick={() => disconnectOAuth(svc.id)}
+                    data-testid={`oauth-disconnect-${svc.id}`}
+                    className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded-sm"
+                    style={{ border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => connectOAuth(svc.id)}
+                    data-testid={`oauth-connect-${svc.id}`}
+                    className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded-sm"
+                    style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+                  >
+                    Connect {svc.name}
+                  </button>
+                )}
               </section>
             );
           })}
