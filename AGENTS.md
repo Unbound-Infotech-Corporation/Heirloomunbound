@@ -80,6 +80,16 @@ all optional and degrade gracefully when their keys are unset.
   assertions fail without `EMERGENT_LLM_KEY`.
 - **Build (frontend prod)**: `cd frontend && yarn build` (not needed for dev).
 
+### Performance notes (optimized paths)
+
+- Twin `/message` prep (archive + memory + persona + personality) runs in parallel via
+  `asyncio.gather`; fact refresh and episodic summarization are background tasks.
+- Conversation replay is capped at the last 12 turns (older context lives in episodic memory).
+- Archive excerpts are truncated (~700 chars/entry, ~14k total) so prompts stay bounded.
+- Dashboard streak/topics/word counts use aggregations instead of per-day/per-topic round trips.
+- Companion poll backs off to 12s when idle (3s when work is queued).
+- Mongo indexes match real field names (`type`, `device_token`, `memory_facts`, etc.).
+
 ### Production domain
 
 - **https://heirloomunbound.com** — live custom domain (www redirects to apex).

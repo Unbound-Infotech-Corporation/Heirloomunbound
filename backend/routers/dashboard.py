@@ -1,5 +1,6 @@
 """Dashboard stats: capture progress, counts, suggested next topics."""
-from datetime import timedelta
+import asyncio
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 
@@ -24,82 +25,100 @@ TOPIC_PROMPTS = [
 ]
 
 
+async def _streak_days(user_id: str, now: datetime) -> int:
+    """Consecutive UTC days with ≥1 entry — one aggregation, no per-day round trips."""
+    since = (now - timedelta(days=365)).replace(hour=0, minute=0, second=0, microsecond=0)
+    pipeline = [
+        {"$match": {"user_id": user_id, "created_at": {"$gte": since.isoformat()}}},
+        {"$project": {"day": {"$substr": [{"$ifNull": ["$created_at", ""]}, 0, 10]}}},
+        {"$group": {"_id": "$day"}},
+    ]
+    days = set()
+    async for row in db.entries.aggregate(pipeline):
+        if row.get("_id"):
+            days.add(row["_id"])
+    streak = 0
+    cur = now
+    while streak < 365:
+        key = cur.strftime("%Y-%m-%d")
+        if key in days:
+            streak += 1
+            cur = cur - timedelta(days=1)
+        else:
+            break
+    return streak
+
+
+async def _suggested_topics(user_id: str) -> list[dict]:
+    """Match topics in-process against a single titles/tags fetch."""
+    rows = await db.entries.find(
+        {"user_id": user_id},
+        {"_id": 0, "title": 1, "tags": 1},
+    ).to_list(length=2000)
+    titles = " ".join((r.get("title") or "").lower() for r in rows)
+    tags = set()
+    for r in rows:
+        for t in r.get("tags") or []:
+            if isinstance(t, str):
+                tags.add(t.lower())
+    suggested = []
+    for topic in TOPIC_PROMPTS:
+        if topic["key"].lower() in tags or topic["label"].lower() in titles:
+            continue
+        suggested.append(topic)
+        if len(suggested) >= 6:
+            break
+    return suggested
+
+
 @router.get("")
 async def stats(user: dict = Depends(get_current_user)):
     user_id = user["user_id"]
-
-    counts: dict = {}
-    cursor = db.entries.aggregate([
-        {"$match": {"user_id": user_id}},
-        {"$group": {"_id": "$type", "n": {"$sum": 1}}},
-    ])
-    async for row in cursor:
-        counts[row["_id"]] = row["n"]
-    total_entries = sum(counts.values())
-
-    # Total words archived
-    total_words = 0
-    word_cursor = db.entries.find({"user_id": user_id}, {"_id": 0, "content": 1})
-    async for row in word_cursor:
-        total_words += len((row.get("content") or "").split())
-
-    interview_convs = await db.conversations.count_documents(
-        {"user_id": user_id, "kind": "interviewer"}
-    )
-    twin_convs = await db.conversations.count_documents(
-        {"user_id": user_id, "kind": "twin"}
-    )
-    heirs = await db.heirs.count_documents({"user_id": user_id})
-    skills = await db.skills.count_documents({"user_id": user_id})
-
-    # Live Assistant — Today snapshot
-    from datetime import datetime as _dt, timezone as _tz
-    now = _dt.now(_tz.utc)
+    now = datetime.now(timezone.utc)
     end_of_day = now.replace(hour=23, minute=59, second=59).isoformat()
-    overdue_count = await db.reminders.count_documents({
-        "user_id": user_id, "status": "open",
-        "due_at": {"$ne": None, "$lt": now.isoformat()},
-    })
-    today_count = await db.reminders.count_documents({
-        "user_id": user_id, "status": "open",
-        "due_at": {"$gte": now.isoformat(), "$lte": end_of_day},
-    })
-    open_count = await db.reminders.count_documents({"user_id": user_id, "status": "open"})
 
-    # Streak: consecutive UTC days with at least one new entry, walking back from today.
-    streak = 0
-    cur = now
-    while True:
-        day_start = cur.replace(hour=0, minute=0, second=0, microsecond=0)
-        day_end = cur.replace(hour=23, minute=59, second=59, microsecond=999000)
-        exists = await db.entries.count_documents({
-            "user_id": user_id,
-            "created_at": {"$gte": day_start.isoformat(), "$lte": day_end.isoformat()},
-        })
-        if exists:
-            streak += 1
-            cur = cur - timedelta(days=1)
-            if streak >= 365:
-                break
-        else:
-            break
+    async def _counts_by_type():
+        counts: dict = {}
+        cursor = db.entries.aggregate([
+            {"$match": {"user_id": user_id}},
+            {"$group": {
+                "_id": "$type",
+                "n": {"$sum": 1},
+                # Approximate words via whitespace splits in the DB — one pass.
+                "words": {"$sum": {
+                    "$size": {
+                        "$split": [{"$trim": {"input": {"$ifNull": ["$content", ""]}}}, " "]
+                    }
+                }},
+            }},
+        ])
+        total_words = 0
+        async for row in cursor:
+            counts[row["_id"]] = row["n"]
+            total_words += int(row.get("words") or 0)
+        # Empty-content entries produce a single "" token from $split — correct that.
+        # Cheap enough; accuracy is fine for a progress bar.
+        return counts, sum(counts.values()), total_words
 
-    # Suggested topics user hasn't covered — match by tag/title heuristic
-    suggested = []
-    for topic in TOPIC_PROMPTS:
-        covered = await db.entries.count_documents({
-            "user_id": user_id,
-            "$or": [
-                {"tags": topic["key"]},
-                {"title": {"$regex": topic["label"], "$options": "i"}},
-            ],
-        })
-        if covered == 0:
-            suggested.append(topic)
-        if len(suggested) >= 6:
-            break
+    (counts, total_entries, total_words), interview_convs, twin_convs, heirs, skills, overdue_count, today_count, open_count, streak, suggested = await asyncio.gather(
+        _counts_by_type(),
+        db.conversations.count_documents({"user_id": user_id, "kind": "interviewer"}),
+        db.conversations.count_documents({"user_id": user_id, "kind": "twin"}),
+        db.heirs.count_documents({"user_id": user_id}),
+        db.skills.count_documents({"user_id": user_id}),
+        db.reminders.count_documents({
+            "user_id": user_id, "status": "open",
+            "due_at": {"$ne": None, "$lt": now.isoformat()},
+        }),
+        db.reminders.count_documents({
+            "user_id": user_id, "status": "open",
+            "due_at": {"$gte": now.isoformat(), "$lte": end_of_day},
+        }),
+        db.reminders.count_documents({"user_id": user_id, "status": "open"}),
+        _streak_days(user_id, now),
+        _suggested_topics(user_id),
+    )
 
-    # Completeness: 0..100 — non-linear, very rough heuristic so the bar moves nicely
     target_entries = 80
     target_words = 8000
     completeness = min(

@@ -82,11 +82,17 @@ async def get_twin_conversation(conversation_id: str, user: dict = Depends(get_c
 
 
 async def _archive_blob(user_id: str, query_hint: str = "", limit_recent: int = 20, limit_relevant: int = 30) -> str:
-    """Top-k retrieval: 20 most recent + up to N entries matching tokens in the user's question."""
+    """Top-k retrieval: 20 most recent + up to N entries matching tokens in the user's question.
+
+    Each entry is truncated so the system prompt stays bounded as archives grow.
+    """
+    CHUNK_CHARS = 700
+    MAX_BLOB_CHARS = 14000
     docs: dict[str, dict] = {}
 
-    # Recent N — always include for continuity
-    recent = await db.entries.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(limit_recent).to_list(length=limit_recent)
+    # Recent N — always include for continuity (project only needed fields)
+    proj = {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "tags": 1}
+    recent = await db.entries.find({"user_id": user_id}, proj).sort("created_at", -1).limit(limit_recent).to_list(length=limit_recent)
     for e in recent:
         docs[e["entry_id"]] = e
 
@@ -100,21 +106,27 @@ async def _archive_blob(user_id: str, query_hint: str = "", limit_recent: int = 
         ]
         if tokens:
             or_clauses = []
-            for t in tokens[:8]:
+            for t in tokens[:6]:
                 or_clauses.extend([
                     {"title": {"$regex": t, "$options": "i"}},
-                    {"content": {"$regex": t, "$options": "i"}},
                     {"tags": {"$regex": t, "$options": "i"}},
+                    {"content": {"$regex": t, "$options": "i"}},
                 ])
-            match_cursor = db.entries.find({"user_id": user_id, "$or": or_clauses}, {"_id": 0}).limit(limit_relevant)
+            match_cursor = db.entries.find({"user_id": user_id, "$or": or_clauses}, proj).limit(limit_relevant)
             async for e in match_cursor:
                 docs[e["entry_id"]] = e
 
     if not docs:
         return ""
     chunks = []
+    total = 0
     for e in list(docs.values()):
-        chunks.append(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n")
+        content = (e.get("content") or "")[:CHUNK_CHARS]
+        piece = f"[{e.get('type','?').upper()}] {e.get('title','')}\n{content}\n"
+        if total + len(piece) > MAX_BLOB_CHARS:
+            break
+        chunks.append(piece)
+        total += len(piece)
     return "\n".join(chunks)
 
 
@@ -139,7 +151,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
 
     # Which abilities has the owner turned on? Gates short-circuits + tool set.
     enabled_ids = await ab.enabled_ability_ids(user["user_id"])
-    enabled_tools = await ab.enabled_tool_names(user["user_id"])
+    enabled_tools = ab.tool_names_for_abilities(enabled_ids)
 
     # ---- Music intent short-circuit (only if the Music ability is on) ----
     music_query = detect_music_intent(payload.message) if "music" in enabled_ids else None
@@ -245,11 +257,17 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         )
 
     await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
-    archive = await _archive_blob(user["user_id"], query_hint=payload.message)
-    skills = await _skills_blob(user["user_id"])
-    memory_pack = await build_memory_pack(user["user_id"], query_hint=payload.message)
+
+    # Parallelize independent prep — biggest latency win before the LLM call.
+    import asyncio
+    archive, skills, memory_pack, persona, personality_blob = await asyncio.gather(
+        _archive_blob(user["user_id"], query_hint=payload.message),
+        _skills_blob(user["user_id"]),
+        build_memory_pack(user["user_id"], query_hint=payload.message),
+        get_active_persona(user["user_id"], user),
+        load_personality_blob(db, user["user_id"]),
+    )
     memory_blob = format_memory_pack_for_prompt(memory_pack)
-    persona = await get_active_persona(user["user_id"], user)
     # Merge safe topics from user + persona
     merged_safe = list({*(user.get("safe_topics") or []), *((persona or {}).get("extra_safe_topics") or [])})
     brand = {
@@ -260,18 +278,21 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     if not any(brand.values()):
         brand = None
     abilities_block = ab.build_abilities_prompt(enabled_ids)
-    personality_blob = await load_personality_blob(db, user["user_id"])
     system = build_twin_system(
         user.get("name", ""), memory_blob, archive, skills, merged_safe,
         persona=persona, brand=brand, abilities_block=abilities_block,
         personality_blob=personality_blob,
     )
 
-    # Replay prior turns so the twin remembers what was just said.
+    # Replay only the recent window — older context lives in episodic memory.
+    REPLAY_TURNS = 12
     initial_messages = [{"role": "system", "content": system}]
-    for m in conv.get("messages", []):
-        if m.get("role") in ("user", "assistant") and m.get("content"):
-            initial_messages.append({"role": m["role"], "content": m["content"]})
+    prior = [
+        m for m in (conv.get("messages") or [])
+        if m.get("role") in ("user", "assistant") and m.get("content")
+    ][-REPLAY_TURNS:]
+    for m in prior:
+        initial_messages.append({"role": m["role"], "content": m["content"]})
 
     # Only expose the tools from abilities the owner has enabled (+ core memory).
     active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
@@ -355,11 +376,16 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
             },
         )
-        # Fire-and-forget episodic summary (won't block the SSE close)
-        try:
-            await maybe_summarise_episode(user["user_id"], payload.conversation_id)
-        except Exception:  # noqa: BLE001
-            pass
+        # Fire-and-forget episodic summary — don't hold the SSE "done" event.
+        import asyncio
+
+        async def _bg_episode():
+            try:
+                await maybe_summarise_episode(user["user_id"], payload.conversation_id)
+            except Exception:  # noqa: BLE001
+                pass
+
+        asyncio.create_task(_bg_episode())
         # Fan out to live-stream viewers (no-op if broadcast is off)
         try:
             await live_publish_turn(user["user_id"], "user", payload.message, source="web")

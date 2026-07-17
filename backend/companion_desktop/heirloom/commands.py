@@ -23,6 +23,8 @@ from PySide6.QtCore import QThread, Signal
 from . import config
 
 POLL_INTERVAL_SEC = 3
+POLL_IDLE_SEC = 12  # back off when the queue is empty to cut API load
+POLL_BUSY_SEC = 3
 
 
 def _api(path: str) -> str:
@@ -446,6 +448,7 @@ class CommandPoller(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._running = True
+        self._interval = POLL_BUSY_SEC
 
     def stop(self) -> None:
         self._running = False
@@ -454,10 +457,13 @@ class CommandPoller(QThread):
         if not config.DEVICE_TOKEN:
             return
         while self._running:
+            had_work = False
             try:
                 r = requests.get(_api("/companion/poll"), headers=_headers(), timeout=15)
                 if r.status_code == 200:
-                    for cmd in (r.json() or {}).get("commands", []):
+                    commands = (r.json() or {}).get("commands", []) or []
+                    had_work = bool(commands)
+                    for cmd in commands:
                         status, output = execute(cmd)
                         label = cmd.get("kind", "command")
                         self.ran.emit(f"{label} · {status}")
@@ -469,7 +475,10 @@ class CommandPoller(QThread):
                             pass
             except Exception:
                 pass
-            for _ in range(POLL_INTERVAL_SEC * 2):
+            # Idle backoff when the twin isn't queuing work — big win for
+            # always-on desktop companions sharing the API.
+            self._interval = POLL_BUSY_SEC if had_work else POLL_IDLE_SEC
+            for _ in range(self._interval * 2):
                 if not self._running:
                     break
                 time.sleep(0.5)

@@ -113,6 +113,25 @@ async def _extract_facts(user_id: str) -> list[dict]:
     return facts
 
 
+async def get_cached_facts(user_id: str) -> list[dict]:
+    """Cached facts only — never blocks a chat turn on LLM extraction."""
+    cursor = db.memory_facts.find({"user_id": user_id}, {"_id": 0}).limit(MAX_FACTS_IN_PROMPT)
+    return await cursor.to_list(length=MAX_FACTS_IN_PROMPT)
+
+
+async def facts_need_refresh(user_id: str) -> bool:
+    entry_count = await db.entries.count_documents({"user_id": user_id})
+    if entry_count == 0:
+        return False
+    state = await db.memory_state.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    last_count = int(state.get("facts_entry_count", -1))
+    return (
+        last_count < 0
+        or (entry_count - last_count) >= REFRESH_FACTS_AFTER_NEW_ENTRIES
+        or entry_count < last_count
+    )
+
+
 async def get_or_refresh_facts(user_id: str) -> list[dict]:
     """Returns the cached fact-pack, regenerating only when the archive has
     grown by REFRESH_FACTS_AFTER_NEW_ENTRIES since last extraction."""
@@ -139,8 +158,30 @@ async def get_or_refresh_facts(user_id: str) -> list[dict]:
             upsert=True,
         )
 
-    cursor = db.memory_facts.find({"user_id": user_id}, {"_id": 0}).limit(MAX_FACTS_IN_PROMPT)
-    return await cursor.to_list(length=MAX_FACTS_IN_PROMPT)
+    return await get_cached_facts(user_id)
+
+
+_refresh_inflight: set[str] = set()
+
+
+async def schedule_fact_refresh(user_id: str) -> None:
+    """Background refresh — never blocks the twin SSE path."""
+    if user_id in _refresh_inflight:
+        return
+    if not await facts_need_refresh(user_id):
+        return
+    _refresh_inflight.add(user_id)
+
+    async def _run():
+        try:
+            await get_or_refresh_facts(user_id)
+        except Exception:  # noqa: BLE001
+            pass
+        finally:
+            _refresh_inflight.discard(user_id)
+
+    import asyncio
+    asyncio.create_task(_run())
 
 
 # ---------------- Episodic summaries ----------------
@@ -209,11 +250,21 @@ async def get_recent_episodes(user_id: str, limit: int = MAX_EPISODES_IN_PROMPT)
 
 
 # ---------------- Build the memory pack for the twin ----------------
-async def build_memory_pack(user_id: str, query_hint: str = "") -> dict:
+async def build_memory_pack(user_id: str, query_hint: str = "", *, blocking_refresh: bool = False) -> dict:
     """Returns {facts:[], episodes:[]} ready to be inserted into the twin's
-    system prompt. The query_hint is currently used only by /archive retrieval
-    (twin.py); facts + episodes are static per user."""
-    facts = await get_or_refresh_facts(user_id)
+    system prompt.
+
+    By default uses cached facts and schedules a background refresh when stale
+    so chat latency stays low. Pass blocking_refresh=True for admin/manual paths.
+    """
+    import asyncio
+    if blocking_refresh:
+        facts = await get_or_refresh_facts(user_id)
+    else:
+        facts, _ = await asyncio.gather(
+            get_cached_facts(user_id),
+            schedule_fact_refresh(user_id),
+        )
     episodes = await get_recent_episodes(user_id)
     return {"facts": facts, "episodes": episodes}
 

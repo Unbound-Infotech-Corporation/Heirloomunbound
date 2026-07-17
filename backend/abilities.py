@@ -183,10 +183,17 @@ async def is_enabled(user_id: str, ability_id: str) -> bool:
 
 async def enabled_tool_names(user_id: str) -> set[str]:
     """Core tools + every tool from the user's enabled abilities."""
-    names = set(CORE_TOOLS)
     ids = await enabled_ability_ids(user_id)
-    for aid in ids:
-        names.update(ABILITY_BY_ID[aid]["tools"])
+    return tool_names_for_abilities(ids)
+
+
+def tool_names_for_abilities(enabled_ids: set[str]) -> set[str]:
+    """Pure helper — avoids a second Mongo round-trip when ids are already known."""
+    names = set(CORE_TOOLS)
+    for aid in enabled_ids:
+        a = ABILITY_BY_ID.get(aid)
+        if a:
+            names.update(a["tools"])
     return names
 
 
