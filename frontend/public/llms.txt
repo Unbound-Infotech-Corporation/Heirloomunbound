@@ -6,9 +6,9 @@ Heirloom is for one person at a time. The owner spends a few minutes a day captu
 
 ## Product
 
-- [Landing page](https://voice-clone-hub-20.emergent.host/): What Heirloom is, who it's for, and how it works.
-- [Sign in](https://voice-clone-hub-20.emergent.host/login): Google sign-in for owners and heirs.
-- [Lifetime purchase ($79)](https://voice-clone-hub-20.emergent.host/buy): One-time payment, no subscription.
+- [Landing page](https://heirloomunbound.com/): What Heirloom is, who it's for, and how it works.
+- [Sign in](https://heirloomunbound.com/login): Google sign-in for owners and heirs.
+- [Lifetime purchase ($79)](https://heirloomunbound.com/buy): One-time payment, no subscription.
 
 ## Core features
 

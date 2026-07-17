@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 
 from deps import db
 from routers.billing import _provision_after_payment
-from routers.companion import build_windows_zip_bytes
+from routers.companion import build_one_click_installer_zip_bytes
 
 router = APIRouter(tags=["fulfillment"])
 
@@ -63,7 +63,10 @@ async def download(download_token: str):
     if uses >= max_uses:
         raise HTTPException(status_code=410, detail="Download link exhausted")
 
-    payload = build_windows_zip_bytes(rec["device_token"], wake_word=False)
+    # Grandmother-friendly one-click zip (installs Python if needed, pulls
+    # newest script from the server, tray + auto-start). Advanced zip remains
+    # available from the Companion page as "Companion .zip".
+    payload = build_one_click_installer_zip_bytes(rec["device_token"], wake_word=False)
 
     await db.download_tokens.update_one(
         {"download_token": download_token},
@@ -74,7 +77,7 @@ async def download(download_token: str):
         content=payload,
         media_type="application/zip",
         headers={
-            "Content-Disposition": 'attachment; filename="HeirloomCompanion-Windows.zip"',
+            "Content-Disposition": 'attachment; filename="Install-Heirloom.zip"',
             "Cache-Control": "no-store",
         },
     )
@@ -278,7 +281,10 @@ async def webhook_info(request: Request):
       → tick the events listed below → save → copy the signing secret into
       backend env as STRIPE_WEBHOOK_SECRET.
     """
-    base = str(request.base_url).rstrip("/")
+    base = (
+        os.environ.get("PUBLIC_BACKEND_URL", "").strip().rstrip("/")
+        or str(request.base_url).rstrip("/")
+    )
     return {
         "webhook_url": f"{base}/api/webhook/stripe",
         "events_to_listen_for": [
@@ -291,4 +297,5 @@ async def webhook_info(request: Request):
         "payment_link_url": os.environ.get("STRIPE_PAYMENT_LINK_URL", ""),
         "test_mode": STRIPE_API_KEY.startswith("sk_test"),
         "configured": bool(STRIPE_API_KEY),
+        "webhook_secret_configured": bool(os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()),
     }

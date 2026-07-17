@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { CheckCircle2, Download, Heart, Languages, Loader2, Lock, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -39,6 +40,35 @@ export default function Settings() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [avatarDefault, setAvatarDefault] = useState("");
   const [avatarConfigured, setAvatarConfigured] = useState(false);
+  const [authenticityMode, setAuthenticityMode] = useState("balanced");
+  const [legacyLocked, setLegacyLocked] = useState(false);
+  const [operatingMode, setOperatingMode] = useState("living");
+  const [govPolicy, setGovPolicy] = useState({
+    disclose_nature: true,
+    grief_aware: true,
+    refuse_invented_wishes: true,
+    guide_to_letters: true,
+    no_legal_medical_advice: true,
+    heir_first_person: true,
+  });
+  const [executorLock, setExecutorLock] = useState(null);
+  const [executorForm, setExecutorForm] = useState({
+    enabled: true,
+    executor_name: "",
+    executor_email: "",
+    wait_hours: 72,
+    post_death_mode: "read_only",
+    notes: "",
+  });
+  const [executorBusy, setExecutorBusy] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("essentials");
+  const SETTINGS_TABS = [
+    { id: "essentials", label: "Essentials" },
+    { id: "twin", label: "Your twin" },
+    { id: "connections", label: "Connections" },
+    { id: "account", label: "Account" },
+  ];
+
 
   const loadSettings = async () => {
     const { data } = await api.get("/voice-clone/settings");
@@ -71,6 +101,26 @@ export default function Settings() {
     });
     setTtsLang(data.tts_language || "auto");
     setActivePersonaId(data.active_persona_id || null);
+    setAuthenticityMode(data.authenticity_mode || "balanced");
+    setLegacyLocked(!!data.legacy_locked);
+    setOperatingMode(data.twin_operating_mode || "living");
+    if (data.death_governance_policy) {
+      setGovPolicy((p) => ({ ...p, ...data.death_governance_policy }));
+    }
+  };
+  const loadExecutorLock = async () => {
+    try {
+      const { data } = await api.get("/executor-lock");
+      setExecutorLock(data);
+      setExecutorForm({
+        enabled: data.enabled !== false,
+        executor_name: data.executor_name || "",
+        executor_email: data.executor_email || "",
+        wait_hours: data.wait_hours || 72,
+        post_death_mode: data.post_death_mode || "read_only",
+        notes: data.notes || "",
+      });
+    } catch { /* noop */ }
   };
   const loadPersonas = async () => {
     try {
@@ -103,7 +153,95 @@ export default function Settings() {
     loadMusicProviders();
     loadPersonas();
     loadAvatar();
+    loadExecutorLock();
   }, []);
+
+  const saveAuthenticity = async (mode) => {
+    setAuthenticityMode(mode);
+    try {
+      await api.put("/auth/me/preferences", { authenticity_mode: mode });
+      toast.success(mode === "retrieve_only" ? "Retrieve-only authenticity on" : "Balanced authenticity on");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+      loadPrefs();
+    }
+  };
+
+  const saveOperatingMode = async (mode) => {
+    setOperatingMode(mode);
+    try {
+      const { data } = await api.put("/auth/me/preferences", { twin_operating_mode: mode });
+      setAuthenticityMode(data.authenticity_mode || (mode === "death_governance" ? "retrieve_only" : authenticityMode));
+      toast.success(
+        mode === "death_governance"
+          ? "Death Governance mode on — twin is in stewardship profile"
+          : "Living companion mode on"
+      );
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+      loadPrefs();
+    }
+  };
+
+  const saveGovPolicy = async (next) => {
+    setGovPolicy(next);
+    try {
+      await api.put("/auth/me/preferences", { death_governance_policy: next });
+      toast.success("Governance policy saved");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+      loadPrefs();
+    }
+  };
+
+  const saveExecutorLock = async () => {
+    if (!executorForm.executor_name.trim() || !executorForm.executor_email.trim()) {
+      toast.error("Executor name and email are required");
+      return;
+    }
+    setExecutorBusy(true);
+    try {
+      const { data } = await api.put("/executor-lock", executorForm);
+      setExecutorLock(data);
+      toast.success("Executor Lock saved");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    } finally {
+      setExecutorBusy(false);
+    }
+  };
+
+  const cancelAttestation = async () => {
+    try {
+      await api.post("/executor-lock/cancel-attestation", { reason: "Owner cancelled" });
+      toast.success("Attestation cancelled");
+      loadExecutorLock();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  };
+
+  const finalizeLock = async () => {
+    try {
+      const { data } = await api.post("/executor-lock/finalize");
+      toast.success(data.message || data.status);
+      loadExecutorLock();
+      loadPrefs();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  };
+
+  const copyExecutorLink = async () => {
+    if (!executorLock?.attest_path) return;
+    const url = `${window.location.origin}${executorLock.attest_path}`;
+    await navigator.clipboard.writeText(url);
+    toast.success("Executor link copied");
+  };
+
+  const openExport = (path) => {
+    window.open(`${API_BASE}${path}`, "_blank", "noopener,noreferrer");
+  };
 
   const saveAvatarUrl = async () => {
     try {
@@ -254,14 +392,303 @@ export default function Settings() {
         <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">Your archive.</h1>
       </header>
 
+      <Link
+        to="/setup/easy"
+        data-testid="settings-easy-setup-link"
+        className="surface p-6 mb-6 flex items-start gap-4 hover:opacity-90 transition-opacity"
+        style={{ border: "1px solid var(--accent)" }}
+      >
+        <Heart className="h-6 w-6 mt-0.5 shrink-0" style={{ color: "var(--accent)" }} />
+        <div className="flex-1">
+          <div className="overline mb-1" style={{ color: "var(--accent)" }}>simple setup</div>
+          <h2 className="font-serif text-2xl mb-1">Set this up in a few easy questions</h2>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            Name a loved one, choose a trusted person, and pick how careful your twin should be —
+            written in plain language. Recommended if Settings feels like too much.
+          </p>
+        </div>
+        <span className="text-2xl self-center" style={{ color: "var(--accent)" }}>→</span>
+      </Link>
+
+      <div className="flex flex-wrap gap-2 mb-8" data-testid="settings-tabs" role="tablist">
+        {SETTINGS_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={settingsTab === t.id}
+            onClick={() => setSettingsTab(t.id)}
+            data-testid={`settings-tab-${t.id}`}
+            className="px-4 py-2 text-sm rounded-sm"
+            style={{
+              background: settingsTab === t.id ? "var(--accent)" : "transparent",
+              color: settingsTab === t.id ? "var(--text-inverse)" : "var(--text-secondary)",
+              border: "1px solid var(--border-default)",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {settingsTab === "essentials" && (
+      <>
       <section className="surface p-7 mb-6">
         <div className="overline mb-4">account</div>
         <div className="space-y-3 text-sm">
           <Row label="Name" value={user?.name || "—"} />
           <Row label="Email" value={user?.email || "—"} />
           <Row label="User ID" value={user?.user_id || "—"} mono />
+          {legacyLocked && (
+            <Row label="Legacy" value="Locked (read-only stewardship)" />
+          )}
         </div>
       </section>
+
+      <section className="surface p-7 mb-6" data-testid="death-governance-section">
+        <div className="overline mb-4">death governance</div>
+        <h2 className="font-serif text-2xl mb-2">The forever version of your twin</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          When this is on, your twin only uses what you wrote down, speaks gently with family,
+          and won&apos;t invent wishes you never recorded. Prefer a guided path? Use{" "}
+          <Link to="/setup/easy" className="underline" style={{ color: "var(--accent)" }}>Simple Setup</Link>.
+        </p>
+        <div className="flex flex-wrap gap-3 mb-6">
+          {[
+            { key: "living", label: "Everyday me" },
+            { key: "death_governance", label: "Forever / careful mode" },
+          ].map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              disabled={legacyLocked && m.key !== "death_governance"}
+              onClick={() => saveOperatingMode(m.key)}
+              data-testid={`operating-mode-${m.key}`}
+              className="px-4 py-2 text-sm rounded-sm disabled:opacity-50"
+              style={{
+                background: operatingMode === m.key ? "var(--accent)" : "transparent",
+                color: operatingMode === m.key ? "var(--text-inverse)" : "var(--text-secondary)",
+                border: "1px solid var(--border-default)",
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        {(operatingMode === "death_governance" || legacyLocked) && (
+          <div className="space-y-3" data-testid="death-governance-policy">
+            {[
+              { key: "disclose_nature", label: "Gently disclose this is a digital twin" },
+              { key: "grief_aware", label: "Grief-aware tone (unhurried, honest)" },
+              { key: "refuse_invented_wishes", label: "Refuse invented end-of-life / estate wishes" },
+              { key: "guide_to_letters", label: "Guide visitors toward sealed letters" },
+              { key: "no_legal_medical_advice", label: "Decline legal / medical advice" },
+              { key: "heir_first_person", label: "Speak in first person as the person" },
+            ].map((row) => (
+              <label
+                key={row.key}
+                className="flex items-center justify-between gap-4 px-3 py-2 rounded-sm text-sm cursor-pointer"
+                style={{ border: "1px solid var(--border-default)" }}
+              >
+                <span style={{ color: "var(--text-secondary)" }}>{row.label}</span>
+                <input
+                  type="checkbox"
+                  checked={!!govPolicy[row.key]}
+                  onChange={(e) =>
+                    saveGovPolicy({ ...govPolicy, [row.key]: e.target.checked })
+                  }
+                  data-testid={`gov-policy-${row.key}`}
+                />
+              </label>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="surface p-7 mb-6" data-testid="authenticity-section">
+        <div className="overline mb-4 inline-flex items-center gap-2">
+          <Lock className="h-3.5 w-3.5" /> how careful
+        </div>
+        <h2 className="font-serif text-2xl mb-2">How strictly should the twin stick to your words?</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          &quot;Only what I wrote&quot; never invents. &quot;Warm and careful&quot; can sound more natural while still preferring your archive.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          {[
+            { key: "balanced", label: "Warm and careful" },
+            { key: "retrieve_only", label: "Only what I wrote" },
+          ].map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              disabled={legacyLocked && m.key !== "retrieve_only"}
+              onClick={() => saveAuthenticity(m.key)}
+              data-testid={`authenticity-${m.key}`}
+              className="px-4 py-2 text-sm rounded-sm disabled:opacity-50"
+              style={{
+                background: authenticityMode === m.key ? "var(--accent)" : "transparent",
+                color: authenticityMode === m.key ? "var(--text-inverse)" : "var(--text-secondary)",
+                border: "1px solid var(--border-default)",
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="surface p-7 mb-6" data-testid="export-section">
+        <div className="overline mb-4 inline-flex items-center gap-2">
+          <Download className="h-3.5 w-3.5" /> export
+        </div>
+        <h2 className="font-serif text-2xl mb-2">Take your archive with you</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Full JSON for backups and lawyers. HTML memoir opens in a new tab — use Print → Save as PDF.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => openExport("/export/archive.json")}
+            data-testid="export-json"
+            className="px-4 py-2 text-sm rounded-sm"
+            style={{ border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+          >
+            Download archive JSON
+          </button>
+          <button
+            type="button"
+            onClick={() => openExport("/export/memoir.html")}
+            data-testid="export-memoir"
+            className="px-4 py-2 text-sm rounded-sm"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          >
+            Open memoir (PDF)
+          </button>
+        </div>
+      </section>
+
+      <section className="surface p-7 mb-6" data-testid="executor-lock-section">
+        <div className="overline mb-4">trusted unlock</div>
+        <h2 className="font-serif text-2xl mb-2">Who can open this if something happens to you</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Name someone you trust. They get a special link. Nothing opens instantly — there&apos;s a waiting
+          period so you can cancel a mistake. Prefer the guided path?{" "}
+          <Link to="/setup/easy" className="underline" style={{ color: "var(--accent)" }}>Simple Setup</Link>.
+        </p>
+        {executorLock?.status === "locked" ? (
+          <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+            Locked since {executorLock.locked_at?.slice(0, 10) || "—"}. Archive is read-only.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <label className="flex items-center gap-3 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!executorForm.enabled}
+                onChange={(e) => setExecutorForm((f) => ({ ...f, enabled: e.target.checked }))}
+                data-testid="executor-enabled"
+              />
+              Enable trusted unlock
+            </label>
+            <input
+              value={executorForm.executor_name}
+              onChange={(e) => setExecutorForm((f) => ({ ...f, executor_name: e.target.value }))}
+              placeholder="Trusted person's full name"
+              data-testid="executor-name"
+              className="w-full px-3 py-2 text-sm rounded-sm"
+              style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+            />
+            <input
+              type="email"
+              value={executorForm.executor_email}
+              onChange={(e) => setExecutorForm((f) => ({ ...f, executor_email: e.target.value }))}
+              placeholder="Their email"
+              data-testid="executor-email"
+              className="w-full px-3 py-2 text-sm rounded-sm"
+              style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+            />
+            <div className="flex flex-wrap gap-3 items-center">
+              <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Waiting period</span>
+              {[
+                { h: 24, label: "1 day" },
+                { h: 72, label: "3 days" },
+                { h: 168, label: "1 week" },
+              ].map((opt) => (
+                <button
+                  key={opt.h}
+                  type="button"
+                  onClick={() => setExecutorForm((f) => ({ ...f, wait_hours: opt.h }))}
+                  data-testid={`executor-wait-${opt.h}`}
+                  className="px-3 py-1.5 text-sm rounded-sm"
+                  style={{
+                    background: executorForm.wait_hours === opt.h ? "var(--accent)" : "transparent",
+                    color: executorForm.wait_hours === opt.h ? "var(--text-inverse)" : "var(--text-secondary)",
+                    border: "1px solid var(--border-default)",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={saveExecutorLock}
+              disabled={executorBusy}
+              data-testid="executor-save"
+              className="px-4 py-2 text-sm rounded-sm"
+              style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+            >
+              {executorBusy ? "Saving…" : "Save trusted person"}
+            </button>
+            {executorLock?.attest_path && (
+              <button
+                type="button"
+                onClick={copyExecutorLink}
+                data-testid="executor-copy-link"
+                className="ml-3 px-4 py-2 text-sm rounded-sm"
+                style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+              >
+                Copy their unlock link
+              </button>
+            )}
+            {executorLock?.status === "pending" && (
+              <div className="flex flex-wrap gap-3 pt-2">
+                <button type="button" onClick={cancelAttestation} className="px-4 py-2 text-sm rounded-sm" style={{ border: "1px solid var(--border-default)" }}>
+                  Cancel attestation
+                </button>
+                <button type="button" onClick={finalizeLock} className="px-4 py-2 text-sm rounded-sm" style={{ border: "1px solid var(--border-default)" }}>
+                  Finalize if due
+                </button>
+              </div>
+            )}
+            {executorLock?.status && (
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Status: {executorLock.status}
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+
+      </>
+      )}
+
+      {settingsTab === "connections" && (
+      <>
+      <a
+        href="/abilities"
+        data-testid="settings-abilities-link"
+        className="surface p-5 mb-6 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
+        style={{ border: "1px solid var(--border-default)" }}
+      >
+        <div>
+          <div className="overline mb-1">what your twin can do</div>
+          <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+            Turn abilities on or off — music, smart home, PC control, and more.
+          </p>
+        </div>
+        <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
+      </a>
 
       {/* BYO keys quick-link — full setup wizard */}
       <a
@@ -271,17 +698,26 @@ export default function Settings() {
         style={{ border: "1px solid var(--accent)" }}
       >
         <div>
-          <div className="overline mb-1" style={{ color: "var(--accent)" }}>🔑 keys & integrations</div>
+          <div className="overline mb-1" style={{ color: "var(--accent)" }}>connect voice, video & apps</div>
           <p className="text-sm" style={{ color: "var(--text-primary)" }}>
-            Bring your own API keys for fal.ai, ElevenLabs, D-ID + connect Spotify/GitHub.
+            Heirloom AI is included. Optionally add your ElevenLabs, D-ID, or fal key — or connect Spotify in one click.
           </p>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            Step-by-step walkthroughs · live key verification · one-click OAuth.
+            Verify → Save. Large buttons, step-by-step links to each dashboard.
           </p>
         </div>
         <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
       </a>
 
+      <ConnectedAccountsSection />
+      <DIdKeySection />
+      <EmailSection />
+      <LiveBroadcastSection />
+      </>
+      )}
+
+      {settingsTab === "twin" && (
+      <>
       {/* Dashboard widget toggles */}
       <section className="surface p-7 mb-6" data-testid="widgets-section">
         <div className="overline mb-4">today dashboard</div>
@@ -792,6 +1228,11 @@ export default function Settings() {
         )}
       </section>
 
+      </>
+      )}
+
+      {settingsTab === "account" && (
+      <>
       <section className="surface p-7 mb-6">
         <div className="overline mb-4">on the roadmap</div>
         <ul className="space-y-3 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
@@ -805,17 +1246,14 @@ export default function Settings() {
       <button
         onClick={logout}
         data-testid="settings-logout"
-        className="px-5 py-3 text-sm rounded-sm"
+        className="px-5 py-3 text-sm rounded-sm mb-6"
         style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
       >
         Sign out
       </button>
-
-      <DIdKeySection />
-      <LiveBroadcastSection />
-      <EmailSection />
-      <ConnectedAccountsSection />
       <DangerZone />
+      </>
+      )}
     </div>
   );
 }

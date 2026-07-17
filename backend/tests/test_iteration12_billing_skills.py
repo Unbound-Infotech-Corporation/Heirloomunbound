@@ -198,12 +198,14 @@ class TestFulfillment:
         zf = zipfile.ZipFile(io.BytesIO(r.content))
         names = set(zf.namelist())
         expected = {
-            "heirloom_companion.py", "Heirloom.bat", "Build-Exe.bat",
-            "make_icon.py", "version_info.txt", "Sign-Exe.bat", "README.txt",
+            "Double-click me - Install Heirloom.bat",
+            "Update Heirloom.bat",
+            "Read me first.txt",
         }
         assert expected.issubset(names), f"missing: {expected - names}"
-        py = zf.read("heirloom_companion.py").decode("utf-8", errors="ignore")
-        assert seed["device_token"] in py, "device token not baked in"
+        bat = zf.read("Double-click me - Install Heirloom.bat").decode("utf-8", errors="ignore")
+        assert seed["device_token"] in bat, "device token not baked into installer"
+        assert "public-script" in bat, "installer must fetch newest script from server"
 
     def test_download_invalid_token(self):
         r = requests.get(f"{BASE}/api/download/not-a-token", timeout=10)

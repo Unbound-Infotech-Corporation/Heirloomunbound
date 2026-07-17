@@ -14,6 +14,12 @@ MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 
+# When true (production sale mode), authenticated users must have purchased
+# the lifetime license (or be marked tester/admin). Preview stays open by default.
+ENFORCE_PURCHASE = os.environ.get("ENFORCE_PURCHASE", "").strip().lower() in {
+    "1", "true", "yes", "on",
+}
+
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 
@@ -49,6 +55,12 @@ async def get_current_user(request: Request) -> dict:
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+    if user.get("account_status") == "refunded":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account refunded — access revoked. Contact support@heirloom.app",
+        )
+
     # Bind to Sentry so any error during this request carries the user_id.
     # No-op if Sentry isn't initialised.
     try:
@@ -57,3 +69,29 @@ async def get_current_user(request: Request) -> dict:
     except Exception:  # noqa: BLE001
         pass
     return user
+
+
+def user_has_paid_access(user: dict) -> bool:
+    """Lifetime buyers, platform testers, and admins get full product access."""
+    if user.get("purchased_lifetime"):
+        return True
+    if user.get("is_tester") or user.get("is_admin"):
+        return True
+    return False
+
+
+async def require_paid_user(request: Request) -> dict:
+    """Like get_current_user, but optionally enforces the $79 lifetime purchase.
+
+    Set ENFORCE_PURCHASE=true on Emergent production when you are ready to sell.
+    Leave unset on preview so Google login stays open for demos and testing.
+    """
+    user = await get_current_user(request)
+    if not ENFORCE_PURCHASE:
+        return user
+    if user_has_paid_access(user):
+        return user
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail="Lifetime license required. Purchase at /buy",
+    )

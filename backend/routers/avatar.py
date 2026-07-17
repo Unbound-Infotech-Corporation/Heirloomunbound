@@ -94,10 +94,12 @@ async def create_talk(payload: TalkReq, user: dict = Depends(get_current_user)):
     source_url = user.get("avatar_source_url") or DEFAULT_SOURCE_URL
 
     # Voice — prefer the user's cloned ElevenLabs voice; fall back to Microsoft.
-    eleven_settings = await db.elevenlabs_settings.find_one(
-        {"user_id": user["user_id"]}, {"_id": 0}
-    ) or {}
-    voice_id = payload.voice or eleven_settings.get("voice_id")
+    voice_id = payload.voice or user.get("elevenlabs_voice_id")
+    if not voice_id:
+        eleven_settings = await db.elevenlabs_settings.find_one(
+            {"user_id": user["user_id"]}, {"_id": 0}
+        ) or {}
+        voice_id = eleven_settings.get("voice_id")
     if voice_id:
         provider = {"type": "elevenlabs", "voice_id": voice_id}
     else:

@@ -113,6 +113,7 @@ Entries (most relevant first):
 
 @router.post("")
 async def capture(payload: CaptureReq, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable
     text = (payload.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Empty capture")
@@ -122,6 +123,9 @@ async def capture(payload: CaptureReq, user: dict = Depends(get_current_user)):
 
     classification = await _classify(text)
     kind = classification.get("kind", "note")
+    # Questions against the archive are always allowed (read-only).
+    if kind != "question":
+        await assert_writable(user["user_id"])
     title = (classification.get("title") or text[:80])[:120]
     cleaned = classification.get("text") or text
     tags = classification.get("tags") or []

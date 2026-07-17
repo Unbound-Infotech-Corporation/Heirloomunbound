@@ -61,15 +61,25 @@ async def get_status(user: dict = Depends(get_current_user)):
         "configured": bool(ADMIN_KEYS["stripe"]),
         "source": "admin" if ADMIN_KEYS["stripe"] else "none",
     }
-    # OAuth links — check user doc for stored tokens
+    # OAuth links — tokens live in oauth_connections, not on the user doc
     for svc in OAUTH_SERVICES:
-        token_field = f"{svc}_oauth"
-        has_oauth = bool((user.get(token_field) or {}).get("access_token"))
+        conn = await db.oauth_connections.find_one(
+            {"user_id": user["user_id"], "provider": svc},
+            {"_id": 0, "access_token": 1},
+        )
+        has_oauth = bool(conn and (conn.get("access_token") or "").strip())
         out[svc] = {
             "configured": has_oauth,
             "source": "you" if has_oauth else "none",
             "oauth": True,
         }
+    # Platform AI brain (operator-managed) — surface readiness for the wizard
+    llm = bool(os.environ.get("EMERGENT_LLM_KEY", "").strip())
+    out["llm"] = {
+        "configured": llm,
+        "source": "admin" if llm else "none",
+        "label": "Heirloom AI (included)",
+    }
     return out
 
 

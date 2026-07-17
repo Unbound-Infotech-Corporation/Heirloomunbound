@@ -168,14 +168,33 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     if len(text) > 2000:
         raise HTTPException(status_code=400, detail="Message too long")
 
-    cursor = db.entries.find({"user_id": owner["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(120)
-    entries = await cursor.to_list(length=120)
+    cursor = db.entries.find({"user_id": owner["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(40)
+    entries = await cursor.to_list(length=40)
+    try:
+        from semantic_search import semantic_search
+        ranked = await semantic_search(owner["user_id"], text, limit=20)
+        seen = {e["entry_id"] for e in entries}
+        for e in ranked:
+            if e["entry_id"] not in seen:
+                entries.append(e)
+                seen.add(e["entry_id"])
+    except Exception:
+        pass
     archive = "\n".join(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n" for e in entries)
+
+    import death_governance as dg
+    pack = await dg.build_governance_pack(owner["user_id"], heir=heir)
+    dg_section = dg.build_death_governance_section(
+        owner.get("name", ""),
+        policy=dg.governance_policy_for(owner),
+        governance_pack=pack,
+        for_heir=True,
+    )
 
     system = f"""You are {owner.get('name','the owner')}'s digital twin, speaking with their heir {heir.get('name','an heir')} ({heir.get('relationship','loved one')}).
 Be them. Speak in first person, warmly and personally. Be brief — 1-4 sentences unless asked for more.
 Do NOT take any actions. Do NOT invoke skills. This is a quiet conversation.
-
+{dg_section}
 Your personality archive:
 {archive[:18000] or '(empty)'}"""
 

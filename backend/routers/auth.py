@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from deps import db, get_current_user
+from deps import db, get_current_user, ENFORCE_PURCHASE, user_has_paid_access
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -71,16 +71,31 @@ async def create_session(request: Request, response: Response):
         samesite="none",
         path="/",
     )
+    # Re-read so purchase flags are accurate for the client gate.
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
     return {
         "user_id": user_id,
         "email": email,
         "name": name,
         "picture": picture,
+        "purchased_lifetime": bool(user.get("purchased_lifetime")),
+        "purchased_at": user.get("purchased_at"),
+        "account_status": user.get("account_status") or "active",
+        "is_tester": bool(user.get("is_tester")),
+        "enforce_purchase": ENFORCE_PURCHASE,
+        "has_paid_access": user_has_paid_access(user) if user else False,
+        "tour_completed": bool(user.get("tour_completed", False)),
     }
 
 
 @router.get("/me")
 async def me(user: dict = Depends(get_current_user)):
+    from routers.executor_lock import is_legacy_locked
+
+    locked = await is_legacy_locked(user["user_id"])
+    mode = user.get("authenticity_mode") or "balanced"
+    if locked:
+        mode = "retrieve_only"
     return {
         "user_id": user["user_id"],
         "email": user["email"],
@@ -94,6 +109,26 @@ async def me(user: dict = Depends(get_current_user)):
         "brand_signoff": user.get("brand_signoff") or "",
         "active_persona_id": user.get("active_persona_id") or None,
         "tour_completed": bool(user.get("tour_completed", False)),
+        "authenticity_mode": mode,
+        "legacy_locked": locked,
+        "legacy_locked_at": user.get("legacy_locked_at"),
+        "twin_operating_mode": (
+            "death_governance" if locked else (user.get("twin_operating_mode") or "living")
+        ),
+        "death_governance_policy": user.get("death_governance_policy") or {
+            "disclose_nature": True,
+            "grief_aware": True,
+            "refuse_invented_wishes": True,
+            "guide_to_letters": True,
+            "no_legal_medical_advice": True,
+            "heir_first_person": True,
+        },
+        "purchased_lifetime": bool(user.get("purchased_lifetime")),
+        "purchased_at": user.get("purchased_at"),
+        "account_status": user.get("account_status") or "active",
+        "is_tester": bool(user.get("is_tester")),
+        "enforce_purchase": ENFORCE_PURCHASE,
+        "has_paid_access": user_has_paid_access(user),
     }
 
 
@@ -113,10 +148,16 @@ class PreferencesUpdate(BaseModel):
     brand_name: Optional[str] = None
     brand_tagline: Optional[str] = None
     brand_signoff: Optional[str] = None  # e.g. "— Aaron, Unbound Infotech"
+    authenticity_mode: Optional[str] = None  # balanced | retrieve_only
+    twin_operating_mode: Optional[str] = None  # living | death_governance
+    death_governance_policy: Optional[dict] = None
 
 
 @router.put("/me/preferences")
 async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable, is_legacy_locked
+    import death_governance as dg
+
     update: dict = {}
     if payload.safe_topics is not None:
         cleaned = [s.strip()[:80] for s in payload.safe_topics if s and s.strip()][:25]
@@ -138,10 +179,36 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
         update["brand_tagline"] = payload.brand_tagline.strip()[:200]
     if payload.brand_signoff is not None:
         update["brand_signoff"] = payload.brand_signoff.strip()[:160]
+    if payload.authenticity_mode is not None:
+        mode = payload.authenticity_mode.strip().lower()
+        if mode not in ("balanced", "retrieve_only"):
+            raise HTTPException(status_code=400, detail="authenticity_mode must be balanced or retrieve_only")
+        if await is_legacy_locked(user["user_id"]) and mode != "retrieve_only":
+            raise HTTPException(status_code=403, detail="Legacy is locked — authenticity stays retrieve-only")
+        update["authenticity_mode"] = mode
+    if payload.twin_operating_mode is not None:
+        om = dg.normalize_mode(payload.twin_operating_mode)
+        if await is_legacy_locked(user["user_id"]) and om != dg.MODE_DEATH_GOVERNANCE:
+            raise HTTPException(status_code=403, detail="Legacy is locked — Death Governance stays on")
+        update["twin_operating_mode"] = om
+        # Opting into Death Governance also forces retrieve-only authenticity
+        if om == dg.MODE_DEATH_GOVERNANCE:
+            update["authenticity_mode"] = "retrieve_only"
+    if payload.death_governance_policy is not None:
+        update["death_governance_policy"] = dg.normalize_policy(payload.death_governance_policy)
+    # Prefer governance/authenticity even when locked; block other preference mutations
+    allow_when_locked = {"authenticity_mode", "twin_operating_mode", "death_governance_policy"}
+    other_keys = set(update.keys()) - allow_when_locked
+    if other_keys:
+        await assert_writable(user["user_id"])
     if not update:
         raise HTTPException(status_code=400, detail="No preferences provided")
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
     refreshed = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    locked = await is_legacy_locked(user["user_id"])
+    mode = refreshed.get("authenticity_mode") or "balanced"
+    if locked or refreshed.get("twin_operating_mode") == dg.MODE_DEATH_GOVERNANCE:
+        mode = "retrieve_only"
     return {
         "safe_topics": refreshed.get("safe_topics") or [],
         "tts_language": refreshed.get("tts_language") or "auto",
@@ -149,6 +216,12 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
         "brand_name": refreshed.get("brand_name") or "",
         "brand_tagline": refreshed.get("brand_tagline") or "",
         "brand_signoff": refreshed.get("brand_signoff") or "",
+        "authenticity_mode": mode,
+        "legacy_locked": locked,
+        "twin_operating_mode": (
+            dg.MODE_DEATH_GOVERNANCE if locked else dg.normalize_mode(refreshed.get("twin_operating_mode"))
+        ),
+        "death_governance_policy": dg.normalize_policy(refreshed.get("death_governance_policy")),
     }
 
 
