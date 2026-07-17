@@ -241,9 +241,17 @@ async def exec_search_archive(user_id: str, args: dict) -> dict:
 
 async def exec_save_memory(user_id: str, args: dict) -> dict:
     from routers.executor_lock import assert_writable, is_legacy_locked
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "authenticity_mode": 1, "legacy_locked": 1})
-    if await is_legacy_locked(user_id) or (user or {}).get("authenticity_mode") == "retrieve_only":
-        return {"summary": "Archive is in retrieve-only mode — nothing was saved.", "ui": {"saved": False}}
+    import death_governance as dg
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "authenticity_mode": 1, "legacy_locked": 1, "twin_operating_mode": 1},
+    )
+    if (
+        await is_legacy_locked(user_id)
+        or (user or {}).get("authenticity_mode") == "retrieve_only"
+        or dg.normalize_mode((user or {}).get("twin_operating_mode")) == dg.MODE_DEATH_GOVERNANCE
+    ):
+        return {"summary": "Death Governance / retrieve-only — nothing was saved.", "ui": {"saved": False}}
     await assert_writable(user_id)
     content = (args.get("content") or "").strip()
     if not content:
@@ -279,9 +287,17 @@ async def exec_save_memory(user_id: str, args: dict) -> dict:
 
 async def exec_set_reminder(user_id: str, args: dict) -> dict:
     from routers.executor_lock import assert_writable, is_legacy_locked
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "authenticity_mode": 1})
-    if await is_legacy_locked(user_id) or (user or {}).get("authenticity_mode") == "retrieve_only":
-        return {"summary": "Retrieve-only mode — reminders cannot be created.", "ui": {"created": False}}
+    import death_governance as dg
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "authenticity_mode": 1, "twin_operating_mode": 1},
+    )
+    if (
+        await is_legacy_locked(user_id)
+        or (user or {}).get("authenticity_mode") == "retrieve_only"
+        or dg.normalize_mode((user or {}).get("twin_operating_mode")) == dg.MODE_DEATH_GOVERNANCE
+    ):
+        return {"summary": "Death Governance / retrieve-only — reminders cannot be created.", "ui": {"created": False}}
     await assert_writable(user_id)
     what = (args.get("what") or "").strip()
     if not what:

@@ -182,12 +182,19 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
         pass
     archive = "\n".join(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n" for e in entries)
 
+    import death_governance as dg
+    pack = await dg.build_governance_pack(owner["user_id"], heir=heir)
+    dg_section = dg.build_death_governance_section(
+        owner.get("name", ""),
+        policy=dg.governance_policy_for(owner),
+        governance_pack=pack,
+        for_heir=True,
+    )
+
     system = f"""You are {owner.get('name','the owner')}'s digital twin, speaking with their heir {heir.get('name','an heir')} ({heir.get('relationship','loved one')}).
 Be them. Speak in first person, warmly and personally. Be brief — 1-4 sentences unless asked for more.
 Do NOT take any actions. Do NOT invoke skills. This is a quiet conversation.
-
-AUTHENTICITY: RETRIEVE-ONLY. Answer only from the archive below. If something was never recorded, say you don't remember. Never invent biographical facts.
-
+{dg_section}
 Your personality archive:
 {archive[:18000] or '(empty)'}"""
 
