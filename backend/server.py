@@ -26,7 +26,7 @@ if _SENTRY_DSN:
         attach_stacktrace=True,
     )
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
@@ -50,6 +50,7 @@ from routers import (
     easy_setup,
     export,
     fulfillment,
+    health,
     heir_portal,
     heirs,
     interviewer,
@@ -78,7 +79,7 @@ from storage import init_storage
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Digital Heirloom — AI Twin", version="0.3.0")
+app = FastAPI(title="Digital Heirloom — AI Twin", version="0.4.0")
 
 
 @app.on_event("startup")
@@ -104,9 +105,10 @@ api_router = APIRouter(prefix="/api")
 
 @api_router.get("/")
 async def root():
-    return {"app": "digital-heirloom", "status": "ok"}
+    return {"app": "digital-heirloom", "status": "ok", "version": "0.4.0"}
 
 
+api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(archive.router)
 api_router.include_router(abilities.router)
@@ -150,6 +152,65 @@ api_router.include_router(easy_setup.router)
 app.include_router(api_router)
 
 
+# -------- Optional sale gate (ENFORCE_PURCHASE=true on Emergent production) --------
+# Public / auth / billing / health / heir-token routes stay open. Everything else
+# that already requires a session also requires purchased_lifetime (or tester/admin).
+_PURCHASE_OPEN_PREFIXES = (
+    "/api/health",
+    "/api/auth",
+    "/api/billing",
+    "/api/webhook",
+    "/api/download",
+    "/api/_sentry",
+    # Device-token companion paths (cookie may still be present in a browser)
+    "/api/companion/poll",
+    "/api/companion/result",
+    "/api/companion/screenshot",
+    "/api/companion/voice",
+    "/api/companion/public-script",
+    "/api/companion/easy-installer",
+)
+
+
+@app.middleware("http")
+async def enforce_purchase_middleware(request: Request, call_next):
+    from deps import ENFORCE_PURCHASE, get_current_user, user_has_paid_access
+
+    if not ENFORCE_PURCHASE:
+        return await call_next(request)
+
+    path = request.url.path
+    # Always allow CORS preflight and non-API traffic (SPA).
+    if request.method == "OPTIONS" or not path.startswith("/api/"):
+        return await call_next(request)
+    if path in ("/api/", "/api"):
+        return await call_next(request)
+    if path.startswith(_PURCHASE_OPEN_PREFIXES):
+        return await call_next(request)
+    # Public heir / live twin share links (token in path) — keep reachable.
+    if path.startswith(("/api/heir/", "/api/live/", "/api/m/")):
+        return await call_next(request)
+
+    # Only gate when the caller presents a session. Unauthenticated requests
+    # still hit the normal 401 from route deps.
+    try:
+        user = await get_current_user(request)
+    except HTTPException:
+        return await call_next(request)
+
+    if user_has_paid_access(user):
+        return await call_next(request)
+
+    return JSONResponse(
+        status_code=402,
+        content={
+            "detail": "Lifetime license required. Purchase at /buy",
+            "buy_url": "/buy",
+            "code": "purchase_required",
+        },
+    )
+
+
 # -------- Sentry debug endpoint --------
 @app.get("/api/_sentry/debug")
 async def _sentry_debug(secret: str = ""):
@@ -174,9 +235,17 @@ def _cors_allowed_origins() -> list[str]:
 
 
 def _cors_origin_regex() -> str | None:
-    """Allow Emergent preview/sub-domain origins via regex without baking exact URLs."""
-    # Permit https://<anything>.emergentagent.com and http(s)://localhost:* for dev
-    return r"^(https://[a-zA-Z0-9-]+\.emergentagent\.com|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?)$"
+    """Allow Emergent preview/prod hosts + local dev without baking exact URLs."""
+    # Permit Emergent preview (*.emergentagent.com), Emergent prod (*.emergent.host),
+    # custom Heirloom domains, and localhost for local/dev agents.
+    return (
+        r"^(https://[a-zA-Z0-9-]+\.emergentagent\.com"
+        r"|https://[a-zA-Z0-9-]+\.emergent\.host"
+        r"|https://([a-zA-Z0-9-]+\.)?heirloomunbound\.com"
+        r"|https://heirloom\.unboundinfotech\.com"
+        r"|http://localhost(:\d+)?"
+        r"|http://127\.0\.0\.1(:\d+)?)$"
+    )
 
 
 _allowed = _cors_allowed_origins()

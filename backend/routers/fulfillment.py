@@ -278,7 +278,10 @@ async def webhook_info(request: Request):
       → tick the events listed below → save → copy the signing secret into
       backend env as STRIPE_WEBHOOK_SECRET.
     """
-    base = str(request.base_url).rstrip("/")
+    base = (
+        os.environ.get("PUBLIC_BACKEND_URL", "").strip().rstrip("/")
+        or str(request.base_url).rstrip("/")
+    )
     return {
         "webhook_url": f"{base}/api/webhook/stripe",
         "events_to_listen_for": [
@@ -291,4 +294,5 @@ async def webhook_info(request: Request):
         "payment_link_url": os.environ.get("STRIPE_PAYMENT_LINK_URL", ""),
         "test_mode": STRIPE_API_KEY.startswith("sk_test"),
         "configured": bool(STRIPE_API_KEY),
+        "webhook_secret_configured": bool(os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()),
     }

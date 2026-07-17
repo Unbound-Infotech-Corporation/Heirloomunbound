@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from deps import db, get_current_user
+from deps import db, get_current_user, ENFORCE_PURCHASE, user_has_paid_access
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -71,11 +71,20 @@ async def create_session(request: Request, response: Response):
         samesite="none",
         path="/",
     )
+    # Re-read so purchase flags are accurate for the client gate.
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
     return {
         "user_id": user_id,
         "email": email,
         "name": name,
         "picture": picture,
+        "purchased_lifetime": bool(user.get("purchased_lifetime")),
+        "purchased_at": user.get("purchased_at"),
+        "account_status": user.get("account_status") or "active",
+        "is_tester": bool(user.get("is_tester")),
+        "enforce_purchase": ENFORCE_PURCHASE,
+        "has_paid_access": user_has_paid_access(user) if user else False,
+        "tour_completed": bool(user.get("tour_completed", False)),
     }
 
 
@@ -114,6 +123,12 @@ async def me(user: dict = Depends(get_current_user)):
             "no_legal_medical_advice": True,
             "heir_first_person": True,
         },
+        "purchased_lifetime": bool(user.get("purchased_lifetime")),
+        "purchased_at": user.get("purchased_at"),
+        "account_status": user.get("account_status") or "active",
+        "is_tester": bool(user.get("is_tester")),
+        "enforce_purchase": ENFORCE_PURCHASE,
+        "has_paid_access": user_has_paid_access(user),
     }
 
 
