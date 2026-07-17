@@ -177,17 +177,23 @@ async def enabled_ability_ids(user_id: str) -> set[str]:
     return {aid for aid, s in states.items() if s["enabled"]}
 
 
+def tool_names_for_abilities(enabled_ids: set[str]) -> set[str]:
+    """Core tools + tools from the given enabled ability ids (no DB hit)."""
+    names = set(CORE_TOOLS)
+    for aid in enabled_ids:
+        ability = ABILITY_BY_ID.get(aid)
+        if ability:
+            names.update(ability["tools"])
+    return names
+
+
 async def is_enabled(user_id: str, ability_id: str) -> bool:
     return ability_id in await enabled_ability_ids(user_id)
 
 
 async def enabled_tool_names(user_id: str) -> set[str]:
     """Core tools + every tool from the user's enabled abilities."""
-    names = set(CORE_TOOLS)
-    ids = await enabled_ability_ids(user_id)
-    for aid in ids:
-        names.update(ABILITY_BY_ID[aid]["tools"])
-    return names
+    return tool_names_for_abilities(await enabled_ability_ids(user_id))
 
 
 async def set_state(user_id: str, ability_id: str, enabled: bool, granted_permissions: list[str] | None = None) -> dict:

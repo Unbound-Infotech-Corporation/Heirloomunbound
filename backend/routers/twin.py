@@ -1,10 +1,12 @@
 """Talk to Your Twin: chat that speaks AS the user, grounded in archive."""
+import asyncio
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from emergentintegrations.llm.chat import LlmChat, StreamDone, TextDelta, UserMessage
+from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -24,6 +26,15 @@ from utils import rate_limit
 import abilities as ab
 
 router = APIRouter(prefix="/twin", tags=["twin"])
+
+# Keep prompt + latency sane as conversations grow.
+_MAX_HISTORY_TURNS = 24
+_ARCHIVE_CONTENT_CHARS = 900
+_STOP_WORDS = frozenset({
+    "the", "a", "an", "of", "in", "on", "to", "for", "was", "is", "are",
+    "what", "where", "when", "who", "why", "how", "my", "me", "i", "did",
+    "do", "does", "that", "this", "at", "with", "and", "you", "your",
+})
 
 
 def _build_twin_system(
@@ -143,22 +154,27 @@ async def get_twin_conversation(conversation_id: str, user: dict = Depends(get_c
     return conv
 
 
+def _entry_excerpt(entry: dict) -> str:
+    content = (entry.get("content") or "")[:_ARCHIVE_CONTENT_CHARS]
+    return f"[{(entry.get('type') or 'note').upper()}] {entry.get('title', '')}\n{content}\n"
+
+
 async def _archive_blob(user_id: str, query_hint: str = "", limit_recent: int = 20, limit_relevant: int = 30) -> str:
     """Top-k retrieval: 20 most recent + up to N entries matching tokens in the user's question."""
-    docs: dict[str, dict] = {}
+    projection = {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "tags": 1, "created_at": 1}
 
-    # Recent N — always include for continuity
-    recent = await db.entries.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(limit_recent).to_list(length=limit_recent)
-    for e in recent:
-        docs[e["entry_id"]] = e
+    recent_coro = (
+        db.entries.find({"user_id": user_id}, projection)
+        .sort("created_at", -1)
+        .limit(limit_recent)
+        .to_list(length=limit_recent)
+    )
 
-    # Token-matched entries on the user's latest message
+    match_coro = None
     if query_hint:
-        import re as _re
-        STOP = {"the","a","an","of","in","on","to","for","was","is","are","what","where","when","who","why","how","my","me","i","did","do","does","that","this","at","with","and","you","your"}
         tokens = [
-            _re.escape(t) for t in _re.split(r"\W+", query_hint.lower())
-            if len(t) > 2 and t not in STOP
+            re.escape(t) for t in re.split(r"\W+", query_hint.lower())
+            if len(t) > 2 and t not in _STOP_WORDS
         ]
         if tokens:
             or_clauses = []
@@ -168,16 +184,27 @@ async def _archive_blob(user_id: str, query_hint: str = "", limit_recent: int = 
                     {"content": {"$regex": t, "$options": "i"}},
                     {"tags": {"$regex": t, "$options": "i"}},
                 ])
-            match_cursor = db.entries.find({"user_id": user_id, "$or": or_clauses}, {"_id": 0}).limit(limit_relevant)
-            async for e in match_cursor:
-                docs[e["entry_id"]] = e
+            match_coro = (
+                db.entries.find({"user_id": user_id, "$or": or_clauses}, projection)
+                .limit(limit_relevant)
+                .to_list(length=limit_relevant)
+            )
+
+    if match_coro is not None:
+        recent, matched = await asyncio.gather(recent_coro, match_coro)
+    else:
+        recent = await recent_coro
+        matched = []
+
+    docs: dict[str, dict] = {}
+    for e in recent:
+        docs[e["entry_id"]] = e
+    for e in matched:
+        docs[e["entry_id"]] = e
 
     if not docs:
         return ""
-    chunks = []
-    for e in list(docs.values()):
-        chunks.append(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n")
-    return "\n".join(chunks)
+    return "\n".join(_entry_excerpt(e) for e in docs.values())
 
 
 async def _skills_blob(user_id: str) -> str:
@@ -191,6 +218,15 @@ async def _skills_blob(user_id: str) -> str:
     return "\n".join(lines)
 
 
+def _history_turns(messages: list[dict], limit: int = _MAX_HISTORY_TURNS) -> list[dict]:
+    """Keep only the last N user/assistant turns to bound Claude context size."""
+    turns = [
+        m for m in messages
+        if m.get("role") in ("user", "assistant") and m.get("content")
+    ]
+    return turns[-limit:]
+
+
 @router.post("/message")
 async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     conv = await db.conversations.find_one(
@@ -200,8 +236,9 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Which abilities has the owner turned on? Gates short-circuits + tool set.
+    # Single DB read — derive tool names in-process (avoids a second get_states hit).
     enabled_ids = await ab.enabled_ability_ids(user["user_id"])
-    enabled_tools = await ab.enabled_tool_names(user["user_id"])
+    enabled_tools = ab.tool_names_for_abilities(enabled_ids)
 
     # ---- Music intent short-circuit (only if the Music ability is on) ----
     music_query = detect_music_intent(payload.message) if "music" in enabled_ids else None
@@ -307,11 +344,15 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         )
 
     await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
-    archive = await _archive_blob(user["user_id"], query_hint=payload.message)
-    skills = await _skills_blob(user["user_id"])
-    memory_pack = await build_memory_pack(user["user_id"], query_hint=payload.message)
+
+    # Parallelize independent context fetches — biggest twin-turn latency win.
+    archive, skills, memory_pack, persona = await asyncio.gather(
+        _archive_blob(user["user_id"], query_hint=payload.message),
+        _skills_blob(user["user_id"]),
+        build_memory_pack(user["user_id"], query_hint=payload.message),
+        get_active_persona(user["user_id"], user),
+    )
     memory_blob = format_memory_pack_for_prompt(memory_pack)
-    persona = await get_active_persona(user["user_id"], user)
     # Merge safe topics from user + persona
     merged_safe = list({*(user.get("safe_topics") or []), *((persona or {}).get("extra_safe_topics") or [])})
     brand = {
@@ -327,11 +368,10 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         persona=persona, brand=brand, abilities_block=abilities_block,
     )
 
-    # Replay prior turns so the twin remembers what was just said.
+    # Replay recent turns only — episodic summaries cover older history.
     initial_messages = [{"role": "system", "content": system}]
-    for m in conv.get("messages", []):
-        if m.get("role") in ("user", "assistant") and m.get("content"):
-            initial_messages.append({"role": m["role"], "content": m["content"]})
+    for m in _history_turns(conv.get("messages", [])):
+        initial_messages.append({"role": m["role"], "content": m["content"]})
 
     # Only expose the tools from abilities the owner has enabled (+ core memory).
     active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
@@ -416,8 +456,14 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             },
         )
         # Fire-and-forget episodic summary (won't block the SSE close)
+        async def _safe_summarise():
+            try:
+                await maybe_summarise_episode(user["user_id"], payload.conversation_id)
+            except Exception:  # noqa: BLE001
+                pass
+
         try:
-            await maybe_summarise_episode(user["user_id"], payload.conversation_id)
+            asyncio.create_task(_safe_summarise())
         except Exception:  # noqa: BLE001
             pass
         # Fan out to live-stream viewers (no-op if broadcast is off)
