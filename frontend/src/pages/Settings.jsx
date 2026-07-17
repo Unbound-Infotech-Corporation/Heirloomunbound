@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Download, Languages, Loader2, Lock, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { CheckCircle2, Download, Heart, Languages, Loader2, Lock, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -383,6 +384,24 @@ export default function Settings() {
         <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">Your archive.</h1>
       </header>
 
+      <Link
+        to="/setup/easy"
+        data-testid="settings-easy-setup-link"
+        className="surface p-6 mb-6 flex items-start gap-4 hover:opacity-90 transition-opacity"
+        style={{ border: "1px solid var(--accent)" }}
+      >
+        <Heart className="h-6 w-6 mt-0.5 shrink-0" style={{ color: "var(--accent)" }} />
+        <div className="flex-1">
+          <div className="overline mb-1" style={{ color: "var(--accent)" }}>simple setup</div>
+          <h2 className="font-serif text-2xl mb-1">Set this up in a few easy questions</h2>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            Name a loved one, choose a trusted person, and pick how careful your twin should be —
+            written in plain language. Recommended if Settings feels like too much.
+          </p>
+        </div>
+        <span className="text-2xl self-center" style={{ color: "var(--accent)" }}>→</span>
+      </Link>
+
       <section className="surface p-7 mb-6">
         <div className="overline mb-4">account</div>
         <div className="space-y-3 text-sm">
@@ -397,16 +416,16 @@ export default function Settings() {
 
       <section className="surface p-7 mb-6" data-testid="death-governance-section">
         <div className="overline mb-4">death governance</div>
-        <h2 className="font-serif text-2xl mb-2">Posthumous stewardship mode</h2>
+        <h2 className="font-serif text-2xl mb-2">The forever version of your twin</h2>
         <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          Turn this on when you want the twin to behave as a grief-aware archive steward —
-          retrieve-only authenticity, no invented wishes, gentle disclosure, guidance toward
-          sealed letters and heirs. Executor Lock forces this mode after activation.
+          When this is on, your twin only uses what you wrote down, speaks gently with family,
+          and won&apos;t invent wishes you never recorded. Prefer a guided path? Use{" "}
+          <Link to="/setup/easy" className="underline" style={{ color: "var(--accent)" }}>Simple Setup</Link>.
         </p>
         <div className="flex flex-wrap gap-3 mb-6">
           {[
-            { key: "living", label: "Living companion" },
-            { key: "death_governance", label: "Death Governance" },
+            { key: "living", label: "Everyday me" },
+            { key: "death_governance", label: "Forever / careful mode" },
           ].map((m) => (
             <button
               key={m.key}
@@ -457,17 +476,16 @@ export default function Settings() {
 
       <section className="surface p-7 mb-6" data-testid="authenticity-section">
         <div className="overline mb-4 inline-flex items-center gap-2">
-          <Lock className="h-3.5 w-3.5" /> authenticity
+          <Lock className="h-3.5 w-3.5" /> how careful
         </div>
-        <h2 className="font-serif text-2xl mb-2">How the twin answers</h2>
+        <h2 className="font-serif text-2xl mb-2">How strictly should the twin stick to your words?</h2>
         <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          Retrieve-only mode answers strictly from your archive — no invented biography.
-          Balanced mode still prefers the archive but allows warmer, grounded replies when gaps exist.
+          &quot;Only what I wrote&quot; never invents. &quot;Warm and careful&quot; can sound more natural while still preferring your archive.
         </p>
         <div className="flex flex-wrap gap-3">
           {[
-            { key: "balanced", label: "Balanced" },
-            { key: "retrieve_only", label: "Retrieve-only" },
+            { key: "balanced", label: "Warm and careful" },
+            { key: "retrieve_only", label: "Only what I wrote" },
           ].map((m) => (
             <button
               key={m.key}
@@ -519,11 +537,12 @@ export default function Settings() {
       </section>
 
       <section className="surface p-7 mb-6" data-testid="executor-lock-section">
-        <div className="overline mb-4">executor lock</div>
-        <h2 className="font-serif text-2xl mb-2">Posthumous stewardship</h2>
+        <div className="overline mb-4">trusted unlock</div>
+        <h2 className="font-serif text-2xl mb-2">Who can open this if something happens to you</h2>
         <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          Name an executor while you&apos;re alive. After a death attestation and waiting period,
-          the archive locks read-only and all heirs are released automatically.
+          Name someone you trust. They get a special link. Nothing opens instantly — there&apos;s a waiting
+          period so you can cancel a mistake. Prefer the guided path?{" "}
+          <Link to="/setup/easy" className="underline" style={{ color: "var(--accent)" }}>Simple Setup</Link>.
         </p>
         {executorLock?.status === "locked" ? (
           <p className="text-sm" style={{ color: "var(--text-primary)" }}>
@@ -538,12 +557,12 @@ export default function Settings() {
                 onChange={(e) => setExecutorForm((f) => ({ ...f, enabled: e.target.checked }))}
                 data-testid="executor-enabled"
               />
-              Enable Executor Lock
+              Enable trusted unlock
             </label>
             <input
               value={executorForm.executor_name}
               onChange={(e) => setExecutorForm((f) => ({ ...f, executor_name: e.target.value }))}
-              placeholder="Executor full name"
+              placeholder="Trusted person's full name"
               data-testid="executor-name"
               className="w-full px-3 py-2 text-sm rounded-sm"
               style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
@@ -552,7 +571,7 @@ export default function Settings() {
               type="email"
               value={executorForm.executor_email}
               onChange={(e) => setExecutorForm((f) => ({ ...f, executor_email: e.target.value }))}
-              placeholder="Executor email"
+              placeholder="Their email"
               data-testid="executor-email"
               className="w-full px-3 py-2 text-sm rounded-sm"
               style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
@@ -580,7 +599,7 @@ export default function Settings() {
               className="px-4 py-2 text-sm rounded-sm"
               style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
             >
-              {executorBusy ? "Saving…" : "Save Executor Lock"}
+              {executorBusy ? "Saving…" : "Save trusted person"}
             </button>
             {executorLock?.attest_path && (
               <button
@@ -590,7 +609,7 @@ export default function Settings() {
                 className="ml-3 px-4 py-2 text-sm rounded-sm"
                 style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
               >
-                Copy executor link
+                Copy their unlock link
               </button>
             )}
             {executorLock?.status === "pending" && (

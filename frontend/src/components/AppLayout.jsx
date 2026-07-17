@@ -23,6 +23,7 @@ import {
   Users,
   Wrench,
   X,
+  Heart,
 } from "lucide-react";
 import QuickCapture from "./QuickCapture";
 import SiteFooter from "./SiteFooter";
@@ -47,6 +48,7 @@ const navItems = [
   { to: "/companion", label: "Local PC", icon: MonitorSpeaker, tid: "nav-companion" },
   { to: "/heirs", label: "Heirs", icon: Users, tid: "nav-heirs" },
   { to: "/letters", label: "Sealed letters", icon: Mail, tid: "nav-letters" },
+  { to: "/setup/easy", label: "Simple setup", icon: Heart, tid: "nav-easy-setup" },
   { to: "/settings", label: "Settings", icon: SettingsIcon, tid: "nav-settings" },
 ];
 
