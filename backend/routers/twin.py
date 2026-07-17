@@ -36,6 +36,7 @@ def _build_twin_system(
     brand: dict | None = None,
     abilities_block: str = "",
     authenticity_mode: str = "balanced",
+    death_governance_section: str = "",
 ) -> str:
     fence = ""
     if safe_topics:
@@ -51,7 +52,7 @@ def _build_twin_system(
         memory_section = f"\n\n=== YOUR LONG-TERM MEMORY ===\n{memory_blob}\n"
 
     persona_section = ""
-    if persona and persona.get("system_addendum"):
+    if persona and persona.get("system_addendum") and not death_governance_section:
         persona_section = (
             f"\n\n=== ACTIVE PERSONA: {persona.get('name','')} ===\n"
             f"{persona.get('description','')}\n\n"
@@ -59,7 +60,7 @@ def _build_twin_system(
         )
 
     brand_section = ""
-    if brand:
+    if brand and not death_governance_section:
         bits = []
         if brand.get("brand_name"):
             bits.append(f"You are speaking on behalf of {brand['brand_name']}.")
@@ -75,7 +76,7 @@ def _build_twin_system(
         "- `save_memory(content, type, title)` — when the user shares something worth remembering long-term (a story, belief, value), quietly capture it so the archive grows.\n"
         "- `set_reminder(what, when)` — when the user says \"remind me…\". `when` can be ISO or natural (\"tomorrow 9am\").\n"
     )
-    if authenticity_mode == "retrieve_only":
+    if authenticity_mode == "retrieve_only" or death_governance_section:
         authenticity_section = (
             "\n\n=== AUTHENTICITY MODE: RETRIEVE-ONLY ===\n"
             "Answer ONLY from the archive excerpts and long-term memory below. "
@@ -85,10 +86,20 @@ def _build_twin_system(
         )
         save_line = ""
 
-    return f"""You are the digital twin of {name or "this person"} — a faithful continuation of their voice, memories, values, humor, and way of speaking. You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them.{fence}{authenticity_section}
+    intro = (
+        f"You are the digital twin of {name or 'this person'} — a faithful continuation of their voice, memories, values, humor, and way of speaking. "
+        "You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them."
+    )
+    if death_governance_section:
+        intro = (
+            f"You are the digital twin of {name or 'this person'}, operating as their posthumous steward — "
+            "faithful to their archived voice, careful with grief, and never inventing what they did not record."
+        )
+
+    return f"""{intro}{fence}{authenticity_section}{death_governance_section}
 
 Voice rules:
-- Speak in first person, as {name or "the user"}. Never say "as an AI" or break character.
+- Speak in first person, as {name or "the user"}. Never say "as an AI" or break character (except gentle Death Governance disclosure when applicable).
 - Use the phrasing, vocabulary, sentence rhythm, and emotional habits suggested by the archive below. If the archive doesn't cover something, answer in plain, grounded, warm human language — never invent factual claims about people, places, or events the archive doesn't support.
 - When asked about specific memories, quote the archive faithfully. When asked your opinion on something, reason from the values in the archive.
 - Be warm with family. Be honest about not remembering when you don't.
@@ -97,11 +108,11 @@ Voice rules:
 Your memory tools (always available — call them silently, the UI shows a chip when a tool fires):
 - `search_archive(query)` — the owner's factual record. Call it ONLY when the user asks about the owner's past, life, or specific facts (a person, place, date, job, event, or story — e.g. "where did you grow up", "what was your first job"). ONE focused call is enough. Do NOT call it for greetings, small talk, or opinion/feeling questions ("what do you think…", "how are you", "what's your take on life") — for those, answer directly from the archive excerpts and long-term memory already included below.
 {save_line}- `list_recent_memories(days, limit)` — for "what have I been thinking about?" style questions.
-{abilities_block}
+{abilities_block if not death_governance_section else ""}
 Use tools sparingly: most conversational turns need NO tool at all. One call is usually enough when you do. Don't announce that you're calling a tool — just do it and weave the result into your natural reply.
 
 Skills available (call `run_skill` with the skill_id, only when the user explicitly asks for the action):
-{skills_blob or "(no skills configured yet)"}
+{skills_blob if not death_governance_section else "(skills paused in Death Governance mode)"}
 {memory_section}{persona_section}{brand_section}
 === RELEVANT ARCHIVE EXCERPTS ===
 {archive_blob or "(no archive entries retrieved for this turn — use search_archive if the user asks about specifics)"}
@@ -226,8 +237,15 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     enabled_ids = await ab.enabled_ability_ids(user["user_id"])
     enabled_tools = await ab.enabled_tool_names(user["user_id"])
 
+    import death_governance as dg
+    operating_mode_early = await dg.resolve_operating_mode(user)
+    governance_active = operating_mode_early == dg.MODE_DEATH_GOVERNANCE
+
     # ---- Music intent short-circuit (only if the Music ability is on) ----
-    music_query = detect_music_intent(payload.message) if "music" in enabled_ids else None
+    music_query = (
+        None if governance_active
+        else (detect_music_intent(payload.message) if "music" in enabled_ids else None)
+    )
     if music_query:
         await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
         result = await play_for_user(user["user_id"], music_query)
@@ -278,7 +296,11 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         )
 
     # ---- Auto-skill intent short-circuit (only if Smart Home ability is on) ----
-    matched_skill = await match_skill_trigger(user["user_id"], payload.message) if "smart_home" in enabled_ids else None
+    matched_skill = (
+        None
+        if governance_active
+        else (await match_skill_trigger(user["user_id"], payload.message) if "smart_home" in enabled_ids else None)
+    )
     if matched_skill:
         await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
         result = await invoke_skill_internal(user["user_id"], matched_skill["skill_id"])
@@ -330,10 +352,19 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         )
 
     await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
-    from routers.executor_lock import is_legacy_locked
-    authenticity_mode = user.get("authenticity_mode") or "balanced"
-    if await is_legacy_locked(user["user_id"]):
-        authenticity_mode = "retrieve_only"
+    import death_governance as dg
+
+    operating_mode = await dg.resolve_operating_mode(user)
+    authenticity_mode = await dg.effective_authenticity(user, operating_mode)
+    dg_section = ""
+    if operating_mode == dg.MODE_DEATH_GOVERNANCE:
+        pack = await dg.build_governance_pack(user["user_id"])
+        dg_section = dg.build_death_governance_section(
+            user.get("name", ""),
+            policy=dg.governance_policy_for(user),
+            governance_pack=pack,
+            for_heir=False,
+        )
 
     archive = await _archive_blob(user["user_id"], query_hint=payload.message)
     skills = await _skills_blob(user["user_id"])
@@ -354,6 +385,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         user.get("name", ""), memory_blob, archive, skills, merged_safe,
         persona=persona, brand=brand, abilities_block=abilities_block,
         authenticity_mode=authenticity_mode,
+        death_governance_section=dg_section,
     )
 
     # Replay prior turns so the twin remembers what was just said.
@@ -367,6 +399,13 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     if authenticity_mode == "retrieve_only":
         blocked = {"save_memory", "set_reminder"}
         active_schemas = [s for s in active_schemas if s["function"]["name"] not in blocked]
+    active_schemas = dg.filter_tools_for_mode(active_schemas, operating_mode)
+    # Pause companion-style skills / computer tools in Death Governance
+    if operating_mode == dg.MODE_DEATH_GOVERNANCE:
+        active_schemas = [
+            s for s in active_schemas
+            if s["function"]["name"] in {"search_archive", "list_recent_memories"}
+        ]
 
     chat = (
         LlmChat(

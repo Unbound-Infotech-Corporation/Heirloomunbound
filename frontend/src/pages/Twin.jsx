@@ -62,9 +62,13 @@ export default function Twin() {
   const [videos, setVideos] = useState({});
   const [liveTools, setLiveTools] = useState([]);
   const [abilities, setAbilities] = useState([]);
+  const [operatingMode, setOperatingMode] = useState("living");
 
   useEffect(() => {
     api.get("/abilities").then(({ data }) => setAbilities(data.abilities || [])).catch(() => {});
+    api.get("/auth/me").then(({ data }) => {
+      setOperatingMode(data.twin_operating_mode || "living");
+    }).catch(() => {});
   }, []);
 
   const toggleAbility = async (ab) => {
@@ -242,11 +246,22 @@ export default function Twin() {
         <div>
           <div className="overline mb-3">your twin</div>
           <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">
-            Sit a while. Ask anything.
+            {operatingMode === "death_governance" ? "A steward for what you left." : "Sit a while. Ask anything."}
           </h1>
           <p className="mt-3 text-base max-w-xl" style={{ color: "var(--text-secondary)" }}>
-            Your twin draws from everything you&apos;ve put into the archive. The more you&apos;ve added, the truer it sounds.
+            {operatingMode === "death_governance"
+              ? "Death Governance is on — answers stay archive-faithful, grief-aware, and refuse invented wishes. Change this in Settings."
+              : "Your twin draws from everything you've put into the archive. The more you've added, the truer it sounds."}
           </p>
+          {operatingMode === "death_governance" && (
+            <div
+              className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-sm"
+              data-testid="twin-death-governance-badge"
+              style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+            >
+              Death Governance mode
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
         <button

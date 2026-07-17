@@ -41,6 +41,15 @@ export default function Settings() {
   const [avatarConfigured, setAvatarConfigured] = useState(false);
   const [authenticityMode, setAuthenticityMode] = useState("balanced");
   const [legacyLocked, setLegacyLocked] = useState(false);
+  const [operatingMode, setOperatingMode] = useState("living");
+  const [govPolicy, setGovPolicy] = useState({
+    disclose_nature: true,
+    grief_aware: true,
+    refuse_invented_wishes: true,
+    guide_to_letters: true,
+    no_legal_medical_advice: true,
+    heir_first_person: true,
+  });
   const [executorLock, setExecutorLock] = useState(null);
   const [executorForm, setExecutorForm] = useState({
     enabled: true,
@@ -85,6 +94,10 @@ export default function Settings() {
     setActivePersonaId(data.active_persona_id || null);
     setAuthenticityMode(data.authenticity_mode || "balanced");
     setLegacyLocked(!!data.legacy_locked);
+    setOperatingMode(data.twin_operating_mode || "living");
+    if (data.death_governance_policy) {
+      setGovPolicy((p) => ({ ...p, ...data.death_governance_policy }));
+    }
   };
   const loadExecutorLock = async () => {
     try {
@@ -139,6 +152,33 @@ export default function Settings() {
     try {
       await api.put("/auth/me/preferences", { authenticity_mode: mode });
       toast.success(mode === "retrieve_only" ? "Retrieve-only authenticity on" : "Balanced authenticity on");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+      loadPrefs();
+    }
+  };
+
+  const saveOperatingMode = async (mode) => {
+    setOperatingMode(mode);
+    try {
+      const { data } = await api.put("/auth/me/preferences", { twin_operating_mode: mode });
+      setAuthenticityMode(data.authenticity_mode || (mode === "death_governance" ? "retrieve_only" : authenticityMode));
+      toast.success(
+        mode === "death_governance"
+          ? "Death Governance mode on — twin is in stewardship profile"
+          : "Living companion mode on"
+      );
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+      loadPrefs();
+    }
+  };
+
+  const saveGovPolicy = async (next) => {
+    setGovPolicy(next);
+    try {
+      await api.put("/auth/me/preferences", { death_governance_policy: next });
+      toast.success("Governance policy saved");
     } catch (e) {
       toast.error(e.response?.data?.detail || e.message);
       loadPrefs();
@@ -353,6 +393,66 @@ export default function Settings() {
             <Row label="Legacy" value="Locked (read-only stewardship)" />
           )}
         </div>
+      </section>
+
+      <section className="surface p-7 mb-6" data-testid="death-governance-section">
+        <div className="overline mb-4">death governance</div>
+        <h2 className="font-serif text-2xl mb-2">Posthumous stewardship mode</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Turn this on when you want the twin to behave as a grief-aware archive steward —
+          retrieve-only authenticity, no invented wishes, gentle disclosure, guidance toward
+          sealed letters and heirs. Executor Lock forces this mode after activation.
+        </p>
+        <div className="flex flex-wrap gap-3 mb-6">
+          {[
+            { key: "living", label: "Living companion" },
+            { key: "death_governance", label: "Death Governance" },
+          ].map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              disabled={legacyLocked && m.key !== "death_governance"}
+              onClick={() => saveOperatingMode(m.key)}
+              data-testid={`operating-mode-${m.key}`}
+              className="px-4 py-2 text-sm rounded-sm disabled:opacity-50"
+              style={{
+                background: operatingMode === m.key ? "var(--accent)" : "transparent",
+                color: operatingMode === m.key ? "var(--text-inverse)" : "var(--text-secondary)",
+                border: "1px solid var(--border-default)",
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        {(operatingMode === "death_governance" || legacyLocked) && (
+          <div className="space-y-3" data-testid="death-governance-policy">
+            {[
+              { key: "disclose_nature", label: "Gently disclose this is a digital twin" },
+              { key: "grief_aware", label: "Grief-aware tone (unhurried, honest)" },
+              { key: "refuse_invented_wishes", label: "Refuse invented end-of-life / estate wishes" },
+              { key: "guide_to_letters", label: "Guide visitors toward sealed letters" },
+              { key: "no_legal_medical_advice", label: "Decline legal / medical advice" },
+              { key: "heir_first_person", label: "Speak in first person as the person" },
+            ].map((row) => (
+              <label
+                key={row.key}
+                className="flex items-center justify-between gap-4 px-3 py-2 rounded-sm text-sm cursor-pointer"
+                style={{ border: "1px solid var(--border-default)" }}
+              >
+                <span style={{ color: "var(--text-secondary)" }}>{row.label}</span>
+                <input
+                  type="checkbox"
+                  checked={!!govPolicy[row.key]}
+                  onChange={(e) =>
+                    saveGovPolicy({ ...govPolicy, [row.key]: e.target.checked })
+                  }
+                  data-testid={`gov-policy-${row.key}`}
+                />
+              </label>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="surface p-7 mb-6" data-testid="authenticity-section">

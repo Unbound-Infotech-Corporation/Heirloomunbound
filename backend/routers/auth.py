@@ -103,6 +103,17 @@ async def me(user: dict = Depends(get_current_user)):
         "authenticity_mode": mode,
         "legacy_locked": locked,
         "legacy_locked_at": user.get("legacy_locked_at"),
+        "twin_operating_mode": (
+            "death_governance" if locked else (user.get("twin_operating_mode") or "living")
+        ),
+        "death_governance_policy": user.get("death_governance_policy") or {
+            "disclose_nature": True,
+            "grief_aware": True,
+            "refuse_invented_wishes": True,
+            "guide_to_letters": True,
+            "no_legal_medical_advice": True,
+            "heir_first_person": True,
+        },
     }
 
 
@@ -123,11 +134,14 @@ class PreferencesUpdate(BaseModel):
     brand_tagline: Optional[str] = None
     brand_signoff: Optional[str] = None  # e.g. "— Aaron, Unbound Infotech"
     authenticity_mode: Optional[str] = None  # balanced | retrieve_only
+    twin_operating_mode: Optional[str] = None  # living | death_governance
+    death_governance_policy: Optional[dict] = None
 
 
 @router.put("/me/preferences")
 async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(get_current_user)):
     from routers.executor_lock import assert_writable, is_legacy_locked
+    import death_governance as dg
 
     update: dict = {}
     if payload.safe_topics is not None:
@@ -157,8 +171,19 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
         if await is_legacy_locked(user["user_id"]) and mode != "retrieve_only":
             raise HTTPException(status_code=403, detail="Legacy is locked — authenticity stays retrieve-only")
         update["authenticity_mode"] = mode
-    # Prefer authenticity_mode even when locked; block other preference mutations
-    other_keys = set(update.keys()) - {"authenticity_mode"}
+    if payload.twin_operating_mode is not None:
+        om = dg.normalize_mode(payload.twin_operating_mode)
+        if await is_legacy_locked(user["user_id"]) and om != dg.MODE_DEATH_GOVERNANCE:
+            raise HTTPException(status_code=403, detail="Legacy is locked — Death Governance stays on")
+        update["twin_operating_mode"] = om
+        # Opting into Death Governance also forces retrieve-only authenticity
+        if om == dg.MODE_DEATH_GOVERNANCE:
+            update["authenticity_mode"] = "retrieve_only"
+    if payload.death_governance_policy is not None:
+        update["death_governance_policy"] = dg.normalize_policy(payload.death_governance_policy)
+    # Prefer governance/authenticity even when locked; block other preference mutations
+    allow_when_locked = {"authenticity_mode", "twin_operating_mode", "death_governance_policy"}
+    other_keys = set(update.keys()) - allow_when_locked
     if other_keys:
         await assert_writable(user["user_id"])
     if not update:
@@ -167,7 +192,7 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
     refreshed = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     locked = await is_legacy_locked(user["user_id"])
     mode = refreshed.get("authenticity_mode") or "balanced"
-    if locked:
+    if locked or refreshed.get("twin_operating_mode") == dg.MODE_DEATH_GOVERNANCE:
         mode = "retrieve_only"
     return {
         "safe_topics": refreshed.get("safe_topics") or [],
@@ -178,6 +203,10 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
         "brand_signoff": refreshed.get("brand_signoff") or "",
         "authenticity_mode": mode,
         "legacy_locked": locked,
+        "twin_operating_mode": (
+            dg.MODE_DEATH_GOVERNANCE if locked else dg.normalize_mode(refreshed.get("twin_operating_mode"))
+        ),
+        "death_governance_policy": dg.normalize_policy(refreshed.get("death_governance_policy")),
     }
 
 

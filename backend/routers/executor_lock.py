@@ -258,6 +258,7 @@ async def activate_lock_if_due(user_id: str) -> dict:
             "legacy_locked": True,
             "legacy_locked_at": locked_at,
             "authenticity_mode": "retrieve_only",  # hard authenticity after death
+            "twin_operating_mode": "death_governance",  # stewardship profile
         }},
     )
 
