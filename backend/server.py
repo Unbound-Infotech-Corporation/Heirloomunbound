@@ -47,6 +47,7 @@ from routers import (
     desktop,
     email as email_router,
     executor_lock,
+    easy_setup,
     export,
     fulfillment,
     heir_portal,
@@ -144,6 +145,7 @@ api_router.include_router(avatar_studio.router)
 api_router.include_router(user_keys.router)
 api_router.include_router(executor_lock.router)
 api_router.include_router(export.router)
+api_router.include_router(easy_setup.router)
 
 app.include_router(api_router)
 

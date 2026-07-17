@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlarmClock, ArrowRight, BookmarkPlus, Calendar, CheckCircle2, Circle, Clock, Feather, Flame, MessageCircle, Sparkles, X } from "lucide-react";
+import { AlarmClock, ArrowRight, BookmarkPlus, Calendar, CheckCircle2, Circle, Clock, Feather, Flame, Heart, MessageCircle, Sparkles, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -101,6 +101,8 @@ export default function Today() {
           {pickGreeting()}, {user?.name?.split(" ")[0] || "friend"}.
         </h1>
       </header>
+
+      <EasySetupBanner />
 
       {/* Always-on stat strip */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
@@ -350,5 +352,61 @@ function ReminderRow({ r, onComplete, variant }) {
       </div>
       <div className="overline" style={{ color }}>{variant}</div>
     </div>
+  );
+}
+
+function EasySetupBanner() {
+  const [status, setStatus] = useState(null);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("easy_setup_banner_dismissed") === "1") {
+        setDismissed(true);
+      }
+    } catch { /* noop */ }
+    api.get("/easy-setup/status")
+      .then(({ data }) => setStatus(data))
+      .catch(() => setStatus(null));
+  }, []);
+
+  if (dismissed || !status || status.easy_setup_completed || status.all_done) return null;
+
+  return (
+    <section
+      className="surface p-6 mb-10 relative"
+      style={{ border: "1px solid var(--accent)" }}
+      data-testid="today-easy-setup-banner"
+    >
+      <button
+        type="button"
+        className="absolute top-3 right-3 p-1"
+        aria-label="Dismiss"
+        onClick={() => {
+          setDismissed(true);
+          try { sessionStorage.setItem("easy_setup_banner_dismissed", "1"); } catch { /* noop */ }
+        }}
+      >
+        <X className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
+      </button>
+      <div className="flex items-start gap-4">
+        <Heart className="h-6 w-6 mt-1 shrink-0" style={{ color: "var(--accent)" }} />
+        <div className="flex-1">
+          <div className="overline mb-1" style={{ color: "var(--accent)" }}>simple setup</div>
+          <h2 className="font-serif text-2xl mb-2">Finish a few easy questions</h2>
+          <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+            {status.done_count} of {status.total} important steps done. Written so anyone in the family can follow along.
+          </p>
+          <Link
+            to="/setup/easy"
+            data-testid="today-easy-setup-cta"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-sm"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          >
+            Continue setup <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+      </div>
+    </section>
   );
 }
