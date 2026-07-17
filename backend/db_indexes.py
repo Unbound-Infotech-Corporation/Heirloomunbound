@@ -29,9 +29,11 @@ async def ensure_indexes() -> None:
         ("users", [("email", 1)], {"name": "email"}),
 
         # Archive — hit on Library, Twin, Dashboard, Interviewer
+        # Field is `type` (not entry_type) on every write path.
         ("entries", [("user_id", 1), ("created_at", -1)], {"name": "user_created"}),
-        ("entries", [("user_id", 1), ("entry_type", 1)], {"name": "user_type"}),
-        ("conversations", [("user_id", 1), ("started_at", -1)], {"name": "user_started"}),
+        ("entries", [("user_id", 1), ("type", 1)], {"name": "user_type"}),
+        ("entries", [("user_id", 1), ("tags", 1)], {"name": "user_tags"}),
+        ("conversations", [("user_id", 1), ("kind", 1), ("updated_at", -1)], {"name": "user_kind_updated"}),
         ("conversations", [("conversation_id", 1)], {"unique": True, "name": "conv_id_uniq"}),
 
         # Companion — hit on every poll cycle (2s) from local PC
@@ -48,6 +50,11 @@ async def ensure_indexes() -> None:
         # Long-term memory (twin system prompt builds this every turn)
         ("memories", [("user_id", 1), ("kind", 1)], {"name": "user_kind"}),
         ("identity_facts", [("user_id", 1)], {"name": "user_id"}),
+        ("memory_facts", [("user_id", 1)], {"name": "user_id"}),
+        ("memory_facts", [("user_id", 1), ("fact_id", 1)], {"name": "user_fact_id"}),
+        ("memory_episodes", [("user_id", 1), ("created_at", -1)], {"name": "user_created"}),
+        ("memory_state", [("user_id", 1)], {"unique": True, "name": "user_id_uniq"}),
+        ("user_abilities", [("user_id", 1), ("ability_id", 1)], {"unique": True, "name": "user_ability_uniq"}),
 
         # Skills + reminders
         ("skills", [("user_id", 1)], {"name": "user_id"}),

@@ -213,8 +213,12 @@ async def build_memory_pack(user_id: str, query_hint: str = "") -> dict:
     """Returns {facts:[], episodes:[]} ready to be inserted into the twin's
     system prompt. The query_hint is currently used only by /archive retrieval
     (twin.py); facts + episodes are static per user."""
-    facts = await get_or_refresh_facts(user_id)
-    episodes = await get_recent_episodes(user_id)
+    import asyncio
+
+    facts, episodes = await asyncio.gather(
+        get_or_refresh_facts(user_id),
+        get_recent_episodes(user_id),
+    )
     return {"facts": facts, "episodes": episodes}
 
 
