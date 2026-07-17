@@ -250,7 +250,7 @@ export default function Twin() {
           </h1>
           <p className="mt-3 text-base max-w-xl" style={{ color: "var(--text-secondary)" }}>
             {operatingMode === "death_governance"
-              ? "Death Governance is on — answers stay archive-faithful, grief-aware, and refuse invented wishes. Change this in Settings."
+              ? "Forever / careful mode is on — your twin only uses what you wrote down and speaks gently. Change this in Simple Setup or Settings."
               : "Your twin draws from everything you've put into the archive. The more you've added, the truer it sounds."}
           </p>
           {operatingMode === "death_governance" && (
@@ -259,7 +259,7 @@ export default function Twin() {
               data-testid="twin-death-governance-badge"
               style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
             >
-              Death Governance mode
+              Forever / careful mode
             </div>
           )}
         </div>
