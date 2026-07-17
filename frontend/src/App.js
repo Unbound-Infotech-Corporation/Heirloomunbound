@@ -22,6 +22,7 @@ import PhotoStory from "@/pages/PhotoStory";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import HeirPortal from "@/pages/HeirPortal";
+import ExecutorPortal from "@/pages/ExecutorPortal";
 import Letters from "@/pages/Letters";
 import MagicLink from "@/pages/MagicLink";
 import Personality from "@/pages/Personality";
@@ -56,6 +57,7 @@ function AppRouter() {
       <Route path="/support" element={<Support />} />
       <Route path="/auth/magic/:token" element={<MagicLink />} />
       <Route path="/heir/:token" element={<HeirPortal />} />
+      <Route path="/executor/:token" element={<ExecutorPortal />} />
       <Route path="/twin/live/:handle" element={<TwinLive />} />
       <Route
         path="/onboarding"

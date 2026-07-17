@@ -32,6 +32,8 @@ class EntryUpdate(BaseModel):
 
 @router.post("")
 async def create_entry(payload: EntryCreate, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable
+    await assert_writable(user["user_id"])
     entry_id = f"ent_{uuid.uuid4().hex[:12]}"
     now = datetime.now(timezone.utc).isoformat()
     doc = {
@@ -84,6 +86,8 @@ async def get_entry(entry_id: str, user: dict = Depends(get_current_user)):
 
 @router.patch("/{entry_id}")
 async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable
+    await assert_writable(user["user_id"])
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not update:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -99,6 +103,8 @@ async def update_entry(entry_id: str, payload: EntryUpdate, user: dict = Depends
 
 @router.delete("/{entry_id}")
 async def delete_entry(entry_id: str, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable
+    await assert_writable(user["user_id"])
     res = await db.entries.delete_one({"entry_id": entry_id, "user_id": user["user_id"]})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Entry not found")
@@ -124,27 +130,35 @@ async def ask_archive(payload: AskReq, user: dict = Depends(get_current_user)):
     if not q:
         raise HTTPException(status_code=400, detail="Question is empty")
 
-    STOP = {
-        "the","a","an","of","in","on","to","for","was","is","are","what","where","when",
-        "who","why","how","my","me","i","did","do","does","that","this","at","with","and","you","your",
-    }
-    tokens = [
-        t for t in _re.split(r"\W+", q.lower()) if len(t) > 2 and t not in STOP
-    ][:10]
+    top: list[dict] = []
+    try:
+        from semantic_search import semantic_search
+        top = await semantic_search(user["user_id"], q, limit=12)
+    except Exception:
+        top = []
 
-    cursor = db.entries.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(400)
-    entries = await cursor.to_list(length=400)
-    if not entries:
-        return {"answer": "Your archive is empty — nothing to look back on yet.", "citations": []}
+    if not top:
+        STOP = {
+            "the","a","an","of","in","on","to","for","was","is","are","what","where","when",
+            "who","why","how","my","me","i","did","do","does","that","this","at","with","and","you","your",
+        }
+        tokens = [
+            t for t in _re.split(r"\W+", q.lower()) if len(t) > 2 and t not in STOP
+        ][:10]
 
-    if tokens:
-        scored = [(e, _score_entry(e, tokens)) for e in entries]
-        scored.sort(key=lambda x: x[1], reverse=True)
-        top = [e for e, s in scored if s > 0][:12]
-        if not top:
+        cursor = db.entries.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(400)
+        entries = await cursor.to_list(length=400)
+        if not entries:
+            return {"answer": "Your archive is empty — nothing to look back on yet.", "citations": []}
+
+        if tokens:
+            scored = [(e, _score_entry(e, tokens)) for e in entries]
+            scored.sort(key=lambda x: x[1], reverse=True)
+            top = [e for e, s in scored if s > 0][:12]
+            if not top:
+                top = entries[:8]
+        else:
             top = entries[:8]
-    else:
-        top = entries[:8]
 
     cite_lines = []
     for e in top:

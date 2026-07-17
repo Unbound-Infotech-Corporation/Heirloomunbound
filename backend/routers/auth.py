@@ -81,6 +81,12 @@ async def create_session(request: Request, response: Response):
 
 @router.get("/me")
 async def me(user: dict = Depends(get_current_user)):
+    from routers.executor_lock import is_legacy_locked
+
+    locked = await is_legacy_locked(user["user_id"])
+    mode = user.get("authenticity_mode") or "balanced"
+    if locked:
+        mode = "retrieve_only"
     return {
         "user_id": user["user_id"],
         "email": user["email"],
@@ -94,6 +100,9 @@ async def me(user: dict = Depends(get_current_user)):
         "brand_signoff": user.get("brand_signoff") or "",
         "active_persona_id": user.get("active_persona_id") or None,
         "tour_completed": bool(user.get("tour_completed", False)),
+        "authenticity_mode": mode,
+        "legacy_locked": locked,
+        "legacy_locked_at": user.get("legacy_locked_at"),
     }
 
 
@@ -113,10 +122,13 @@ class PreferencesUpdate(BaseModel):
     brand_name: Optional[str] = None
     brand_tagline: Optional[str] = None
     brand_signoff: Optional[str] = None  # e.g. "— Aaron, Unbound Infotech"
+    authenticity_mode: Optional[str] = None  # balanced | retrieve_only
 
 
 @router.put("/me/preferences")
 async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable, is_legacy_locked
+
     update: dict = {}
     if payload.safe_topics is not None:
         cleaned = [s.strip()[:80] for s in payload.safe_topics if s and s.strip()][:25]
@@ -138,10 +150,25 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
         update["brand_tagline"] = payload.brand_tagline.strip()[:200]
     if payload.brand_signoff is not None:
         update["brand_signoff"] = payload.brand_signoff.strip()[:160]
+    if payload.authenticity_mode is not None:
+        mode = payload.authenticity_mode.strip().lower()
+        if mode not in ("balanced", "retrieve_only"):
+            raise HTTPException(status_code=400, detail="authenticity_mode must be balanced or retrieve_only")
+        if await is_legacy_locked(user["user_id"]) and mode != "retrieve_only":
+            raise HTTPException(status_code=403, detail="Legacy is locked — authenticity stays retrieve-only")
+        update["authenticity_mode"] = mode
+    # Prefer authenticity_mode even when locked; block other preference mutations
+    other_keys = set(update.keys()) - {"authenticity_mode"}
+    if other_keys:
+        await assert_writable(user["user_id"])
     if not update:
         raise HTTPException(status_code=400, detail="No preferences provided")
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
     refreshed = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    locked = await is_legacy_locked(user["user_id"])
+    mode = refreshed.get("authenticity_mode") or "balanced"
+    if locked:
+        mode = "retrieve_only"
     return {
         "safe_topics": refreshed.get("safe_topics") or [],
         "tts_language": refreshed.get("tts_language") or "auto",
@@ -149,6 +176,8 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
         "brand_name": refreshed.get("brand_name") or "",
         "brand_tagline": refreshed.get("brand_tagline") or "",
         "brand_signoff": refreshed.get("brand_signoff") or "",
+        "authenticity_mode": mode,
+        "legacy_locked": locked,
     }
 
 

@@ -35,6 +35,7 @@ def _build_twin_system(
     persona: dict | None = None,
     brand: dict | None = None,
     abilities_block: str = "",
+    authenticity_mode: str = "balanced",
 ) -> str:
     fence = ""
     if safe_topics:
@@ -69,7 +70,22 @@ def _build_twin_system(
         if bits:
             brand_section = "\n\n=== BRAND VOICE ===\n" + "\n".join(bits) + "\n"
 
-    return f"""You are the digital twin of {name or "this person"} — a faithful continuation of their voice, memories, values, humor, and way of speaking. You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them.{fence}
+    authenticity_section = ""
+    save_line = (
+        "- `save_memory(content, type, title)` — when the user shares something worth remembering long-term (a story, belief, value), quietly capture it so the archive grows.\n"
+        "- `set_reminder(what, when)` — when the user says \"remind me…\". `when` can be ISO or natural (\"tomorrow 9am\").\n"
+    )
+    if authenticity_mode == "retrieve_only":
+        authenticity_section = (
+            "\n\n=== AUTHENTICITY MODE: RETRIEVE-ONLY ===\n"
+            "Answer ONLY from the archive excerpts and long-term memory below. "
+            "Do not invent biographical facts, opinions, or stories that are not supported by those sources. "
+            "If something is not in the archive, say you don't remember or that it wasn't recorded. "
+            "Do not call save_memory or set_reminder — the archive is sealed for stewardship.\n"
+        )
+        save_line = ""
+
+    return f"""You are the digital twin of {name or "this person"} — a faithful continuation of their voice, memories, values, humor, and way of speaking. You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them.{fence}{authenticity_section}
 
 Voice rules:
 - Speak in first person, as {name or "the user"}. Never say "as an AI" or break character.
@@ -80,9 +96,7 @@ Voice rules:
 
 Your memory tools (always available — call them silently, the UI shows a chip when a tool fires):
 - `search_archive(query)` — the owner's factual record. Call it ONLY when the user asks about the owner's past, life, or specific facts (a person, place, date, job, event, or story — e.g. "where did you grow up", "what was your first job"). ONE focused call is enough. Do NOT call it for greetings, small talk, or opinion/feeling questions ("what do you think…", "how are you", "what's your take on life") — for those, answer directly from the archive excerpts and long-term memory already included below.
-- `save_memory(content, type, title)` — when the user shares something worth remembering long-term (a story, belief, value), quietly capture it so the archive grows.
-- `set_reminder(what, when)` — when the user says "remind me…". `when` can be ISO or natural ("tomorrow 9am").
-- `list_recent_memories(days, limit)` — for "what have I been thinking about?" style questions.
+{save_line}- `list_recent_memories(days, limit)` — for "what have I been thinking about?" style questions.
 {abilities_block}
 Use tools sparingly: most conversational turns need NO tool at all. One call is usually enough when you do. Don't announce that you're calling a tool — just do it and weave the result into your natural reply.
 
@@ -144,7 +158,7 @@ async def get_twin_conversation(conversation_id: str, user: dict = Depends(get_c
 
 
 async def _archive_blob(user_id: str, query_hint: str = "", limit_recent: int = 20, limit_relevant: int = 30) -> str:
-    """Top-k retrieval: 20 most recent + up to N entries matching tokens in the user's question."""
+    """Top-k retrieval: recent entries + semantic/token matches for the question."""
     docs: dict[str, dict] = {}
 
     # Recent N — always include for continuity
@@ -152,8 +166,17 @@ async def _archive_blob(user_id: str, query_hint: str = "", limit_recent: int = 
     for e in recent:
         docs[e["entry_id"]] = e
 
-    # Token-matched entries on the user's latest message
     if query_hint:
+        # Prefer semantic ranking when available
+        try:
+            from semantic_search import semantic_search
+            ranked = await semantic_search(user_id, query_hint, limit=limit_relevant)
+            for e in ranked:
+                docs[e["entry_id"]] = e
+        except Exception:
+            pass
+
+        # Token-matched fallback / supplement
         import re as _re
         STOP = {"the","a","an","of","in","on","to","for","was","is","are","what","where","when","who","why","how","my","me","i","did","do","does","that","this","at","with","and","you","your"}
         tokens = [
@@ -307,6 +330,11 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         )
 
     await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
+    from routers.executor_lock import is_legacy_locked
+    authenticity_mode = user.get("authenticity_mode") or "balanced"
+    if await is_legacy_locked(user["user_id"]):
+        authenticity_mode = "retrieve_only"
+
     archive = await _archive_blob(user["user_id"], query_hint=payload.message)
     skills = await _skills_blob(user["user_id"])
     memory_pack = await build_memory_pack(user["user_id"], query_hint=payload.message)
@@ -325,6 +353,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     system = _build_twin_system(
         user.get("name", ""), memory_blob, archive, skills, merged_safe,
         persona=persona, brand=brand, abilities_block=abilities_block,
+        authenticity_mode=authenticity_mode,
     )
 
     # Replay prior turns so the twin remembers what was just said.
@@ -335,6 +364,9 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
 
     # Only expose the tools from abilities the owner has enabled (+ core memory).
     active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
+    if authenticity_mode == "retrieve_only":
+        blocked = {"save_memory", "set_reminder"}
+        active_schemas = [s for s in active_schemas if s["function"]["name"] not in blocked]
 
     chat = (
         LlmChat(

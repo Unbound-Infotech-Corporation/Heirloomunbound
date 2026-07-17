@@ -78,6 +78,11 @@ async def ensure_indexes() -> None:
         # OAuth account-linking
         ("oauth_connections", [("user_id", 1), ("provider", 1)], {"unique": True, "name": "user_provider_uniq"}),
         ("oauth_states", [("state", 1)], {"unique": True, "name": "state_uniq"}),
+
+        # Semantic search embeddings + Executor Lock
+        ("entry_embeddings", [("user_id", 1), ("entry_id", 1)], {"unique": True, "name": "user_entry_uniq"}),
+        ("executor_locks", [("user_id", 1)], {"unique": True, "name": "user_id_uniq"}),
+        ("executor_locks", [("attest_token", 1)], {"unique": True, "sparse": True, "name": "attest_token_uniq"}),
     ]
 
     created = 0

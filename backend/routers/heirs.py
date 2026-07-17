@@ -57,6 +57,8 @@ def _scrub(heir: dict) -> dict:
 
 @router.post("")
 async def add_heir(payload: HeirCreate, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable
+    await assert_writable(user["user_id"])
     heir_id = f"hr_{uuid.uuid4().hex[:10]}"
     doc = {
         "heir_id": heir_id,
@@ -100,6 +102,8 @@ async def update_heir(heir_id: str, payload: HeirUpdate, user: dict = Depends(ge
 
 @router.delete("/{heir_id}")
 async def delete_heir(heir_id: str, user: dict = Depends(get_current_user)):
+    from routers.executor_lock import assert_writable
+    await assert_writable(user["user_id"])
     res = await db.heirs.delete_one({"heir_id": heir_id, "user_id": user["user_id"]})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Heir not found")

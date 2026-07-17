@@ -46,6 +46,8 @@ from routers import (
     dashboard_extra,
     desktop,
     email as email_router,
+    executor_lock,
+    export,
     fulfillment,
     heir_portal,
     heirs,
@@ -140,6 +142,8 @@ api_router.include_router(vault.router)
 api_router.include_router(live.router)
 api_router.include_router(avatar_studio.router)
 api_router.include_router(user_keys.router)
+api_router.include_router(executor_lock.router)
+api_router.include_router(export.router)
 
 app.include_router(api_router)
 
