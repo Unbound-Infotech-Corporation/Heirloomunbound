@@ -317,13 +317,23 @@ export default function Settings() {
         </div>
         <h2 className="font-serif text-2xl mb-2">Your face, speaking.</h2>
         <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          Paste a public URL to a photo of you (imgur, your social, etc.). When you click <i>Play as video</i> on a twin reply, D-ID renders a short clip of your face speaking the text in your cloned voice.
+          Easiest path: open Avatar Studio and drop a front-facing photo — it becomes your twin automatically.
+          Or paste a public photo URL below. Then use <i>Play as video</i> on a twin reply (or desktop D-ID mode)
+          so live / OBS viewers see your face speak.
           {!avatarConfigured && (
             <span className="block mt-2 text-xs" style={{ color: "#c95a5a" }}>
               D-ID API not configured — contact the operator.
             </span>
           )}
         </p>
+        <a
+          href="/avatar-studio"
+          data-testid="avatar-studio-link"
+          className="inline-flex items-center gap-2 mb-5 px-4 py-2.5 text-sm rounded-sm"
+          style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+        >
+          Open Avatar Studio — upload your face →
+        </a>
         <div className="flex gap-3 items-start mb-4">
           {(avatarUrl || avatarDefault) && (
             <img
@@ -339,7 +349,7 @@ export default function Settings() {
             <input
               value={avatarUrl}
               onChange={(e) => setAvatarUrl(e.target.value)}
-              placeholder={`Photo URL (leave blank to use the default presenter)`}
+              placeholder={`Or paste a public photo URL`}
               data-testid="avatar-url-input"
               className="w-full px-3 py-2 text-sm rounded-sm font-mono"
               style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
@@ -348,21 +358,13 @@ export default function Settings() {
               onClick={saveAvatarUrl}
               data-testid="avatar-save"
               className="px-4 py-2 text-sm rounded-sm"
-              style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+              style={{ background: "transparent", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
             >
-              Save photo
+              Save photo URL
             </button>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Best: front-facing, neutral expression, ~1024×1024. D-ID requires the URL to be publicly fetchable.
+              Best: front-facing, neutral expression, well-lit, ~1024×1024. D-ID must be able to fetch the URL.
             </p>
-            <a
-              href="/avatar-studio"
-              data-testid="avatar-studio-link"
-              className="inline-flex items-center gap-1.5 text-xs underline mt-1"
-              style={{ color: "var(--accent)" }}
-            >
-              ✨ Or open Avatar Studio — upload 3 angles, optional subtle enhance →
-            </a>
           </div>
         </div>
       </section>
@@ -861,12 +863,22 @@ function LiveBroadcastSection() {
     }
   };
 
+  const copy = async (text, label) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied.`);
+    } catch {
+      toast.error("Couldn't copy — select the URL and Ctrl+C.");
+    }
+  };
+
   const liveUrl = profile?.handle
     ? `${window.location.origin}/twin/live/${profile.handle}`
     : "";
   const obsUrl = profile?.handle
     ? `${window.location.origin}/twin/live/${profile.handle}?obs=1`
     : "";
+  const needsFace = profile?.using_default_face !== false && !profile?.has_custom_face;
 
   return (
     <section className="surface p-7 mb-6" data-testid="live-broadcast-section">
@@ -878,11 +890,46 @@ function LiveBroadcastSection() {
         className="text-sm mb-6 leading-relaxed"
         style={{ color: "var(--text-secondary)" }}
       >
-        Pick a handle and flip broadcasting on to share a live, public view of
-        your twin at <code>heirloomunbound.com/twin/live/&lt;handle&gt;</code>.
-        Viewers see your avatar speak in real time as you (or anyone using
-        the desktop app) chats with your twin. Off by default — your call.
+        Three steps: set your face, claim a handle, start broadcasting. Viewers
+        see your twin speak in real time. Use the OBS URL as a Browser Source —
+        the page is already transparent.
       </p>
+
+      {/* Setup checklist */}
+      <ol
+        className="text-sm mb-6 space-y-2 pl-5 list-decimal"
+        style={{ color: "var(--text-secondary)" }}
+        data-testid="live-setup-checklist"
+      >
+        <li>
+          <a href="/avatar-studio" className="underline" style={{ color: "var(--accent)" }}>
+            Avatar Studio
+          </a>
+          {" — "}drop a front-facing photo. It becomes your twin&apos;s face automatically.
+          {needsFace ? (
+            <span className="ml-2 text-xs" style={{ color: "var(--danger)" }} data-testid="live-face-warning">
+              (still using the default face)
+            </span>
+          ) : (
+            <span className="ml-2 text-xs" style={{ color: "var(--ok)" }} data-testid="live-face-ready">
+              ✓ face set
+            </span>
+          )}
+        </li>
+        <li>Claim a public handle below.</li>
+        <li>
+          Click <em>Start broadcasting</em>, then chat with your twin (web{" "}
+          <em>Play as video</em> or desktop D-ID mode) so the talking head appears.
+        </li>
+        <li>
+          In OBS: <strong>Sources → Browser</strong> → paste the OBS URL → width/height{" "}
+          <code>1080</code>×<code>1080</code> (or match your canvas). Leave Custom CSS empty.
+        </li>
+        <li>
+          Desktop alternative: open Heirloom Desktop → <em>Pop out for OBS</em> → Window Capture
+          titled <code>Heirloom Twin — Broadcast</code>.
+        </li>
+      </ol>
 
       <div className="flex gap-2 mb-3">
         <input
@@ -929,12 +976,27 @@ function LiveBroadcastSection() {
             >
               YOUR LIVE LINK
             </div>
-            <div
-              className="text-sm break-all mb-3"
-              style={{ color: "var(--text-primary)" }}
-              data-testid="live-public-url"
-            >
-              {liveUrl}
+            <div className="flex flex-wrap items-start gap-2 mb-4">
+              <div
+                className="text-sm break-all flex-1"
+                style={{ color: "var(--text-primary)" }}
+                data-testid="live-public-url"
+              >
+                {liveUrl}
+              </div>
+              <button
+                type="button"
+                data-testid="live-copy-public"
+                onClick={() => copy(liveUrl, "Live link")}
+                className="px-3 py-1.5 text-xs rounded-sm shrink-0"
+                style={{
+                  border: "1px solid var(--border-default)",
+                  color: "var(--text-primary)",
+                  background: "transparent",
+                }}
+              >
+                Copy
+              </button>
             </div>
             <div
               className="overline mb-2"
@@ -942,13 +1004,32 @@ function LiveBroadcastSection() {
             >
               OBS BROWSER SOURCE URL
             </div>
-            <div
-              className="text-sm break-all"
-              style={{ color: "var(--text-secondary)" }}
-              data-testid="live-obs-url"
-            >
-              {obsUrl}
+            <div className="flex flex-wrap items-start gap-2">
+              <div
+                className="text-sm break-all flex-1"
+                style={{ color: "var(--text-secondary)" }}
+                data-testid="live-obs-url"
+              >
+                {obsUrl}
+              </div>
+              <button
+                type="button"
+                data-testid="live-copy-obs"
+                onClick={() => copy(obsUrl, "OBS URL")}
+                className="px-3 py-1.5 text-xs rounded-sm shrink-0"
+                style={{
+                  border: "1px solid var(--border-default)",
+                  color: "var(--text-primary)",
+                  background: "transparent",
+                }}
+              >
+                Copy
+              </button>
             </div>
+            <p className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>
+              Tip: set Browser Source FPS to 30, check &quot;Shutdown source when not visible&quot;,
+              and keep Control Audio via OBS off if you want the twin&apos;s voice in the capture.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-3 mb-3">

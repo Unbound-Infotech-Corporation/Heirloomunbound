@@ -143,11 +143,18 @@ class HandleReq(BaseModel):
 @router.get("/me")
 async def live_me(user: dict = Depends(get_current_user)):
     """Get the owner's broadcast profile (or `{enabled: false}` if not set up)."""
+    from routers.avatar import DEFAULT_SOURCE_URL
+
     profile = await db.live_profiles.find_one(
         {"user_id": user["user_id"]},
         {"_id": 0, "handle": 1, "enabled": 1, "private_mode": 1, "created_at": 1, "updated_at": 1},
     )
-    return profile or {"handle": None, "enabled": False, "private_mode": False}
+    out = profile or {"handle": None, "enabled": False, "private_mode": False}
+    src = (user.get("avatar_source_url") or "").strip()
+    out["avatar_source_url"] = src
+    out["has_custom_face"] = bool(src) and src != DEFAULT_SOURCE_URL
+    out["using_default_face"] = not out["has_custom_face"]
+    return out
 
 
 @router.post("/handle")
@@ -184,9 +191,22 @@ class SettingsReq(BaseModel):
 @router.patch("/settings")
 async def update_settings(body: SettingsReq, user: dict = Depends(get_current_user)):
     """Flip broadcast on/off or enter/exit private mode for the current session."""
+    from routers.avatar import DEFAULT_SOURCE_URL
+
     profile = await db.live_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0, "handle": 1})
     if not profile or not profile.get("handle"):
         raise HTTPException(status_code=400, detail="Claim a handle first.")
+    # Warn loudly if they try to go live on the default Emma face
+    if body.enabled is True:
+        src = (user.get("avatar_source_url") or "").strip()
+        if not src or src == DEFAULT_SOURCE_URL:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Upload your face first — open Avatar Studio, drop a front photo, "
+                    "and we'll set it as your twin automatically."
+                ),
+            )
     update: dict = {"updated_at": _now_iso()}
     if body.enabled is not None:
         update["enabled"] = bool(body.enabled)
@@ -233,24 +253,37 @@ async def public_profile(handle: str):
 async def public_recent(handle: str, limit: int = 10):
     """Initial-load history — last N turns of the public conversation. Public.
 
-    Only pulls from the shared `companion_twin` conversation; episodic
-    summaries + private archive entries are NEVER exposed via this path.
+    Pulls from both desktop (`companion_twin`) and web (`twin`) conversations
+    so the live page matches whichever surface the owner is chatting on.
+    Episodic summaries + private archive entries are NEVER exposed.
     """
     profile = await _resolve_handle(handle)
-    conv = await db.conversations.find_one(
-        {"user_id": profile["user_id"], "kind": "companion_twin"},
-        {"_id": 0, "messages": 1},
-    )
-    msgs = (conv or {}).get("messages", []) if conv else []
     limit = max(1, min(limit, 50))
-    if msgs and len(msgs) > limit:
+    cursor = (
+        db.conversations.find(
+            {
+                "user_id": profile["user_id"],
+                "kind": {"$in": ["companion_twin", "twin"]},
+            },
+            {"_id": 0, "messages": 1, "updated_at": 1, "kind": 1},
+        )
+        .sort("updated_at", -1)
+        .limit(2)
+    )
+    convs = await cursor.to_list(length=2)
+    msgs: list[dict] = []
+    for conv in convs:
+        for m in conv.get("messages") or []:
+            if m.get("role") in ("user", "assistant") and m.get("content"):
+                msgs.append(m)
+    # Prefer chronological by ts when present
+    msgs.sort(key=lambda m: m.get("ts") or "")
+    if len(msgs) > limit:
         msgs = msgs[-limit:]
-    # Strip anything that smells like a system/private label before exposing
     return {
         "messages": [
             {"role": m.get("role"), "content": (m.get("content") or "")[:2000], "ts": m.get("ts")}
             for m in msgs
-            if m.get("role") in ("user", "assistant") and m.get("content")
         ]
     }
 

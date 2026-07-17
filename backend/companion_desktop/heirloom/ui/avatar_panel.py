@@ -272,7 +272,21 @@ class AvatarPanel(QFrame):
     def set_portrait_url(self, url: Optional[str]) -> None:
         self.portrait_video.set_portrait_url(url)
         if self._broadcast is not None:
-            self.portrait_video.set_portrait_url(url)
+            # Keep the OBS pop-out in sync with the main portrait
+            try:
+                self._broadcast.set_portrait_url(url)  # type: ignore[attr-defined]
+            except AttributeError:
+                # Broadcast window exposes .portrait; mirror pixmap when available
+                raw = getattr(self.portrait_video._portrait, "_raw", None)
+                if raw is not None:
+                    from PySide6.QtCore import Qt
+                    self._broadcast.portrait.setPixmap(
+                        raw.scaled(
+                            self._broadcast.size(),
+                            Qt.KeepAspectRatio,
+                            Qt.SmoothTransformation,
+                        )
+                    )
 
     def set_level(self, level: float) -> None:
         self.waveform.set_level(level)
