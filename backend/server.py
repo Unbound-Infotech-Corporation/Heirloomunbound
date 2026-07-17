@@ -35,6 +35,7 @@ from db_indexes import ensure_indexes
 from routers import (
     archive,
     abilities,
+    agent,
     auth,
     photo_story,
     avatar,
@@ -107,6 +108,7 @@ async def root():
 api_router.include_router(auth.router)
 api_router.include_router(archive.router)
 api_router.include_router(abilities.router)
+api_router.include_router(agent.router)
 api_router.include_router(photo_story.router)
 api_router.include_router(interviewer.router)
 api_router.include_router(voice.router)

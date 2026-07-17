@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 29 Focus/Agent Mode + litellm==1.80.0 swap fully verified. 8/8 backend tests pass (2 pre-existing + 6 new regressions). Frontend /agent E2E green: plan LLM produced 2 companion steps for 'Open https://example.com and set volume to 30', approve/cancel buttons and all data-testids render correctly, sidebar 'Focus mode' nav present.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "detailed_results": {
+    "backend": {
+      "test_iteration29_agent.py::test_agent_full_flow": "PASS (pre-existing)",
+      "test_iteration29_agent.py::test_agent_reject_step_and_cancel": "PASS (pre-existing)",
+      "test_iteration29_regression.py::test_agent_kinds_requires_auth": "PASS - /api/agent/kinds, /api/agent/runs return 401 without Bearer",
+      "test_iteration29_regression.py::test_agent_plan_open_url_and_set_volume": "PASS - LLM produced companion steps (open_url / set_volume) for the review's canonical goal; run.status=pending_approval; steps have step_id/order/kind/status='pending'",
+      "test_iteration29_regression.py::test_agent_full_lifecycle_via_companion": "PASS - list/get/approve endpoints work. Approve flips run to 'running'; companion device polled /api/companion/poll, drained queued commands and POSTed results to /api/companion/result; executor advanced through steps; final run.status='completed' in <30s",
+      "test_iteration29_regression.py::test_agent_plan_no_companion_notify_only": "PASS - With no companion_devices row, /api/agent/kinds returns companion_connected=false and the planner emitted only 'notify' kind steps",
+      "test_iteration29_regression.py::test_agent_reject_step_and_cancel": "PASS - reject flips single step to 'rejected'; cancel flips run to 'cancelled'",
+      "test_iteration29_regression.py::test_adjacent_regression_smoke": "PASS - /api/twin/conversations 200, /api/letters 200, /api/abilities and /api/companion/devices reachable (litellm 1.80.0 swap did not break emergentintegrations paths)"
+    },
+    "frontend": {
+      "agent_route_renders": "PASS - /agent renders [data-testid='agent-root'], H1 exactly 'One goal, many steps.', textarea agent-goal-input, button agent-plan-button, 4 agent-suggestion chips, sidebar nav-agent present ('Focus mode' with Target icon)",
+      "agent_plan_flow": "PASS - Filled 'Open https://example.com and set volume to 30' → clicked Plan it → agent-active-run appeared with agent-step-0 (open_url) and agent-step-1 (set_volume) rendered; agent-approve ('Approve & run (2)') and agent-cancel both visible; toast 'Plan is ready — review and approve.'",
+      "cancel_flow": "PASS - Clicking agent-cancel cancelled the run cleanly"
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration29_agent.py",
+    "/app/backend/tests/test_iteration29_regression.py",
+    "/app/test_reports/pytest/iteration_29_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routers/agent.py _execute_run: loop reads the entire run doc on every tick then acts; not atomic. Two overlapping _schedule() calls (e.g. approve twice on the same run) could double-drive a step. Consider a guard on status transitions running→running or a per-run asyncio.Lock.",
+    "routers/agent.py: STEP_TIMEOUT_SEC=45 is hard-coded. If a legit slow app takes ~50s the step will be marked failed and halt the whole run. Consider making it kind-specific (open_app slower than notify).",
+    "routers/agent.py _plan_with_llm: fenced-code stripping is fragile (text.strip('`') then substring by first { / last }). If LLM ever emits ```json{...}``` with braces inside code content the trim can misalign. A tolerant JSON extractor (regex or a couple of json.loads attempts) would be safer — same comment as iteration 28 for letters.",
+    "routers/agent.py cancel(): only updates commands whose status is queued/dispatched. If a companion picked up a command that is still 'running' remotely, cancel won't propagate — the step will just fail on timeout. Documenting or adding a cancel signal via the poll response could help.",
+    "routers/agent.py: no rate-limit or per-user quota on POST /api/agent/runs — each call is a Claude Sonnet 4.5 request. Consider a debounce or daily cap.",
+    "Agent.jsx: activeRun polling interval is 1500ms while running (reasonable) but never backs off; if network is flaky the UI may pile up requests. Consider AbortController per tick.",
+    "Agent.jsx: `showActive` includes 'completed' so a just-finished run stays pinned as 'current plan' — mildly confusing. Minor UX nit."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration29_regression.py"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all required data-testids present, full plan/approve/cancel flow works E2E)"},
+  "test_credentials": "session_token=test_session_fork23 was expired — re-seeded via mongosh (user_id=test-user-fork23). Persistent for future iterations.",
+  "seed_data_creation": "All backend regression tests self-clean (users/user_sessions/companion_devices/companion_commands/agent_runs deleted per test). Frontend test cancelled its own run; a residual cancelled agent_runs doc exists for test-user-fork23 but is harmless.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 29 fully green. Reusable pytest at /app/backend/tests/test_iteration29_regression.py covers auth boundary + plan shape + full companion lifecycle + no-device notify-only edge case + reject/cancel + adjacent smoke (twin/letters). test_session_fork23 has been re-seeded. litellm==1.80.0 swap did not regress emergentintegrations flows."
+}
