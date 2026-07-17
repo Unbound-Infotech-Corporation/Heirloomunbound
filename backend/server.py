@@ -170,9 +170,15 @@ def _cors_allowed_origins() -> list[str]:
 
 
 def _cors_origin_regex() -> str | None:
-    """Allow Emergent preview/sub-domain origins via regex without baking exact URLs."""
-    # Permit https://<anything>.emergentagent.com and http(s)://localhost:* for dev
-    return r"^(https://[a-zA-Z0-9-]+\.emergentagent\.com|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?)$"
+    """Allow Emergent preview/sub-domain origins + production custom domain via regex."""
+    # Permit https://<anything>.emergentagent.com, the production custom domain,
+    # and http(s)://localhost:* for local Cloud Agent / dev.
+    return (
+        r"^(https://[a-zA-Z0-9-]+\.emergentagent\.com"
+        r"|https://(www\.)?heirloomunbound\.com"
+        r"|http://localhost(:\d+)?"
+        r"|http://127\.0\.0\.1(:\d+)?)$"
+    )
 
 
 _allowed = _cors_allowed_origins()

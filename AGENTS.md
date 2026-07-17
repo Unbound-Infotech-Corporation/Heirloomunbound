@@ -80,6 +80,14 @@ all optional and degrade gracefully when their keys are unset.
   assertions fail without `EMERGENT_LLM_KEY`.
 - **Build (frontend prod)**: `cd frontend && yarn build` (not needed for dev).
 
+### Production domain
+
+- **https://heirloomunbound.com** — live custom domain (www redirects to apex).
+- Health: `curl https://heirloomunbound.com/api/` → `{"app":"digital-heirloom","status":"ok"}`.
+- Emergent must keep `PUBLIC_BACKEND_URL` / `PUBLIC_FRONTEND_URL` / `REACT_APP_BACKEND_URL`
+  pointed at `https://heirloomunbound.com` so companion zips, OAuth redirects, heir emails,
+  and CORS stay correct after deploy. See `DEPLOY.md`.
+
 ### Legacy Continuity (posthumous twin)
 
 - Web page: `/legacy` — readiness score, death-watch, Inheritance Package download.
