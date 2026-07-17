@@ -1,7 +1,8 @@
 Heirloom Desktop
 ================
 
-A professional Windows desktop app for your AI Twin.
+A professional Windows desktop app for your AI Twin — the same brain as the
+web twin, running beside you on your PC.
 
 QUICK START
 -----------
@@ -11,15 +12,21 @@ QUICK START
 
 WHAT'S INSIDE
 -------------
+- Full twin brain: archive search, long-term memory, music, smart-home skills,
+  and PC control tools (open apps, volume, screenshot vision, system status…).
+  Text chat and push-to-talk both use the same tool-calling runtime as the web.
 - A resizable avatar panel (D-ID talking head or animated waveform — toggle in
   the top-right of the avatar panel).
-- A chat thread with your twin — bubble or flat layout, toggle in the top-right
-  of the conversation panel.
+- A chat thread with your twin — bubble or flat layout; tool chips show when
+  the twin uses a capability.
 - A quick-capture journal on the right.
 - A recent-memories sidebar on the left.
-- Push-to-talk: hold Ctrl+Space anywhere in the app to speak; release to send.
+- Push-to-talk: hold Ctrl+Space anywhere in the app to speak; release to send
+  (titlebar button is also hold-to-talk).
+- Local Vault with Full / Partial / Lite tiers — every chat turn grows your twin.
 - System tray icon: closing the window minimises to tray; right-click for
   Quit / Pop-out / Push-to-talk.
+- Command palette: Ctrl+K.
 
 OBS / STREAMING
 ---------------
@@ -36,8 +43,12 @@ REQUIREMENTS
 
 TROUBLESHOOTING
 ---------------
+- Status says "account inactive"? Your account was refunded — contact support.
+- Status says "auth failed"? Re-download Heirloom Desktop from the Companion page.
+- Status says "offline"? Check internet; the poller retries automatically.
 - No sound when twin speaks? Check default playback device. The D-ID render
   bundles audio inside the MP4 — Windows volume mixer should show Heirloom.
+- Reminder "say" commands: spoken via Windows SAPI when the twin queues them.
 - Mic not working? Settings → Privacy → Microphone → allow desktop apps.
 - App didn't open? Check %LOCALAPPDATA%\Heirloom for error logs.
 

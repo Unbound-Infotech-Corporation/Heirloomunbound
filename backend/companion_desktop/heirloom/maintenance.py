@@ -41,31 +41,7 @@ class Maintenance(QObject):
 
     def run_async(self, date: Optional[str] = None) -> None:
         def _work() -> dict:
-            vault = Vault()
-            days = [date] if date else vault.uncompacted_days()
-            if not days:
-                return {"done": 0, "failed": 0, "results": []}
-
-            settings = config.load_settings()
-            tier = settings.get("storage_tier", "partial")
-            results: list[CompactionResult] = []
-            failed = 0
-
-            for day in days:
-                self.progress.emit(f"Compacting {day}…")
-                try:
-                    r = self._compact_one(vault, day)
-                    results.append(r)
-                    self.completed.emit(asdict(r))
-                except Exception as exc:  # noqa: BLE001
-                    failed += 1
-                    self.progress.emit(f"{day}: failed — {exc}")
-
-            # Apply tier policy ONCE per run, not per day
-            self.progress.emit(f"Applying tier '{tier}' policy…")
-            vault.apply_tier_policy(tier)
-
-            return {"done": len(results), "failed": failed, "results": results}
+            return self._run_sync(date)
 
         def _on_ok(payload: dict) -> None:
             self.finished.emit(payload.get("done", 0), payload.get("failed", 0))
@@ -75,6 +51,36 @@ class Maintenance(QObject):
             self.finished.emit(0, 1)
 
         api._submit(_work, _on_ok, _on_err)  # type: ignore[attr-defined]
+
+    def run(self, date: Optional[str] = None) -> dict:
+        """Synchronous compaction — used on quit so work finishes before exit."""
+        return self._run_sync(date)
+
+    def _run_sync(self, date: Optional[str] = None) -> dict:
+        vault = Vault()
+        days = [date] if date else vault.uncompacted_days()
+        if not days:
+            return {"done": 0, "failed": 0, "results": []}
+
+        settings = config.load_settings()
+        tier = settings.get("storage_tier", "partial")
+        results: list[CompactionResult] = []
+        failed = 0
+
+        for day in days:
+            self.progress.emit(f"Compacting {day}…")
+            try:
+                r = self._compact_one(vault, day)
+                results.append(r)
+                self.completed.emit(asdict(r))
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                self.progress.emit(f"{day}: failed — {exc}")
+
+        self.progress.emit(f"Applying tier '{tier}' policy…")
+        vault.apply_tier_policy(tier)
+
+        return {"done": len(results), "failed": failed, "results": results}
 
     # ---- worker logic ----
     def _compact_one(self, vault: Vault, day: str) -> CompactionResult:

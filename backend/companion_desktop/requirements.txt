@@ -3,3 +3,10 @@ requests>=2.31
 sounddevice>=0.4.6
 soundfile>=0.12.1
 numpy>=1.24
+psutil>=5.9
+mss>=9.0
+Pillow>=10.0
+pynput>=1.7
+# Optional Windows volume control (falls back to SendKeys if missing)
+pycaw>=20230407; platform_system=="Windows"
+comtypes>=1.2; platform_system=="Windows"

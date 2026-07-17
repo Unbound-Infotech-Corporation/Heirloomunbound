@@ -16,11 +16,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from deps import EMERGENT_LLM_KEY, db
+from deps import db
 from routers.companion import get_device_user
 from routers.live import publish_avatar as live_publish_avatar
 from routers.live import publish_turn as live_publish_turn
@@ -103,67 +102,44 @@ async def get_conversation(ctx: dict = Depends(get_device_user), limit: int = 80
 
 @router.post("/chat")
 async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
-    """Send a text message as the user; persist + return the twin's reply."""
+    """Send a text message as the user; persist + return the twin's reply.
+
+    Uses the same tool-calling twin runtime as the web /twin page — so the
+    desktop twin can search the archive, control the PC, play music, etc.
+    """
+    from twin_runtime import ensure_conversation, run_twin_turn
+
     user = ctx["user"]
-    conv = await _ensure_companion_conv(user["user_id"])
+    if user.get("account_status") == "refunded":
+        raise HTTPException(status_code=403, detail="account_inactive")
 
-    cursor = db.entries.find({"user_id": user["user_id"]}, {"_id": 0}).sort(
-        "created_at", -1
-    ).limit(120)
-    entries = await cursor.to_list(length=120)
-    archive = "\n".join(
-        f"[{e.get('type','note').upper()}] {e.get('title','')}\n{e.get('content','')}\n"
-        for e in entries
-    )
-
-    system = (
-        f"You are {user.get('name','the user')}'s digital twin running in their "
-        f"desktop app. You ARE them — speak first-person, briefly (1-3 sentences), "
-        f"never narrate. Don't sign off. Don't add caveats.\n\n"
-        f"Your personality archive (most recent first):\n{archive[:18000] or '(empty)'}"
-    )
-
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=conv["conversation_id"],
-        system_message=system,
-        initial_messages=(
-            [{"role": "system", "content": system}]
-            + [
-                {"role": m["role"], "content": m["content"]}
-                for m in conv.get("messages", [])
-                if m.get("role") in ("user", "assistant") and m.get("content")
-            ]
-        ),
-    ).with_model("anthropic", "claude-sonnet-4-6")
-
+    conv = await ensure_conversation(user["user_id"], kind="companion_twin")
     try:
-        reply = await chat.send_message(UserMessage(text=body.text))
-        reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"LLM failed: {exc!s}") from exc
+        result = await run_twin_turn(
+            user,
+            body.text,
+            conversation=conv,
+            source="desktop",
+            persist=True,
+            summarise=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    now = _now_iso()
-    await db.conversations.update_one(
-        {"conversation_id": conv["conversation_id"], "user_id": user["user_id"]},
-        {
-            "$push": {
-                "messages": {
-                    "$each": [
-                        {"role": "user", "content": body.text, "ts": now, "source": "desktop"},
-                        {"role": "assistant", "content": reply_text, "ts": now, "source": "desktop"},
-                    ]
-                }
-            },
-            "$set": {"updated_at": now},
-        },
-    )
-
-    # Fan out to any live-stream viewers (no-op if owner hasn't enabled it)
     await live_publish_turn(user["user_id"], "user", body.text, source="desktop")
-    await live_publish_turn(user["user_id"], "assistant", reply_text, source="desktop")
+    await live_publish_turn(user["user_id"], "assistant", result.reply, source="desktop")
 
-    return {"reply": reply_text, "ts": now}
+    out: dict = {
+        "reply": result.reply,
+        "ts": result.ts,
+        "conversation_id": result.conversation_id,
+        "tool_trace": result.tool_trace,
+    }
+    if result.action:
+        out["action"] = result.action
+    return out
 
 
 # ---------------- Avatar (D-ID talking-head) ----------------
