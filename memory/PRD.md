@@ -350,6 +350,12 @@ After Semrush audit (Health 78/100) flagged duplicate titles/descriptions, bad r
 - ✅ **Photos.jsx React refactor**: `PhotoCard` was defined inside the parent's render, so every parent state change destroyed the entire subtree and recreated all blob URLs. Extracted to a top-level component with `onRemove` prop — thumbnails are now stable and the page no longer re-fetches every photo on every render.
 - ✅ **Production build verified**: `yarn build` passes cleanly (194KB gzipped main.js, 11KB CSS, 0 errors). App is deploy-ready.
 
+### Phase 9 — Feb 28, 2026 (Focus/Agent mode + deploy fix)
+- ✅ **Focus/Agent Mode** (`/api/agent/*` + `/agent` page): the twin plans multi-step actions across the owner's enabled Abilities, they approve the plan in one click, and the executor drives the PC companion via the existing `companion_commands` queue. Steps are either `companion` (queued to the desktop) or `notify` (informational). Sequential execution with 45s per-step timeout, live poll from the frontend, one-click cancel that also drops in-flight companion commands. LLM planner is constrained to the actual companion command kinds and the abilities the owner has toggled on — so shutdown/restart require an explicit `notify` warning first, and no-companion users still get a runnable notes-only plan.
+- ✅ **litellm deploy blocker resolved**: swapped the URL-wheel pin (`litellm @ https://…/litellm-1.80.0-py3-none-any.whl`) in `backend/requirements.txt` for the plain `litellm==1.80.0` PyPI version. Production build no longer stalls on the internal-asset URL.
+- ✅ **Stripe wiring verified**: all endpoints (`/api/billing/payment-link`, checkout session, `/api/webhook/stripe`) confirmed already complete via `emergentintegrations`. User just plugs in `STRIPE_API_KEY=sk_live_…` and `STRIPE_WEBHOOK_SECRET=whsec_…` in production env.
+- ✅ **Testing**: 8/8 backend tests green (`test_iteration29_agent.py` + testing-subagent regression suite). Frontend E2E green — nav entry, plan input, suggestion chips, active-run timeline, approve/cancel controls, and history list all verified with the correct data-testids. No adjacent regressions (twin, letters, abilities, companion, photo-story all still 200).
+
 ## Backend test results
 - iteration_12.json: 18 / 18 backend tests pass for Stripe checkout + auto-skill triggers.
 - iteration_13.json: 11 / 11 D-ID avatar backend tests pass (real D-ID render completed in ~95s with valid .mp4). Frontend Twin "Play as video" + Settings avatar URL + 6 regression pages all green.
@@ -358,16 +364,18 @@ After Semrush audit (Health 78/100) flagged duplicate titles/descriptions, bad r
 
 ## Prioritized backlog (next phases)
 
-### P1 — Polish on existing pillars
-- **Companion TTS playback with cloned voice**: stream the twin's reply audio back to the on-PC speaker (currently uses local OS TTS — `say`/`espeak`/SAPI). Wire to ElevenLabs for in-room presence.
-- **Email notifications**: when an heir is released, auto-email them the portal link (currently the owner must copy the link manually).
-- **Long-conversation memory compaction** — summarize old turns so Claude context never overflows.
-- **Photo linking** — attach photos to archive entries so the Twin can reference them by description.
+### P1 — Ship-ready
+- **Stripe live-key rollover**: paste `STRIPE_API_KEY=sk_live_…` + `STRIPE_WEBHOOK_SECRET=whsec_…` into production env. Code already complete.
 
-### P2 — Legacy & community
-- Discord bot (text channels) for passive personality capture.
+### P2 — Depth on existing pillars
+- **Focus mode v2**: parallel steps, retries on failure, editable plan (drag to reorder / edit param).
+- **Discord ingestion**: bot pulls DM/channel history to enrich the personality archive (bot token required).
+- **Home Assistant local integration**: control lights/plugs/scenes via HA REST API (HA URL + long-lived token required).
+- **Yearbook PDF generation**: printable "life yearbook" from archive entries.
+
+### P3 — Legacy & community
 - Family-tree graph linking memories to people.
-- Export full archive as PDF "memoir" + JSON.
+- Export full archive as PDF memoir + JSON.
 
 ## Known limitations (transparent to user)
 - Cloud-hosted: cannot directly control local devices without a webhook endpoint or local companion.
