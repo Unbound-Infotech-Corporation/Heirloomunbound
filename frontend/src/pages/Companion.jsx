@@ -80,6 +80,12 @@ export default function Companion() {
     window.open(url, "_blank");
   };
 
+  const downloadOneClick = () => {
+    if (!issued) return;
+    const url = `${API_BASE}/companion/one-click-installer?token=${encodeURIComponent(issued.device_token)}`;
+    window.open(url, "_blank");
+  };
+
   const downloadDesktopApp = () => {
     if (!issued) return;
     const url = `${API_BASE}/companion/desktop-package?token=${encodeURIComponent(issued.device_token)}`;
@@ -136,13 +142,16 @@ export default function Companion() {
       <section className="surface p-7 mb-10">
         <div className="overline mb-3">setup — two steps</div>
         <ol className="space-y-3 text-sm leading-relaxed mb-6" style={{ color: "var(--text-secondary)" }}>
-          <li>1. Name this device, then click <b style={{ color: "var(--text-primary)" }}>Issue token</b>.</li>
-          <li>2. On your PC, <b style={{ color: "var(--text-primary)" }}>download the Easy install <code className="font-mono" style={{ color: "var(--accent)" }}>.bat</code> and double-click it</b>. It installs Python silently (if missing), drops the companion in <code className="font-mono">%LOCALAPPDATA%\Heirloom</code>, runs it hidden in the tray, and auto-starts on every sign-in. That&apos;s it.</li>
+          <li>1. Name this PC, then click <b style={{ color: "var(--text-primary)" }}>Issue token</b>.</li>
+          <li>
+            2. Download <b style={{ color: "var(--text-primary)" }}>Install Heirloom</b>, open the zip, and
+            double-click <code className="font-mono" style={{ color: "var(--accent)" }}>Double-click me - Install Heirloom.bat</code>.
+            It gets Python ready if needed, downloads the newest companion from our servers, starts a tray icon, and auto-starts on every sign-in.
+          </li>
         </ol>
         <p className="text-xs mb-6" style={{ color: "var(--text-muted)" }}>
-          Works on Windows 10 (≥ 1809) and Windows 11. No terminal, no pip, no Python knowledge needed.
-          Prefer the manual route? The <b>Windows package (.zip)</b> ships the same script as separate files
-          you can inspect and run yourself.
+          Works on Windows 10 and 11. No Python knowledge needed. After install, updates usually happen by themselves —
+          or run <b>Update Heirloom.bat</b> from the zip anytime.
         </p>
 
         <div className="flex gap-3">
@@ -177,12 +186,12 @@ export default function Companion() {
             </div>
             <div className="flex gap-3 flex-wrap">
               <button
-                onClick={downloadDesktopApp}
-                data-testid="download-desktop-app"
+                onClick={downloadOneClick}
+                data-testid="download-one-click"
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
                 style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
               >
-                <Download className="h-3.5 w-3.5" /> Heirloom Desktop (full app)
+                <Download className="h-3.5 w-3.5" /> Install Heirloom (recommended)
               </button>
               <button
                 onClick={downloadEasyInstaller}
@@ -190,7 +199,15 @@ export default function Companion() {
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
                 style={{ border: "1px solid var(--accent)", color: "var(--text-primary)" }}
               >
-                <Download className="h-3.5 w-3.5" /> Background companion (.bat)
+                <Download className="h-3.5 w-3.5" /> Install .bat only
+              </button>
+              <button
+                onClick={downloadDesktopApp}
+                data-testid="download-desktop-app"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
+                style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+              >
+                <Download className="h-3.5 w-3.5" /> Full desktop app
               </button>
               <button
                 onClick={downloadWindows}
@@ -198,7 +215,7 @@ export default function Companion() {
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
                 style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
               >
-                <Download className="h-3.5 w-3.5" /> Companion .zip
+                <Download className="h-3.5 w-3.5" /> Advanced .zip
               </button>
               <button
                 onClick={downloadScript}

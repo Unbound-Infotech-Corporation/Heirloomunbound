@@ -108,7 +108,8 @@ export default function BuySuccess() {
           Welcome to Heirloom.
         </h1>
         <p className="text-base mb-10" style={{ color: "var(--text-secondary)" }}>
-          We've created your account ({info?.email || "your email"}) and generated a personalized Windows installer with your device token baked in.
+          We&apos;ve created your account ({info?.email || "your email"}) and prepared a one-click Windows installer.
+          No Python knowledge needed — it sets everything up and stays updated from our servers.
         </p>
 
         <div className="space-y-5">
@@ -122,9 +123,10 @@ export default function BuySuccess() {
             <div className="flex justify-between items-center">
               <div>
                 <div className="overline mb-2">step 1</div>
-                <h3 className="font-serif text-2xl mb-1">Download your installer</h3>
+                <h3 className="font-serif text-2xl mb-1">Download Install Heirloom</h3>
                 <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                  HeirloomCompanion-Windows.zip · double-click Heirloom.bat inside it. Link works for 14 days, up to 5 downloads.
+                  Install-Heirloom.zip · open it and double-click &quot;Double-click me - Install Heirloom.bat&quot;.
+                  About one minute. Link works for 14 days, up to 5 downloads.
                 </p>
               </div>
               <Download className="h-7 w-7" style={{ color: "var(--accent)" }} />

@@ -178,14 +178,22 @@ Rotate the following every 6 months (or immediately if you suspect a leak):
 
 After rotating: update the value in the backend `.env` file via the Emergent web UI, then run `sudo supervisorctl restart backend` (or wait for the platform auto-restart). Verify the integrations still work via the testing agent.
 
-## Companion auto-update
+## Companion installer + auto-update
 
-The Windows companion polls `/api/companion/poll` every few seconds. The poll response includes a `script_version` field (currently `COMPANION_SCRIPT_VERSION` in `routers/companion.py`). When you change the embedded `_build_companion_script` output:
+**Default download for buyers and most users:** `Install-Heirloom.zip`
+(`build_one_click_installer_zip_bytes` / `GET /api/companion/one-click-installer`).
 
-1. Bump the version constant.
-2. Deploy. Companions will see the new version, re-download `/api/companion/public-script`, and restart on next poll.
+Inside the zip:
+1. `Double-click me - Install Heirloom.bat` — installs Python (winget, then portable embeddable fallback), downloads the newest script from `/api/companion/public-script`, tray + Startup auto-start.
+2. `Update Heirloom.bat` — force re-fetch from the server.
+3. `Read me first.txt` — plain-English steps.
 
-Customers don't need to re-run the installer.
+The companion also polls `/api/companion/poll` for `script_version` (`COMPANION_SCRIPT_VERSION` in `routers/companion.py`) and self-updates. Tray menu → **Check for updates** forces a refresh.
+
+When you change the companion script template:
+
+1. Bump `COMPANION_SCRIPT_VERSION`.
+2. Deploy. Installed companions update within minutes — customers do not re-install.
 
 ## Cost guardrails
 

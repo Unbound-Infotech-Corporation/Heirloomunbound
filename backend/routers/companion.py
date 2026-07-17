@@ -255,7 +255,7 @@ async def poll(ctx: dict = Depends(get_device_user)):
     }
 
 
-COMPANION_SCRIPT_VERSION = "2026.02.28.1"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.07.17.1"  # bump whenever _build_companion_script materially changes
 
 
 class CompanionResult(BaseModel):
@@ -529,22 +529,56 @@ async def public_download_script(token: str, wake_word: bool = False):
     )
 
 
+def _personalized_installer_bat(token: str, wake_word: bool = False) -> str:
+    """Bake backend URL + device token into the grandmother-friendly installer."""
+    import os
+
+    backend_url = os.environ.get("PUBLIC_BACKEND_URL", "").rstrip("/")
+    if not backend_url:
+        raise HTTPException(status_code=500, detail="PUBLIC_BACKEND_URL not configured")
+    return (
+        _WINDOWS_EASY_INSTALLER_BAT
+        .replace("__BACKEND_URL__", backend_url)
+        .replace("__DEVICE_TOKEN__", token)
+        .replace("__WAKE_WORD__", "true" if wake_word else "false")
+        .replace("__SCRIPT_VERSION__", COMPANION_SCRIPT_VERSION)
+    )
+
+
 @router.get("/easy-installer")
 async def easy_installer(
     token: str,
     wake_word: bool = False,
     user: dict = Depends(get_current_user),
 ):
-    """Returns a single self-contained .bat file that does EVERYTHING in one click:
+    """Single .bat installer (legacy download). Prefer /one-click-installer zip."""
+    device = await db.companion_devices.find_one(
+        {"device_token": token, "user_id": user["user_id"], "revoked": False}, {"_id": 0}
+    )
+    if not device:
+        raise HTTPException(status_code=404, detail="Device token not found")
 
-    1. Silently installs Python 3.12 via winget if missing (Win 10 1809+/Win 11).
-    2. Downloads the personalized companion script from /api/companion/public-script.
-    3. pip-installs deps to user-site (no admin).
-    4. Drops a VBS launcher to run the script HIDDEN (no flashing console).
-    5. Adds a Startup-folder shortcut → auto-starts on every Windows login.
-    6. Launches it immediately.
+    bat = _personalized_installer_bat(token, wake_word=wake_word)
+    from fastapi import Response
+    return Response(
+        content=bat,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": 'attachment; filename="Install-Heirloom.bat"'},
+    )
 
-    End-user double-clicks → ~60s of silent install → tray icon appears → done.
+
+@router.get("/one-click-installer")
+async def one_click_installer(
+    token: str,
+    wake_word: bool = False,
+    user: dict = Depends(get_current_user),
+):
+    """Grandmother-friendly zip: one clear install file + short readme.
+
+    Double-click → installs Python if needed (winget, then portable fallback),
+    downloads the newest companion script from this server, starts it in the
+    tray, and auto-starts on every Windows sign-in. Later updates pull from
+    the same server automatically.
     """
     device = await db.companion_devices.find_one(
         {"device_token": token, "user_id": user["user_id"], "revoked": False}, {"_id": 0}
@@ -552,22 +586,15 @@ async def easy_installer(
     if not device:
         raise HTTPException(status_code=404, detail="Device token not found")
 
-    import os
-    backend_url = os.environ.get("PUBLIC_BACKEND_URL", "").rstrip("/")
-    if not backend_url:
-        raise HTTPException(status_code=500, detail="PUBLIC_BACKEND_URL not configured")
-
-    bat = (
-        _WINDOWS_EASY_INSTALLER_BAT
-        .replace("__BACKEND_URL__", backend_url)
-        .replace("__DEVICE_TOKEN__", token)
-        .replace("__WAKE_WORD__", "true" if wake_word else "false")
-    )
+    payload = build_one_click_installer_zip_bytes(token, wake_word=wake_word)
     from fastapi import Response
     return Response(
-        content=bat,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": 'attachment; filename="HeirloomInstall.bat"'},
+        content=payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="Install-Heirloom.zip"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -582,11 +609,40 @@ def _build_companion_script(token: str, backend_url_hint: str, wake_word: bool =
 
 
 # ---------- Windows one-click package ----------
+def build_one_click_installer_zip_bytes(token: str, wake_word: bool = False) -> bytes:
+    """Single-folder zip for non-technical users.
+
+    Contains:
+      - Double-click me - Install Heirloom.bat  (does everything)
+      - Update Heirloom.bat                     (re-fetch newest script)
+      - Read me first.txt                      (3 plain-English steps)
+    """
+    import os
+    import zipfile
+
+    backend_url = os.environ.get("PUBLIC_BACKEND_URL", "").rstrip("/")
+    bat = _personalized_installer_bat(token, wake_word=wake_word)
+    update_bat = (
+        _WINDOWS_UPDATE_BAT
+        .replace("__BACKEND_URL__", backend_url)
+        .replace("__DEVICE_TOKEN__", token)
+        .replace("__WAKE_WORD__", "true" if wake_word else "false")
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("Double-click me - Install Heirloom.bat", bat)
+        z.writestr("Update Heirloom.bat", update_bat)
+        z.writestr("Read me first.txt", _ONE_CLICK_README)
+    return buf.getvalue()
+
+
 def build_windows_zip_bytes(token: str, wake_word: bool = False) -> bytes:
-    """Reusable helper — returns the in-memory bytes of the personalized
-    Windows .zip package for `token`. Used by /windows-package and by the
-    public /download/{download_token} endpoint after a successful purchase."""
-    import io
+    """Advanced package: script + launcher + PyInstaller tooling.
+
+    Kept for power users. Purchase / grandma flow uses
+    `build_one_click_installer_zip_bytes` instead.
+    """
     import os
     import zipfile
 
@@ -720,22 +776,88 @@ async def windows_package(
     )
 
 
-_WINDOWS_EASY_INSTALLER_BAT = r"""@echo off
+_ONE_CLICK_README = """Heirloom Companion — easy install
+=================================
+
+You only need to do this once.
+
+1. Open the zip you downloaded.
+2. Double-click:  Double-click me - Install Heirloom.bat
+3. If Windows asks "Windows protected your PC", click More info → Run anyway.
+4. Wait about one minute. A small amber tray icon appears near the clock.
+
+That's it. Heirloom will start every time you sign in to Windows.
+
+Getting newer versions
+----------------------
+You usually do nothing — the companion checks the Heirloom server and
+updates itself. To force an update, double-click:  Update Heirloom.bat
+
+Need help?  support@heirloom.app
+"""
+
+
+_WINDOWS_UPDATE_BAT = r"""@echo off
 setlocal EnableDelayedExpansion
-title Heirloom Companion - Easy install
-mode con: cols=72 lines=24
+title Heirloom — Update
+mode con: cols=72 lines=18
 
 echo.
-echo               -- Heirloom Companion: Easy install --
-echo  --------------------------------------------------------------
+echo   Updating Heirloom from the server...
 echo.
-echo   This will:
-echo     * Install Python ^(silent, only if missing^)
-echo     * Drop the companion at:  %%LOCALAPPDATA%%\Heirloom
-echo     * Start automatically every time you sign in to Windows
-echo     * Run hidden in the background ^(look for the tray icon^)
+
+set "INSTALL_DIR=%LOCALAPPDATA%\Heirloom"
+set "BACKEND_URL=__BACKEND_URL__"
+set "DEVICE_TOKEN=__DEVICE_TOKEN__"
+set "WAKE_WORD=__WAKE_WORD__"
+
+if not exist "%INSTALL_DIR%" (
+  echo   Heirloom is not installed yet.
+  echo   Please run "Double-click me - Install Heirloom.bat" first.
+  pause
+  exit /b 1
+)
+
+set "SCRIPT_URL=%BACKEND_URL%/api/companion/public-script?token=%DEVICE_TOKEN%&wake_word=%WAKE_WORD%"
+curl -sS -L --fail "%SCRIPT_URL%" -o "%INSTALL_DIR%\heirloom_companion.py"
+if errorlevel 1 (
+  echo   Could not reach the Heirloom server. Check your internet and try again.
+  pause
+  exit /b 1
+)
+
+echo   Updated. Restarting...
+if exist "%INSTALL_DIR%\HeirloomCompanion.vbs" (
+  start "" wscript.exe "%INSTALL_DIR%\HeirloomCompanion.vbs"
+)
 echo.
-echo   ~60 seconds. Press any key to begin, or close to cancel.
+echo   Done. Look for the amber tray icon near the clock.
+ping -n 5 127.0.0.1 >nul
+exit /b 0
+"""
+
+
+_WINDOWS_EASY_INSTALLER_BAT = r"""@echo off
+setlocal EnableDelayedExpansion
+title Heirloom — Install
+mode con: cols=78 lines=28
+color 0F
+
+echo.
+echo   ============================================================
+echo                    Welcome to Heirloom
+echo   ============================================================
+echo.
+echo   This one-click installer will:
+echo     1. Get Python ready on this PC ^(only if needed^)
+echo     2. Download the newest Heirloom companion from our server
+echo     3. Start it quietly in the background ^(tray icon^)
+echo     4. Make it start automatically when you sign in
+echo.
+echo   You do not need to know anything about Python.
+echo   This usually takes about one minute.
+echo.
+echo   Press any key to begin  —  or close this window to cancel.
 echo.
 pause >nul
 
@@ -743,68 +865,104 @@ set "INSTALL_DIR=%LOCALAPPDATA%\Heirloom"
 set "BACKEND_URL=__BACKEND_URL__"
 set "DEVICE_TOKEN=__DEVICE_TOKEN__"
 set "WAKE_WORD=__WAKE_WORD__"
+set "SCRIPT_VERSION=__SCRIPT_VERSION__"
+set "PY_DIR=%INSTALL_DIR%\python"
+set "USE_USER_PIP=1"
 
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%" >nul 2>&1
 
-echo  [1/5] Checking Python...
+echo.
+echo   [1/5] Looking for Python...
 set "PY="
 where py >nul 2>nul && set "PY=py"
 if "%PY%"=="" ( where python >nul 2>nul && set "PY=python" )
+if exist "%PY_DIR%\python.exe" set "PY=%PY_DIR%\python.exe" & set "USE_USER_PIP=0"
 
-if "%PY%"=="" (
-  echo        Not found. Installing silently via winget ^(~30s^)...
-  where winget >nul 2>nul
-  if errorlevel 1 (
-    echo.
-    echo   X  Your Windows is older than 10 ver. 1809 ^(no winget^).
-    echo      Please install Python 3.11+ from https://python.org/downloads
-    echo      then re-run this installer.
-    echo.
-    pause
-    exit /b 1
-  )
+if not "%PY%"=="" goto :have_python
+
+echo         Python not found yet. Trying quiet install ^(winget^)...
+where winget >nul 2>nul
+if not errorlevel 1 (
   winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements >nul 2>&1
   for /f "delims=" %%i in ('dir /b /s "%LOCALAPPDATA%\Programs\Python\python.exe" 2^>nul') do set "PY=%%i"
-  if "!PY!"=="" (
-    echo.
-    echo   X  Python install did not complete. Open https://python.org/downloads
-    echo      install manually, then re-run this installer.
-    pause
-    exit /b 1
-  )
 )
 
-echo        ok.
-echo  [2/5] Downloading the companion script...
+if not "%PY%"=="" goto :have_python
+
+echo         Winget unavailable or failed. Downloading portable Python...
+set "EMBED_ZIP=%INSTALL_DIR%\python-embed.zip"
+set "EMBED_URL=https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip"
+curl -sS -L --fail "%EMBED_URL%" -o "%EMBED_ZIP%"
+if errorlevel 1 (
+  echo.
+  echo   Something went wrong downloading Python.
+  echo   Please ask a helper to install Python from https://python.org/downloads
+  echo   ^(tick "Add python.exe to PATH"^), then run this installer again.
+  echo.
+  pause
+  exit /b 1
+)
+if exist "%PY_DIR%" rmdir /s /q "%PY_DIR%" >nul 2>&1
+mkdir "%PY_DIR%" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%EMBED_ZIP%' -DestinationPath '%PY_DIR%' -Force" >nul 2>&1
+del "%EMBED_ZIP%" >nul 2>&1
+if not exist "%PY_DIR%\python.exe" (
+  echo.
+  echo   Portable Python extract failed.
+  echo   Please install Python from https://python.org/downloads and try again.
+  pause
+  exit /b 1
+)
+REM Enable pip/site-packages in the embeddable distro
+for %%F in ("%PY_DIR%\python*._pth") do (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "(Get-Content -LiteralPath '%%~fF') -replace '#import site','import site' | Set-Content -LiteralPath '%%~fF'" >nul 2>&1
+)
+curl -sS -L --fail "https://bootstrap.pypa.io/get-pip.py" -o "%INSTALL_DIR%\get-pip.py"
+"%PY_DIR%\python.exe" "%INSTALL_DIR%\get-pip.py" --no-warn-script-location >nul 2>&1
+set "PY=%PY_DIR%\python.exe"
+set "USE_USER_PIP=0"
+echo         Portable Python ready.
+
+:have_python
+echo         OK — using: %PY%
+
+echo   [2/5] Downloading the newest companion from Heirloom servers...
 set "SCRIPT_URL=%BACKEND_URL%/api/companion/public-script?token=%DEVICE_TOKEN%&wake_word=%WAKE_WORD%"
 curl -sS -L --fail "%SCRIPT_URL%" -o "%INSTALL_DIR%\heirloom_companion.py"
 if errorlevel 1 (
   echo.
-  echo   X  Could not download from %BACKEND_URL%
-  echo      Check your internet connection and try again. If it still fails,
-  echo      your device token may have been revoked - go back to the
-  echo      Heirloom website, revoke the device and issue a fresh token.
+  echo   Could not download from the Heirloom server.
+  echo   Check your internet connection, then try again.
+  echo   If it still fails, open the Heirloom website, remove this device,
+  echo   and download a fresh installer.
+  echo.
   pause
   exit /b 1
 )
+> "%INSTALL_DIR%\device.json" echo {"backend_url":"%BACKEND_URL%","device_token":"%DEVICE_TOKEN%","wake_word":"%WAKE_WORD%","installed_at":"%DATE% %TIME%","script_version":"%SCRIPT_VERSION%"}
+echo         OK.
 
-echo        ok.
-echo  [3/5] Installing Python packages ^(may take 30-60s the first time^)...
-"%PY%" -m pip install --quiet --disable-pip-version-check --upgrade --user requests sounddevice soundfile numpy pynput pystray Pillow psutil mss >nul 2>&1
-if /i "%WAKE_WORD%"=="true" (
-  echo        + wake-word engine...
-  "%PY%" -m pip install --quiet --disable-pip-version-check --upgrade --user openwakeword >nul 2>&1
+echo   [3/5] Installing helper packages ^(first time can take a minute^)...
+if "%USE_USER_PIP%"=="1" (
+  "%PY%" -m pip install --quiet --disable-pip-version-check --upgrade --user requests sounddevice soundfile numpy pynput pystray Pillow psutil mss >nul 2>&1
+) else (
+  "%PY%" -m pip install --quiet --disable-pip-version-check --upgrade requests sounddevice soundfile numpy pynput pystray Pillow psutil mss >nul 2>&1
 )
+if /i "%WAKE_WORD%"=="true" (
+  echo         + wake-word engine...
+  if "%USE_USER_PIP%"=="1" (
+    "%PY%" -m pip install --quiet --disable-pip-version-check --upgrade --user openwakeword >nul 2>&1
+  ) else (
+    "%PY%" -m pip install --quiet --disable-pip-version-check --upgrade openwakeword >nul 2>&1
+  )
+)
+echo         OK.
 
-echo        ok.
-echo  [4/5] Creating hidden launcher + Startup shortcut...
-
-REM Build the VBS launcher: runs python totally hidden (no flashing console).
-REM We use Chr(34) inside VBS for quote chars, so the .bat doesn't need triple quotes.
+echo   [4/5] Setting up auto-start...
 > "%INSTALL_DIR%\HeirloomCompanion.vbs" echo Set WS = CreateObject^("WScript.Shell"^)
 >> "%INSTALL_DIR%\HeirloomCompanion.vbs" echo WS.Run Chr^(34^) ^& "%PY%" ^& Chr^(34^) ^& " " ^& Chr^(34^) ^& "%INSTALL_DIR%\heirloom_companion.py" ^& Chr^(34^), 0, False
 
-REM Create / refresh shortcut in the Startup folder
 set "SC=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Heirloom Companion.lnk"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$WshShell = New-Object -ComObject WScript.Shell;" ^
@@ -812,26 +970,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$s.TargetPath = '%INSTALL_DIR%\HeirloomCompanion.vbs';" ^
   "$s.WorkingDirectory = '%INSTALL_DIR%';" ^
   "$s.WindowStyle = 7;" ^
-  "$s.Description = 'Heirloom Companion - your AI twin, listening locally';" ^
+  "$s.Description = 'Heirloom Companion';" ^
   "$s.Save();" >nul 2>&1
+echo         OK.
 
-echo        ok.
-echo  [5/5] Launching now...
+echo   [5/5] Starting Heirloom now...
 start "" wscript.exe "%INSTALL_DIR%\HeirloomCompanion.vbs"
 
 echo.
-echo  ==============================================================
-echo    Heirloom is now running. Look for the tray icon near the
-echo    clock ^(bottom-right of your screen^).
+echo   ============================================================
+echo     You're done!
 echo.
-echo    It will auto-start every time you sign in.
-echo    To stop: right-click the tray icon then Quit.
-echo    To remove: delete  %INSTALL_DIR%
-echo               and  "Heirloom Companion.lnk" from your Startup folder.
-echo  ==============================================================
+echo     Look for a small amber circle near the clock
+echo     ^(bottom-right corner of your screen^).
 echo.
-echo  This window closes in 8 seconds.
-ping -n 9 127.0.0.1 >nul
+echo     Heirloom will start automatically next time you sign in.
+echo     It also updates itself from our servers when a newer
+echo     version is available — you usually don't need to do anything.
+echo.
+echo     To quit: right-click the tray icon → Quit.
+echo     To update manually: run "Update Heirloom.bat" from the zip.
+echo   ============================================================
+echo.
+echo   This window closes in 10 seconds.
+ping -n 11 127.0.0.1 >nul
 exit /b 0
 """
 
@@ -1639,15 +1801,16 @@ def execute(cmd):
         return "error", str(e)
 
 
-def _check_and_self_update(server_version):
+def _check_and_self_update(server_version, force=False):
     """If the server reports a newer script version, re-download ourselves
-    and exit. The Windows VBS launcher (or the user's `Heirloom.bat`) will
-    restart us within seconds on the next sign-in / boot — but we also
-    spawn a tiny re-exec so the new code starts immediately.
+    and restart. The Windows VBS launcher also restarts us on the next sign-in.
+    Pass force=True from the tray "Check for updates" menu to re-fetch even
+    when the version string matches (repairs a corrupt local copy).
     """
-    if not server_version or not SCRIPT_VERSION or server_version == SCRIPT_VERSION:
-        return
-    print(f"\n↻ Companion update available: {SCRIPT_VERSION} → {server_version}. Downloading…")
+    if not force:
+        if not server_version or not SCRIPT_VERSION or server_version == SCRIPT_VERSION:
+            return
+    print(f"\n↻ Companion update: {SCRIPT_VERSION} → {server_version or 'latest'}. Downloading…")
     try:
         url = f"{BACKEND_URL}/api/companion/public-script?token={DEVICE_TOKEN}"
         r = requests.get(url, timeout=30)
@@ -1878,8 +2041,18 @@ def _run_tray_icon(wake_mode: bool):
         icon.stop()
         os._exit(0)
 
+    def on_check_update(icon, item):
+        try:
+            r = safe_get("/companion/poll")
+            ver = (r.json().get("script_version") if r and r.status_code == 200 else None)
+            _check_and_self_update(ver, force=True)
+        except Exception:
+            pass
+
     menu = pystray.Menu(
         pystray.MenuItem(label, lambda i, it: None, enabled=False),
+        pystray.MenuItem(f"Version {SCRIPT_VERSION}", lambda i, it: None, enabled=False),
+        pystray.MenuItem("Check for updates", on_check_update),
         pystray.MenuItem("Open Heirloom (web)",
                          lambda i, it: webbrowser.open(BACKEND_URL)),
         pystray.MenuItem("Quit", on_quit),

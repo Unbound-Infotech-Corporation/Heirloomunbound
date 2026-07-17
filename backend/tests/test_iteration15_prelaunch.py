@@ -254,7 +254,12 @@ class TestRegression:
                          params={"token": device_token},
                          headers=_auth(tok), timeout=20)
         assert r.status_code == 200, r.text
-        assert "HeirloomInstall" in r.headers.get("content-disposition", "") or b"Heirloom" in r.content
+        disp = r.headers.get("content-disposition", "")
+        assert (
+            "Install-Heirloom" in disp
+            or "HeirloomInstall" in disp
+            or b"Heirloom" in r.content
+        )
         db.companion_devices.delete_many({"user_id": uid})
         db.user_sessions.delete_many({"user_id": uid})
         db.users.delete_one({"user_id": uid})

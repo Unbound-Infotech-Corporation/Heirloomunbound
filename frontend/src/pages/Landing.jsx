@@ -192,7 +192,8 @@ export default function Landing() {
               <ArrowRight className="h-4 w-4 ml-1" />
             </Link>
             <p className="mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
-              Double-click <code>Heirloom.bat</code> — ~60s setup, no Python knowledge needed. Build a real <code>Heirloom.exe</code> later via the bundled PyInstaller script.
+              Download <code>Install-Heirloom.zip</code>, double-click the install file — about one minute.
+              Python is set up for you if needed, and the companion updates itself from our servers.
             </p>
           </div>
 
