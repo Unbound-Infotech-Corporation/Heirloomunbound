@@ -23,9 +23,21 @@ WHAT'S INSIDE
 
 OBS / STREAMING
 ---------------
-Click "Pop out for OBS ↗" on the avatar panel to detach the twin into its own
-borderless, transparent, always-on-top window. In OBS, add a Window Capture
-source and pick "Heirloom Twin — Broadcast".
+Two ways to get your twin into OBS:
+
+A) Browser Source (recommended for web live)
+   1. Settings → Live Broadcast → claim handle → upload face in Avatar Studio
+      (front photo auto-activates) → Start broadcasting.
+   2. Copy the OBS Browser Source URL (`…/twin/live/<handle>?obs=1`).
+   3. OBS → Sources → Browser → paste URL, set 1080×1080, FPS 30.
+      Leave Custom CSS empty — the page is already transparent.
+   4. Chat with your twin and click "Play as video" (web) or use desktop
+      D-ID mode so talking-head clips fan out to the Browser Source.
+
+B) Desktop Window Capture
+   Click "Pop out for OBS ↗" on the avatar panel to detach the twin into its
+   own borderless, transparent, always-on-top window. In OBS, add a Window
+   Capture source and pick "Heirloom Twin — Broadcast".
 
 REQUIREMENTS
 ------------

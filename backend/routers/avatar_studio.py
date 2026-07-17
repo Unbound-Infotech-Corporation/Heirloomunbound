@@ -164,11 +164,23 @@ async def upload_avatar(
     )
 
     public_url = _public_url_for(doc)
+
+    # Front photos become the twin's face automatically — one upload, done.
+    # (Left/right angles stay on file for future 3D; they don't drive D-ID.)
+    activated = False
+    if angle == "front":
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"avatar_source_url": public_url, "updated_at": _now_iso()}},
+        )
+        activated = True
+
     return {
         "image_id": img_id,
         "angle": angle,
         "serve_url": public_url,
         "size": doc["size"],
+        "activated_as_twin": activated,
     }
 
 

@@ -176,6 +176,14 @@ async def poll_talk(talk_id: str, user: dict = Depends(get_current_user)):
         {"talk_id": talk_id, "user_id": user["user_id"]}, {"$set": update}
     )
 
+    # Fan out finished talking-head clips to live-stream / OBS viewers
+    if status == "done" and result_url:
+        try:
+            from routers.live import publish_avatar as live_publish_avatar
+            await live_publish_avatar(user["user_id"], result_url)
+        except Exception:  # noqa: BLE001
+            pass
+
     return {
         "talk_id": talk_id,
         "status": status,

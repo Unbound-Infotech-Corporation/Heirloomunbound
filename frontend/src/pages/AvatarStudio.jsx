@@ -41,8 +41,12 @@ export default function AvatarStudio() {
       const fd = new FormData();
       fd.append("angle", angle);
       fd.append("file", file);
-      await api.post("/avatar-studio/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success(`${angle} uploaded.`);
+      const r = await api.post("/avatar-studio/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      if (r.data?.activated_as_twin) {
+        toast.success("Front photo set as your twin's face — ready for live / OBS.");
+      } else {
+        toast.success(`${angle} uploaded.`);
+      }
       load();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Upload failed.");
@@ -110,10 +114,37 @@ export default function AvatarStudio() {
         <div className="overline mb-3">your twin&apos;s face</div>
         <h1 className="font-serif text-4xl mb-3">Avatar Studio</h1>
         <p className="text-sm mb-10 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          Upload three angles of your face &mdash; front + both sides. The front photo is what your twin uses today.
-          The sides we&apos;ll keep on file for a future 3D-avatar upgrade. Optional subtle enhance preserves your
-          identity — never changes your features, just cleans things up.
+          Drop a front-facing photo — it becomes your twin&apos;s face automatically for talking-head video,
+          live stream, and OBS. Left/right angles are optional (saved for a future 3D upgrade). Optional
+          Beautify cleans lighting without changing who you are.
         </p>
+        {data.active_source_url ? (
+          <div
+            className="mb-8 p-4 rounded-sm flex flex-wrap items-center gap-4"
+            style={{ border: "1px solid var(--border-default)", background: "var(--bg-surface)" }}
+            data-testid="avatar-studio-active"
+          >
+            <img
+              src={data.active_source_url}
+              alt="Active twin face"
+              className="w-16 h-16 rounded-sm object-cover"
+              style={{ border: "1px solid var(--border-default)" }}
+            />
+            <div className="flex-1 min-w-[12rem]">
+              <div className="overline mb-1" style={{ color: "var(--ok)" }}>active twin face</div>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                This is what D-ID, live viewers, and OBS will show.
+              </p>
+            </div>
+            <a
+              href="/settings"
+              className="text-xs underline"
+              style={{ color: "var(--accent)" }}
+            >
+              Live broadcast setup →
+            </a>
+          </div>
+        ) : null}
 
         {/* 3 upload tiles */}
         <div className="grid sm:grid-cols-3 gap-6 mb-10">

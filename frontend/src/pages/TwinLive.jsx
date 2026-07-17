@@ -16,7 +16,7 @@ const API = `${BACKEND}/api`;
 
 const MAX_TURNS = 15;
 
-function PortraitAvatar({ avatarUrl, videoUrl, speaking, onVideoEnded }) {
+function PortraitAvatar({ avatarUrl, videoUrl, speaking, onVideoEnded, obs = false }) {
   const videoRef = useRef(null);
   useEffect(() => {
     if (!videoUrl || !videoRef.current) return;
@@ -26,7 +26,7 @@ function PortraitAvatar({ avatarUrl, videoUrl, speaking, onVideoEnded }) {
 
   return (
     <div
-      className="relative w-full h-full overflow-hidden rounded-md"
+      className={`relative w-full h-full overflow-hidden ${obs ? "" : "rounded-md"}`}
       style={{ background: "transparent" }}
       data-testid="live-avatar"
     >
@@ -36,6 +36,7 @@ function PortraitAvatar({ avatarUrl, videoUrl, speaking, onVideoEnded }) {
           alt="twin portrait"
           className="absolute inset-0 w-full h-full object-cover"
           style={{ filter: "saturate(0.95)" }}
+          draggable={false}
         />
       )}
       <video
@@ -45,6 +46,7 @@ function PortraitAvatar({ avatarUrl, videoUrl, speaking, onVideoEnded }) {
         }`}
         autoPlay
         playsInline
+        muted={false}
         onEnded={onVideoEnded}
       />
     </div>
@@ -68,6 +70,25 @@ export default function TwinLive() {
     title: profile ? `${profile.name} · live with their twin` : "Heirloom live twin",
     description: "Watch a digital twin in real time — Heirloom by Unbound Infotech.",
   });
+
+  // Make html/body truly transparent for OBS Browser Source (overrides global CSS)
+  useEffect(() => {
+    if (!obsMode) return;
+    const html = document.documentElement;
+    const body = document.body;
+    html.classList.add("obs-mode");
+    body.classList.add("obs-mode");
+    const prevHtmlBg = html.style.background;
+    const prevBodyBg = body.style.background;
+    html.style.background = "transparent";
+    body.style.background = "transparent";
+    return () => {
+      html.classList.remove("obs-mode");
+      body.classList.remove("obs-mode");
+      html.style.background = prevHtmlBg;
+      body.style.background = prevBodyBg;
+    };
+  }, [obsMode]);
 
   // Initial profile + history
   useEffect(() => {
@@ -137,7 +158,7 @@ export default function TwinLive() {
     return (
       <div
         className="min-h-screen flex items-center justify-center px-6"
-        style={{ background: "var(--bg-base)" }}
+        style={{ background: obsMode ? "transparent" : "var(--bg-base)" }}
       >
         <div className="max-w-md text-center" data-testid="live-error">
           <div className="overline mb-3" style={{ color: "var(--text-muted)" }}>
@@ -145,13 +166,15 @@ export default function TwinLive() {
           </div>
           <h1 className="font-serif text-3xl mb-3">Nobody home.</h1>
           <p style={{ color: "var(--text-secondary)" }}>{error}</p>
-          <a
-            href="/"
-            className="inline-block mt-6 text-sm underline"
-            style={{ color: "var(--accent)" }}
-          >
-            Go to Heirloom →
-          </a>
+          {!obsMode && (
+            <a
+              href="/"
+              className="inline-block mt-6 text-sm underline"
+              style={{ color: "var(--accent)" }}
+            >
+              Go to Heirloom →
+            </a>
+          )}
         </div>
       </div>
     );
@@ -161,10 +184,13 @@ export default function TwinLive() {
     return (
       <div
         className="min-h-screen flex items-center justify-center"
-        style={{ background: "var(--bg-base)", color: "var(--text-muted)" }}
+        style={{
+          background: obsMode ? "transparent" : "var(--bg-base)",
+          color: "var(--text-muted)",
+        }}
         data-testid="live-loading"
       >
-        Loading…
+        {!obsMode && "Loading…"}
       </div>
     );
   }
@@ -174,13 +200,14 @@ export default function TwinLive() {
     return (
       <div
         className="w-screen h-screen overflow-hidden"
-        style={{ background: "transparent" }}
+        style={{ background: "transparent", margin: 0, padding: 0 }}
         data-testid="live-obs"
       >
         <PortraitAvatar
           avatarUrl={profile.avatar_url}
           videoUrl={videoUrl}
           speaking={speaking}
+          obs
           onVideoEnded={() => setSpeaking(false)}
         />
       </div>
@@ -330,7 +357,7 @@ export default function TwinLive() {
         <code style={{ color: "var(--text-secondary)" }}>
           /twin/live/{profile.handle}?obs=1
         </code>{" "}
-        as a Browser Source in OBS.
+        as a Browser Source in OBS (Custom CSS not needed — page is transparent).
       </footer>
     </div>
   );
