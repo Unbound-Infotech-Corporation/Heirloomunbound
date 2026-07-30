@@ -21,9 +21,9 @@ export default function MagicLink() {
     axios
       .post(`${API}/auth/magic/${token}`, {}, { withCredentials: true })
       .then(async ({ data }) => {
-        if (data.session_token) {
-          localStorage.setItem("session_token", data.session_token);
-        }
+        // Session is delivered via httpOnly cookie by the backend
+        // (withCredentials above). Do NOT mirror it into localStorage — that
+        // exposes the token to any XSS payload and buys nothing (no reader).
         // Hydrate the AuthProvider so /today renders authenticated on first paint
         if (data.user && setUser) {
           setUser(data.user);
