@@ -86,9 +86,8 @@ frontend/node_modules/.cache/default-development/3.pack
 frontend/node_modules/.cache/default-development/4.pack
 frontend/node_modules/.cache/default-development/8.pack
 frontend/node_modules/.cache/default-development/10.pack
-.env
-.env.*
-*.env
+# NOTE: Do NOT re-add .env / .env.* / *.env here — Emergent deployment reads
+# committed .env files and rewrites them with production values during deploy.
 credentials.json
 *.key
 .credentials
