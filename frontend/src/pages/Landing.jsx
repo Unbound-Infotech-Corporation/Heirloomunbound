@@ -69,7 +69,20 @@ export default function Landing() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 1.1, ease: "easeOut" }}
         >
-          <div className="overline mb-6">a continuation of you</div>
+          <div className="overline mb-6 flex items-center gap-3 flex-wrap">
+            <span>a continuation of you</span>
+            <span
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] tracking-widest uppercase"
+              style={{
+                background: "var(--accent-muted, rgba(232,169,92,0.14))",
+                color: "var(--accent)",
+                border: "1px solid var(--accent)",
+              }}
+              data-testid="landing-early-access-badge"
+            >
+              early access · v0
+            </span>
+          </div>
           <h1
             className="font-serif text-5xl sm:text-6xl lg:text-7xl font-light tracking-tight leading-[1.05] max-w-4xl"
             style={{ color: "var(--text-primary)" }}
@@ -82,7 +95,7 @@ export default function Landing() {
             className="mt-8 max-w-2xl text-lg leading-relaxed"
             style={{ color: "var(--text-secondary)" }}
           >
-            A private archive of your voice, memories, beliefs, and the things you most want your family to remember. A daily assistant that becomes a digital twin they can sit with after you're gone.
+            A private archive of your voice, memories, beliefs, and the things you most want your family to remember. A daily assistant that becomes a digital twin they can sit with after you&apos;re gone.
           </p>
 
           <div className="mt-12 flex flex-wrap gap-4">
@@ -230,10 +243,119 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* BUILT WITH YOU — dev-phase honesty */}
+      <section
+        className="relative z-10 px-5 sm:px-10 lg:px-20 mt-32 lg:mt-44 max-w-4xl"
+        data-testid="landing-built-with-you"
+      >
+        <div
+          className="rounded-sm p-10 lg:p-14"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(232,169,92,0.06), rgba(232,169,92,0.02))",
+            border: "1px solid var(--accent)",
+          }}
+        >
+          <div
+            className="overline mb-4 inline-flex items-center gap-2"
+            style={{ color: "var(--accent)" }}
+          >
+            <span
+              className="inline-block w-2 h-2 rounded-full"
+              style={{
+                background: "var(--accent)",
+                boxShadow: "0 0 0 4px rgba(232,169,92,0.18)",
+              }}
+            />
+            built with you, not for you
+          </div>
+          <h2
+            className="font-serif text-3xl lg:text-4xl font-light leading-tight mb-6"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Heirloom is in active development —
+            <br />
+            <em style={{ color: "var(--accent)", fontStyle: "italic" }}>
+              and we want you in the room.
+            </em>
+          </h2>
+          <p
+            className="text-base lg:text-lg leading-relaxed max-w-2xl"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            This isn&apos;t a beta of a startup racing to exit. It&apos;s the first version
+            of a piece of software we think matters — one meant to hold a person&apos;s
+            voice, values, and memories across generations. That&apos;s a serious ask,
+            and we&apos;d rather build it slowly and get it right than ship something
+            that feels disposable.
+          </p>
+          <p
+            className="mt-5 text-base lg:text-lg leading-relaxed max-w-2xl"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Every idea, complaint, and half-formed hunch from early owners is shaping
+            what Heirloom becomes. If something feels wrong, tell us. If something
+            you&apos;d hand to your grandchildren is missing, we want to know first.
+          </p>
+
+          <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div
+              className="p-4 rounded-sm"
+              style={{ border: "1px solid var(--border-default)" }}
+            >
+              <div className="overline mb-2">what&apos;s live</div>
+              <div className="text-sm" style={{ color: "var(--text-primary)" }}>
+                Voice cloning, archive, twin conversations, sealed letters,
+                Windows companion, Focus Mode.
+              </div>
+            </div>
+            <div
+              className="p-4 rounded-sm"
+              style={{ border: "1px solid var(--border-default)" }}
+            >
+              <div className="overline mb-2">on the workbench</div>
+              <div className="text-sm" style={{ color: "var(--text-primary)" }}>
+                Local‑AI mode (Pinokio), phone‑call answering, Discord ingestion,
+                a printable life yearbook.
+              </div>
+            </div>
+            <div
+              className="p-4 rounded-sm"
+              style={{ border: "1px solid var(--border-default)" }}
+            >
+              <div className="overline mb-2">what stays true</div>
+              <div className="text-sm" style={{ color: "var(--text-primary)" }}>
+                Your archive is yours. Never sold, never used to train external
+                models. Ever.
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-9 flex flex-wrap gap-4">
+            <Link
+              to="/support"
+              data-testid="landing-shape-cta"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-sm text-sm font-medium tracking-wide"
+              style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+            >
+              Help shape what comes next <ArrowRight className="h-4 w-4" />
+            </Link>
+            <a
+              href="mailto:hello@heirloomunbound.com?subject=Heirloom%20—%20feedback%20%2F%20idea"
+              data-testid="landing-email-founders"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-sm text-sm"
+              style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+            >
+              Email the founders directly
+            </a>
+          </div>
+        </div>
+      </section>
+
       {/* QUOTE */}
       <section className="relative z-10 px-5 sm:px-10 lg:px-20 mt-32 lg:mt-44 max-w-4xl">
         <div className="surface p-10 lg:p-14 rounded-sm">
-          <div className="overline mb-4">a note on what this is, and isn't</div>
+          <div className="overline mb-4">a note on what this is, and isn&apos;t</div>
           <p className="font-serif text-2xl lg:text-3xl leading-snug" style={{ color: "var(--text-primary)" }}>
             Heirloom does not pretend to be you. It collects the truest pieces of you — in your words, in your voice — so the people you love can keep being held by them.
           </p>
