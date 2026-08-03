@@ -196,7 +196,29 @@ async def exec_search_archive(user_id: str, args: dict) -> dict:
     limit = max(1, min(15, limit))
     if not query:
         return {"summary": "No query provided.", "ui": {"count": 0}}
-    # Cheap regex-anywhere search over title+content — fine for archive sizes < few thousand
+
+    # 1. Try semantic search first — best recall when the user has an
+    #    embeddings provider configured. Silent fall-through on any error
+    #    keeps the twin working even if the local server is down.
+    try:
+        from routers.memory import semantic_lookup  # local import to avoid cycles
+        mode, sem_rows = await semantic_lookup(user_id, query, limit=limit)
+    except Exception:  # noqa: BLE001
+        mode, sem_rows = "keyword", []
+
+    if sem_rows and mode == "semantic":
+        header = f"Found {len(sem_rows)} entries semantically related to '{query}':"
+        lines = [header]
+        for r in sem_rows:
+            score = r.get("score")
+            score_str = f" · {score:.2f}" if isinstance(score, (int, float)) else ""
+            lines.append(
+                f"- [{r.get('type', 'note')}] {r.get('title') or '(untitled)'}{score_str} — "
+                f"{_truncate(r.get('content', ''), 200)}"
+            )
+        return {"summary": "\n".join(lines), "ui": {"count": len(sem_rows), "query": query, "mode": "semantic"}}
+
+    # 2. Keyword fallback (also what runs when no embeddings provider is set)
     pattern = re.compile(re.escape(query), re.IGNORECASE)
     cursor = db.entries.find(
         {
@@ -227,7 +249,7 @@ async def exec_search_archive(user_id: str, args: dict) -> dict:
         lines.append(
             f"- [{r.get('type', 'note')}] {r.get('title') or '(untitled)'} — {_truncate(r.get('content', ''), 200)}"
         )
-    return {"summary": "\n".join(lines), "ui": {"count": len(rows), "query": query}}
+    return {"summary": "\n".join(lines), "ui": {"count": len(rows), "query": query, "mode": "keyword"}}
 
 
 async def exec_save_memory(user_id: str, args: dict) -> dict:

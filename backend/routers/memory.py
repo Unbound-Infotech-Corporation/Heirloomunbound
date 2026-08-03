@@ -284,3 +284,219 @@ async def delete_fact(fact_id: str, user: dict = Depends(get_current_user)):
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Fact not found")
     return {"ok": True}
+
+
+
+# ==================================================================
+# Semantic search — user's archive indexed via their configured
+# embeddings provider (see /api/providers, subsystem "embeddings").
+# Falls back to keyword search when no provider is enabled.
+# ==================================================================
+import logging as _sem_logging  # noqa: E402
+
+from fastapi import BackgroundTasks  # noqa: E402
+from pydantic import Field  # noqa: E402
+
+from services import embeddings as _emb  # noqa: E402
+
+_sem_log = _sem_logging.getLogger("memory.semantic")
+
+_SEM_MAX_BATCH = 100
+_SEM_MIN_SCORE = 0.20
+
+
+def _sem_entry_text(entry: dict) -> str:
+    """Build the string we embed. Metadata is part of the vector because
+    retrieval is dramatically stronger when tags/type/title are included."""
+    bits: list[str] = []
+    if entry.get("type"):
+        bits.append(f"[{entry['type']}]")
+    if entry.get("title"):
+        bits.append(entry["title"])
+    if entry.get("tags"):
+        tags = entry["tags"]
+        if isinstance(tags, list):
+            bits.append("tags: " + ", ".join(str(t) for t in tags))
+        else:
+            bits.append(f"tags: {tags}")
+    if entry.get("content"):
+        bits.append(str(entry["content"]))
+    return "\n".join(bits).strip()
+
+
+class SemSearchReq(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=6, ge=1, le=25)
+
+
+class SemEmbedReq(BaseModel):
+    force: bool = False
+
+
+@router.get("/search/status")
+async def sem_status(user: dict = Depends(get_current_user)):
+    uid = user["user_id"]
+    cfg = await _emb.get_config(uid)
+    total = await db.entries.count_documents({"user_id": uid})
+    if cfg is None:
+        return {"has_provider": False, "total_entries": total, "embedded": 0, "model": None}
+    embedded = await db.archive_embeddings.count_documents(
+        {"user_id": uid, "embedding_model": cfg["model"]}
+    )
+    return {
+        "has_provider": True,
+        "provider_type": cfg.get("provider_type", "openai_compat"),
+        "base_url": cfg["base_url"],
+        "model": cfg["model"],
+        "total_entries": total,
+        "embedded": embedded,
+        "pending": max(0, total - embedded),
+    }
+
+
+async def _sem_run_job(user_id: str, force: bool = False) -> dict:
+    cfg = await _emb.get_config(user_id)
+    if cfg is None:
+        return {"embedded": 0, "skipped": 0, "reason": "no_provider"}
+    model = cfg["model"]
+
+    entries = await db.entries.find(
+        {"user_id": user_id},
+        {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "tags": 1},
+    ).to_list(length=5000)
+    if not entries:
+        return {"embedded": 0, "skipped": 0}
+
+    existing: dict[str, str] = {}
+    async for doc in db.archive_embeddings.find(
+        {"user_id": user_id, "embedding_model": model},
+        {"_id": 0, "entry_id": 1, "content_sha": 1},
+    ):
+        existing[doc["entry_id"]] = doc["content_sha"]
+
+    pending: list[tuple[str, str, str]] = []
+    for e in entries:
+        text = _sem_entry_text(e)
+        if not text:
+            continue
+        sha = _emb.content_sha(text, model)
+        if not force and existing.get(e["entry_id"]) == sha:
+            continue
+        pending.append((e["entry_id"], text, sha))
+
+    if not pending:
+        return {"embedded": 0, "skipped": len(entries)}
+
+    embedded_count = 0
+    for i in range(0, len(pending), _SEM_MAX_BATCH):
+        chunk = pending[i:i + _SEM_MAX_BATCH]
+        try:
+            vectors = await _emb.embed_texts(user_id, [c[1] for c in chunk])
+        except _emb.NoProviderError:
+            break
+        except Exception as exc:  # noqa: BLE001
+            _sem_log.exception("embed job failed at chunk %d for user=%s: %s", i, user_id, exc)
+            return {"embedded": embedded_count, "skipped": 0, "error": str(exc)[:200]}
+        for (entry_id, _text, sha), vec in zip(chunk, vectors):
+            await db.archive_embeddings.update_one(
+                {"user_id": user_id, "entry_id": entry_id, "embedding_model": model},
+                {"$set": {
+                    "user_id": user_id, "entry_id": entry_id, "embedding_model": model,
+                    "embedding_dims": len(vec), "content_sha": sha, "vector": vec,
+                    "embedded_at": _now_iso(),
+                }},
+                upsert=True,
+            )
+            embedded_count += 1
+    return {"embedded": embedded_count, "skipped": len(entries) - embedded_count}
+
+
+@router.post("/search/embed")
+async def sem_embed(
+    payload: SemEmbedReq,
+    background: BackgroundTasks,
+    user: dict = Depends(get_current_user),
+):
+    if not await _emb.has_provider(user["user_id"]):
+        raise HTTPException(
+            status_code=400,
+            detail="No embeddings provider configured. Set one up in Local AI settings first.",
+        )
+    background.add_task(_sem_run_job, user["user_id"], payload.force)
+    return {"ok": True, "queued": True}
+
+
+@router.post("/search/embed/sync")
+async def sem_embed_sync(payload: SemEmbedReq, user: dict = Depends(get_current_user)):
+    if not await _emb.has_provider(user["user_id"]):
+        raise HTTPException(status_code=400, detail="No embeddings provider configured.")
+    return await _sem_run_job(user["user_id"], payload.force)
+
+
+async def _sem_keyword_fallback(uid: str, query: str, limit: int, reason: str) -> dict:
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    rows = await db.entries.find(
+        {"user_id": uid,
+         "$or": [
+             {"title": {"$regex": pattern}},
+             {"content": {"$regex": pattern}},
+             {"tags": {"$regex": pattern}},
+         ]},
+        {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "created_at": 1, "tags": 1},
+    ).sort("created_at", -1).limit(limit).to_list(length=limit)
+    return {"mode": "keyword", "reason": reason, "results": rows}
+
+
+@router.post("/search")
+async def sem_search(payload: SemSearchReq, user: dict = Depends(get_current_user)):
+    uid = user["user_id"]
+    cfg = await _emb.get_config(uid)
+    if cfg is None:
+        return await _sem_keyword_fallback(uid, payload.query, payload.limit, "no_provider")
+    try:
+        vecs = await _emb.embed_texts(uid, [payload.query])
+    except Exception as exc:  # noqa: BLE001
+        _sem_log.warning("query embed failed for %s: %s", uid, exc)
+        return await _sem_keyword_fallback(uid, payload.query, payload.limit, "embed_failed")
+    q_vec = vecs[0]
+
+    docs = await db.archive_embeddings.find(
+        {"user_id": uid, "embedding_model": cfg["model"]},
+        {"_id": 0, "entry_id": 1, "vector": 1},
+    ).to_list(length=5000)
+    if not docs:
+        return await _sem_keyword_fallback(uid, payload.query, payload.limit, "no_index")
+
+    scores = _emb.cosine_scores(q_vec, [d["vector"] for d in docs])
+    ranked = sorted(zip(scores.tolist(), docs), key=lambda p: p[0], reverse=True)
+    top = [(s, d["entry_id"]) for s, d in ranked if s >= _SEM_MIN_SCORE][: payload.limit]
+    if not top:
+        return await _sem_keyword_fallback(uid, payload.query, payload.limit, "no_matches")
+
+    ids = [t[1] for t in top]
+    id_to_score = {t[1]: t[0] for t in top}
+    entries = await db.entries.find(
+        {"user_id": uid, "entry_id": {"$in": ids}},
+        {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "created_at": 1, "tags": 1},
+    ).to_list(length=len(ids))
+    entries.sort(key=lambda e: id_to_score.get(e["entry_id"], 0), reverse=True)
+    for e in entries:
+        e["score"] = round(id_to_score.get(e["entry_id"], 0), 4)
+    return {"mode": "semantic", "results": entries, "model": cfg["model"]}
+
+
+async def semantic_lookup(user_id: str, query: str, limit: int = 6) -> tuple[str, list[dict]]:
+    """Twin-facing helper. Returns (mode, entries) where mode is 'semantic'
+    or 'keyword'. Never raises — falls back all the way to []."""
+    try:
+        result = await sem_search(
+            SemSearchReq(query=query, limit=limit),
+            user={"user_id": user_id},
+        )
+        return result.get("mode", "keyword"), result.get("results") or []
+    except HTTPException:
+        return "keyword", []
+    except Exception as exc:  # noqa: BLE001
+        _sem_log.warning("semantic_lookup failed for %s: %s", user_id, exc)
+        return "keyword", []
+

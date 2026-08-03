@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { Plus, Search, Sparkles, Trash2 } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { Link } from "react-router-dom";
+import { Plus, Search, Sparkles, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../lib/api";
 
@@ -14,16 +15,52 @@ export default function Library() {
   const [askMode, setAskMode] = useState(false);
   const [asking, setAsking] = useState(false);
   const [askResult, setAskResult] = useState(null);
+  const [searchMode, setSearchMode] = useState(null); // 'semantic' | 'keyword' | null
+  const [semStatus, setSemStatus] = useState(null); // {has_provider, embedded, total_entries, ...}
+  const [indexing, setIndexing] = useState(false);
+
+  const loadSemStatus = useCallback(() => {
+    api.get("/memory/search/status")
+      .then(({ data }) => setSemStatus(data))
+      .catch(() => setSemStatus(null));
+  }, []);
 
   const load = () => {
     const params = {};
     if (type !== "all") params.type = type;
     if (q) params.q = q;
-    api.get("/archive", { params }).then(({ data }) => setEntries(data));
+    api.get("/archive", { params }).then(({ data }) => {
+      setEntries(data);
+      setSearchMode(null);
+    });
+  };
+
+  // Semantic search — try /memory/search first, fall back to /archive?q= inside the backend.
+  const semanticSearch = () => {
+    const query = q.trim();
+    if (!query) { load(); return; }
+    api.post("/memory/search", { query, limit: 25 })
+      .then(({ data }) => {
+        setEntries(data.results || []);
+        setSearchMode(data.mode || "keyword");
+      })
+      .catch(() => load());
+  };
+
+  const rebuildIndex = () => {
+    setIndexing(true);
+    api.post("/memory/search/embed/sync", { force: false })
+      .then(({ data }) => {
+        toast.success(`Indexed ${data.embedded ?? 0} memories.`);
+        loadSemStatus();
+      })
+      .catch((err) => toast.error(err.response?.data?.detail || "Couldn't rebuild the index."))
+      .finally(() => setIndexing(false));
   };
 
   useEffect(() => {
     load();
+    loadSemStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type]);
 
@@ -144,7 +181,7 @@ export default function Library() {
         ))}
       </div>
 
-      <div className="relative mb-4">
+      <div className="relative mb-2">
         <Search
           className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4"
           style={{ color: "var(--text-muted)" }}
@@ -164,15 +201,57 @@ export default function Library() {
                 .catch((err) => toast.error(err.response?.data?.detail || err.message))
                 .finally(() => setAsking(false));
             } else {
-              load();
+              semanticSearch();
             }
           }}
-          placeholder={askMode ? "Ask anything: 'What did I think about my first job?'" : "Search title, content, tags…"}
+          placeholder={askMode ? "Ask anything: 'What did I think about my first job?'" : "Search by meaning or keyword — try 'my dad&apos;s temper'"}
           data-testid="library-search"
           className="w-full pl-10 pr-3 py-3 text-sm rounded-sm"
           style={{ background: "var(--bg-surface)", border: askMode ? "1px solid var(--accent)" : "1px solid var(--border-default)", color: "var(--text-primary)" }}
         />
       </div>
+
+      {/* Semantic search status ribbon */}
+      {!askMode && (
+        <div
+          className="flex items-center justify-between gap-3 mb-4 flex-wrap text-xs"
+          data-testid="semantic-status"
+        >
+          <div className="flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
+            <Zap className="h-3 w-3" style={{ color: semStatus?.has_provider ? "var(--accent)" : "var(--text-muted)" }} />
+            {semStatus?.has_provider ? (
+              <span>
+                semantic search on ·{" "}
+                <b style={{ color: "var(--text-secondary)" }}>{semStatus.embedded}</b>
+                <span> / {semStatus.total_entries} memories indexed</span>
+                {semStatus.pending > 0 && <span> · {semStatus.pending} pending</span>}
+                {searchMode === "semantic" && <span style={{ color: "var(--accent)" }}> · ranked by meaning</span>}
+                {searchMode === "keyword" && <span> · falling back to keyword</span>}
+              </span>
+            ) : (
+              <span>
+                semantic search off ·{" "}
+                <Link to="/settings" className="underline" style={{ color: "var(--accent)" }}>
+                  set up a local embeddings provider
+                </Link>{" "}
+                (Ollama, OpenAI, LM Studio) to search by meaning
+              </span>
+            )}
+          </div>
+          {semStatus?.has_provider && (
+            <button
+              type="button"
+              onClick={rebuildIndex}
+              disabled={indexing}
+              data-testid="rebuild-index"
+              className="px-3 py-1 rounded-sm disabled:opacity-50"
+              style={{ border: "1px solid var(--border-default)", color: "var(--text-muted)" }}
+            >
+              {indexing ? "indexing…" : "rebuild index"}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="flex justify-between items-center mb-8">
         <button
@@ -210,7 +289,7 @@ export default function Library() {
             </div>
           ) : (
             <>
-              <div className="overline mb-3">the twin's answer</div>
+              <div className="overline mb-3">the twin&apos;s answer</div>
               <p
                 className="font-serif text-lg leading-relaxed mb-6 whitespace-pre-wrap"
                 style={{ color: "var(--text-primary)" }}

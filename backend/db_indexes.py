@@ -78,6 +78,15 @@ async def ensure_indexes() -> None:
         # OAuth account-linking
         ("oauth_connections", [("user_id", 1), ("provider", 1)], {"unique": True, "name": "user_provider_uniq"}),
         ("oauth_states", [("state", 1)], {"unique": True, "name": "state_uniq"}),
+
+        # Local AI provider config (per-user)
+        ("user_providers", [("user_id", 1)], {"unique": True, "name": "user_uniq"}),
+
+        # Semantic memory search — one vector per (user, entry, model)
+        ("archive_embeddings", [("user_id", 1), ("entry_id", 1), ("embedding_model", 1)],
+            {"unique": True, "name": "user_entry_model_uniq"}),
+        ("archive_embeddings", [("user_id", 1), ("embedding_model", 1)],
+            {"name": "user_model"}),
     ]
 
     created = 0
