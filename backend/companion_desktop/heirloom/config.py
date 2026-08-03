@@ -54,6 +54,11 @@ _DEFAULTS: Dict[str, Any] = {
     "storage_tier": "partial",        # "full" | "partial" | "lite"
     "maintenance_schedule": "on_quit",  # "midnight" | "on_quit" | "manual"
     "last_maintenance_at": None,
+    # ---- Audio ----
+    # Twin voice playback volume (0.0-1.0). Explicitly floored at 0.05 in the
+    # avatar panel because Windows Volume Mixer gets stuck when a session is
+    # created at ~0 volume. Default 1.0 = full volume out of the box.
+    "twin_playback_volume": 1.0,
 }
 
 

@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -434,6 +435,29 @@ class VaultTab(QWidget):
                 self.schedule.setCurrentIndex(i)
                 break
         form.addRow(_label("Maintenance schedule"), self.schedule)
+
+        # Twin playback volume — matters on Windows where a QAudioOutput
+        # session gets stuck at ~1% in the Mixer unless we set it explicitly.
+        # Slider is 5-100 (never 0) because 0 causes the stuck-slider bug.
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(5, 100)
+        _cur_vol = int(round(float(self._settings.get("twin_playback_volume", 1.0)) * 100))
+        self.volume_slider.setValue(max(5, min(100, _cur_vol)))
+        self.volume_label = QLabel(f"{self.volume_slider.value()}%")
+        self.volume_label.setStyleSheet(
+            f"color: {PALETTE['text_muted']}; font-size: 11px; min-width: 36px;"
+        )
+        self.volume_slider.valueChanged.connect(
+            lambda v: self.volume_label.setText(f"{v}%")
+        )
+        vol_row = QWidget()
+        vol_layout = QHBoxLayout(vol_row)
+        vol_layout.setContentsMargins(0, 0, 0, 0)
+        vol_layout.setSpacing(8)
+        vol_layout.addWidget(self.volume_slider, 1)
+        vol_layout.addWidget(self.volume_label)
+        form.addRow(_label("Twin voice volume"), vol_row)
+
         root.addLayout(form)
 
         usage_box = QFrame()
@@ -498,6 +522,7 @@ class VaultTab(QWidget):
         s["vault_folder"] = self.folder_input.text().strip() or None
         s["storage_tier"] = self.tier.currentData()
         s["maintenance_schedule"] = self.schedule.currentData()
+        s["twin_playback_volume"] = max(0.05, self.volume_slider.value() / 100.0)
         config.save_settings(s)
         self._settings = s
         self.log.appendPlainText("Settings saved.")

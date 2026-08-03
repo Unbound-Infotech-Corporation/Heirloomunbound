@@ -1,0 +1,78 @@
+{
+  "summary": "Verified Windows Volume Mixer fix for the Heirloom Desktop companion (avatar_panel.py QAudioOutput.setVolume) plus config + Settings dialog additions. All 3 modified Python source files parse cleanly; baked payload contains the fix strings; config default is 1.0; slider save-path clamp behaves correctly; backend regression endpoints unchanged; frontend regression routes (/, /roadmap, /setup-keys, /login) all return 200 and render. Git diff only touches the four expected files.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verifications": {
+    "python_syntax_ast_parse": {
+      "companion_desktop/heirloom/ui/avatar_panel.py": "OK",
+      "companion_desktop/heirloom/ui/settings_dialog.py": "OK",
+      "companion_desktop/heirloom/config.py": "OK"
+    },
+    "baked_payload_/app/backend/companion_desktop_data.py": {
+      "file_size_bytes": 297475,
+      "decoded_payload_bytes": 192485,
+      "matches_spec_192485": true,
+      "files_bundled": 25,
+      "avatar_panel_setVolume_count": 2,
+      "avatar_panel_set_playback_volume_def": 1,
+      "avatar_panel_twin_playback_volume_ref": 2,
+      "settings_dialog_volume_slider_ref": 7,
+      "settings_dialog_twin_playback_volume_ref": 2,
+      "config_twin_playback_volume_ref": 1
+    },
+    "config_defaults": {"twin_playback_volume": 1.0, "load_settings_fresh_install": 1.0},
+    "settings_slider_clamp": {
+      "slider_range": "5-100 (5% floor enforced at UI)",
+      "save_formula": "max(0.05, slider/100.0)",
+      "slider=5_yields": 0.05,
+      "slider=50_yields": 0.5,
+      "slider=100_yields": 1.0
+    },
+    "avatar_panel_source_lines": {
+      "223": "_twin_vol = float(config.load_settings().get('twin_playback_volume', 1.0))",
+      "230": "self.audio.setVolume(_twin_vol)",
+      "540": "def set_playback_volume(self, volume: float) -> None:",
+      "551": "self.audio.setVolume(v)",
+      "554": "s['twin_playback_volume'] = v",
+      "559": "def playback_volume(self) -> float:"
+    },
+    "backend_regression_status_codes_unauth": {
+      "/api/": 200,
+      "/api/providers": 401,
+      "/api/memory/search/status": 401,
+      "/api/agent/kinds": 401,
+      "/api/archive": 401,
+      "/api/user-keys/status": 401,
+      "/api/auth/me": 401
+    },
+    "frontend_regression_status_codes": {"/": 200, "/roadmap": 200, "/setup-keys": 200, "/login": 200},
+    "frontend_render_probe": {
+      "/roadmap": "renders 'PUBLIC ROADMAP · UPDATED AUGUST 2026' publicly, no auth required — OK",
+      "/setup-keys": "returns 200 (SPA shell) — protected route redirects/loads landing shell for unauthed session, consistent with iteration 33",
+      "/login": "loads 'Sign in — Heirloom' — OK",
+      "/": "landing renders, 4822 chars, 'what's new' section present — OK"
+    },
+    "git_diff_scope": [
+      "backend/companion_desktop/heirloom/config.py",
+      "backend/companion_desktop/heirloom/ui/avatar_panel.py",
+      "backend/companion_desktop/heirloom/ui/settings_dialog.py",
+      "backend/companion_desktop_data.py"
+    ],
+    "git_diff_matches_spec": true
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fix is well-placed: explicit setVolume() called at __init__ before any playback starts, so Windows registers the audio session at the intended level rather than at the default ~0. Matches the documented PySide6 gotcha.",
+    "settings_dialog slider range is 5-100, so the max(0.05, slider/100.0) clamp is technically defensive-only from the UI (min slider yields exactly 0.05). That's fine — it protects config edits made outside the UI.",
+    "Nit: avatar_panel line 554 sets s['twin_playback_volume'] = v (the already-clamped float), but load path elsewhere reads .get('twin_playback_volume', 1.0) — no floor on read. Not a bug for this fix (values written are always >=0.05), just worth noting if someone edits settings.json manually to 0."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "not needed for this iteration (unauth 401 checks sufficient for regression parity)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "This iteration is a Windows-only PySide6 audio session fix. Cannot verify actual Volume Mixer behavior on Linux/headless — user must redownload the companion and test on Windows. Everything that CAN be checked in this env (AST parse, baked payload contents, config defaults, backend/frontend regression) was verified. Prior iterations 32, 33 test files preserved.",
+  "rca of the issue": "PySide6 QAudioOutput created without an explicit setVolume() call registers the app's Windows audio session at the underlying default (~0), which pins the Volume Mixer slider at 1 and prevents the user from raising it. Fix: read twin_playback_volume from config (default 1.0), floor at 0.05, and call self.audio.setVolume(_twin_vol) immediately after QAudioOutput construction. Also exposed set_playback_volume()/playback_volume() so the new Settings > Vault > Twin voice volume slider can adjust it live and persist it."
+}

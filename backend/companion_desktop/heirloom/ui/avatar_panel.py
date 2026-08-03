@@ -213,6 +213,22 @@ class AvatarPanel(QFrame):
         # Media
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
+        # -----------------------------------------------------------------
+        # Windows-Mixer fix: QAudioOutput on Windows registers its session
+        # at whatever tiny default the OS picks unless we ALWAYS set volume
+        # explicitly. Without this call the app appears pinned at ~1% in the
+        # Volume Mixer and the slider can't be raised. Also read from config
+        # so a user who lowered it in-app doesn't have their setting stomped.
+        try:
+            _twin_vol = float(config.load_settings().get("twin_playback_volume", 1.0))
+        except Exception:  # noqa: BLE001
+            _twin_vol = 1.0
+        # Clamp: 0.0-1.0 per Qt docs. Anything < 0.05 causes the "stuck at 1"
+        # Windows Mixer symptom — floor it so users can't accidentally lock
+        # themselves out via a slider mishap.
+        _twin_vol = max(0.05, min(1.0, _twin_vol))
+        self.audio.setVolume(_twin_vol)
+        # -----------------------------------------------------------------
         self.player.setAudioOutput(self.audio)
         self.player.mediaStatusChanged.connect(self._on_media_status)
         self.player.errorOccurred.connect(self._on_media_error)
@@ -519,6 +535,33 @@ class AvatarPanel(QFrame):
     def _on_media_error(self, _err, _msg: str = "") -> None:
         self.set_status("idle")
         self.portrait_video.show_portrait()
+
+    # --- Public: volume control ---------------------------------------
+    def set_playback_volume(self, volume: float) -> None:
+        """Set the twin's voice playback volume (0.0-1.0). Persists to config.
+
+        Enforces a 0.05 floor because a QAudioOutput session created at ~0 on
+        Windows sticks in the Volume Mixer at 1% and the OS won't let it be
+        raised without restarting the app.
+        """
+        try:
+            v = max(0.05, min(1.0, float(volume)))
+        except (TypeError, ValueError):
+            return
+        self.audio.setVolume(v)
+        try:
+            s = config.load_settings()
+            s["twin_playback_volume"] = v
+            config.save_settings(s)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def playback_volume(self) -> float:
+        """Read back the current playback volume (0.0-1.0)."""
+        try:
+            return float(self.audio.volume())
+        except Exception:  # noqa: BLE001
+            return 1.0
 
     def _on_broadcast_closed(self) -> None:
         if self._broadcast is not None:
