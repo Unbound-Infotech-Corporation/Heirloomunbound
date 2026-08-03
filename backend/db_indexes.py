@@ -87,6 +87,13 @@ async def ensure_indexes() -> None:
             {"unique": True, "name": "user_entry_model_uniq"}),
         ("archive_embeddings", [("user_id", 1), ("embedding_model", 1)],
             {"name": "user_model"}),
+
+        # Twilio Voice — routes inbound calls by "To" number
+        ("user_twilio", [("user_id", 1)], {"unique": True, "name": "user_uniq"}),
+        ("user_twilio", [("phone_number", 1)], {"unique": True, "sparse": True, "name": "number_uniq"}),
+        ("twilio_calls", [("user_id", 1), ("created_at", -1)], {"name": "user_recent"}),
+        ("twilio_calls", [("call_sid", 1)], {"unique": True, "sparse": True, "name": "sid_uniq"}),
+        ("twilio_calls", [("seed_id", 1)], {"unique": True, "sparse": True, "name": "seed_uniq"}),
     ]
 
     created = 0

@@ -19,6 +19,7 @@ import SetupKeys from "@/pages/SetupKeys";
 import Skills from "@/pages/Skills";
 import Abilities from "@/pages/Abilities";
 import Agent from "@/pages/Agent";
+import PhonePage from "@/pages/Phone";
 import PhotoStory from "@/pages/PhotoStory";
 import Roadmap from "@/pages/Roadmap";
 import Companion from "@/pages/Companion";
@@ -88,6 +89,7 @@ function AppRouter() {
         <Route path="/skills" element={<Skills />} />
         <Route path="/abilities" element={<Abilities />} />
         <Route path="/agent" element={<Agent />} />
+        <Route path="/phone" element={<PhonePage />} />
         <Route path="/photo-story" element={<PhotoStory />} />
         <Route path="/companion" element={<Companion />} />
         <Route path="/heirs" element={<Heirs />} />

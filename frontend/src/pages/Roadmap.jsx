@@ -30,6 +30,7 @@ const ROADMAP = [
     items: [
       { title: "Local AI — run everything on your own PC", detail: "Pinokio · Ollama · LM Studio · ComfyUI. Nothing leaves the machine." },
       { title: "Multi-provider AI router + usage tracking", detail: "Connect OpenAI, Anthropic, Gemini, Groq. The twin picks the best model per task; a live dashboard shows how much of each free tier you have left." },
+      { title: "Phone calling (Twilio)", detail: "Your twin gets a real phone number. Answers in your voice. Transcribes both sides." },
       { title: "Semantic memory search", detail: "Ask by meaning, not keyword. The twin actually remembers." },
       { title: "Photo restoration", detail: "Old family photos come back sharp — before they enter the archive." },
       { title: "Speaker-diarized video import", detail: "Drop in a family video. It splits by speaker automatically." },
@@ -37,7 +38,6 @@ const ROADMAP = [
       { title: "Old-audio cleanup", detail: "Rescue noisy voice memos into studio-clean recordings." },
       { title: "Emotion-aware TTS", detail: "The twin can whisper, laugh, choke up. Voice memories that feel alive." },
       { title: "LivePortrait avatars", detail: "Real-time talking-head from any photo. Better lip-sync than D-ID." },
-      { title: "Phone calling (Twilio)", detail: "Your twin gets a number. Answers in your voice. Real conversations." },
     ],
   },
   {

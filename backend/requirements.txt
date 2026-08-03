@@ -143,3 +143,4 @@ zipp==4.1.0
 ddgs==9.14.4
 dateparser==1.4.1
 beautifulsoup4==4.15.0
+twilio==9.10.9

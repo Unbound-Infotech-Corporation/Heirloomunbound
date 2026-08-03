@@ -10,6 +10,7 @@ import {
   KeyRound,
   Loader2,
   Music2,
+  Phone,
   Server,
   Shield,
   ShieldCheck,
@@ -201,6 +202,39 @@ export default function SetupKeys() {
           {BYOK.map((s) => (
             <BYOKTile key={s.id} svc={s} status={status[s.id]} onOpen={() => setOpenModal(s)} />
           ))}
+        </div>
+
+        {/* SECTION: Phone */}
+        <SectionHeader
+          overline="new · phone calling"
+          title="Give your twin a phone number"
+          hint="Twilio-powered. Someone calls the number, the twin answers in your voice, transcribes both sides into your archive. Also dials outbound."
+        />
+        <div
+          className="rounded-sm p-8 mb-16 flex items-start gap-6 flex-wrap"
+          style={{ border: "1px solid var(--accent)", background: "rgba(232,169,92,0.05)" }}
+          data-testid="phone-tile"
+        >
+          <div className="flex-1 min-w-[280px]">
+            <div className="flex items-center gap-3 mb-3">
+              <Phone className="h-5 w-5" style={{ color: "var(--accent)" }} />
+              <div className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+                Phone (Twilio Programmable Voice)
+              </div>
+            </div>
+            <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+              ~$1/month for a Twilio number + ~$0.014/min for voice. We auto-configure the
+              webhook — you just paste your Twilio Account SID, Auth Token, and number.
+            </p>
+          </div>
+          <a
+            href="/phone"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-sm text-sm font-medium"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+            data-testid="phone-goto"
+          >
+            Set up phone <ArrowRight className="h-4 w-4" />
+          </a>
         </div>
 
         {/* SECTION: Local AI */}
