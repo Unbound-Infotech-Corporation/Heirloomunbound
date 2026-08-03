@@ -222,6 +222,27 @@ This phase makes Heirloom legally and operationally ready to charge real custome
 **Removed**
 - ✅ Emergent's default PostHog tracker stripped from `index.html` (was sending analytics to Emergent's account, not ours).
 
+### Phase 10 — Aug 3, 2026 (Local AI foundation + public roadmap + mission)
+- ✅ **Landing "Built with you" section**: honest positioning that Heirloom is in active development, we want early owners in the room. Amber-tinted card mid-page with three columns (what's live / on the workbench / what stays true) + dual CTAs (See the roadmap / Email the founders). Early-access badge added to the hero.
+- ✅ **Public `/roadmap` page** (`/app/frontend/src/pages/Roadmap.jsx`): unauthenticated route listing every feature on the plan in three buckets (Already yours / On the workbench / Coming after). Spinning Loader2 icons signal "in-build", check marks signal shipped. Dual CTAs (Suggest a feature via mailto, Send feedback via /support). Copies the exact language from user's mission ("timeless gift handed down generation after generation").
+- ✅ **Backend Providers CRUD** (`/api/providers`): 5 subsystems (chat, tts, stt, image, embeddings), per-user config persisted to `db.user_providers`. GET returns defaults for new users, PUT replaces, POST /reset wipes. `provider_type` supports `openai_compat` and `comfyui`. Enables the entire Local AI feature stack in future sessions.
+- ✅ **Desktop "Local AI" Settings tab**: `settings_dialog.py` refactored into a QTabWidget with Vault + Local AI tabs. Local AI tab shows 5 provider rows (enable/URL/api key/model + Test button per row), with chips linking to Pinokio / Ollama / LM Studio / ComfyUI. Test button probes the local endpoint directly without leaking the Heirloom device token. Baked into `companion_desktop_data.py`.
+- ✅ **Testing**: 8/8 backend green (`iteration_31.json`), Playwright frontend green, no regressions on adjacent routes.
+
+### Backlog — Local AI feature sessions (queued in order)
+- **Session A** — Wire desktop chat routing to local LLM when `chat.enabled=true`
+- **Session B** — Wire desktop TTS + STT routing to local providers
+- **Session C** — Photo restoration via ComfyUI (uses the Image provider)
+- **Session D** — Semantic memory search (index archive via `embeddings` provider, `/api/memory/search`)
+- **Session E** — LivePortrait avatar (replaces D-ID for talking-head videos)
+- **Session F** — Speaker-diarized family-video import (WhisperX + pyannote)
+- **Session G** — Handwriting OCR for old letters/journals
+- **Session H** — Old-audio cleanup (Resemble Enhance)
+- **Session I** — Emotion-aware TTS (Bark / StyleTTS 2)
+- **Session J** — LoRA personality fine-tuning (unsloth on user's archive)
+- **Session K** — Twilio phone calling (inbound + outbound)
+- **Session L** — Desktop theme refactor (contrast + Recent redesign + Appearance picker)
+
 ## Backend test results
 - iteration_15.json: **100% (10/10 + frontend all green)** — pre-sale hardening + mobile sweep regression. Account-deletion cascade across 20 collections + isolation, BYO D-ID key roundtrip + masking, companion script_version + auto-update mechanism, all 4 legal pages, footer rendering, mobile-drawer open/scrim-close/ESC-close/nav-tap-close, desktop sidebar regression. Zero open issues.
 - iteration_14.json: 52 / 52 PRE-LAUNCH REGRESSION tests pass + 15 / 15 SPA routes load with zero console errors.
