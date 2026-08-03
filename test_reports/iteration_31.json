@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 31 — Phase 1 Local AI providers CRUD + /roadmap public page + landing page 'Built with you' section. All 8 backend pytest cases pass. All Playwright frontend checks pass. No regressions.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "backend_coverage": {
+    "GET /api/providers unauth": "401 as expected",
+    "GET /api/providers auth": "returns all 5 subsystems (chat/tts/stt/image/embeddings) with enabled/base_url/api_key/model/provider_type, all defaults disabled",
+    "PUT /api/providers": "accepts full ProviderConfig incl. voice + comfy_workflow extras; response reflects saved values; subsequent GET matches (persisted in db.user_providers)",
+    "POST /api/providers/reset": "wipes back to all-disabled defaults",
+    "regression": "/api/agent/kinds still 401, /api/archive works with auth, /api/abilities returns, / (landing) 200"
+  },
+  "frontend_coverage": {
+    "/roadmap public": "renders without auth redirect; data-testid=roadmap-root present; H1 'Built with you, not for you.' visible",
+    "roadmap buckets": "shipped (9 items), building (9 items), queued (6 items) — all with data-testid=roadmap-item-<bucket>-<i>",
+    "roadmap-suggest": "href = mailto:hello@heirloomunbound.com?subject=Heirloom... ✓",
+    "roadmap-back": "navigates to /",
+    "landing-early-access-badge": "visible, text 'early access · v0'",
+    "landing-built-with-you": "section visible",
+    "landing-shape-cta": "href=/roadmap and click navigates to /roadmap"
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration31_providers.py", "/app/test_reports/pytest/iter31.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "providers.py docstring header lists 'Four subsystems' but the schema/router actually ships FIVE (chat/tts/stt/image/embeddings). Cosmetic doc mismatch — worth a one-line fix for future maintainers.",
+    "SubsystemConfig has image-only extras (comfy_workflow) and tts-only extras (voice) on every subsystem. Fine for now, but consider splitting per-subsystem models in Phase 2 to avoid clients thinking they can set voice on chat.",
+    "PUT replaces the whole doc via replace_one(upsert=True) — good; no partial-update surface to worry about. Confirmed persistence via a follow-up GET.",
+    "api_key stored plaintext — acceptable since keys target 127.0.0.1 and blast radius is nil (documented in the module header), but flag if any hosted endpoints get added in Phase 2."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100%"},
+  "test_credentials": "Created ephemeral session via mongosh recipe from /app/memory/test_credentials.md (cleaned up in fixture teardown).",
+  "seed_data_creation": "Ephemeral test-user + user_sessions doc, cleaned up on fixture teardown along with any user_providers rows created during the run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 2 will actually route chat/tts/stt/image via desktop to local endpoints. CRUD storage is confirmed working. When Phase 2 lands, verify the desktop reads db.user_providers on startup + when a subsystem is enabled=false the cloud default is used. PySide6 settings dialog (Local AI tab) was NOT tested — it only runs on user's PC, per E1's note."
+}

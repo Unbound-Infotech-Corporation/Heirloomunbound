@@ -144,3 +144,58 @@ def post_multipart_async(
         on_ok,
         on_err,
     )
+
+
+def put_async(
+    path: str,
+    payload: Optional[dict] = None,
+    on_ok: Optional[Callable] = None,
+    on_err: Optional[Callable] = None,
+    timeout: float = 60.0,
+) -> None:
+    body = json.dumps(payload or {}).encode("utf-8")
+    headers = {**_headers(), "Content-Type": "application/json"}
+    _submit(
+        lambda: _check(
+            requests.put(_url(path), data=body, headers=headers, timeout=timeout)
+        ),
+        on_ok,
+        on_err,
+    )
+
+
+def probe_local_url(
+    url: str,
+    method: str = "GET",
+    payload: Optional[dict] = None,
+    api_key: Optional[str] = None,
+    on_ok: Optional[Callable] = None,
+    on_err: Optional[Callable] = None,
+    timeout: float = 4.0,
+) -> None:
+    """Fire-and-forget HTTP probe against a user-supplied local endpoint.
+
+    Used by the "Test connection" buttons in the Local AI settings tab. Runs
+    in the worker pool so a hung 127.0.0.1 server never freezes the UI.
+    NEVER attaches the Heirloom DEVICE_TOKEN — this hits the user's own PC.
+    """
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    def _do() -> dict:
+        m = method.upper()
+        if m == "GET":
+            r = requests.get(url, headers=headers, timeout=timeout)
+        else:
+            body = json.dumps(payload or {}).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+            r = requests.post(url, data=body, headers=headers, timeout=timeout)
+        try:
+            data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        except Exception:  # noqa: BLE001
+            data = {}
+        return {"ok": 200 <= r.status_code < 500, "status": r.status_code, "data": data}
+
+    _submit(_do, on_ok, on_err)
+

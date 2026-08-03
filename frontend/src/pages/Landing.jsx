@@ -333,12 +333,12 @@ export default function Landing() {
 
           <div className="mt-9 flex flex-wrap gap-4">
             <Link
-              to="/support"
+              to="/roadmap"
               data-testid="landing-shape-cta"
               className="inline-flex items-center gap-2 px-6 py-3 rounded-sm text-sm font-medium tracking-wide"
               style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
             >
-              Help shape what comes next <ArrowRight className="h-4 w-4" />
+              See the public roadmap <ArrowRight className="h-4 w-4" />
             </Link>
             <a
               href="mailto:hello@heirloomunbound.com?subject=Heirloom%20—%20feedback%20%2F%20idea"

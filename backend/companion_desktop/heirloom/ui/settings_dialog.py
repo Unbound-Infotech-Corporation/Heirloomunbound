@@ -1,8 +1,18 @@
-"""Settings dialog — vault folder, tier, schedule, manual maintenance trigger.
+"""Settings dialog — Vault + Local AI tabs.
 
-Opened from the titlebar gear button. Reads + writes config.save_settings.
-The "Run maintenance now" button calls Maintenance.run_async() and streams
-status into a log panel.
+Opened from the titlebar gear button. Uses a QTabWidget so the vault settings
+stay put and new areas (Local AI, and later Themes) get their own tabs.
+
+Local AI tab:
+    * Five subsystems: chat / tts / stt / image / embeddings
+    * Each has: enable / base URL / api key / model / test button
+    * "Test" hits the URL directly (never sends the Heirloom device token
+      out to a local endpoint).
+    * Save posts the whole config back to /api/providers on the cloud so it
+      follows the user across desktop installs.
+
+The dialog stays modal + minimal-chrome so it feels like a serious PC app,
+not a settings-explosion.
 """
 from __future__ import annotations
 
@@ -11,6 +21,7 @@ from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -22,7 +33,9 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -41,32 +54,329 @@ def _human_bytes(n: int) -> str:
     return f"{n} B"
 
 
-class SettingsDialog(QDialog):
-    """Modal for vault / tier / schedule. Emits `changed` if anything was saved."""
+def _label(text: str) -> QLabel:
+    """Small overline label. Used for form field captions."""
+    lbl = QLabel(text)
+    lbl.setStyleSheet(
+        f"color: {PALETTE['text_muted']}; letter-spacing: 2px;"
+        " font-size: 10px; text-transform: uppercase;"
+    )
+    return lbl
 
+
+# ------------------------------------------------------------------
+# Local AI — provider rows
+# ------------------------------------------------------------------
+# Human-readable descriptions of each subsystem. Kept short — the settings
+# tab is already dense.
+_SUBSYSTEMS = [
+    ("chat", "Chat / Twin brain",
+     "The LLM your twin thinks with. Try Ollama (qwen2.5, llama3.3) or LM Studio.",
+     "http://127.0.0.1:11434/v1", "llama3.3", "openai_compat"),
+    ("tts", "Voice (Text → Speech)",
+     "Local voice synth for the twin's replies. Try Kokoro-FastAPI or XTTS-v2.",
+     "http://127.0.0.1:8880/v1", "kokoro-en", "openai_compat"),
+    ("stt", "Transcription (Speech → Text)",
+     "Turn your voice into text. Try Whisper.cpp server or Faster-Whisper.",
+     "http://127.0.0.1:9000/v1", "whisper-large-v3", "openai_compat"),
+    ("image", "Image generation",
+     "Photo-to-Story, avatar frames, photo restoration. ComfyUI recommended.",
+     "http://127.0.0.1:8188", "sdxl", "comfyui"),
+    ("embeddings", "Memory search (embeddings)",
+     "Semantic search over your archive. Try Ollama with nomic-embed-text.",
+     "http://127.0.0.1:11434/v1", "nomic-embed-text", "openai_compat"),
+]
+
+# The "how to install" hint shown once at the top of the Local AI tab.
+_LOCAL_AI_HINT = (
+    "Local AI runs on YOUR PC — nothing leaves the machine. Install one of "
+    "Pinokio, Ollama, or LM Studio, launch a model server, then paste the URL below."
+)
+
+
+class ProviderRow(QFrame):
+    """One expandable row per subsystem. Enable checkbox on the outside,
+    URL/key/model/test buttons inside. Collapsed by default when disabled."""
+
+    def __init__(self, key: str, title: str, description: str,
+                 example_url: str, example_model: str, provider_type: str,
+                 parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.key = key
+        self._provider_type = provider_type
+        self.setFrameShape(QFrame.NoFrame)
+        self.setStyleSheet(
+            f"background: {PALETTE['bg_surface']};"
+            f" border: 1px solid {PALETTE['border']};"
+            f" border-radius: 6px;"
+        )
+        v = QVBoxLayout(self)
+        v.setContentsMargins(14, 12, 14, 12)
+        v.setSpacing(8)
+
+        # Header row: checkbox + title + status
+        head = QHBoxLayout()
+        head.setSpacing(10)
+        self.enable = QCheckBox()
+        self.enable.setChecked(False)
+        head.addWidget(self.enable)
+
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(
+            f"color: {PALETTE['text_primary']}; font-size: 14px; font-weight: 500;"
+        )
+        head.addWidget(title_lbl)
+        head.addStretch(1)
+
+        self.status_lbl = QLabel("not tested")
+        self.status_lbl.setStyleSheet(
+            f"color: {PALETTE['text_muted']}; font-size: 10px; letter-spacing: 1px;"
+        )
+        head.addWidget(self.status_lbl)
+        v.addLayout(head)
+
+        desc = QLabel(description)
+        desc.setWordWrap(True)
+        desc.setStyleSheet(f"color: {PALETTE['text_secondary']}; font-size: 12px;")
+        v.addWidget(desc)
+
+        # Form
+        self.url_input = QLineEdit()
+        self.url_input.setPlaceholderText(example_url)
+        self.key_input = QLineEdit()
+        self.key_input.setPlaceholderText("api key (optional — most local runtimes leave blank)")
+        self.key_input.setEchoMode(QLineEdit.Password)
+        self.model_input = QLineEdit()
+        self.model_input.setPlaceholderText(example_model)
+
+        form = QFormLayout()
+        form.setSpacing(6)
+        form.setLabelAlignment(Qt.AlignLeft)
+        form.addRow(_label("base url"), self.url_input)
+        form.addRow(_label("api key"), self.key_input)
+        form.addRow(_label("model"), self.model_input)
+        v.addLayout(form)
+
+        # Test button row
+        test_row = QHBoxLayout()
+        self.test_btn = QPushButton("Test connection")
+        self.test_btn.clicked.connect(self._on_test)
+        test_row.addWidget(self.test_btn)
+        test_row.addStretch(1)
+        v.addLayout(test_row)
+
+    # ---------- state ----------
+    def load(self, cfg: dict) -> None:
+        self.enable.setChecked(bool(cfg.get("enabled", False)))
+        self.url_input.setText(cfg.get("base_url", "") or "")
+        self.key_input.setText(cfg.get("api_key", "") or "")
+        self.model_input.setText(cfg.get("model", "") or "")
+
+    def dump(self) -> dict:
+        return {
+            "enabled": self.enable.isChecked(),
+            "base_url": self.url_input.text().strip(),
+            "api_key": self.key_input.text().strip(),
+            "model": self.model_input.text().strip(),
+            "provider_type": self._provider_type,
+        }
+
+    # ---------- test ----------
+    def _on_test(self) -> None:
+        url = self.url_input.text().strip()
+        if not url:
+            self._set_status("no URL to test", "error")
+            return
+        self._set_status("testing…", "muted")
+        self.test_btn.setEnabled(False)
+
+        # Probe endpoint depends on provider dialect
+        if self._provider_type == "comfyui":
+            probe = url.rstrip("/") + "/system_stats"
+        else:
+            # OpenAI-compat: GET /models returns 200 on any healthy server
+            base = url.rstrip("/")
+            if base.endswith("/v1"):
+                probe = base + "/models"
+            else:
+                probe = base + "/v1/models"
+
+        def _ok(res: dict) -> None:
+            self.test_btn.setEnabled(True)
+            if res.get("ok"):
+                self._set_status(f"connected · HTTP {res.get('status')}", "ok")
+            else:
+                self._set_status(f"HTTP {res.get('status')}", "error")
+
+        def _err(msg: str) -> None:
+            self.test_btn.setEnabled(True)
+            self._set_status("unreachable", "error")
+
+        api.probe_local_url(
+            probe, method="GET",
+            api_key=self.key_input.text().strip() or None,
+            on_ok=_ok, on_err=_err,
+        )
+
+    def _set_status(self, text: str, kind: str) -> None:
+        color = {
+            "ok": PALETTE["ok"] if "ok" in PALETTE else "#7da06f",
+            "error": PALETTE.get("error", "#c0635a"),
+            "muted": PALETTE["text_muted"],
+        }.get(kind, PALETTE["text_muted"])
+        self.status_lbl.setText(text)
+        self.status_lbl.setStyleSheet(
+            f"color: {color}; font-size: 10px; letter-spacing: 1px;"
+        )
+
+
+class LocalAITab(QWidget):
+    """The Local AI settings tab — five providers + save button."""
+
+    saved = Signal()
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # Scroll area — five rows won't fit at 720px height
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("border: none;")
+        outer.addWidget(scroll, 1)
+
+        inner = QWidget()
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(20, 20, 20, 20)
+        v.setSpacing(12)
+
+        overline = QLabel("LOCAL AI")
+        overline.setStyleSheet(
+            f"color: {PALETTE['text_muted']}; letter-spacing: 2px; font-size: 10px;"
+        )
+        v.addWidget(overline)
+
+        title = QLabel("Run AI on your own hardware")
+        title.setStyleSheet(
+            f"color: {PALETTE['text_primary']};"
+            " font-family: 'Cormorant Garamond', serif; font-size: 22px;"
+        )
+        v.addWidget(title)
+
+        hint = QLabel(_LOCAL_AI_HINT)
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            f"color: {PALETTE['text_secondary']}; font-size: 12px;"
+        )
+        v.addWidget(hint)
+
+        # Suggestions bar
+        chips = QHBoxLayout()
+        chips.setSpacing(6)
+        for name, url in (
+            ("Pinokio", "https://pinokio.co"),
+            ("Ollama", "https://ollama.com"),
+            ("LM Studio", "https://lmstudio.ai"),
+            ("ComfyUI", "https://github.com/comfyanonymous/ComfyUI"),
+        ):
+            btn = QPushButton(name)
+            btn.setObjectName("kbdhint")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, u=url: self._open_url(u))
+            btn.setStyleSheet(
+                f"color: {PALETTE['text_muted']};"
+                f" background: {PALETTE['bg_surface']};"
+                f" border: 1px solid {PALETTE['border']};"
+                f" border-radius: 10px; padding: 3px 10px;"
+                f" font-size: 10px; letter-spacing: 0.05em;"
+            )
+            chips.addWidget(btn)
+        chips.addStretch(1)
+        v.addLayout(chips)
+
+        # Provider rows
+        self.rows: dict[str, ProviderRow] = {}
+        for key, title_, desc, ex_url, ex_model, ptype in _SUBSYSTEMS:
+            row = ProviderRow(key, title_, desc, ex_url, ex_model, ptype)
+            self.rows[key] = row
+            v.addWidget(row)
+
+        # Save button
+        save_row = QHBoxLayout()
+        save_row.addStretch(1)
+        self.status_lbl = QLabel(" ")
+        self.status_lbl.setStyleSheet(f"color: {PALETTE['text_muted']}; font-size: 11px;")
+        save_row.addWidget(self.status_lbl)
+        self.save_btn = QPushButton("Save Local AI settings")
+        self.save_btn.setObjectName("primary")
+        self.save_btn.clicked.connect(self._save)
+        save_row.addWidget(self.save_btn)
+        v.addLayout(save_row)
+
+        v.addStretch(1)
+        scroll.setWidget(inner)
+
+        # Load existing config
+        self._load()
+
+    def _open_url(self, url: str) -> None:
+        try:
+            from PySide6.QtGui import QDesktopServices
+            from PySide6.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl(url))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _load(self) -> None:
+        def _ok(cfg: dict) -> None:
+            for key, row in self.rows.items():
+                row.load(cfg.get(key, {}))
+
+        def _err(msg: str) -> None:
+            self.status_lbl.setText(f"couldn't load providers: {msg}")
+
+        api.get_async("/providers", on_ok=_ok, on_err=_err)
+
+    def _save(self) -> None:
+        payload = {key: row.dump() for key, row in self.rows.items()}
+        self.save_btn.setEnabled(False)
+        self.status_lbl.setText("saving…")
+
+        def _ok(_res: dict) -> None:
+            self.save_btn.setEnabled(True)
+            self.status_lbl.setText("saved ✓")
+            self.saved.emit()
+
+        def _err(msg: str) -> None:
+            self.save_btn.setEnabled(True)
+            self.status_lbl.setText(f"save failed: {msg}")
+
+        api.put_async("/providers", payload, on_ok=_ok, on_err=_err)
+
+
+# ------------------------------------------------------------------
+# Vault tab — extracted from the old flat dialog. Behavior unchanged.
+# ------------------------------------------------------------------
+class VaultTab(QWidget):
     changed = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setStyleSheet(QSS)
-        self.setWindowTitle("Heirloom · Settings")
-        self.setModal(True)
-        self.resize(620, 640)
         self._settings = config.load_settings()
         self._maint = Maintenance(self)
         self._maint.progress.connect(self._on_progress)
         self._maint.completed.connect(self._on_completed)
         self._maint.finished.connect(self._on_finished)
         self._maint.error.connect(self._on_error)
-
         self._build()
         self._refresh_storage()
 
-    # ------------ UI ------------
     def _build(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 22, 24, 22)
-        root.setSpacing(16)
+        root.setContentsMargins(20, 20, 20, 20)
+        root.setSpacing(14)
 
         overline = QLabel("LOCAL VAULT")
         overline.setStyleSheet(
@@ -74,7 +384,8 @@ class SettingsDialog(QDialog):
         )
         title = QLabel("Your archive, on your disk")
         title.setStyleSheet(
-            f"color: {PALETTE['text_primary']}; font-family: 'Cormorant Garamond', serif; font-size: 22px;"
+            f"color: {PALETTE['text_primary']};"
+            " font-family: 'Cormorant Garamond', serif; font-size: 22px;"
         )
         sub = QLabel(
             "Everything you say to your twin is captured here first. Once a day "
@@ -91,7 +402,6 @@ class SettingsDialog(QDialog):
         form.setSpacing(10)
         form.setLabelAlignment(Qt.AlignLeft)
 
-        # Folder picker
         folder_row = QHBoxLayout()
         self.folder_input = QLineEdit(str(vault_root()))
         self.folder_input.setReadOnly(True)
@@ -103,18 +413,17 @@ class SettingsDialog(QDialog):
         folder_wrap.setLayout(folder_row)
         form.addRow(_label("Vault folder"), folder_wrap)
 
-        # Tier
         self.tier = QComboBox()
         self.tier.addItem("Full · keep every turn + audio forever", "full")
         self.tier.addItem("Partial · keep audio 30 days, transcripts forever (recommended)", "partial")
         self.tier.addItem("Lite · keep only daily summaries + extracted facts", "lite")
-        idx = max(0, [self.tier.itemData(i) for i in range(self.tier.count())].index(
-            self._settings.get("storage_tier", "partial")
-        )) if self._settings.get("storage_tier", "partial") in ("full", "partial", "lite") else 1
-        self.tier.setCurrentIndex(idx)
+        current_tier = self._settings.get("storage_tier", "partial")
+        for i in range(self.tier.count()):
+            if self.tier.itemData(i) == current_tier:
+                self.tier.setCurrentIndex(i)
+                break
         form.addRow(_label("Storage tier"), self.tier)
 
-        # Schedule
         self.schedule = QComboBox()
         self.schedule.addItem("At quit (recommended)", "on_quit")
         self.schedule.addItem("Daily at 3 AM (background)", "midnight")
@@ -127,7 +436,6 @@ class SettingsDialog(QDialog):
         form.addRow(_label("Maintenance schedule"), self.schedule)
         root.addLayout(form)
 
-        # Storage indicator
         usage_box = QFrame()
         usage_box.setStyleSheet(
             f"background: {PALETTE['bg_surface']}; border: 1px solid {PALETTE['border']};"
@@ -155,7 +463,6 @@ class SettingsDialog(QDialog):
         ub.addWidget(self.last_compaction_label)
         root.addWidget(usage_box)
 
-        # Actions
         actions = QHBoxLayout()
         self.run_btn = QPushButton("Run maintenance now")
         self.run_btn.setObjectName("primary")
@@ -165,18 +472,13 @@ class SettingsDialog(QDialog):
         save_btn = QPushButton("Save changes")
         save_btn.clicked.connect(self._save_changes)
         actions.addWidget(save_btn)
-
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.reject)
         actions.addStretch(1)
-        actions.addWidget(close_btn)
         root.addLayout(actions)
 
-        # Log panel
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("Maintenance log will appear here…")
-        self.log.setMinimumHeight(140)
+        self.log.setMinimumHeight(120)
         self.log.setStyleSheet(
             f"background: {PALETTE['bg_base']}; border: 1px solid {PALETTE['border']};"
             " border-radius: 3px; font-family: 'IBM Plex Mono', Consolas, monospace;"
@@ -184,7 +486,6 @@ class SettingsDialog(QDialog):
         )
         root.addWidget(self.log, 1)
 
-    # ------------ Actions ------------
     def _pick_folder(self) -> None:
         new = QFileDialog.getExistingDirectory(
             self, "Pick your vault folder", str(vault_root())
@@ -199,14 +500,13 @@ class SettingsDialog(QDialog):
         s["maintenance_schedule"] = self.schedule.currentData()
         config.save_settings(s)
         self._settings = s
-        self.log.appendPlainText("⚙  Settings saved.")
+        self.log.appendPlainText("Settings saved.")
         self._refresh_storage()
         self.changed.emit()
 
     def _run_now(self) -> None:
         self.run_btn.setEnabled(False)
-        self.log.appendPlainText("▶  Starting maintenance…")
-        # Save first so the worker reads the current tier
+        self.log.appendPlainText("Starting maintenance…")
         self._save_changes()
         self._maint.run_async()
 
@@ -215,15 +515,14 @@ class SettingsDialog(QDialog):
 
     def _on_completed(self, payload: dict) -> None:
         self.log.appendPlainText(
-            f"✓  {payload['date']} — {payload['turns_seen']} turns → "
+            f"{payload['date']} — {payload['turns_seen']} turns → "
             f"{payload['facts_uploaded']} new facts learned "
             f"({payload['facts_skipped']} already known)"
         )
 
     def _on_finished(self, done: int, failed: int) -> None:
-        self.log.appendPlainText(f"⏹  Done. {done} day(s) compacted, {failed} failed.")
+        self.log.appendPlainText(f"Done. {done} day(s) compacted, {failed} failed.")
         self.run_btn.setEnabled(True)
-        # Persist last-run timestamp
         s = config.load_settings()
         from datetime import datetime, timezone
         s["last_maintenance_at"] = datetime.now(timezone.utc).isoformat()
@@ -231,7 +530,7 @@ class SettingsDialog(QDialog):
         self._refresh_storage()
 
     def _on_error(self, msg: str) -> None:
-        self.log.appendPlainText(f"✗  Error: {msg}")
+        self.log.appendPlainText(f"Error: {msg}")
         self.run_btn.setEnabled(True)
 
     def _refresh_storage(self) -> None:
@@ -245,7 +544,6 @@ class SettingsDialog(QDialog):
             f"{_human_bytes(usage['bytes'])} across {usage['files']} files · "
             f"{usage['turns']} turns · {usage['compactions']} compactions"
         )
-        # Pseudo-progress: cap at 1GB visually
         pct = min(100, int(usage["bytes"] / (1024 * 1024 * 10)))
         self.usage_bar.setValue(pct)
         last = v.last_compaction()
@@ -257,7 +555,6 @@ class SettingsDialog(QDialog):
         else:
             self.last_compaction_label.setText("Last compaction: never")
 
-        # Also fetch cloud-side fact count
         def _on_status(d):
             facts_v = (d or {}).get("facts_from_vault", 0)
             total = (d or {}).get("total_facts", 0)
@@ -268,10 +565,57 @@ class SettingsDialog(QDialog):
         api.get_async("/vault/status", on_ok=_on_status, on_err=lambda _m: None)
 
 
-def _label(text: str) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setStyleSheet(
-        f"color: {PALETTE['text_muted']}; letter-spacing: 2px;"
-        " font-size: 10px; text-transform: uppercase;"
-    )
-    return lbl
+# ------------------------------------------------------------------
+# Main dialog with tabs
+# ------------------------------------------------------------------
+class SettingsDialog(QDialog):
+    """Modal settings dialog. Emits `changed` if the vault tab saved anything."""
+
+    changed = Signal()
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setStyleSheet(QSS)
+        self.setWindowTitle("Heirloom · Settings")
+        self.setModal(True)
+        self.resize(700, 720)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+        tabs.setStyleSheet(
+            f"QTabWidget::pane {{ border: none; background: transparent; }}"
+            f"QTabBar::tab {{"
+            f"  color: {PALETTE['text_muted']}; padding: 10px 22px;"
+            f"  background: transparent; border: none;"
+            f"  border-bottom: 2px solid transparent;"
+            f"  font-size: 12px; letter-spacing: 1px; text-transform: uppercase;"
+            f"}}"
+            f"QTabBar::tab:selected {{"
+            f"  color: {PALETTE['accent']};"
+            f"  border-bottom: 2px solid {PALETTE['accent']};"
+            f"}}"
+            f"QTabBar::tab:hover:!selected {{ color: {PALETTE['text_primary']}; }}"
+        )
+
+        self.vault_tab = VaultTab()
+        self.vault_tab.changed.connect(self.changed.emit)
+        tabs.addTab(self.vault_tab, "Vault")
+
+        self.local_ai_tab = LocalAITab()
+        self.local_ai_tab.saved.connect(self.changed.emit)
+        tabs.addTab(self.local_ai_tab, "Local AI")
+
+        root.addWidget(tabs, 1)
+
+        # Footer close button
+        footer = QHBoxLayout()
+        footer.setContentsMargins(20, 12, 20, 16)
+        footer.addStretch(1)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        footer.addWidget(close_btn)
+        root.addLayout(footer)

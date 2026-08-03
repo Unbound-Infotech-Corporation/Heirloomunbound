@@ -54,6 +54,7 @@ class ProviderConfig(BaseModel):
     tts: SubsystemConfig = Field(default_factory=SubsystemConfig)
     stt: SubsystemConfig = Field(default_factory=SubsystemConfig)
     image: SubsystemConfig = Field(default_factory=SubsystemConfig)
+    embeddings: SubsystemConfig = Field(default_factory=SubsystemConfig)
 
 
 DEFAULT = ProviderConfig().model_dump()
@@ -69,7 +70,7 @@ async def _load(user_id: str) -> dict:
         return dict(DEFAULT)
     # Ensure every subsystem key is present (schema evolution safety)
     merged = dict(DEFAULT)
-    for k in ("chat", "tts", "stt", "image"):
+    for k in ("chat", "tts", "stt", "image", "embeddings"):
         if isinstance(doc.get(k), dict):
             merged[k] = {**DEFAULT[k], **doc[k]}
     return merged

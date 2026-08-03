@@ -20,6 +20,7 @@ import Skills from "@/pages/Skills";
 import Abilities from "@/pages/Abilities";
 import Agent from "@/pages/Agent";
 import PhotoStory from "@/pages/PhotoStory";
+import Roadmap from "@/pages/Roadmap";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import HeirPortal from "@/pages/HeirPortal";
@@ -55,6 +56,7 @@ function AppRouter() {
       <Route path="/terms" element={<Terms />} />
       <Route path="/refunds" element={<Refunds />} />
       <Route path="/support" element={<Support />} />
+      <Route path="/roadmap" element={<Roadmap />} />
       <Route path="/auth/magic/:token" element={<MagicLink />} />
       <Route path="/heir/:token" element={<HeirPortal />} />
       <Route path="/twin/live/:handle" element={<TwinLive />} />
