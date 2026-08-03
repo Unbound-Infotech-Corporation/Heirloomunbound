@@ -222,6 +222,14 @@ This phase makes Heirloom legally and operationally ready to charge real custome
 **Removed**
 - ✅ Emergent's default PostHog tracker stripped from `index.html` (was sending analytics to Emergent's account, not ours).
 
+### Phase 11 — Aug 3, 2026 (Semantic Memory Search — Session D)
+- ✅ **Backend semantic search stack**: new `services/embeddings.py` (provider-agnostic OpenAI-compat embeddings client + numpy cosine), semantic endpoints appended to `routers/memory.py` — GET `/api/memory/search/status`, POST `/api/memory/search/embed` (background) and `/embed/sync`, POST `/api/memory/search`. Vectors persisted in `archive_embeddings` with content-hash idempotency so re-embed skips unchanged entries. `MIN_SCORE=0.20` filters noise; anything below falls back to keyword regex.
+- ✅ **Twin retrieval upgrade**: `twin_tools.exec_search_archive` now tries semantic first (via `semantic_lookup` helper), falls back to keyword when no provider or no vectors. Twin's `search_archive` tool description unchanged — quality lift is transparent.
+- ✅ **Library UI**: new semantic-status ribbon (data-testid=`semantic-status`) shows "X of Y memories indexed" when provider on, or a Settings link when off. Enter key now triggers `POST /api/memory/search` (was `GET /api/archive?q=`). Rebuild-index button appears when provider on.
+- ✅ **DB indexes**: two new compound indexes on `archive_embeddings` for fast per-user + per-model lookups.
+- ✅ **Testing**: 2/2 my regressions (`test_iteration32_semantic.py`) + 6/6 testing-subagent coverage (`test_iteration32_semantic_extra.py`) + Playwright frontend green. Full 8/8 backend pass. No adjacent regressions (providers, archive, agent, roadmap, auth all still 200).
+- **Note**: Emergent Universal Key does NOT cover embeddings (confirmed via integration playbook). By design there is no hosted fallback — users configure their own OpenAI key OR run local Ollama/LM Studio via the Providers system.
+
 ### Phase 10 — Aug 3, 2026 (Local AI foundation + public roadmap + mission)
 - ✅ **Landing "Built with you" section**: honest positioning that Heirloom is in active development, we want early owners in the room. Amber-tinted card mid-page with three columns (what's live / on the workbench / what stays true) + dual CTAs (See the roadmap / Email the founders). Early-access badge added to the hero.
 - ✅ **Public `/roadmap` page** (`/app/frontend/src/pages/Roadmap.jsx`): unauthenticated route listing every feature on the plan in three buckets (Already yours / On the workbench / Coming after). Spinning Loader2 icons signal "in-build", check marks signal shipped. Dual CTAs (Suggest a feature via mailto, Send feedback via /support). Copies the exact language from user's mission ("timeless gift handed down generation after generation").
