@@ -1,0 +1,32 @@
+{
+  "summary": "Tested UI redesign of /setup/keys (BYOK modal wizard) + Landing 'What's new' section. All items in review passed. Backend endpoints preserved and working (/api/auth/me cookie auth, /api/user-keys/status, /api/user-keys/verify).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_33.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Review request refers to the page as '/setup-keys' but the actual React route is '/setup/keys' (App.js line 98). Not a bug — no code references '/setup-keys' — but worth noting for future spec accuracy.",
+    "Setup progress pill shows 'X of 5 connected' counting only services where status.source === 'you'. For fresh test user with admin-provided keys, this correctly shows '0 of 5 connected'."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "session_token=test_session_it33_1785769759603, user_id=test-user-it33-1785769759603 (created via mongosh, expires 7d)",
+  "seed_data_creation": "Created one test user + session in test_database via mongosh (see test_credentials).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The route is /setup/keys (not /setup-keys). Cookie auth via session_token cookie (Lax, secure). Fresh test users see admin-provided BYOK keys as source='admin' — the setup-progress counter only increments for source='you'. BYOK modal verify endpoint /api/user-keys/verify works and returns {ok:false,detail:'ElevenLabs rejected the key (401)'} for fake key; UI renders red error box with data-testid='byok-modal-verify-result'.",
+  "test_results_detail": {
+    "landing_whats_new": "PASS — section + all 6 tiles (Semantic memory search, Focus mode, Photo → Story, Local AI, Public roadmap, 1-click setup wizard) + 'See full roadmap' link navigates to /roadmap.",
+    "setup_keys_page": "PASS — renders, setup-progress='0 of 5 connected'.",
+    "oauth_tiles": "PASS — spotify + github tiles with Connect buttons pointing to /api/oauth/{svc}/connect. Coming-soon Google + Discord present with dashed border (not clickable).",
+    "byok_tiles": "PASS — elevenlabs/did/fal tiles open modal; modal has both tabs, signup link, next button, close button.",
+    "byok_modal_verify": "PASS — fake key 'sk_fake_test' → red error box with 'ElevenLabs rejected the key (401)'. Autofocus on input on step 2 works.",
+    "byok_placeholders": "PASS — D-ID placeholder='email:secret'.",
+    "local_ai_tile": "PASS — Pinokio/Ollama/LM Studio external links present; 'Set up in Heirloom Desktop' button navigates to /companion.",
+    "readonly_tiles": "PASS — resend + stripe informational cards, no inputs."
+  }
+}

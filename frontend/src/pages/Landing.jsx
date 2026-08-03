@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ArrowRight, Brain, Heart, Lock, MessageCircleHeart, Mic, MonitorDown, Server } from "lucide-react";
+import { ArrowRight, Brain, Heart, Lock, MessageCircleHeart, Mic, MonitorDown, Server, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { usePageMeta } from "../lib/usePageMeta";
 import { isTester } from "../lib/tester";
@@ -174,6 +174,80 @@ export default function Landing() {
               </motion.div>
             );
           })}
+        </div>
+      </section>
+
+      {/* WHAT'S NEW — surface recent shipping so early owners see momentum */}
+      <section
+        className="relative z-10 px-5 sm:px-10 lg:px-20 mt-32 lg:mt-44 max-w-6xl"
+        data-testid="landing-whats-new"
+      >
+        <div className="flex items-end justify-between mb-10 flex-wrap gap-4">
+          <div>
+            <div className="overline mb-3 flex items-center gap-2">
+              <Sparkles className="h-3 w-3" style={{ color: "var(--accent)" }} /> what&apos;s new
+            </div>
+            <h2 className="font-serif text-3xl lg:text-4xl font-light">
+              Shipped in the last month.
+            </h2>
+          </div>
+          <Link
+            to="/roadmap"
+            className="text-sm inline-flex items-center gap-1.5"
+            style={{ color: "var(--accent)" }}
+            data-testid="landing-whats-new-roadmap"
+          >
+            See full roadmap <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[
+            {
+              title: "Semantic memory search",
+              body: "Ask the twin by meaning, not keywords. 'What did I say about my dad's temper?' now surfaces the right memories even without those exact words.",
+            },
+            {
+              title: "Focus mode",
+              body: "Give your twin a goal. It writes a multi-step plan, you approve, it drives your PC through the plan step-by-step.",
+            },
+            {
+              title: "Photo → Story",
+              body: "Drop any photo. Your twin writes a short spoken memory around it — in your voice, from the archive it already knows.",
+            },
+            {
+              title: "Local AI (Pinokio · Ollama · LM Studio)",
+              body: "Run chat, transcription, embeddings, and image tools on your own PC. Nothing leaves the machine.",
+            },
+            {
+              title: "Public roadmap",
+              body: "Every feature ahead — semantic memory, personality fine-tuning, phone calling, and more — visible so you can steer what we build next.",
+            },
+            {
+              title: "1-click setup wizard",
+              body: "Connect Spotify, GitHub, and paste in ElevenLabs/D-ID/fal keys through short guided modals. No more wall of forms.",
+            },
+          ].map((n, i) => (
+            <div
+              key={n.title}
+              className="rounded-sm p-6"
+              style={{
+                border: "1px solid var(--border-default)",
+                background: i === 0 ? "rgba(232,169,92,0.05)" : "var(--bg-surface)",
+              }}
+              data-testid={`landing-whats-new-${i}`}
+            >
+              <div
+                className="w-1.5 h-1.5 rounded-full mb-4"
+                style={{ background: "var(--accent)" }}
+              />
+              <div className="text-base font-medium mb-2" style={{ color: "var(--text-primary)" }}>
+                {n.title}
+              </div>
+              <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                {n.body}
+              </p>
+            </div>
+          ))}
         </div>
       </section>
 
