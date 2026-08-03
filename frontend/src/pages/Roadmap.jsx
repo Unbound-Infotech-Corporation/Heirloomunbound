@@ -29,6 +29,7 @@ const ROADMAP = [
     tint: "var(--accent)",
     items: [
       { title: "Local AI — run everything on your own PC", detail: "Pinokio · Ollama · LM Studio · ComfyUI. Nothing leaves the machine." },
+      { title: "Multi-provider AI router + usage tracking", detail: "Connect OpenAI, Anthropic, Gemini, Groq. The twin picks the best model per task; a live dashboard shows how much of each free tier you have left." },
       { title: "Semantic memory search", detail: "Ask by meaning, not keyword. The twin actually remembers." },
       { title: "Photo restoration", detail: "Old family photos come back sharp — before they enter the archive." },
       { title: "Speaker-diarized video import", detail: "Drop in a family video. It splits by speaker automatically." },
