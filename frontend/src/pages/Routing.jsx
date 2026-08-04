@@ -22,6 +22,47 @@ function Chip({ children, tone = "muted" }) {
   );
 }
 
+/**
+ * Compact SVG sparkline — no external chart lib. Takes a numeric array and
+ * plots a polyline scaled to the given box. Zero-cost series get an empty
+ * baseline. Used on every provider card to visualise 30-day spend trend.
+ */
+function Sparkline({ values, width = 120, height = 32, testid }) {
+  if (!values || values.length === 0) return null;
+  const max = Math.max(...values, 0);
+  const min = 0;
+  const n = values.length;
+  const stepX = n > 1 ? width / (n - 1) : 0;
+  const yFor = (v) => {
+    if (max === min) return height - 1;
+    return height - 1 - ((v - min) / (max - min)) * (height - 2);
+  };
+  const points = values.map((v, i) => `${(i * stepX).toFixed(1)},${yFor(v).toFixed(1)}`).join(" ");
+  const last = values[values.length - 1];
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} data-testid={testid}
+         style={{ overflow: "visible" }}>
+      <polyline
+        fill="none"
+        stroke="var(--accent)"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+      />
+      {/* Highlight dot on the last value */}
+      {n >= 1 && (
+        <circle
+          cx={((n - 1) * stepX).toFixed(1)}
+          cy={yFor(last).toFixed(1)}
+          r="2"
+          fill="var(--accent)"
+        />
+      )}
+    </svg>
+  );
+}
+
 // ---------------- page ----------------
 export default function Routing() {
   usePageMeta({ title: "AI Router — Heirloom", description: "Multi-provider LLM routing + usage" });
@@ -31,6 +72,7 @@ export default function Routing() {
   const [usage, setUsage] = useState(null);
   const [events, setEvents] = useState([]);
   const [health, setHealth] = useState([]);
+  const [daily, setDaily] = useState({ days: [], series: {} });
   const [checkingHealth, setCheckingHealth] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState({});
@@ -39,15 +81,17 @@ export default function Routing() {
 
   useEffect(() => { (async () => {
     try {
-      const [c, cf, u, ev, h] = await Promise.all([
+      const [c, cf, u, ev, h, dd] = await Promise.all([
         api.get("/routing/catalog"),
         api.get("/routing/config"),
         api.get("/routing/usage?days=30"),
         api.get("/routing/usage/events?limit=50"),
         api.get("/routing/health"),
+        api.get("/routing/usage/daily?days=30"),
       ]);
       setCatalog(c.data); setCfg(cf.data); setUsage(u.data); setEvents(ev.data);
       setHealth(h.data);
+      setDaily(dd.data);
     } catch (e) { toast.error("Couldn't load router config"); }
   })(); }, []);
 
@@ -123,11 +167,12 @@ export default function Routing() {
 
   const refreshUsage = async () => {
     try {
-      const [u, ev] = await Promise.all([
+      const [u, ev, dd] = await Promise.all([
         api.get("/routing/usage?days=30"),
         api.get("/routing/usage/events?limit=50"),
+        api.get("/routing/usage/daily?days=30"),
       ]);
-      setUsage(u.data); setEvents(ev.data);
+      setUsage(u.data); setEvents(ev.data); setDaily(dd.data);
     } catch { /* silent */ }
   };
 
@@ -276,14 +321,24 @@ export default function Routing() {
                       </div>
                     )}
                   </div>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer" data-testid={`provider-enable-${p.id}`}>
-                    <input
-                      type="checkbox"
-                      checked={!!pcfg.enabled}
-                      onChange={(e) => setProviderField(p.id, "enabled", e.target.checked)}
-                    />
-                    <span style={{ color: "var(--text-secondary)" }}>Enabled</span>
-                  </label>
+                  <div className="flex items-center gap-4">
+                    {daily.series && daily.series[p.id] && (
+                      <div className="flex flex-col items-end gap-0.5" data-testid={`provider-spark-${p.id}`}>
+                        <Sparkline values={daily.series[p.id]} testid={`provider-spark-svg-${p.id}`} />
+                        <span className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                          30d · {fmtUSD(providerTotals[p.id]?.cost_usd || 0)}
+                        </span>
+                      </div>
+                    )}
+                    <label className="flex items-center gap-2 text-sm cursor-pointer" data-testid={`provider-enable-${p.id}`}>
+                      <input
+                        type="checkbox"
+                        checked={!!pcfg.enabled}
+                        onChange={(e) => setProviderField(p.id, "enabled", e.target.checked)}
+                      />
+                      <span style={{ color: "var(--text-secondary)" }}>Enabled</span>
+                    </label>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

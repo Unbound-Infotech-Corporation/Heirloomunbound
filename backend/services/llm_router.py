@@ -642,3 +642,43 @@ async def usage_summary(user_id: str, days: int = 30) -> dict:
         "by_provider": sorted(by_provider, key=lambda r: -r["cost_usd"]),
         "by_task": sorted(by_task, key=lambda r: -r["cost_usd"]),
     }
+
+
+async def daily_spend_series(user_id: str, days: int = 30) -> dict:
+    """Return per-day cost buckets per provider — powers the sparkline chart.
+
+    Shape:
+        {
+          "days": [YYYY-MM-DD, ...],       # oldest → newest, length=days
+          "series": {provider_id: [cost_per_day, ...]}
+        }
+    """
+    from datetime import timedelta
+    days = max(1, min(int(days or 30), 90))
+    now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    since = (now - timedelta(days=days - 1)).isoformat()
+
+    # Mongo aggregate: group by (provider, date-string of ts).
+    pipeline = [
+        {"$match": {"user_id": user_id, "ts": {"$gte": since}}},
+        {"$group": {
+            "_id": {
+                "provider": "$provider",
+                "day": {"$substr": ["$ts", 0, 10]},  # ts is ISO 'YYYY-MM-DDT…'
+            },
+            "cost": {"$sum": "$cost_usd"},
+        }},
+    ]
+    day_labels = [(now - timedelta(days=days - 1 - i)).date().isoformat() for i in range(days)]
+    day_index = {d: i for i, d in enumerate(day_labels)}
+
+    series: dict[str, list[float]] = {}
+    async for row in db.usage_events.aggregate(pipeline):
+        pid = row["_id"]["provider"]
+        d = row["_id"]["day"]
+        if d not in day_index:
+            continue
+        arr = series.setdefault(pid, [0.0] * days)
+        arr[day_index[d]] = round(float(row["cost"] or 0), 6)
+
+    return {"days": day_labels, "series": series}

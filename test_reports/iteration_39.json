@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 39: restoration regression suite, /routing/usage/daily API, rotation-alert reset semantics, and Routing page sparkline. Full pytest run: 18/18 green on test_restoration_regression.py. New iteration-39 pytest suite: 6/7 passing (1 real product bug found: ?days=0 clamps to 30 instead of 1). Rotation-alert reset semantic verified end-to-end (green->red fires; red->red guards; green resets flag; next green->red fires again). Frontend Routing page renders Sparkline SVG for the only provider with usage (Emergent) with correct testids and 30D caption; the other 6 providers correctly render no sparkline.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/routing/usage/daily?days=0",
+        "issue": "Returns 30 day labels instead of 1. Root cause: services/llm_router.py:657 uses `int(days or 30)` — when days=0 is falsy the `or` collapses it to 30 BEFORE the max(1, ...) clamp runs. Spec says days=0 should be treated as 1. Fix: replace with `max(1, min(int(days) if days is not None else 30, 90))`. Not high-priority (frontend never sends 0), but the contract is explicit."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Routing page sparkline caption", "issues": ["Caption renders as '30D · $0.0077' (uppercase D) while spec text example was '30d · $X.XXXX'. Purely cosmetic; both are readable. Ignore if intentional."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_restoration_regression.py",
+    "/app/backend/tests/test_rotation_alert_and_daily.py"
+  ],
+  "action_items": [
+    "OPTIONAL: fix services/llm_router.py:657 `int(days or 30)` -> honour days=0 as 1 per spec.",
+    "OPTIONAL: harmonise sparkline caption casing ('30D' vs '30d') if the spec is strict."
+  ],
+  "critical_code_review_comments": [
+    "Rotation-alert logic in provider_health._write_health is correctly guarded: the update dict only writes rotation_alert_sent=False on green, so red->red does not overwrite the True flag. The green branch resets the flag, satisfying the reset semantic in the review request.",
+    "provider_health._send_rotation_alert treats 'skipped' (RESEND_API_KEY missing) as delivered — sensible; it prevents retry loops in preview.",
+    "daily_spend_series is O(days) memory per provider and uses $substr on ts string — acceptable given ts is always ISO8601 with fixed prefix.",
+    "SECRETS_ROTATION.md covers all 7 vendors requested (Stripe, Resend, ElevenLabs, D-ID, Fal, GitHub, Spotify)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_rotation_alert_and_daily.py (NEW)"
+  ],
+  "success_rate": {"backend": "96% (24/25 pytest, 1 minor days=0 edge case)", "frontend": "100%"},
+  "test_credentials": "session_token=test_routing_session (user_id=test-routing-user) — confirmed in db.user_sessions",
+  "seed_data_creation": "test_caller_scoped creates ephemeral iter39-a-<hex> user + session + usage_event, cleaned up in finally block via sync pymongo.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 39 pytest suite lives at /app/backend/tests/test_rotation_alert_and_daily.py. It self-loads /app/frontend/.env for REACT_APP_BACKEND_URL and /app/backend/.env for MONGO_URL/DB_NAME. Auth uses `session_token` cookie (not X-Session-Token header) and reads from db.user_sessions collection. The `test_days_clamped_zero` test WILL FAIL until the days=0 edge case in llm_router.py:657 is fixed.",
+  "rca of the issue": "Bug: GET /api/routing/usage/daily?days=0 returns 30 day labels. Reproduce: `curl -b 'session_token=test_routing_session' \"$REACT_APP_BACKEND_URL/api/routing/usage/daily?days=0\"` -> len(days)==30. RCA: services/llm_router.py:657 -> `days = max(1, min(int(days or 30), 90))`. Python's `0 or 30` short-circuits to 30 because 0 is falsy, so the clamp never sees the intended 0->1 conversion. Mitigation: `days_val = 30 if days is None else int(days); days_val = max(1, min(days_val, 90))`. Impact: LOW — the frontend never requests days=0, but the endpoint contract says it should behave as 1."
+}

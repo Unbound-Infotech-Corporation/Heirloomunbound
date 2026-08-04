@@ -29,6 +29,7 @@ from services.llm_router import (
     TASKS,
     chat_once,
     chat_stream,
+    daily_spend_series,
     get_config,
     resolve_provider,
     save_config,
@@ -183,6 +184,14 @@ async def get_usage_events(limit: int = 100, user: dict = Depends(get_current_us
         {"user_id": user["user_id"]}, {"_id": 0, "user_id": 0},
     ).sort("ts", -1).limit(limit)
     return await cursor.to_list(length=limit)
+
+
+@router.get("/usage/daily")
+async def get_usage_daily(days: int = 30, user: dict = Depends(get_current_user)):
+    """Per-day cost buckets per provider — powers the sparkline chart on
+    the frontend Router page.
+    """
+    return await daily_spend_series(user["user_id"], days=days)
 
 
 # --------- Verify a BYOK key ---------

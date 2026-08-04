@@ -98,7 +98,17 @@ async def _probe_emergent(user_id: str) -> dict:
 async def _write_health(
     user_id: str, provider: str, status: str, error: str | None, latency_ms: int | None
 ) -> dict:
+    """Upsert the current health row AND fire a rotation-alert email on the
+    first green→red flip. Alerts auto-reset once the provider goes back to
+    green, so the next flip triggers again.
+    """
     now = datetime.now(timezone.utc).isoformat()
+    prior = await db.provider_health.find_one(
+        {"user_id": user_id, "provider": provider},
+        {"_id": 0, "status": 1, "rotation_alert_sent": 1},
+    ) or {}
+    prior_status = prior.get("status")
+
     update: dict = {
         "user_id": user_id,
         "provider": provider,
@@ -109,12 +119,50 @@ async def _write_health(
     }
     if status == "green":
         update["last_ok"] = now
+        # Reset the alert flag so a fresh red → green → red cycle re-fires.
+        update["rotation_alert_sent"] = False
     await db.provider_health.update_one(
         {"user_id": user_id, "provider": provider},
         {"$set": update, "$setOnInsert": {"created_at": now}},
         upsert=True,
     )
+
+    # Green → red transition: fire once. `prior_status == "green"` is the guard;
+    # a first-ever probe that lands red does NOT fire (we want the user to
+    # notice the change from working to broken, not to nag on setup).
+    if (
+        status == "red"
+        and prior_status == "green"
+        and not prior.get("rotation_alert_sent")
+    ):
+        try:
+            sent = await _send_rotation_alert(user_id, provider, error)
+            if sent:
+                await db.provider_health.update_one(
+                    {"user_id": user_id, "provider": provider},
+                    {"$set": {"rotation_alert_sent": True}},
+                )
+        except Exception:  # noqa: BLE001 — never let alerting break the probe
+            log.warning("rotation alert failed for %s/%s", user_id, provider, exc_info=True)
+
     return update
+
+
+async def _send_rotation_alert(user_id: str, provider: str, error: str | None) -> bool:
+    """Look up the owner's email and send a Resend rotation alert.
+
+    Returns True on success (or explicit skip); False if delivery failed so the
+    caller can retry on the next probe.
+    """
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1, "name": 1})
+    if not user or not (user.get("email") or "").strip():
+        return True  # no email on file — treat as delivered so we don't retry forever
+    from email_service import send_provider_rotation_email
+    result = await send_provider_rotation_email(
+        to=user["email"], owner_name=user.get("name", "Friend"),
+        provider=provider, error=(error or "unknown error"),
+    )
+    return bool(result and (result.get("ok") or result.get("skipped")))
 
 
 async def refresh_user(user_id: str, cfg: dict | None = None) -> list[dict]:

@@ -298,3 +298,38 @@ async def send_budget_alert_email(
             "Manage this at /routing in your Heirloom app."
         ),
     )
+
+
+async def send_provider_rotation_email(
+    *, to: str, owner_name: str, provider: str, error: str,
+) -> dict:
+    """Alert the archive owner that a BYOK provider just flipped green → red.
+
+    Fires exactly once per red episode (reset when the provider goes green
+    again). Non-blocking — the health loop keeps running regardless.
+    """
+    inner = f"""
+<p style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#7a6f5e;margin:0 0 6px 0;">provider · {provider}</p>
+<p style="font-family:Georgia,serif;font-size:24px;font-weight:300;line-height:1.3;margin:0 0 12px 0;color:{_TEXT_PRIMARY};">Your {provider} key just stopped working</p>
+<p style="font-family:Georgia,serif;font-size:15px;line-height:1.55;margin:0 0 20px 0;color:{_TEXT_SECONDARY};">
+  The hourly health check found {provider} answering with an error — your twin will fall back to the next provider in your chain, but if this key was your primary you'll want to fix it before too many calls miss.
+</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="border:1px solid {_BORDER};border-radius:6px;width:100%;margin:0 0 18px 0;">
+  <tr><td style="padding:12px 16px;color:{_TEXT_SECONDARY};font-family:Arial,sans-serif;font-size:13px;">What went wrong</td>
+      <td style="padding:12px 16px;text-align:right;color:{_TEXT_PRIMARY};font-family:'Courier New',monospace;font-size:12px;word-break:break-word;">{error[:120]}</td></tr>
+</table>
+<p style="font-family:Arial,sans-serif;font-size:13px;line-height:1.6;margin:0 0 6px 0;color:{_TEXT_SECONDARY};">
+  Fix this in your <a href="{os.environ.get('PUBLIC_BACKEND_URL','').rstrip('/')}/routing" style="color:{_ACCENT};text-decoration:none;">AI Router</a> — paste a new key, hit Verify, and the alert will reset itself the next time we see a green probe.
+</p>
+"""
+    return await _send(
+        to=to,
+        subject=f"Heirloom · {provider} key just broke",
+        html=_wrap(inner, preheader=f"{provider} is failing health checks. Fix at /routing."),
+        text=(
+            f"Your {provider} key just stopped working.\n\n"
+            f"Error: {error[:180]}\n\n"
+            "Fix this at /routing in your Heirloom app."
+        ),
+    )
+
