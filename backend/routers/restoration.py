@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from deps import db, get_current_user
+from routers.companion import get_device_user
 from routers.providers import _load as load_providers
 from storage import put_object
 
@@ -147,27 +148,36 @@ async def get_job(job_id: str, user: dict = Depends(get_current_user)):
 async def submit_result(
     job_id: str,
     file: UploadFile = File(...),
-    user: dict = Depends(get_current_user),
+    auth: dict = Depends(get_device_user),
 ):
-    """Desktop companion uploads the restored image. Stored as a new photo."""
+    """Desktop companion uploads the restored image. Stored as a new photo.
+
+    Auth = device_token (only the caller's own PC can post results).
+    Idempotent: if the job is already terminal, we return the existing result
+    without inserting a second photo.
+    """
+    user_id = auth["user"]["user_id"]
     job = await db.restoration_jobs.find_one(
-        {"job_id": job_id, "user_id": user["user_id"]}, {"_id": 0}
+        {"job_id": job_id, "user_id": user_id}, {"_id": 0}
     )
     if not job:
         raise HTTPException(404, "Job not found")
+    if job.get("status") == "complete" and job.get("result_photo_id"):
+        # A retry after a network hiccup — return the already-stored result.
+        return {"ok": True, "job_id": job_id, "result_photo_id": job["result_photo_id"], "already_complete": True}
 
     ext = (file.filename or "restored.png").rsplit(".", 1)[-1].lower()
     if ext not in ("png", "jpg", "jpeg", "webp"):
         ext = "png"
     result_id = f"ph_{uuid.uuid4().hex[:12]}"
-    path = f"{APP_PREFIX}/photos/{user['user_id']}/{result_id}.{ext}"
+    path = f"{APP_PREFIX}/photos/{user_id}/{result_id}.{ext}"
     content = await file.read()
     put_object(path, content, file.content_type or f"image/{ext}")
 
     now = datetime.now(timezone.utc).isoformat()
     photo_doc = {
         "photo_id": result_id,
-        "user_id": user["user_id"],
+        "user_id": user_id,
         "path": path,
         "caption": f"Restored ({job['kind']}) from {job['photo_id']}",
         "taken_at": None,
@@ -178,10 +188,23 @@ async def submit_result(
         "created_at": now,
     }
     await db.photos.insert_one(photo_doc)
-    await db.restoration_jobs.update_one(
-        {"job_id": job_id, "user_id": user["user_id"]},
+    # Only transition to `complete` if still in an in-flight state — protects
+    # against a second concurrent upload from mutating the terminal job.
+    updated = await db.restoration_jobs.update_one(
+        {
+            "job_id": job_id, "user_id": user_id,
+            "status": {"$in": ["queued", "dispatched", "processing"]},
+        },
         {"$set": {"status": "complete", "result_photo_id": result_id, "updated_at": now}},
     )
+    if updated.modified_count == 0:
+        # Race lost — someone completed the job first. Roll back our insert.
+        await db.photos.delete_one({"photo_id": result_id})
+        # Return whatever the winner stored.
+        winner = await db.restoration_jobs.find_one(
+            {"job_id": job_id, "user_id": user_id}, {"_id": 0, "result_photo_id": 1}
+        )
+        return {"ok": True, "job_id": job_id, "result_photo_id": (winner or {}).get("result_photo_id"), "already_complete": True}
     photo_doc.pop("_id", None)
     return {"ok": True, "job_id": job_id, "result_photo_id": result_id}
 
@@ -190,15 +213,25 @@ async def submit_result(
 async def report_failure(
     job_id: str,
     body: dict,
-    user: dict = Depends(get_current_user),
+    auth: dict = Depends(get_device_user),
 ):
     """Desktop reports that the ComfyUI call failed — surface the reason."""
+    user_id = auth["user"]["user_id"]
     reason = str(body.get("reason", "unknown error"))[:500]
     now = datetime.now(timezone.utc).isoformat()
     res = await db.restoration_jobs.update_one(
-        {"job_id": job_id, "user_id": user["user_id"]},
+        {
+            "job_id": job_id, "user_id": user_id,
+            "status": {"$in": ["queued", "dispatched", "processing"]},
+        },
         {"$set": {"status": "failed", "reason": reason, "updated_at": now}},
     )
     if res.matched_count == 0:
-        raise HTTPException(404, "Job not found")
+        # Either wrong owner / non-existent, or already terminal (idempotent no-op).
+        exists = await db.restoration_jobs.find_one(
+            {"job_id": job_id, "user_id": user_id}, {"_id": 0, "status": 1}
+        )
+        if not exists:
+            raise HTTPException(404, "Job not found")
+        return {"ok": True, "already_terminal": True, "status": exists.get("status")}
     return {"ok": True}

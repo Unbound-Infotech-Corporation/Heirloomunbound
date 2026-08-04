@@ -489,7 +489,7 @@ def _default_gfpgan_workflow(image_name: str, prompt: str) -> dict:
     }
 
 
-
+def execute(cmd: dict):
     kind = cmd.get("kind")
     payload = cmd.get("payload") or {}
     try:

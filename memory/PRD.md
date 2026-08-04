@@ -392,6 +392,19 @@ After Semrush audit (Health 78/100) flagged duplicate titles/descriptions, bad r
 - Phase-6 smoke test: 8 / 8 endpoints green (brand kit save+load, persona create/activate/list/deactivate/delete, tts_language save). Frontend lint clean.
 - **iteration_36.json: 19 / 19 backend + full frontend tests pass for Multi-Provider AI Router + Usage Tracking (Feb 2026).** Covered: catalog (7 providers, 6 tasks), BYOK key non-leakage (has_key boolean only), key preservation on empty-string PUT, task-route persistence, real Emergent Claude call with token+cost logging, fallback chain when BYOK key missing, verify endpoint 401 on bad OpenAI key, aggregate + per-event usage endpoints, resolve endpoint, 400 validation on unknown task/provider.
 
+## Phase 38 — Feb 2026 (Code Review Response — Critical Fixes)
+Code review by `code_review_agent` found 2 CONFIRMED HIGH, 2 MEDIUM, and 3 LOW defects in Phases 35-37. All fixed:
+
+- 🔴 **HIGH · Desktop `execute()` was gone** — my earlier `search_replace` for the `restore_photo` case consumed the `def execute(cmd: dict):` header. The whole dispatcher block sat unreachable inside `_default_gfpgan_workflow`. Restored the header; the entire desktop OS-control + photo-restoration flow was silently dead before this fix. Payload re-baked.
+- 🔴 **HIGH · Restoration result/fail used wrong auth** — `POST /api/restoration/jobs/{id}/result` and `/fail` required a *user session token* but the only intended caller is the companion with a *device token*. Every restoration would have hit 401 forever. Switched both endpoints to `Depends(get_device_user)`; ownership now derived from `auth["user"]["user_id"]`.
+- 🟡 **MEDIUM · Restoration result had no idempotency** — a retry after a hiccupy upload would create a duplicate `photos` row. Now: if the job is already terminal we return the existing `result_photo_id`; the transition to `complete` uses an atomic `update_one({status:{$in:["queued","dispatched","processing"]}})`; on lost race we roll back our just-inserted photo.
+- 🟡 **MEDIUM · Budget alert idempotency was racy** — `find_one` + `insert_one` is not atomic. Added a unique DB index on `budget_alerts (user_id, provider, month, tier)`; the insert is now the guard (duplicate-key silently means "someone else got here first").
+- 🟢 **LOW · Anthropic health probe used Bearer auth** — Anthropic's native REST accepts `x-api-key` + `anthropic-version` only. Probe now uses those headers for the anthropic provider specifically.
+- 🟢 **LOW · `Photos.jsx` polled forever** — 4s poll had no cap and no unmount cleanup. Now hard-capped at 60 attempts (~4min) with a `pollTimerRef` that clears on unmount.
+- 🟢 **LOW · Missing indexes on new collections** — added indexes for `usage_events`, `provider_health`, `restoration_jobs`, `routing_configs`, `companion_commands`, plus the unique `budget_alerts` guard.
+
+**Verified end-to-end:** old session-token calls to `/result` and `/fail` now return 401; device-token calls succeed; two sequential result uploads for one job → exactly one photo doc + `already_complete:true` on the second; concurrent duplicate-key insert on `budget_alerts` → caught and no-op; desktop `execute()` and `restore_photo_via_local` confirmed present in the baked payload.
+
 ## Phase 37 — Feb 2026 (Provider Health Checks)
 - ✅ **`services/provider_health.py`** — probes every enabled BYOK provider with a cheap `GET /v1/models` (Gemini adds `?key=` per its OpenAI-compat quirk). Emergent path validates the Universal Key + SDK import. Latency captured per probe. Records upserted into `provider_health` keyed on (user_id, provider) — no growing history.
 - ✅ **Hourly background loop** — `health_loop()` sleeps 30s on boot, then refreshes every user with a `routing_configs` doc every 3600s. Registered on FastAPI startup as `app.state.provider_health_task`, cancelled on shutdown alongside the letter delivery loop.

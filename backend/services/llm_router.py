@@ -569,9 +569,13 @@ async def _maybe_send_budget_alert(user_id: str, provider: str) -> None:
     now = datetime.now(timezone.utc)
     month = f"{now.year:04d}-{now.month:02d}"
     guard_key = {"user_id": user_id, "provider": provider, "month": month, "tier": tier}
-    if await db.budget_alerts.find_one(guard_key):
+    # Race-safe: rely on the unique index at (user_id, provider, month, tier).
+    # Two concurrent over-cap calls can both pass the find_one gate; only one
+    # will win the insert — the other raises DuplicateKeyError and we no-op.
+    try:
+        await db.budget_alerts.insert_one({**guard_key, "sent_at": now.isoformat()})
+    except Exception:  # DuplicateKeyError or any race — someone else got here first.
         return
-    await db.budget_alerts.insert_one({**guard_key, "sent_at": now.isoformat()})
 
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1, "name": 1})
     if not user or not (user.get("email") or "").strip():

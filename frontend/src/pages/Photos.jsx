@@ -7,6 +7,10 @@ function PhotoCard({ p, onRemove, onRestored }) {
   const [src, setSrc] = useState(null);
   const [restoring, setRestoring] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const pollTimerRef = useRef(null);
+  useEffect(() => () => {
+    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+  }, []);
   useEffect(() => {
     let cancelled = false;
     let createdUrl = null;
@@ -38,8 +42,16 @@ function PhotoCard({ p, onRemove, onRestored }) {
         return;
       }
       toast.success(`${kind[0].toUpperCase()+kind.slice(1)} queued — your desktop is on it`);
-      // Poll every 4s until complete/failed
+      // Poll every 4s until complete/failed — hard cap at 60 attempts (~4min).
+      let attempts = 0;
+      const MAX_ATTEMPTS = 60;
       const poll = async () => {
+        if (attempts >= MAX_ATTEMPTS) {
+          toast.error("Restoration timed out — check your ComfyUI desktop app");
+          setRestoring(false);
+          return;
+        }
+        attempts += 1;
         try {
           const { data: job } = await api.get(`/restoration/jobs/${data.job_id}`);
           if (job.status === "complete") {
@@ -53,12 +65,12 @@ function PhotoCard({ p, onRemove, onRestored }) {
             setRestoring(false);
             return;
           }
-          setTimeout(poll, 4000);
+          pollTimerRef.current = setTimeout(poll, 4000);
         } catch {
           setRestoring(false);
         }
       };
-      setTimeout(poll, 4000);
+      pollTimerRef.current = setTimeout(poll, 4000);
     } catch (e) {
       toast.error("Couldn't queue restoration");
       setRestoring(false);

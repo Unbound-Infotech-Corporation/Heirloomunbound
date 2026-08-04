@@ -54,11 +54,19 @@ async def probe_provider(user_id: str, provider: str, cfg: dict | None = None) -
     if not api_key:
         return await _write_health(user_id, provider, "red", "no api key configured", None)
 
-    url = spec["base_url"].rstrip("/") + "/models"
-    headers = {"Authorization": f"Bearer {api_key}"}
-    # Gemini's OpenAI-compat proxy needs the key as a query param too.
-    if provider == "gemini":
-        url += f"?key={api_key}"
+    # Anthropic's native REST API expects x-api-key + anthropic-version, not
+    # Bearer, so we probe /v1/models with those headers. Every other listed
+    # provider is OpenAI-compatible on /v1/models with Bearer.
+    if provider == "anthropic":
+        url = "https://api.anthropic.com/v1/models"
+        headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+    elif provider == "gemini":
+        # Gemini's OpenAI-compat proxy accepts either ?key= or Bearer.
+        url = spec["base_url"].rstrip("/") + f"/models?key={api_key}"
+        headers = {"Authorization": f"Bearer {api_key}"}
+    else:
+        url = spec["base_url"].rstrip("/") + "/models"
+        headers = {"Authorization": f"Bearer {api_key}"}
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT) as client:

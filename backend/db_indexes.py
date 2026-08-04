@@ -94,6 +94,28 @@ async def ensure_indexes() -> None:
         ("twilio_calls", [("user_id", 1), ("created_at", -1)], {"name": "user_recent"}),
         ("twilio_calls", [("call_sid", 1)], {"unique": True, "sparse": True, "name": "sid_uniq"}),
         ("twilio_calls", [("seed_id", 1)], {"unique": True, "sparse": True, "name": "seed_uniq"}),
+
+        # Multi-provider router usage tracking + budget alerts
+        ("usage_events", [("user_id", 1), ("ts", -1)], {"name": "user_ts"}),
+        ("usage_events", [("user_id", 1), ("provider", 1), ("ts", -1)], {"name": "user_provider_ts"}),
+        # Budget alert idempotency — one row per (user, provider, month, tier).
+        ("budget_alerts", [("user_id", 1), ("provider", 1), ("month", 1), ("tier", 1)],
+            {"unique": True, "name": "user_provider_month_tier_uniq"}),
+
+        # Provider health — one current-state row per (user, provider)
+        ("provider_health", [("user_id", 1), ("provider", 1)],
+            {"unique": True, "name": "user_provider_uniq"}),
+
+        # Photo restoration
+        ("restoration_jobs", [("user_id", 1), ("created_at", -1)], {"name": "user_created"}),
+        ("restoration_jobs", [("job_id", 1)], {"unique": True, "name": "job_id_uniq"}),
+
+        # Multi-provider router config (Phase 35+ — separate from user_providers)
+        ("routing_configs", [("user_id", 1)], {"unique": True, "name": "user_uniq"}),
+
+        # companion_commands hot path (poller reads by user_id + status)
+        ("companion_commands", [("user_id", 1), ("status", 1), ("created_at", 1)],
+            {"name": "user_status_created"}),
     ]
 
     created = 0
