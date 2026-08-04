@@ -654,7 +654,10 @@ async def daily_spend_series(user_id: str, days: int = 30) -> dict:
         }
     """
     from datetime import timedelta
-    days = max(1, min(int(days or 30), 90))
+    # Spec: `days=0` should clamp to 1, not fall through to the default 30.
+    # `int(days or 30)` would collapse 0 to 30 before the max() ran, so we
+    # translate None → 30 explicitly and always run the clamp afterwards.
+    days = max(1, min(int(days if days is not None else 30), 90))
     now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     since = (now - timedelta(days=days - 1)).isoformat()
 
