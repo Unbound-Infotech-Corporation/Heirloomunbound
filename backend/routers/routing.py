@@ -224,9 +224,20 @@ async def resolve(task: str = "chat", user: dict = Depends(get_current_user)):
 # --------- Provider health checks ---------
 @router.get("/health")
 async def get_health(user: dict = Depends(get_current_user)):
-    """Latest red/green status for each provider the caller has enabled."""
+    """Latest red/green status for each provider — filtered to the caller's
+    currently-enabled providers. Stale rows from disabled providers are
+    surfaced as status='unknown' so the UI doesn't lie.
+    """
     from services.provider_health import get_health_for_user
-    return await get_health_for_user(user["user_id"])
+    cfg = await get_config(user["user_id"])
+    rows = await get_health_for_user(user["user_id"])
+    enabled = {pid for pid, pcfg in cfg["providers"].items() if pcfg.get("enabled")}
+    out = []
+    for r in rows:
+        if r["provider"] not in enabled:
+            r = {**r, "status": "unknown", "error": "disabled"}
+        out.append(r)
+    return out
 
 
 @router.post("/health/check")
@@ -239,5 +250,11 @@ async def force_check(provider: Optional[str] = None, user: dict = Depends(get_c
         if provider not in PROVIDERS:
             raise HTTPException(400, f"unknown provider '{provider}'")
         result = await probe_provider(user["user_id"], provider)
-        return [result]
-    return await refresh_user(user["user_id"])
+    else:
+        result = await refresh_user(user["user_id"])
+    # Strip user_id for response symmetry with GET /health.
+    def _clean(r: dict) -> dict:
+        return {k: v for k, v in r.items() if k != "user_id"}
+    if isinstance(result, list):
+        return [_clean(r) for r in result]
+    return [_clean(result)]
