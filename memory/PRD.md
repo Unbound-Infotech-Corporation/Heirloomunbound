@@ -390,6 +390,18 @@ After Semrush audit (Health 78/100) flagged duplicate titles/descriptions, bad r
 - iteration_13.json: 11 / 11 D-ID avatar backend tests pass (real D-ID render completed in ~95s with valid .mp4). Frontend Twin "Play as video" + Settings avatar URL + 6 regression pages all green.
 - **iteration_14.json: 52 / 52 PRE-LAUNCH REGRESSION tests pass + 15 / 15 SPA routes load with zero console errors.** Auth, archive, interviewer, twin, avatar, voice-clone, photos, companion, skills, heirs, letters, personas, memory, nudges, personality, music, Stripe — all covered. App is ship-ready for testers.
 - Phase-6 smoke test: 8 / 8 endpoints green (brand kit save+load, persona create/activate/list/deactivate/delete, tts_language save). Frontend lint clean.
+- **iteration_36.json: 19 / 19 backend + full frontend tests pass for Multi-Provider AI Router + Usage Tracking (Feb 2026).** Covered: catalog (7 providers, 6 tasks), BYOK key non-leakage (has_key boolean only), key preservation on empty-string PUT, task-route persistence, real Emergent Claude call with token+cost logging, fallback chain when BYOK key missing, verify endpoint 401 on bad OpenAI key, aggregate + per-event usage endpoints, resolve endpoint, 400 validation on unknown task/provider.
+
+## Phase 35 — Feb 2026 (Multi-Provider AI Router + Usage Tracking)
+- ✅ **`services/llm_router.py`** — unified router across 7 providers (emergent, openai, anthropic, gemini, groq, xai, deepseek). Non-emergent providers use `openai.AsyncOpenAI(base_url=..., api_key=...)` — Groq/xAI/DeepSeek are OpenAI-compatible out of the box. Emergent path uses `emergentintegrations.LlmChat` transparently.
+- ✅ **Task-based routing** with per-task overrides — chat, interview, tools, cheap, long_context, embeddings. `resolve_provider()` walks a fallback chain skipping providers that are disabled, missing BYOK keys, or over their monthly budget cap.
+- ✅ **Usage tracking** — every call logs to `usage_events` with prompt_tokens, completion_tokens, model, task, cost_usd (estimated from a per-model USD/1M pricing table).
+- ✅ **Budget-aware auto-fallback** — when a provider crosses its monthly_budget_usd, the router transparently routes to the next viable provider in the chain (Emergent is the ultimate fallback so the app never bricks).
+- ✅ **`/api/routing/*` endpoints** — catalog, config (GET+PUT with key redaction), chat, chat/stream (SSE), usage, usage/events, verify (live BYOK key check), resolve.
+- ✅ **Frontend `/routing` page** — per-task dropdown table, provider cards (enable/model/key/verify/budget), live test-a-call panel, 30-day usage-by-provider and by-task tables, recent events log.
+- ✅ **BYOK-strict** — API keys never sent back to the client (only a `has_key` boolean).
+- ✅ **Hygiene** — dashboard word-count query now capped at 500 most-recent entries so large archives can't stall the dashboard.
+
 
 ## Prioritized backlog (next phases)
 
