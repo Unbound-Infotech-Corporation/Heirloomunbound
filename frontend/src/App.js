@@ -22,6 +22,7 @@ import Agent from "@/pages/Agent";
 import PhonePage from "@/pages/Phone";
 import PhotoStory from "@/pages/PhotoStory";
 import Roadmap from "@/pages/Roadmap";
+import Routing from "@/pages/Routing";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import HeirPortal from "@/pages/HeirPortal";
@@ -96,6 +97,7 @@ function AppRouter() {
         <Route path="/letters" element={<Letters />} />
         <Route path="/personality" element={<Personality />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/routing" element={<Routing />} />
         <Route path="/avatar-studio" element={<AvatarStudio />} />
         <Route path="/setup/keys" element={<SetupKeys />} />
       </Route>

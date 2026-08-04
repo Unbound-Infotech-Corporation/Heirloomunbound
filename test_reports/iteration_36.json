@@ -1,0 +1,21 @@
+{
+  "summary": "Iteration 36: Multi-provider AI Router + Usage Tracking. Backend: 19/19 pytest tests passed covering catalog shape (7 providers, 6 tasks), config defaults + BYOK key non-leakage (has_key boolean only, api_key always empty string in GET responses), key-preservation on empty-string PUT, task route persistence, /routing/chat with emergent (real Claude response with tokens+cost), /routing/chat with provider=openai (bad key) correctly falling back to emergent with attempted[] populated, /routing/verify with invalid openai key returning ok:false, /routing/verify with unknown provider 400, /routing/usage aggregated shape + non-zero calls, /routing/usage/events per-call shape (no _id or user_id leakage), /routing/resolve shape + 400 for unknown task, /routing/chat 400 validation for unknown task/provider, and 401 without auth. Regression: /api/dashboard, /api/twin/conversations, /api/providers all still return non-500. Frontend: /routing page loads with correct heading, 7 provider cards, 6 task-route dropdowns, emergent shows built-in chip, BYOK inputs are type=password with empty value (no key leak to DOM), Send test call routed to emergent and rendered provider chip + tokens + cost + text, Save button shows 'Routing saved' toast, refresh-events works.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iteration36_routing.py", "/app/test_reports/pytest/iteration_36_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "services/llm_router.py:245 — BYOK fallback to os.environ['<PROVIDER>_API_KEY'] means an operator-set env var could silently serve requests as if the user configured BYOK. Consider dropping the env fallback for BYOK providers, or documenting it explicitly, to preserve the 'BYOK strictly — no shared quotas' guarantee stated in the requirements.",
+    "services/llm_router.py:237 — resolve_provider forces 'emergent' as an absolute last-resort viable[] even if the user has explicitly disabled it. That's a sensible failsafe but should be documented in the UI; a user turning emergent off may be surprised their traffic still routes there.",
+    "routers/routing.py verify endpoint sends a live chat completion (max_tokens=5) which will consume a small amount of budget from the pasted key each verify click. Consider using models.list or a cheaper ping if the provider supports it, and rate-limit to prevent abuse.",
+    "Chat/chat_stream don't respect the 'enabled' flag when provider_override is set — a disabled provider can still be forced via API. Low-severity, but worth an explicit check + 400 for consistency with the UI intent."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration36_routing.py"],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100% (all interactive elements verified)"},
+  "test_credentials": "session_token=test_routing_session, user_id=test-routing-user (verified present in mongo, expires 2026-08-11)",
+  "seed_data_creation": "None — used existing test_routing_session. Test runs created ~7 usage_events docs for test-routing-user (from chat tests + UI test-call).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iteration36_routing.py is idempotent and safe to re-run. It intentionally sets an invalid openai key to exercise the fallback path — this is expected behavior. Usage events accumulate under test-routing-user; if counts matter clear db.usage_events before running. Frontend test uses session_token cookie (Emergent auth pattern).",
+  "rca of the issue": "N/A — no bugs found. All requested behaviors verified: 7 providers + 6 tasks in catalog, defaults correct, api_key never leaks (redacted to has_key boolean + empty string on GET/PUT responses), empty-string PUT preserves stored keys, emergent chat returns real tokenized response with cost, openai (no valid key) falls back to emergent and reports attempted[] failure, verify with bad key returns ok:false, usage aggregation + events shape correct, resolve endpoint correct, dashboard/twin/providers regression endpoints non-500."
+}

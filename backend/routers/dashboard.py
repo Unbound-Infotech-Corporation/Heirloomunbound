@@ -37,9 +37,11 @@ async def stats(user: dict = Depends(get_current_user)):
         counts[row["_id"]] = row["n"]
     total_entries = sum(counts.values())
 
-    # Total words archived
+    # Total words archived — cap the scan so large archives don't stall the dashboard.
     total_words = 0
-    word_cursor = db.entries.find({"user_id": user_id}, {"_id": 0, "content": 1})
+    word_cursor = db.entries.find(
+        {"user_id": user_id}, {"_id": 0, "content": 1}
+    ).sort("created_at", -1).limit(500)
     async for row in word_cursor:
         total_words += len((row.get("content") or "").split())
 
