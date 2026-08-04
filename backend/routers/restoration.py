@@ -55,8 +55,7 @@ async def _has_active_companion(user_id: str) -> bool:
 
 @router.post("/jobs")
 async def create_job(payload: CreateJobReq, user: dict = Depends(get_current_user)):
-    if payload.kind not in RESTORE_KINDS:
-        raise HTTPException(400, f"kind must be one of {RESTORE_KINDS}")
+    # `kind` is validated by pydantic's Literal — no manual check needed.
 
     photo = await db.photos.find_one(
         {"photo_id": payload.photo_id, "user_id": user["user_id"], "is_deleted": {"$ne": True}},
