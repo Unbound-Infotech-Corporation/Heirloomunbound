@@ -187,8 +187,22 @@ def _cors_allowed_origins() -> list[str]:
 
 
 def _cors_origin_regex() -> str | None:
-    """Allow Emergent preview/sub-domain origins via regex without baking exact URLs."""
-    # Permit https://<anything>.emergentagent.com and http(s)://localhost:* for dev
+    """Allow Emergent preview/sub-domain origins via regex — ONLY when explicitly
+    permitted via env (`CORS_ALLOW_EMERGENT_SUBDOMAINS=1`) OR when no exact
+    allowlist has been configured (fresh preview pods).
+
+    Rationale (SEC-002 audit): the previous unconditional regex trusted every
+    `*.emergentagent.com` origin with credentials, so a sibling preview app
+    could read a signed-in user's session cookie via CORS. In production we
+    want an exact-origin allowlist and no wildcard regex at all.
+    """
+    allow_subs = os.environ.get("CORS_ALLOW_EMERGENT_SUBDOMAINS", "").strip().lower() in ("1", "true", "yes")
+    exact_configured = bool(_cors_allowed_origins())
+    if not allow_subs and exact_configured:
+        # Production posture: exact allowlist only.
+        # Localhost still supported so dev doesn't break.
+        return r"^(http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?)$"
+    # Preview posture: subdomain regex + localhost.
     return r"^(https://[a-zA-Z0-9-]+\.emergentagent\.com|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?)$"
 
 

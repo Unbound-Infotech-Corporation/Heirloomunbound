@@ -76,22 +76,59 @@ async def _load(user_id: str) -> dict:
     return merged
 
 
+def _redact_for_client(cfg: dict) -> dict:
+    """Never send raw local api_keys back to the client — send `has_key` only.
+
+    Security note (SEC-HARD-2): even though these keys are per-user and usually
+    point at 127.0.0.1, echoing them back over the wire is an unnecessary
+    disclosure surface (browser devtools, extensions, error logs). The desktop
+    companion loads keys via /providers on the same authenticated session so
+    it doesn't need them re-exposed here.
+    """
+    out = {}
+    for k, v in cfg.items():
+        if isinstance(v, dict) and "api_key" in v:
+            key = (v.get("api_key") or "").strip()
+            out[k] = {**v, "api_key": "", "has_key": bool(key)}
+        else:
+            out[k] = v
+    return out
+
+
+async def _load_with_secrets(user_id: str) -> dict:
+    """Internal accessor: returns raw config including api_keys.
+
+    Used by services that legitimately need the key (e.g. restoration router
+    embedding it into a companion command payload sent to the desktop over the
+    authenticated session).
+    """
+    return await _load(user_id)
+
+
 # ---------------- endpoints ----------------
 @router.get("")
 async def get_providers(user: dict = Depends(get_current_user)):
-    return await _load(user["user_id"])
+    return _redact_for_client(await _load(user["user_id"]))
 
 
 @router.put("")
 async def put_providers(payload: ProviderConfig, user: dict = Depends(get_current_user)):
-    doc = payload.model_dump()
-    doc["user_id"] = user["user_id"]
-    doc["updated_at"] = _now()
+    incoming = payload.model_dump()
+    # Preserve any previously-stored api_key when the client posts an empty
+    # string (mirrors /routing/config so the UI can round-trip without
+    # requiring the user to re-paste local keys).
+    existing = await _load(user["user_id"])
+    for k in ("chat", "tts", "stt", "image", "embeddings"):
+        prev_key = ((existing.get(k) or {}).get("api_key") or "").strip()
+        incoming_key = (incoming.get(k, {}).get("api_key") or "").strip()
+        if not incoming_key and prev_key:
+            incoming[k]["api_key"] = prev_key
+    doc = {**incoming, "user_id": user["user_id"], "updated_at": _now()}
     await db.user_providers.replace_one({"user_id": user["user_id"]}, doc, upsert=True)
-    return await _load(user["user_id"])
+    return _redact_for_client(await _load(user["user_id"]))
 
 
 @router.post("/reset")
 async def reset_providers(user: dict = Depends(get_current_user)):
     await db.user_providers.delete_one({"user_id": user["user_id"]})
-    return dict(DEFAULT)
+    return _redact_for_client(dict(DEFAULT))

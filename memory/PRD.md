@@ -392,6 +392,18 @@ After Semrush audit (Health 78/100) flagged duplicate titles/descriptions, bad r
 - Phase-6 smoke test: 8 / 8 endpoints green (brand kit save+load, persona create/activate/list/deactivate/delete, tts_language save). Frontend lint clean.
 - **iteration_36.json: 19 / 19 backend + full frontend tests pass for Multi-Provider AI Router + Usage Tracking (Feb 2026).** Covered: catalog (7 providers, 6 tasks), BYOK key non-leakage (has_key boolean only), key preservation on empty-string PUT, task-route persistence, real Emergent Claude call with token+cost logging, fallback chain when BYOK key missing, verify endpoint 401 on bad OpenAI key, aggregate + per-event usage endpoints, resolve endpoint, 400 validation on unknown task/provider.
 
+## Phase 39 — Feb 2026 (Security Audit Response)
+Security audit by `security_audit_agent` returned CONDITIONAL PASS with 2 MEDIUM + 3 P3 findings. All addressed:
+
+- 🟡 **SEC-001 · Rate-limit `/routing/chat`** — added `rate_limit(user_id, "routing", max_calls=20, per_seconds=60)` to `/routing/chat` and `/routing/chat/stream`. Verified: 20 calls succeed, calls 21+ return HTTP 429 with `Retry-After` header. Protects the operator-funded Emergent Universal Key from a runaway UI or hostile authenticated user.
+- 🟡 **SEC-002 · Tighten CORS** — `_cors_origin_regex()` now returns the `emergentagent.com` subdomain regex ONLY when `CORS_ALLOW_EMERGENT_SUBDOMAINS=1` OR when no exact allowlist is configured. Production posture (exact `CORS_ORIGINS` set, env flag unset) narrows the regex to localhost-only. Verified: FastAPI emits no `Access-Control-Allow-Origin` for sibling emergentagent.com or attacker.example.com origins.
+- 🟢 **SEC-003 · Committed secrets** — added `/app/backend/.env.example` with placeholders for every secret, deployment instructions, and a SEC-003 rotation notice. The real `.env` remains untouched per the deploy pipeline requirement, but there's now a clear reference for anyone reviewing or forking the repo.
+- 🟢 **HARD-1 · BYOK env fallback removed** — `_api_key()` no longer falls back to `{PROVIDER}_API_KEY` env for BYOK providers. Missing keys now fail loud, protecting per-tenant isolation.
+- 🟢 **HARD-2 · `/providers` redaction** — `GET/PUT /api/providers` now returns `{api_key: "", has_key: true|false}` instead of raw local api_keys. PUT preserves the stored key when the client posts an empty string (round-trip UX). Desktop settings dialog shows "•••• stored ••••" placeholder when has_key is true. Verified via curl: raw "SECRET_LOCAL_KEY" no longer appears in the response.
+- 🟢 **HARD-3 · Magic-byte validation on restoration uploads** — `submit_result` now runs `detect_image_mime(content[:32])` and 415s if the bytes aren't a real image, then overrides the stored content-type with the sniffed value. Verified: HTML disguised as .png returns HTTP 415; real PNG magic returns HTTP 200.
+
+**Positive controls confirmed by the audit:** no BOLA (all endpoints scoped by server-derived user_id), no backend SSRF, no path-traversal, budget email recipient always server-derived, EMERGENT_LLM_KEY never persisted, upload magic-byte check on `/photos`, provider error strings only surface masked keys.
+
 ## Phase 38 — Feb 2026 (Code Review Response — Critical Fixes)
 Code review by `code_review_agent` found 2 CONFIRMED HIGH, 2 MEDIUM, and 3 LOW defects in Phases 35-37. All fixed:
 

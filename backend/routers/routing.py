@@ -34,6 +34,7 @@ from services.llm_router import (
     save_config,
     usage_summary,
 )
+from utils import rate_limit
 
 router = APIRouter(prefix="/routing", tags=["routing"])
 
@@ -138,6 +139,8 @@ async def chat(payload: ChatIn, user: dict = Depends(get_current_user)):
         raise HTTPException(400, f"unknown task '{payload.task}'")
     if payload.provider and payload.provider not in PROVIDERS:
         raise HTTPException(400, f"unknown provider '{payload.provider}'")
+    # Protect the operator-funded Emergent key + any BYOK budget from runaway UI.
+    await rate_limit(user["user_id"], "routing", max_calls=20, per_seconds=60)
     return await chat_once(
         user["user_id"], payload.task, payload.messages,
         model_override=payload.model, provider_override=payload.provider,
@@ -150,6 +153,7 @@ async def chat_stream_endpoint(payload: ChatIn, user: dict = Depends(get_current
         raise HTTPException(400, f"unknown task '{payload.task}'")
     if payload.provider and payload.provider not in PROVIDERS:
         raise HTTPException(400, f"unknown provider '{payload.provider}'")
+    await rate_limit(user["user_id"], "routing", max_calls=20, per_seconds=60)
 
     async def gen():
         async for ev in chat_stream(

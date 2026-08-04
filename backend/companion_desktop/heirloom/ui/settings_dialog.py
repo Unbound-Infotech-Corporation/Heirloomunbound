@@ -170,7 +170,15 @@ class ProviderRow(QFrame):
     def load(self, cfg: dict) -> None:
         self.enable.setChecked(bool(cfg.get("enabled", False)))
         self.url_input.setText(cfg.get("base_url", "") or "")
-        self.key_input.setText(cfg.get("api_key", "") or "")
+        # Redacted responses (post-SEC-HARD-2) send has_key=True and api_key="".
+        # We show a placeholder so the user knows a key is stored without
+        # re-exposing it. Re-typing overwrites; leaving blank keeps the stored value.
+        stored_key = cfg.get("api_key", "") or ""
+        self.key_input.setText(stored_key)
+        if not stored_key and cfg.get("has_key"):
+            self.key_input.setPlaceholderText("•••• stored ••••")
+        else:
+            self.key_input.setPlaceholderText("optional")
         self.model_input.setText(cfg.get("model", "") or "")
 
     def dump(self) -> dict:

@@ -31,8 +31,9 @@ from pydantic import BaseModel
 
 from deps import db, get_current_user
 from routers.companion import get_device_user
-from routers.providers import _load as load_providers
+from routers.providers import _load_with_secrets as load_providers
 from storage import put_object
+from utils import detect_image_mime
 
 router = APIRouter(prefix="/restoration", tags=["restoration"])
 
@@ -169,10 +170,17 @@ async def submit_result(
     ext = (file.filename or "restored.png").rsplit(".", 1)[-1].lower()
     if ext not in ("png", "jpg", "jpeg", "webp"):
         ext = "png"
+    content = await file.read()
+    # SEC-HARD-3: validate magic bytes so a hijacked desktop can't upload
+    # HTML/JS under a .png extension and get it served with an active MIME.
+    detected = detect_image_mime(content[:32])
+    if not detected:
+        raise HTTPException(415, "restoration result is not a recognisable image")
+    # Overwrite content-type from the sniffed value — never trust the client's.
+    content_type = detected
     result_id = f"ph_{uuid.uuid4().hex[:12]}"
     path = f"{APP_PREFIX}/photos/{user_id}/{result_id}.{ext}"
-    content = await file.read()
-    put_object(path, content, file.content_type or f"image/{ext}")
+    put_object(path, content, content_type)
 
     now = datetime.now(timezone.utc).isoformat()
     photo_doc = {

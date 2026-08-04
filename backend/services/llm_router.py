@@ -22,7 +22,6 @@ that path is unchanged. The new `/api/routing/chat` endpoint uses this router.
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional
 
@@ -239,10 +238,17 @@ async def resolve_provider(user_id: str, task: str, cfg: Optional[dict] = None) 
 
 
 def _api_key(provider: str, cfg: dict) -> str:
+    """Return the API key for a provider.
+
+    Security note (SEC-HARD-1): we DO NOT fall back to a shared env variable
+    for BYOK providers. If a user hasn't configured their own key, the call
+    must fail loud (missing key) — silently spending the operator's key would
+    break per-tenant isolation and BYOK expectations.
+    """
     if provider == "emergent":
         return EMERGENT_LLM_KEY
     pcfg = cfg["providers"].get(provider) or {}
-    return (pcfg.get("api_key") or "").strip() or os.environ.get(f"{provider.upper()}_API_KEY", "")
+    return (pcfg.get("api_key") or "").strip()
 
 
 # --- Chat dispatch (non-streaming, returns full response + usage) --------
