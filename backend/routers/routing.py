@@ -219,3 +219,25 @@ async def resolve(task: str = "chat", user: dict = Depends(get_current_user)):
         raise HTTPException(400, f"unknown task '{task}'")
     primary, chain = await resolve_provider(user["user_id"], task)
     return {"task": task, "primary": primary, "fallback_chain": chain}
+
+
+# --------- Provider health checks ---------
+@router.get("/health")
+async def get_health(user: dict = Depends(get_current_user)):
+    """Latest red/green status for each provider the caller has enabled."""
+    from services.provider_health import get_health_for_user
+    return await get_health_for_user(user["user_id"])
+
+
+@router.post("/health/check")
+async def force_check(provider: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """On-demand refresh — probes every enabled provider (or one if `provider`
+    is passed). Called by the UI's 'Check now' button.
+    """
+    from services.provider_health import probe_provider, refresh_user
+    if provider:
+        if provider not in PROVIDERS:
+            raise HTTPException(400, f"unknown provider '{provider}'")
+        result = await probe_provider(user["user_id"], provider)
+        return [result]
+    return await refresh_user(user["user_id"])

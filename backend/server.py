@@ -100,6 +100,15 @@ async def _startup():
 
     app.state.letter_task = asyncio.create_task(_letter_delivery_loop())
 
+    async def _provider_health_loop():
+        from services.provider_health import health_loop
+        try:
+            await health_loop()
+        except asyncio.CancelledError:
+            pass
+
+    app.state.provider_health_task = asyncio.create_task(_provider_health_loop())
+
 
 api_router = APIRouter(prefix="/api")
 
@@ -199,8 +208,9 @@ app.add_middleware(
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    task = getattr(app.state, "letter_task", None)
-    if task:
-        task.cancel()
+    for name in ("letter_task", "provider_health_task"):
+        task = getattr(app.state, name, None)
+        if task:
+            task.cancel()
     from deps import client
     client.close()

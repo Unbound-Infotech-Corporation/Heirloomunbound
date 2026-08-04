@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, DollarSign, Eye, EyeOff, KeyRound, Loader2, Route as RouteIcon, ShieldCheck, X, Zap } from "lucide-react";
+import { AlertTriangle, Activity, Check, DollarSign, Eye, EyeOff, KeyRound, Loader2, Route as RouteIcon, ShieldCheck, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePageMeta } from "@/lib/usePageMeta";
@@ -30,6 +30,8 @@ export default function Routing() {
   const [cfg, setCfg] = useState(null);
   const [usage, setUsage] = useState(null);
   const [events, setEvents] = useState([]);
+  const [health, setHealth] = useState([]);
+  const [checkingHealth, setCheckingHealth] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState({});
   const [visibleKey, setVisibleKey] = useState({});
@@ -37,15 +39,33 @@ export default function Routing() {
 
   useEffect(() => { (async () => {
     try {
-      const [c, cf, u, ev] = await Promise.all([
+      const [c, cf, u, ev, h] = await Promise.all([
         api.get("/routing/catalog"),
         api.get("/routing/config"),
         api.get("/routing/usage?days=30"),
         api.get("/routing/usage/events?limit=50"),
+        api.get("/routing/health"),
       ]);
       setCatalog(c.data); setCfg(cf.data); setUsage(u.data); setEvents(ev.data);
+      setHealth(h.data);
     } catch (e) { toast.error("Couldn't load router config"); }
   })(); }, []);
+
+  const healthByProvider = useMemo(() => {
+    const map = {};
+    (health || []).forEach((h) => { map[h.provider] = h; });
+    return map;
+  }, [health]);
+
+  const runHealthCheck = async () => {
+    setCheckingHealth(true);
+    try {
+      const { data } = await api.post("/routing/health/check");
+      setHealth(data);
+      toast.success(`Checked ${data.length} provider${data.length === 1 ? "" : "s"}`);
+    } catch { toast.error("Health check failed"); }
+    finally { setCheckingHealth(false); }
+  };
 
   const providers = catalog?.providers || [];
   const tasks = catalog?.tasks || [];
@@ -166,6 +186,16 @@ export default function Routing() {
                data-testid="routing-total-calls">
             {fmtInt(usage?.total_calls)} calls
           </div>
+          <button
+            onClick={runHealthCheck}
+            disabled={checkingHealth}
+            data-testid="routing-check-health-btn"
+            className="text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 border"
+            style={{ color: "var(--text-primary)", background: "var(--surface-elev)", borderColor: "var(--border-default)" }}
+          >
+            {checkingHealth ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+            Check provider health
+          </button>
         </div>
       </header>
 
@@ -207,6 +237,11 @@ export default function Routing() {
             const cap = Number(pcfg.monthly_budget_usd || 0);
             const overBudget = cap > 0 && spent >= cap;
             const isEmergent = p.id === "emergent";
+            const h = healthByProvider[p.id];
+            const dotColor = h?.status === "green" ? "#527a3d" : h?.status === "red" ? "#c25b3f" : "var(--text-muted)";
+            const dotTitle = h
+              ? `${h.status.toUpperCase()} · ${h.error || 'ok'} · checked ${(h.last_checked || '').slice(0,16).replace('T',' ')}`
+              : "Not yet checked";
 
             return (
               <div key={p.id} className="rounded-md border p-5 space-y-4"
@@ -215,14 +250,31 @@ export default function Routing() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block w-2.5 h-2.5 rounded-full"
+                        style={{ background: dotColor }}
+                        title={dotTitle}
+                        data-testid={`provider-health-dot-${p.id}`}
+                      />
                       <span className="font-medium" style={{ color: "var(--text-primary)" }}>{p.label}</span>
                       {!p.byok && <Chip tone="accent">built-in</Chip>}
                       {p.byok && (pcfg.has_key ? <Chip tone="ok"><Check className="w-3 h-3" />key stored</Chip> : <Chip tone="muted">no key</Chip>)}
                       {overBudget && <Chip tone="warn"><AlertTriangle className="w-3 h-3" />over budget</Chip>}
                     </div>
-                    <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                      {isEmergent ? "Uses your Emergent Universal Key balance" : p.base_url}
+                    <div className="text-xs mt-1 flex items-center gap-3" style={{ color: "var(--text-muted)" }}>
+                      <span>{isEmergent ? "Uses your Emergent Universal Key balance" : p.base_url}</span>
+                      {h?.last_checked && (
+                        <span className="font-mono" data-testid={`provider-health-when-${p.id}`}>
+                          · checked {(h.last_checked || '').slice(11,16)}
+                          {typeof h.latency_ms === 'number' ? ` · ${h.latency_ms}ms` : ''}
+                        </span>
+                      )}
                     </div>
+                    {h?.status === "red" && h?.error && (
+                      <div className="mt-2 text-xs font-mono" style={{ color: "#c25b3f" }} data-testid={`provider-health-error-${p.id}`}>
+                        {h.error}
+                      </div>
+                    )}
                   </div>
                   <label className="flex items-center gap-2 text-sm cursor-pointer" data-testid={`provider-enable-${p.id}`}>
                     <input
