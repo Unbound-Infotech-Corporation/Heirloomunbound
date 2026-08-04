@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Image as ImageIcon, Loader2, Trash2, Upload as UploadIcon } from "lucide-react";
+import { Image as ImageIcon, Loader2, Sparkles, Trash2, Upload as UploadIcon, Wand2 } from "lucide-react";
+import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 
-function PhotoCard({ p, onRemove }) {
+function PhotoCard({ p, onRemove, onRestored }) {
   const [src, setSrc] = useState(null);
+  const [restoring, setRestoring] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
     let cancelled = false;
     let createdUrl = null;
@@ -24,8 +27,46 @@ function PhotoCard({ p, onRemove }) {
     };
   }, [p.photo_id]);
 
+  const startRestore = async (kind) => {
+    setMenuOpen(false);
+    setRestoring(true);
+    try {
+      const { data } = await api.post("/restoration/jobs", { photo_id: p.photo_id, kind });
+      if (data.status === "blocked") {
+        toast.error(data.reason || "Restoration blocked");
+        setRestoring(false);
+        return;
+      }
+      toast.success(`${kind[0].toUpperCase()+kind.slice(1)} queued — your desktop is on it`);
+      // Poll every 4s until complete/failed
+      const poll = async () => {
+        try {
+          const { data: job } = await api.get(`/restoration/jobs/${data.job_id}`);
+          if (job.status === "complete") {
+            toast.success("Restoration complete");
+            setRestoring(false);
+            onRestored && onRestored();
+            return;
+          }
+          if (job.status === "failed") {
+            toast.error(`Restoration failed: ${job.reason || "unknown"}`);
+            setRestoring(false);
+            return;
+          }
+          setTimeout(poll, 4000);
+        } catch {
+          setRestoring(false);
+        }
+      };
+      setTimeout(poll, 4000);
+    } catch (e) {
+      toast.error("Couldn't queue restoration");
+      setRestoring(false);
+    }
+  };
+
   return (
-    <div className="surface overflow-hidden group" data-testid={`photo-${p.photo_id}`}>
+    <div className="surface overflow-hidden group relative" data-testid={`photo-${p.photo_id}`}>
       <div className="aspect-[4/3] relative" style={{ background: "var(--bg-base)" }}>
         {src ? (
           <img src={src} alt={p.caption} className="w-full h-full object-cover" />
@@ -34,14 +75,54 @@ function PhotoCard({ p, onRemove }) {
             <ImageIcon className="h-6 w-6" style={{ color: "var(--text-muted)" }} />
           </div>
         )}
-        <button
-          onClick={() => onRemove(p.photo_id)}
-          data-testid={`delete-photo-${p.photo_id}`}
-          className="absolute top-2 right-2 p-1.5 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity"
-          style={{ background: "rgba(18,17,16,0.7)" }}
-        >
-          <Trash2 className="h-4 w-4" style={{ color: "var(--text-primary)" }} />
-        </button>
+        {p.is_restoration && (
+          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs flex items-center gap-1"
+               style={{ background: "rgba(212,163,115,0.16)", color: "var(--accent)" }}
+               data-testid={`restored-badge-${p.photo_id}`}>
+            <Sparkles className="h-3 w-3" /> {p.restoration_kind || "restored"}
+          </div>
+        )}
+        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {!p.is_restoration && (
+            <div className="relative">
+              <button
+                onClick={() => setMenuOpen((v) => !v)}
+                disabled={restoring}
+                data-testid={`restore-photo-${p.photo_id}`}
+                className="p-1.5 rounded-sm flex items-center gap-1"
+                style={{ background: "rgba(18,17,16,0.7)" }}
+                title="Restore with local ComfyUI"
+              >
+                {restoring ? <Loader2 className="h-4 w-4 animate-spin" style={{ color: "var(--accent)" }} /> :
+                             <Wand2 className="h-4 w-4" style={{ color: "var(--accent)" }} />}
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 top-8 rounded-sm py-1 z-10 min-w-[160px]"
+                     style={{ background: "var(--surface-elev)", border: "1px solid var(--border-default)" }}
+                     data-testid={`restore-menu-${p.photo_id}`}>
+                  {["restore", "colorize", "upscale"].map((k) => (
+                    <button key={k}
+                      onClick={() => startRestore(k)}
+                      data-testid={`restore-${k}-${p.photo_id}`}
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-black/10 capitalize"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <button
+            onClick={() => onRemove(p.photo_id)}
+            data-testid={`delete-photo-${p.photo_id}`}
+            className="p-1.5 rounded-sm"
+            style={{ background: "rgba(18,17,16,0.7)" }}
+          >
+            <Trash2 className="h-4 w-4" style={{ color: "var(--text-primary)" }} />
+          </button>
+        </div>
       </div>
       <div className="p-4">
         <div className="font-serif text-base leading-snug mb-1" style={{ color: "var(--text-primary)" }}>
@@ -203,7 +284,7 @@ export default function Photos() {
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {photos.map((p) => (
-            <PhotoCard key={p.photo_id} p={p} onRemove={remove} />
+            <PhotoCard key={p.photo_id} p={p} onRemove={remove} onRestored={load} />
           ))}
         </div>
       )}

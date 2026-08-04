@@ -39,6 +39,7 @@ from routers import (
     auth,
     photo_story,
     providers,
+    restoration,
     routing,
     twilio_voice,
     avatar,
@@ -114,6 +115,7 @@ api_router.include_router(abilities.router)
 api_router.include_router(agent.router)
 api_router.include_router(photo_story.router)
 api_router.include_router(providers.router)
+api_router.include_router(restoration.router)
 api_router.include_router(routing.router)
 api_router.include_router(twilio_voice.router)
 api_router.include_router(interviewer.router)

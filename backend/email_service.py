@@ -238,3 +238,63 @@ async def send_letter_email(
             f"— {owner_name or 'Someone who loved you'} asked Heirloom to deliver this to you today."
         ),
     )
+
+
+
+async def send_budget_alert_email(
+    *,
+    to: str,
+    owner_name: str,
+    provider: str,
+    tier: str,  # "80" or "100"
+    spent_usd: float,
+    cap_usd: float,
+) -> dict:
+    """One-shot budget warning to the archive owner.
+
+    Fires when a routed LLM provider crosses 80% (soft warning) or 100%
+    (auto-fallback engaged) of its monthly cap. Non-blocking — the router
+    keeps working even if delivery fails.
+    """
+    percent = int(round(100 * (spent_usd / cap_usd))) if cap_usd else 0
+    if tier == "100":
+        headline = f"You've hit your monthly cap on {provider}"
+        sub = "Your twin has automatically routed to the next cheapest provider so nothing breaks."
+        color = "#c47016"
+    else:
+        headline = f"You're 80% of the way to your {provider} budget"
+        sub = "Heads up so nothing surprises you at the end of the month."
+        color = _ACCENT
+    inner = f"""
+<p style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#7a6f5e;margin:0 0 6px 0;">budget · {provider}</p>
+<p style="font-family:Georgia,serif;font-size:24px;font-weight:300;line-height:1.3;margin:0 0 12px 0;color:{_TEXT_PRIMARY};">{headline}</p>
+<p style="font-family:Georgia,serif;font-size:15px;line-height:1.55;margin:0 0 20px 0;color:{_TEXT_SECONDARY};">
+  {sub}
+</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="border:1px solid {_BORDER};border-radius:6px;width:100%;margin:0 0 18px 0;">
+  <tr><td style="padding:12px 16px;color:{_TEXT_SECONDARY};font-family:Arial,sans-serif;font-size:13px;">Spent this month</td>
+      <td style="padding:12px 16px;text-align:right;color:{color};font-family:'Courier New',monospace;font-size:14px;">${spent_usd:.4f}</td></tr>
+  <tr><td style="padding:12px 16px;border-top:1px solid {_BORDER};color:{_TEXT_SECONDARY};font-family:Arial,sans-serif;font-size:13px;">Monthly cap</td>
+      <td style="padding:12px 16px;border-top:1px solid {_BORDER};text-align:right;color:{_TEXT_PRIMARY};font-family:'Courier New',monospace;font-size:14px;">${cap_usd:.2f}</td></tr>
+  <tr><td style="padding:12px 16px;border-top:1px solid {_BORDER};color:{_TEXT_SECONDARY};font-family:Arial,sans-serif;font-size:13px;">Utilisation</td>
+      <td style="padding:12px 16px;border-top:1px solid {_BORDER};text-align:right;color:{color};font-family:'Courier New',monospace;font-size:14px;">{percent}%</td></tr>
+</table>
+<p style="font-family:Arial,sans-serif;font-size:13px;line-height:1.6;margin:0 0 6px 0;color:{_TEXT_SECONDARY};">
+  Manage this in your <a href="{os.environ.get('PUBLIC_BACKEND_URL','').rstrip('/')}/routing" style="color:{_ACCENT};text-decoration:none;">AI Router</a> — raise the cap, switch the task to a cheaper provider, or disable the alert entirely.
+</p>
+"""
+    subject = (
+        f"Heirloom · {provider} hit 100% of its monthly cap"
+        if tier == "100"
+        else f"Heirloom · {provider} is at 80% of its monthly cap"
+    )
+    return await _send(
+        to=to,
+        subject=subject,
+        html=_wrap(inner, preheader=f"{provider} usage at {percent}% of your monthly cap."),
+        text=(
+            f"{headline}\n\n{sub}\n\n"
+            f"Spent this month: ${spent_usd:.4f} of ${cap_usd:.2f} ({percent}%)\n\n"
+            "Manage this at /routing in your Heirloom app."
+        ),
+    )

@@ -303,7 +303,193 @@ def capture_and_upload_screenshot(cmd_id):
     return "error", f"upload failed ({r.status_code})"
 
 
-def execute(cmd: dict):
+def restore_photo_via_local(payload: dict) -> tuple[str, str]:
+    """Fetch a photo from Heirloom, run it through the user's local image
+    provider (ComfyUI or OpenAI-compat image API), and upload the result
+    back to /api/restoration/jobs/{job_id}/result.
+
+    Payload shape (from routers.restoration.create_job):
+        {job_id, photo_id, kind, prompt_hint,
+         provider: {base_url, api_key, model, provider_type, comfy_workflow}}
+    """
+    import json as _json
+
+    job_id = payload.get("job_id")
+    photo_id = payload.get("photo_id")
+    kind = (payload.get("kind") or "restore").lower()
+    prompt_hint = (payload.get("prompt_hint") or "").strip()
+    prov = payload.get("provider") or {}
+    base_url = (prov.get("base_url") or "").rstrip("/")
+    api_key = (prov.get("api_key") or "").strip()
+    model = (prov.get("model") or "").strip()
+    ptype = (prov.get("provider_type") or "comfyui").lower()
+
+    def _fail(reason: str) -> tuple[str, str]:
+        try:
+            requests.post(_api(f"/restoration/jobs/{job_id}/fail"),
+                          headers=_headers(), json={"reason": reason[:400]}, timeout=15)
+        except Exception:
+            pass
+        return "error", reason
+
+    if not base_url:
+        return _fail("no local image provider base_url configured")
+    if not photo_id or not job_id:
+        return _fail("missing job_id or photo_id")
+
+    # 1. Download source photo via signed URL (companion has device token, so
+    # it can hit /companion/photo-file which authorises by device_token).
+    src_endpoint = _api(f"/companion/photo-file/{photo_id}")
+    try:
+        pr = requests.get(src_endpoint, headers=_headers(), timeout=45)
+        if pr.status_code != 200:
+            return _fail(f"could not fetch source photo (HTTP {pr.status_code})")
+        source_bytes = pr.content
+        source_ct = pr.headers.get("content-type", "image/jpeg")
+    except Exception as exc:
+        return _fail(f"source fetch error: {exc}")
+
+    prompt = prompt_hint or {
+        "restore":  "restore this old photo, remove scratches and grain, keep faces natural",
+        "colorize": "colorize this black and white photo naturally",
+        "upscale":  "upscale, sharpen and denoise this photo, preserve textures",
+    }.get(kind, "restore old photo")
+
+    # 2. Run the provider
+    try:
+        if ptype == "comfyui":
+            out_bytes, out_ct = _run_comfyui(base_url, api_key, prov.get("comfy_workflow") or "", source_bytes, prompt, model)
+        else:
+            out_bytes, out_ct = _run_openai_image_edit(base_url, api_key, model or "gpt-image-1", source_bytes, prompt)
+    except Exception as exc:
+        return _fail(f"provider error: {exc}")
+
+    if not out_bytes:
+        return _fail("provider returned no image")
+
+    # 3. Upload result back
+    try:
+        files = {"file": ("restored.png", io.BytesIO(out_bytes), out_ct or "image/png")}
+        r = requests.post(_api(f"/restoration/jobs/{job_id}/result"),
+                          headers=_headers(), files=files, timeout=90)
+        if r.status_code != 200:
+            return _fail(f"result upload failed (HTTP {r.status_code})")
+    except Exception as exc:
+        return _fail(f"result upload error: {exc}")
+
+    return "ok", f"restored (kind={kind})"
+
+
+def _run_openai_image_edit(base_url: str, api_key: str, model: str, image_bytes: bytes, prompt: str) -> tuple[bytes, str]:
+    """Fallback path for OpenAI-compat image APIs (edits endpoint)."""
+    files = {"image": ("in.png", io.BytesIO(image_bytes), "image/png")}
+    data = {"prompt": prompt, "model": model, "response_format": "b64_json", "n": "1"}
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    r = requests.post(base_url.rstrip("/") + "/images/edits",
+                      headers=headers, files=files, data=data, timeout=180)
+    r.raise_for_status()
+    body = r.json()
+    b64 = body["data"][0].get("b64_json") or ""
+    if not b64:
+        # Fallback to URL variant
+        url = body["data"][0].get("url")
+        if not url:
+            raise RuntimeError("no b64_json or url in response")
+        r2 = requests.get(url, timeout=60)
+        r2.raise_for_status()
+        return r2.content, r2.headers.get("content-type", "image/png")
+    import base64
+    return base64.b64decode(b64), "image/png"
+
+
+def _run_comfyui(base_url: str, api_key: str, workflow_str: str, image_bytes: bytes, prompt: str, model: str) -> tuple[bytes, str]:
+    """POST an image → ComfyUI, run the user's workflow, poll for the result.
+
+    If the user hasn't pasted a workflow, we use a minimal default that:
+      LoadImage → FaceRestoreCFWithModel(GFPGAN) → SaveImage
+    Requires the user to have GFPGAN + reactor node installed in their ComfyUI
+    (which is one-click via Pinokio). If a node is missing ComfyUI returns a
+    clear error string that we bubble up to the UI.
+    """
+    import json as _json
+    import time as _time
+
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    # 1. Upload the source image
+    up = requests.post(
+        base_url + "/upload/image",
+        headers=headers,
+        files={"image": ("input.png", io.BytesIO(image_bytes), "image/png")},
+        data={"overwrite": "true"},
+        timeout=60,
+    )
+    up.raise_for_status()
+    uploaded = up.json().get("name") or "input.png"
+
+    workflow = _json.loads(workflow_str) if workflow_str.strip() else _default_gfpgan_workflow(uploaded, prompt)
+
+    # 2. Submit the workflow
+    client_id = f"heirloom-{os.getpid()}"
+    body = {"prompt": workflow, "client_id": client_id}
+    submit = requests.post(base_url + "/prompt", headers=headers, json=body, timeout=60)
+    submit.raise_for_status()
+    prompt_id = submit.json().get("prompt_id")
+    if not prompt_id:
+        raise RuntimeError("comfyui: no prompt_id returned")
+
+    # 3. Poll /history/{prompt_id} until outputs appear
+    deadline = _time.time() + 300  # 5 min hard cap
+    while _time.time() < deadline:
+        hist = requests.get(base_url + f"/history/{prompt_id}", headers=headers, timeout=20)
+        if hist.status_code == 200:
+            data = hist.json() or {}
+            record = data.get(prompt_id)
+            if record and record.get("outputs"):
+                outputs = record["outputs"]
+                for _node_id, out in outputs.items():
+                    for img in out.get("images") or []:
+                        fn = img.get("filename")
+                        sub = img.get("subfolder") or ""
+                        typ = img.get("type") or "output"
+                        r = requests.get(
+                            base_url + "/view",
+                            headers=headers,
+                            params={"filename": fn, "subfolder": sub, "type": typ},
+                            timeout=60,
+                        )
+                        r.raise_for_status()
+                        return r.content, r.headers.get("content-type", "image/png")
+                # No images in the output — that means the workflow ran but
+                # produced text/latents only. Surface a clear error.
+                raise RuntimeError("comfyui: workflow completed but produced no image output")
+        _time.sleep(1.5)
+    raise RuntimeError("comfyui: timed out waiting for restore (5 min)")
+
+
+def _default_gfpgan_workflow(image_name: str, prompt: str) -> dict:
+    """Minimal ComfyUI graph that loads an image and runs GFPGAN face restore.
+
+    Node IDs are strings (ComfyUI convention). The FaceRestoreCFWithModel node
+    ships with ComfyUI-Impact-Pack; if the user's ComfyUI doesn't have it,
+    they can paste a custom workflow via Settings.
+    """
+    return {
+        "1": {"class_type": "LoadImage", "inputs": {"image": image_name}},
+        "2": {"class_type": "FaceRestoreCFWithModel",
+              "inputs": {"facerestore_model": ["3", 0], "image": ["1", 0], "facedetection": "retinaface_resnet50"}},
+        "3": {"class_type": "FaceRestoreModelLoader",
+              "inputs": {"model_name": "GFPGANv1.4.pth"}},
+        "4": {"class_type": "SaveImage",
+              "inputs": {"images": ["2", 0], "filename_prefix": "heirloom_restored"}},
+    }
+
+
+
     kind = cmd.get("kind")
     payload = cmd.get("payload") or {}
     try:
@@ -338,6 +524,8 @@ def execute(cmd: dict):
             return capture_and_upload_screenshot(cmd.get("cmd_id", ""))
         if kind == "say":
             return "ok", "spoken"  # desktop app speaks replies elsewhere
+        if kind == "restore_photo":
+            return restore_photo_via_local(payload)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)

@@ -106,6 +106,33 @@ async def list_commands(user: dict = Depends(get_current_user), limit: int = 50)
     return await cursor.to_list(length=limit)
 
 
+@router.get("/photo-file/{photo_id}")
+async def companion_photo_file(photo_id: str, auth=Depends(get_device_user)):
+    """Device-token-authenticated download of the caller's own photo bytes.
+
+    Used by the Photo Restoration flow: the desktop companion fetches the
+    source photo, runs it through the user's local ComfyUI, and uploads the
+    restored version back via /api/restoration/jobs/{id}/result.
+    """
+    from fastapi.responses import Response
+    from storage import get_object
+
+    user_id = auth["user"]["user_id"]
+    photo = await db.photos.find_one(
+        {"photo_id": photo_id, "user_id": user_id, "is_deleted": {"$ne": True}},
+        {"_id": 0, "path": 1},
+    )
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    try:
+        data, content_type = get_object(photo["path"])
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"storage fetch failed: {exc}")
+    return Response(content=data, media_type=content_type or "image/jpeg")
+
+
+
+
 # ---------- Activity log (human-friendly feed + kill switch) ----------
 _KIND_LABELS = {
     "open_url": "Opened a website",

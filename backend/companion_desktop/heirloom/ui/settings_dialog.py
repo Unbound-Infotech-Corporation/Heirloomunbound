@@ -334,11 +334,61 @@ class LocalAITab(QWidget):
         def _ok(cfg: dict) -> None:
             for key, row in self.rows.items():
                 row.load(cfg.get(key, {}))
+            # Cache into local settings so ConversationPanel can route to local chat
+            try:
+                cur = config.load_settings() or {}
+                cur["providers_cache"] = cfg or {}
+                config.save_settings(cur)
+            except Exception:
+                pass
+            # Kick off auto-detect for any row still empty
+            self._auto_detect_local_endpoints()
 
         def _err(msg: str) -> None:
             self.status_lbl.setText(f"couldn't load providers: {msg}")
 
         api.get_async("/providers", on_ok=_ok, on_err=_err)
+
+    def _auto_detect_local_endpoints(self) -> None:
+        """Ping the well-known local ports for Ollama, LM Studio, Pinokio and
+        ComfyUI. If a row's URL is empty and a port answers, pre-fill it so
+        the user just has to tick 'enabled' and hit Save.
+        """
+        candidates = {
+            "chat":       ["http://127.0.0.1:11434", "http://127.0.0.1:1234"],  # Ollama, LM Studio
+            "embeddings": ["http://127.0.0.1:11434"],                            # Ollama
+            "tts":        ["http://127.0.0.1:8880"],                             # Kokoro-FastAPI
+            "stt":        ["http://127.0.0.1:9000"],                             # Whisper.cpp server
+            "image":      ["http://127.0.0.1:8188"],                             # ComfyUI
+        }
+        for key, row in self.rows.items():
+            if row.url_input.text().strip():
+                continue  # user already set it
+            for base in candidates.get(key, []):
+                self._probe_and_fill(row, base)
+
+    def _probe_and_fill(self, row: "ProviderRow", base: str) -> None:
+        """Fire-and-forget probe; on success, pre-fill the URL and mark status."""
+        # Choose the endpoint per provider dialect (mirrors _on_test).
+        if row._provider_type == "comfyui":
+            probe = base.rstrip("/") + "/system_stats"
+        else:
+            probe = base.rstrip("/") + "/v1/models"
+
+        def _ok(res: dict) -> None:
+            if not res.get("ok"):
+                return
+            # Only fill if still empty (avoid races between multiple probes)
+            if row.url_input.text().strip():
+                return
+            fill_url = base if row._provider_type == "comfyui" else base + "/v1"
+            row.url_input.setText(fill_url)
+            row._set_status("auto-detected · click enable", "ok")
+
+        def _err(_msg: str) -> None:
+            pass
+
+        api.probe_local_url(probe, method="GET", on_ok=_ok, on_err=_err, timeout=1.5)
 
     def _save(self) -> None:
         payload = {key: row.dump() for key, row in self.rows.items()}
@@ -348,6 +398,13 @@ class LocalAITab(QWidget):
         def _ok(_res: dict) -> None:
             self.save_btn.setEnabled(True)
             self.status_lbl.setText("saved ✓")
+            # Refresh local providers_cache so ConversationPanel routes locally on next send.
+            try:
+                cur = config.load_settings() or {}
+                cur["providers_cache"] = payload
+                config.save_settings(cur)
+            except Exception:
+                pass
             self.saved.emit()
 
         def _err(msg: str) -> None:

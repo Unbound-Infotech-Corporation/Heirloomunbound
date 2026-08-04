@@ -204,12 +204,70 @@ class ConversationPanel(QWidget):
         self.append("user", text)
         self.message_sent.emit(text)
         self._busy = True
+        # If the user has a local chat provider enabled, route directly to it
+        # from the desktop — nothing leaves the machine.
+        if self._local_chat_active():
+            self._send_via_local_chat(text)
+            return
         api.post_async(
             "/desktop/chat",
             {"text": text},
             on_ok=self._on_reply,
             on_err=self._on_error,
         )
+
+    # -------- Local chat (Ollama / LM Studio / OpenAI-compat) --------
+    def _local_chat_active(self) -> bool:
+        cfg = (self._settings or {}).get("providers_cache") or {}
+        chat_cfg = cfg.get("chat") or {}
+        return bool(chat_cfg.get("enabled") and (chat_cfg.get("base_url") or "").strip())
+
+    def _send_via_local_chat(self, text: str) -> None:
+        """Fire an OpenAI-compat chat.completions POST at 127.0.0.1 directly.
+
+        We never send the Heirloom device token to a local endpoint. The reply
+        arrives on _on_reply just like the cloud path so the UI is unchanged.
+        """
+        chat_cfg = ((self._settings or {}).get("providers_cache") or {}).get("chat") or {}
+        base = (chat_cfg.get("base_url") or "").rstrip("/")
+        api_key = (chat_cfg.get("api_key") or "").strip()
+        model = (chat_cfg.get("model") or "").strip() or "llama3.3"
+        url = base + "/chat/completions" if base.endswith("/v1") else base + "/v1/chat/completions"
+
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You are the user's digital twin — warm, first-person, concise."},
+                *[{"role": m.get("role", "user"), "content": m.get("content", "")}
+                  for m in self._messages[-10:] if m.get("role") in ("user", "assistant")],
+                {"role": "user", "content": text},
+            ],
+            "temperature": 0.7,
+            "max_tokens": 512,
+        }
+
+        def _ok(res: dict) -> None:
+            try:
+                reply = (res.get("data") or {}).get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            except Exception:
+                reply = ""
+            if not reply:
+                self._on_error("local chat returned no reply — is the model loaded?")
+                return
+            self._on_reply({"reply": reply})
+
+        def _err(msg: str) -> None:
+            self._on_error(f"local chat unreachable ({msg}) — falling back to cloud")
+            # Auto-fallback to cloud so the user isn't blocked.
+            self._busy = True
+            api.post_async(
+                "/desktop/chat", {"text": text},
+                on_ok=self._on_reply, on_err=self._on_error,
+            )
+
+        api.probe_local_url(url, method="POST", payload=payload,
+                            api_key=api_key or None, on_ok=_ok, on_err=_err,
+                            timeout=45.0)
 
     def _on_reply(self, data: dict) -> None:
         self._busy = False

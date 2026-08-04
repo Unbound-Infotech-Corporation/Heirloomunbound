@@ -541,6 +541,46 @@ async def _log_usage(*, user_id: str, provider: str, model: str, task: str,
         "ts": datetime.now(timezone.utc).isoformat(),
     }
     await db.usage_events.insert_one(doc)
+    # Non-blocking budget-threshold email — safe to fail silently.
+    try:
+        await _maybe_send_budget_alert(user_id, provider)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def _maybe_send_budget_alert(user_id: str, provider: str) -> None:
+    """Fire a 80% / 100% budget email — once per month, per tier, per provider.
+
+    Uses the `budget_alerts` collection as an idempotency guard:
+      key = (user_id, provider, YYYY-MM, tier)
+    so the owner never gets spammed if usage keeps climbing.
+    """
+    cfg = await get_config(user_id)
+    pcfg = cfg["providers"].get(provider) or {}
+    cap = float(pcfg.get("monthly_budget_usd") or 0)
+    if cap <= 0:
+        return
+    spent = await month_to_date_cost(user_id, provider)
+    ratio = spent / cap if cap else 0.0
+    if ratio < 0.8:
+        return
+    tier = "100" if ratio >= 1.0 else "80"
+
+    now = datetime.now(timezone.utc)
+    month = f"{now.year:04d}-{now.month:02d}"
+    guard_key = {"user_id": user_id, "provider": provider, "month": month, "tier": tier}
+    if await db.budget_alerts.find_one(guard_key):
+        return
+    await db.budget_alerts.insert_one({**guard_key, "sent_at": now.isoformat()})
+
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1, "name": 1})
+    if not user or not (user.get("email") or "").strip():
+        return
+    from email_service import send_budget_alert_email
+    await send_budget_alert_email(
+        to=user["email"], owner_name=user.get("name", "Friend"),
+        provider=provider, tier=tier, spent_usd=round(spent, 4), cap_usd=cap,
+    )
 
 
 async def usage_summary(user_id: str, days: int = 30) -> dict:

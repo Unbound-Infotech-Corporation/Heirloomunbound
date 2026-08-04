@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 37 — Photo Restoration + Budget Alerts. Backend: 17/17 pytest tests passed. Verified /api/restoration/jobs state machine (blocked: no image provider → mentions 'image provider'; blocked: no companion → mentions 'desktop companion'; queued when both ready + enqueues restore_photo command with correct job_id/photo_id/kind, visible via /api/companion/poll). Foreign photo→404. Invalid kind ('sharpen') returns 422 (pydantic Literal fires before app-level 400 raise — harmless but code review nit). List sorted desc + scoped to caller. Get returns doc; foreign job→404. Fail endpoint sets status=failed with stored reason. /api/companion/photo-file returns raw bytes with device token, 401 w/o token, 404 for foreign photo. Budget alert idempotency: with cap=0.00001 on emergent + all other providers disabled, two /api/routing/chat calls both succeed via emergent (last-resort viable) and exactly ONE row lands in db.budget_alerts guarded by (user, provider, YYYY-MM, tier). Regression: /api/routing/catalog=7 providers/6 tasks/28 pricing; /api/routing/chat task=chat succeeds + logs usage_event; PUT /api/routing/config with empty api_key preserves stored key; /api/dashboard 200 w/ total_words+total_entries. Frontend /photos: page loads, PhotoCard renders wand button [data-testid=restore-photo-<pid>] on hover, opens menu [restore-menu-<pid>] with 3 options [restore-restore/colorize/upscale-<pid>]. Clicking restore→ POST /api/restoration/jobs → toast rendered with actual backend reason 'No local image provider configured. Open Settings → Local AI → Image and enable ComfyUI.' AI Router nav still present (no regression).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/restoration/jobs", "issue": "Invalid `kind` returns 422 (Pydantic Literal) rather than the code-path 400 in restoration.py:59. The manual `if payload.kind not in RESTORE_KINDS` guard is unreachable. Cosmetic — spec accepts either."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration37_restoration.py",
+    "/app/test_reports/pytest/iteration_37_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "services/llm_router.py:214-238 resolve_provider — Emergent is only added as 'last resort' when NO providers are viable. If any other BYOK provider is enabled (even with a bogus key), the chain excludes emergent entirely once emergent is over-budget. This contradicts the design note that emergent is 'the last-resort fallback even when over budget'. Consider always appending 'emergent' to the tail of the chain (deduped) so it truly always catches. The idempotency test surfaced this by having to explicitly disable openai/etc first.",
+    "routers/restoration.py — POST /jobs uses `body: dict` on /fail (no Pydantic schema); consider a small ReasonReq BaseModel for consistency + docs.",
+    "routers/companion.py:110 companion_photo_file — reads db.photos.path but /photos/upload writes storage_path. Photos created via the standard upload endpoint will not be fetchable by the desktop (KeyError → 502). The desktop restoration flow needs photos to be readable via companion path — either normalize both endpoints to use `storage_path` (or `path`) consistently, or make companion_photo_file fall back to storage_path when path is absent.",
+    "routers/restoration.py — `if not (image_cfg.get('base_url') or '').strip()` requires base_url for restoration to become queued, but the desktop-side code may use auto-detected 127.0.0.1 defaults. If the desktop app is meant to auto-detect, either drop the base_url requirement or document that users MUST paste it into /providers.",
+    "Photos.jsx PhotoCard — poll uses setTimeout chain without cleanup on unmount; navigating away mid-restoration could still fire setState on unmounted component. Consider AbortController or a mounted-ref."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration37_restoration.py"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% (all restoration UI interactions verified)"},
+  "test_credentials": "session_token=test_routing_session, user_id=test-routing-user; device_token=device_test_token_abc (dev_test_1 for test-routing-user). All pre-existing.",
+  "seed_data_creation": "test_iteration37_restoration.py::seed_photo (module scope) inserts one photo doc + puts real PNG bytes to storage under heirloom/photos/test-routing-user/ph_TEST_*.png and cleans up on module teardown. Budget-alert test cleans budget_alerts rows before+after itself. Restoration jobs & companion commands are cleaned up per-test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iteration37_restoration.py is idempotent. Class-alphabetical run order matters: TestBudgetAlertIdempotency runs BEFORE TestRoutingRegression and now explicitly disables non-emergent providers to insulate itself from leftover state. Companion device dev_test_1 stays revoked=false at end of tests. IMPORTANT: the companion/photo-file endpoint expects `photos.path` field — photos created via /api/photos/upload use `storage_path` and are NOT readable through companion — flagged in code review.",
+  "rca of the issue": "N/A — no bugs blocking the requested features. One design gap flagged: llm_router.resolve_provider does not truly guarantee 'emergent as last resort' when another enabled BYOK provider exists with a bad key; the surrogate test had to disable non-emergent providers. Recommend appending emergent to the chain tail unconditionally."
+}
