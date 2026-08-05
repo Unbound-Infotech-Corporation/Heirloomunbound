@@ -119,8 +119,10 @@ async def _write_health(
     }
     if status == "green":
         update["last_ok"] = now
-        # Reset the alert flag so a fresh red → green → red cycle re-fires.
+        # Reset both alert-state fields so a fresh red → green → red cycle
+        # re-fires and rehabilitates a previously-given-up delivery.
         update["rotation_alert_sent"] = False
+        update["rotation_alert_attempts"] = 0
     await db.provider_health.update_one(
         {"user_id": user_id, "provider": provider},
         {"$set": update, "$setOnInsert": {"created_at": now}},
@@ -130,20 +132,40 @@ async def _write_health(
     # Green → red transition: fire once. `prior_status == "green"` is the guard;
     # a first-ever probe that lands red does NOT fire (we want the user to
     # notice the change from working to broken, not to nag on setup).
-    if (
-        status == "red"
-        and prior_status == "green"
-        and not prior.get("rotation_alert_sent")
-    ):
-        try:
-            sent = await _send_rotation_alert(user_id, provider, error)
-            if sent:
+    if status == "red" and prior_status == "green":
+        attempts = int(prior.get("rotation_alert_attempts") or 0)
+        already_sent = bool(prior.get("rotation_alert_sent"))
+        # `rotation_alert_sent` means we delivered successfully — that's
+        # terminal. `attempts>=3` means we tried and Resend kept failing —
+        # also terminal. Either way, don't fire again this red episode.
+        if not already_sent and attempts < 3:
+            try:
+                sent = await _send_rotation_alert(user_id, provider, error)
+                if sent:
+                    await db.provider_health.update_one(
+                        {"user_id": user_id, "provider": provider},
+                        {"$set": {"rotation_alert_sent": True}},
+                    )
+                else:
+                    # Delivery failed — bump the attempts counter. After 3
+                    # failed tries we stop hammering, log a warning, and wait
+                    # for the next green→red cycle (which resets the counter).
+                    new_attempts = attempts + 1
+                    await db.provider_health.update_one(
+                        {"user_id": user_id, "provider": provider},
+                        {"$set": {"rotation_alert_attempts": new_attempts}},
+                    )
+                    if new_attempts >= 3:
+                        log.warning(
+                            "rotation alert for %s/%s gave up after 3 failed sends",
+                            user_id, provider,
+                        )
+            except Exception:  # noqa: BLE001 — never let alerting break the probe
+                log.warning("rotation alert failed for %s/%s", user_id, provider, exc_info=True)
                 await db.provider_health.update_one(
                     {"user_id": user_id, "provider": provider},
-                    {"$set": {"rotation_alert_sent": True}},
+                    {"$inc": {"rotation_alert_attempts": 1}},
                 )
-        except Exception:  # noqa: BLE001 — never let alerting break the probe
-            log.warning("rotation alert failed for %s/%s", user_id, provider, exc_info=True)
 
     return update
 

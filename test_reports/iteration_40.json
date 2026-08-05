@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 40: tested Provider Templates (list/apply), Cost Budget Projection, Sparkline Tooltip and Rotation Alert Retry Cap. Backend pytest: 12/13 passing. Frontend Routing page: all 5 template cards render; projection chip 'PROJ · $0.0478' shown on emergent; sparkline hover reveals tooltip 'YYYY-MM-DD · $X.XXXX' with dashed guide + point, hides on mouse leave; applying 'balanced' fires success + per-warning toasts and updates task-route dropdowns to emergent/groq/gemini/openai. ONE CRITICAL BACKEND BUG FOUND: rotation_alert_attempts counter never accumulates past 1 because services/provider_health.py:_write_health projects only {status, rotation_alert_sent} from prior doc — rotation_alert_attempts is missing from the projection so `prior.get('rotation_alert_attempts') or 0` always reads as 0. Effect: the '3-strike retry cap' feature does NOT work as specified; on a persistent red state each fresh green→red cycle just resets attempts to 1 and tries once, and the log-warn 'gave up after 3 failed sends' never fires from the normal flow. Everything else in the feature set is correct.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "services/provider_health.py::_write_health",
+        "issue": "Rotation-alert retry cap is broken. The `prior` find_one at line 106-109 projects only {'_id': 0, 'status': 1, 'rotation_alert_sent': 1} — rotation_alert_attempts is NOT included in the projection. So `attempts = int(prior.get('rotation_alert_attempts') or 0)` is always 0 regardless of what's in the DB. When _send_rotation_alert returns False, new_attempts is written as 1 but the next green→red cycle re-reads attempts as 0 again. The `if new_attempts >= 3: log.warning('gave up after 3 failed sends', ...)` branch is unreachable via the normal flow. Fix: add 'rotation_alert_attempts': 1 to the find_one projection.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration40_templates_projection.py",
+    "/app/test_reports/pytest/iter40.xml"
+  ],
+  "action_items": [
+    "CRITICAL: fix services/provider_health.py:106-109 — add 'rotation_alert_attempts': 1 to the find_one projection so the retry counter actually persists across probes. Without this fix the retry-cap feature does nothing; each green→red cycle re-fires one attempt regardless of prior failures."
+  ],
+  "critical_code_review_comments": [
+    "provider_health.py `_write_health` projection bug (see backend_issues.critical) — the counter code is written correctly but the read path silently drops it. Add a test for a persistent-red multi-probe scenario after the fix.",
+    "provider_health.py: the `except Exception` branch at line 165-168 does an unconditional $inc on rotation_alert_attempts without a cap check; if _send_rotation_alert raises repeatedly this can grow unbounded. Consider capping at 3 there too, or letting it naturally cap in the caller (already the case once the projection is fixed).",
+    "routing.py POST /templates/apply merges new task_routes over existing: `{**existing['task_routes'], **preset['task_routes']}`. Since every preset defines all 6 task keys this is equivalent to replacement — fine, but the intent is subtle. A brief comment would help future readers.",
+    "Sparkline component uses `values` length as denominator for stepX; when values are all-zero (no usage this month) the last-point circle is still drawn — acceptable but the sparkline visually collapses to a flat baseline, hover still works."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration40_templates_projection.py (NEW — 13 test cases)"
+  ],
+  "success_rate": {"backend": "92% (12/13 pytest — the 1 failing test surfaces the real retry-cap bug)", "frontend": "100%"},
+  "test_credentials": "session_token=test_routing_session (user_id=test-routing-user) — used cookie auth. Same as iteration 39.",
+  "seed_data_creation": "Ephemeral users (iter40-appl-*, iter40-pres-*, iter40-proj-*, iter40-math-*, iter40-cap-*) with sessions + usage_events; all cleaned up in finally blocks via pymongo.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 40 pytest lives at /app/backend/tests/test_iteration40_templates_projection.py. The only failing test is TestRotationAlertRetryCap::test_cap_at_3_and_reset_on_green — it upserts rotation_alert_attempts=2 into provider_health then triggers green→red and expects attempts to become 3. Currently it becomes 1 because _write_health's projection drops the field. After the projection fix, this test should pass on the first run.",
+  "rca of the issue": "Bug: rotation-alert retry cap does not cap. Reproduce: seed provider_health with {status:'green', rotation_alert_attempts:2, rotation_alert_sent:false}, then invoke provider_health._write_health(uid, provider, 'red', ...) with a _send_rotation_alert that returns False. Expected rotation_alert_attempts=3. Actual: 1. RCA: services/provider_health.py:106 projects {'_id':0,'status':1,'rotation_alert_sent':1} — omitting rotation_alert_attempts. The subsequent `attempts = int(prior.get('rotation_alert_attempts') or 0)` reads None→0, so new_attempts is 0+1=1 no matter the stored value. Mitigation: `{'_id':0,'status':1,'rotation_alert_sent':1,'rotation_alert_attempts':1}`. Impact: HIGH — the entire spec bullet '(4) Rotation Alert Retry Cap — give up after 3 failed Resend deliveries' is non-functional; a broken Resend service will keep the retry counter stuck at 1 forever and every fresh green→red flip will call _send_rotation_alert once."
+}

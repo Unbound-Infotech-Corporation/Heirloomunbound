@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from deps import db, get_current_user
 from services.llm_router import (
     DEFAULT_CONFIG,
+    PRESETS,
     PRICING,
     PROVIDERS,
     TASKS,
@@ -31,6 +32,7 @@ from services.llm_router import (
     chat_stream,
     daily_spend_series,
     get_config,
+    month_end_projections,
     resolve_provider,
     save_config,
     usage_summary,
@@ -192,6 +194,74 @@ async def get_usage_daily(days: int = 30, user: dict = Depends(get_current_user)
     the frontend Router page.
     """
     return await daily_spend_series(user["user_id"], days=days)
+
+
+@router.get("/usage/projection")
+async def get_usage_projection(user: dict = Depends(get_current_user)):
+    """Extrapolate this month's spend to month-end per provider.
+
+    Returns `{provider_id: {mtd_usd, projected_month_end_usd, days_elapsed,
+    days_in_month}}` — used by the Routing page to show a "projected" chip
+    beside each provider's monthly budget cap.
+    """
+    return await month_end_projections(user["user_id"])
+
+
+# --------- Provider Templates (one-click presets) ---------
+@router.get("/templates")
+async def list_templates():
+    """Enumerate one-click routing presets. Returned to the client so the UI
+    can render a picker without hard-coding names.
+    """
+    out = []
+    for tid, spec in PRESETS.items():
+        # Report which providers this preset needs so the UI can warn about
+        # missing BYOK keys before the user applies it.
+        required = sorted({pid for pid in spec["task_routes"].values()})
+        out.append({
+            "id": tid,
+            "label": spec["label"],
+            "blurb": spec["blurb"],
+            "task_routes": spec["task_routes"],
+            "required_providers": required,
+        })
+    return out
+
+
+class ApplyTemplateIn(BaseModel):
+    template_id: str
+
+
+@router.post("/templates/apply")
+async def apply_template(payload: ApplyTemplateIn, user: dict = Depends(get_current_user)):
+    """Apply a preset to the caller's routing config. Only touches
+    `task_routes` — API keys, enabled flags and budget caps are preserved.
+
+    Returns the updated (redacted) config plus a `warnings` list naming any
+    providers the preset routes to that aren't currently enabled / keyed.
+    """
+    preset = PRESETS.get(payload.template_id)
+    if not preset:
+        raise HTTPException(400, f"unknown template '{payload.template_id}'")
+
+    existing = await get_config(user["user_id"])
+    new_cfg = {
+        "providers": existing["providers"],
+        "task_routes": {**existing["task_routes"], **preset["task_routes"]},
+        "fallback_order": existing["fallback_order"],
+    }
+    saved = await save_config(user["user_id"], new_cfg)
+
+    # Warn about providers the preset needs but the user hasn't enabled/keyed.
+    warnings: list[str] = []
+    for pid in set(preset["task_routes"].values()):
+        pcfg = saved["providers"].get(pid) or {}
+        if not pcfg.get("enabled"):
+            warnings.append(f"{pid} is disabled — routes will fall back to Emergent until you enable it")
+        elif PROVIDERS[pid]["byok"] and not (pcfg.get("api_key") or "").strip():
+            warnings.append(f"{pid} has no API key — routes will fall back until you paste one")
+
+    return {"config": _redact_keys(saved), "template": payload.template_id, "warnings": warnings}
 
 
 # --------- Verify a BYOK key ---------

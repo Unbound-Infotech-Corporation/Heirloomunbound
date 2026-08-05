@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Activity, Check, DollarSign, Eye, EyeOff, KeyRound, Loader2, Route as RouteIcon, ShieldCheck, X, Zap } from "lucide-react";
+import { AlertTriangle, Activity, Check, DollarSign, Eye, EyeOff, KeyRound, Layers, Loader2, Route as RouteIcon, ShieldCheck, TrendingUp, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePageMeta } from "@/lib/usePageMeta";
@@ -23,11 +23,12 @@ function Chip({ children, tone = "muted" }) {
 }
 
 /**
- * Compact SVG sparkline — no external chart lib. Takes a numeric array and
- * plots a polyline scaled to the given box. Zero-cost series get an empty
- * baseline. Used on every provider card to visualise 30-day spend trend.
+ * Compact SVG sparkline with hover tooltip — no external chart lib. Plots a
+ * polyline scaled to the given box. Hovering a point shows the exact date +
+ * dollar amount so cost spikes are diagnosable at a glance.
  */
-function Sparkline({ values, width = 120, height = 32, testid }) {
+function Sparkline({ values, dayLabels = [], width = 120, height = 32, testid }) {
+  const [hoverIdx, setHoverIdx] = useState(null);
   if (!values || values.length === 0) return null;
   const max = Math.max(...values, 0);
   const min = 0;
@@ -39,27 +40,82 @@ function Sparkline({ values, width = 120, height = 32, testid }) {
   };
   const points = values.map((v, i) => `${(i * stepX).toFixed(1)},${yFor(v).toFixed(1)}`).join(" ");
   const last = values[values.length - 1];
+
+  const handleMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const idx = stepX > 0 ? Math.max(0, Math.min(n - 1, Math.round(x / stepX))) : 0;
+    setHoverIdx(idx);
+  };
+
+  const tooltipCost = hoverIdx !== null ? values[hoverIdx] : null;
+  const tooltipDay = hoverIdx !== null ? dayLabels[hoverIdx] : null;
+
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} data-testid={testid}
-         style={{ overflow: "visible" }}>
-      <polyline
-        fill="none"
-        stroke="var(--accent)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        points={points}
-      />
-      {/* Highlight dot on the last value */}
-      {n >= 1 && (
-        <circle
-          cx={((n - 1) * stepX).toFixed(1)}
-          cy={yFor(last).toFixed(1)}
-          r="2"
-          fill="var(--accent)"
+    <div className="relative" style={{ width, height }}>
+      <svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        data-testid={testid}
+        style={{ overflow: "visible" }}
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        <polyline
+          fill="none"
+          stroke="var(--accent)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={points}
         />
+        {n >= 1 && (
+          <circle
+            cx={((n - 1) * stepX).toFixed(1)}
+            cy={yFor(last).toFixed(1)}
+            r="2"
+            fill="var(--accent)"
+          />
+        )}
+        {hoverIdx !== null && (
+          <>
+            <line
+              x1={(hoverIdx * stepX).toFixed(1)}
+              y1={0}
+              x2={(hoverIdx * stepX).toFixed(1)}
+              y2={height}
+              stroke="var(--text-muted)"
+              strokeWidth="0.75"
+              strokeDasharray="2 2"
+            />
+            <circle
+              cx={(hoverIdx * stepX).toFixed(1)}
+              cy={yFor(values[hoverIdx]).toFixed(1)}
+              r="2.5"
+              fill="var(--accent)"
+              stroke="var(--surface)"
+              strokeWidth="1"
+            />
+          </>
+        )}
+      </svg>
+      {hoverIdx !== null && (
+        <div
+          className="absolute z-10 px-2 py-1 rounded-sm text-xs font-mono whitespace-nowrap pointer-events-none"
+          style={{
+            background: "var(--surface-elev)",
+            color: "var(--text-primary)",
+            border: "1px solid var(--border-default)",
+            bottom: height + 6,
+            left: Math.max(0, Math.min(width - 90, hoverIdx * stepX - 45)),
+          }}
+          data-testid={`${testid}-tip`}
+        >
+          {tooltipDay} · ${tooltipCost?.toFixed(4)}
+        </div>
       )}
-    </svg>
+    </div>
   );
 }
 
@@ -73,6 +129,9 @@ export default function Routing() {
   const [events, setEvents] = useState([]);
   const [health, setHealth] = useState([]);
   const [daily, setDaily] = useState({ days: [], series: {} });
+  const [projections, setProjections] = useState({});
+  const [templates, setTemplates] = useState([]);
+  const [applyingTemplate, setApplyingTemplate] = useState("");
   const [checkingHealth, setCheckingHealth] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState({});
@@ -81,17 +140,21 @@ export default function Routing() {
 
   useEffect(() => { (async () => {
     try {
-      const [c, cf, u, ev, h, dd] = await Promise.all([
+      const [c, cf, u, ev, h, dd, pj, tp] = await Promise.all([
         api.get("/routing/catalog"),
         api.get("/routing/config"),
         api.get("/routing/usage?days=30"),
         api.get("/routing/usage/events?limit=50"),
         api.get("/routing/health"),
         api.get("/routing/usage/daily?days=30"),
+        api.get("/routing/usage/projection"),
+        api.get("/routing/templates"),
       ]);
       setCatalog(c.data); setCfg(cf.data); setUsage(u.data); setEvents(ev.data);
       setHealth(h.data);
       setDaily(dd.data);
+      setProjections(pj.data);
+      setTemplates(tp.data);
     } catch (e) { toast.error("Couldn't load router config"); }
   })(); }, []);
 
@@ -167,13 +230,26 @@ export default function Routing() {
 
   const refreshUsage = async () => {
     try {
-      const [u, ev, dd] = await Promise.all([
+      const [u, ev, dd, pj] = await Promise.all([
         api.get("/routing/usage?days=30"),
         api.get("/routing/usage/events?limit=50"),
         api.get("/routing/usage/daily?days=30"),
+        api.get("/routing/usage/projection"),
       ]);
-      setUsage(u.data); setEvents(ev.data); setDaily(dd.data);
+      setUsage(u.data); setEvents(ev.data); setDaily(dd.data); setProjections(pj.data);
     } catch { /* silent */ }
+  };
+
+  const applyTemplate = async (templateId) => {
+    setApplyingTemplate(templateId);
+    try {
+      const { data } = await api.post("/routing/templates/apply", { template_id: templateId });
+      setCfg(data.config);
+      const label = (templates.find((t) => t.id === templateId) || {}).label || templateId;
+      toast.success(`Applied "${label}" template`);
+      (data.warnings || []).forEach((w) => toast.warning(w));
+    } catch (e) { toast.error("Couldn't apply template"); }
+    finally { setApplyingTemplate(""); }
   };
 
   // Test call — round-trip through /routing/chat to prove routing works
@@ -243,6 +319,43 @@ export default function Routing() {
           </button>
         </div>
       </header>
+
+      {/* ── Templates ── */}
+      <section data-testid="routing-templates-section">
+        <h2 className="font-serif text-2xl mb-4" style={{ color: "var(--text-primary)" }}>
+          One-click presets
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {templates.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => applyTemplate(t.id)}
+              disabled={!!applyingTemplate}
+              data-testid={`template-apply-${t.id}`}
+              className="text-left rounded-md border p-4 transition hover:border-[color:var(--accent)]"
+              style={{ background: "var(--surface)", borderColor: "var(--border-default)" }}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                {applyingTemplate === t.id
+                  ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: "var(--accent)" }} />
+                  : <Layers className="w-4 h-4" style={{ color: "var(--accent)" }} />}
+                <span className="font-medium" style={{ color: "var(--text-primary)" }}>{t.label}</span>
+              </div>
+              <p className="text-xs leading-snug mb-2" style={{ color: "var(--text-muted)" }}>
+                {t.blurb}
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {t.required_providers.map((pid) => (
+                  <span key={pid} className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm"
+                        style={{ background: "var(--surface-elev)", color: "var(--text-secondary)" }}>
+                    {pid}
+                  </span>
+                ))}
+              </div>
+            </button>
+          ))}
+        </div>
+      </section>
 
       {/* ── Task routing table ── */}
       <section data-testid="routing-tasks-section">
@@ -324,10 +437,28 @@ export default function Routing() {
                   <div className="flex items-center gap-4">
                     {daily.series && daily.series[p.id] && (
                       <div className="flex flex-col items-end gap-0.5" data-testid={`provider-spark-${p.id}`}>
-                        <Sparkline values={daily.series[p.id]} testid={`provider-spark-svg-${p.id}`} />
+                        <Sparkline
+                          values={daily.series[p.id]}
+                          dayLabels={daily.days}
+                          testid={`provider-spark-svg-${p.id}`}
+                        />
                         <span className="text-[10px] font-mono uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                           30d · {fmtUSD(providerTotals[p.id]?.cost_usd || 0)}
                         </span>
+                        {projections[p.id] && projections[p.id].projected_month_end_usd > 0 && (
+                          <span
+                            className="text-[10px] font-mono uppercase tracking-wide flex items-center gap-1"
+                            style={{
+                              color: (cap > 0 && projections[p.id].projected_month_end_usd >= cap)
+                                ? "#c47016" : "var(--text-muted)",
+                            }}
+                            data-testid={`provider-projection-${p.id}`}
+                            title={`Month-to-date: ${fmtUSD(projections[p.id].mtd_usd)} · day ${projections[p.id].days_elapsed} of ${projections[p.id].days_in_month}`}
+                          >
+                            <TrendingUp className="w-3 h-3" />
+                            proj · {fmtUSD(projections[p.id].projected_month_end_usd)}
+                          </span>
+                        )}
                       </div>
                     )}
                     <label className="flex items-center gap-2 text-sm cursor-pointer" data-testid={`provider-enable-${p.id}`}>

@@ -101,6 +101,51 @@ TASKS: dict[str, dict] = {
 # Ordered fallback chain when the primary provider is over budget / errors.
 DEFAULT_FALLBACK = ["emergent", "openai", "anthropic", "gemini", "groq", "xai", "deepseek"]
 
+# --- Routing presets ("Provider Templates") ------------------------------
+# One-click routing setups the UI offers so newcomers get a sensible layout
+# without editing every task. Each preset only touches `task_routes` — keys,
+# enabled flags and budget caps are left alone. If a target provider isn't
+# enabled/keyed the runtime fallback chain still keeps the twin working.
+PRESETS: dict[str, dict] = {
+    "cheapest": {
+        "label": "Cheapest",
+        "blurb": "Groq for most tasks, DeepSeek for reasoning, Gemini for long context. Requires Groq + DeepSeek keys.",
+        "task_routes": {
+            "chat": "groq", "interview": "groq", "tools": "deepseek",
+            "cheap": "groq", "long_context": "gemini", "embeddings": "openai",
+        },
+    },
+    "quality_first": {
+        "label": "Quality-first",
+        "blurb": "Anthropic Claude for the twin's voice, Gemini for long docs. Requires Anthropic + Gemini keys.",
+        "task_routes": {
+            "chat": "anthropic", "interview": "anthropic", "tools": "anthropic",
+            "cheap": "groq", "long_context": "gemini", "embeddings": "openai",
+        },
+    },
+    "balanced": {
+        "label": "Balanced",
+        "blurb": "Emergent for chat, Groq for fast/cheap, Gemini for long context. Works out of the box.",
+        "task_routes": {
+            "chat": "emergent", "interview": "emergent", "tools": "emergent",
+            "cheap": "groq", "long_context": "gemini", "embeddings": "openai",
+        },
+    },
+    "all_emergent": {
+        "label": "All Emergent",
+        "blurb": "One provider for everything — no BYOK required. Uses your Universal Key balance.",
+        "task_routes": {tid: "emergent" for tid in ("chat", "interview", "tools", "cheap", "long_context", "embeddings")},
+    },
+    "local_first": {
+        "label": "Local-first (privacy)",
+        "blurb": "Groq + DeepSeek + Gemini — none of your prompts go to Anthropic or OpenAI. Requires all three keys.",
+        "task_routes": {
+            "chat": "groq", "interview": "groq", "tools": "deepseek",
+            "cheap": "groq", "long_context": "gemini", "embeddings": "gemini",
+        },
+    },
+}
+
 # --- Pricing table (USD per 1M tokens; input / output) --------------------
 # Approximate published rates as of Feb 2026 — used only for cost *estimates*.
 # Keys are `<provider>:<model>`; unknown pairs fall back to a mid-market rate.
@@ -685,3 +730,38 @@ async def daily_spend_series(user_id: str, days: int = 30) -> dict:
         arr[day_index[d]] = round(float(row["cost"] or 0), 6)
 
     return {"days": day_labels, "series": series}
+
+
+async def month_end_projections(user_id: str) -> dict:
+    """Extrapolate current-month spend to month-end per provider.
+
+    Method: sum this month's usage_events per provider (month-to-date $), then
+    linear-extrapolate (`mtd / days_elapsed * days_in_month`). Also returns
+    days_elapsed / days_in_month so the frontend can render a runway bar.
+
+    Not perfectly accurate — real spend is bursty and non-linear — but good
+    enough to tell an owner "you're on track for $12, cap is $10" at a glance.
+    """
+    import calendar
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    days_in_month = calendar.monthrange(now.year, now.month)[1]
+    days_elapsed = max(1, (now - month_start).days + 1)  # +1 to include today
+
+    pipeline = [
+        {"$match": {"user_id": user_id, "ts": {"$gte": month_start.isoformat()}}},
+        {"$group": {"_id": "$provider", "mtd": {"$sum": "$cost_usd"}}},
+    ]
+    out: dict[str, dict] = {}
+    async for row in db.usage_events.aggregate(pipeline):
+        pid = row["_id"]
+        mtd = float(row["mtd"] or 0)
+        projected = round(mtd / days_elapsed * days_in_month, 4)
+        out[pid] = {
+            "mtd_usd": round(mtd, 4),
+            "projected_month_end_usd": projected,
+            "days_elapsed": days_elapsed,
+            "days_in_month": days_in_month,
+        }
+    return out
