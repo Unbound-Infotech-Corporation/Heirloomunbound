@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="26" time="7.562" timestamp="2026-08-05T03:49:02.647837+00:00" hostname="agent-env-43062f40-4ac6-412b-9a4b-e2b3ff7e5c95"><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestTemplatesList" name="test_builtins_kind_and_no_user_id" time="0.276" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestTemplatesList" name="test_order_builtins_before_custom" time="0.484" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestPreview" name="test_preview_quality_first_diff" time="0.305" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestPreview" name="test_preview_empty_diff_when_already_applied" time="0.313" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestPreview" name="test_preview_unknown_404" time="0.132" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestPreview" name="test_preview_own_custom" time="0.545" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestApply" name="test_apply_builtin" time="0.243" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestApply" name="test_apply_user_custom" time="0.448" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestApply" name="test_apply_unknown_400" time="0.150" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestSave" name="test_save_success_shape" time="0.380" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestSave" name="test_save_empty_label_400" time="0.135" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestSave" name="test_save_label_too_long_400" time="0.145" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestSave" name="test_save_blurb_truncated_200" time="0.353" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestDelete" name="test_delete_builtin_400" time="0.144" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestDelete" name="test_delete_nonexistent_user_404" time="0.142" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestDelete" name="test_delete_own_success" time="0.467" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestScoping" name="test_ua_cannot_see_preview_apply_delete_ubs_template" time="1.296" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestProjectionHistoryEndpoint" name="test_default_14_days" time="0.156" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestProjectionHistoryEndpoint" name="test_clamp_zero_to_one" time="0.146" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestProjectionHistoryEndpoint" name="test_clamp_large_to_90" time="0.131" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestSnapshotProjections" name="test_idempotent_upsert" time="0.491"><failure message="RuntimeError: Event loop is closed">backend/tests/test_iteration42_templates_v2_projection_history.py:334: in test_idempotent_upsert
+    n2 = asyncio.run(snapshot_projections(uid))
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/services/llm_router.py:779: in snapshot_projections
+    proj = await month_end_projections(user_id)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend/services/llm_router.py:757: in month_end_projections
+    async for row in db.usage_events.aggregate(pipeline):
+/root/.venv/lib/python3.11/site-packages/motor/core.py:1390: in next
+    if self.alive and (self._buffer_size() or await self._get_more()):
+                                                    ^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:1865: in _get_more
+    future = self.start(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/metaprogramming.py:74: in method
+    return framework.run_on_executor(
+/root/.venv/lib/python3.11/site-packages/motor/frameworks/asyncio/__init__.py:85: in run_on_executor
+    return loop.run_in_executor(_EXECUTOR, functools.partial(fn, *args, **kwargs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:817: in run_in_executor
+    self._check_closed()
+/usr/local/lib/python3.11/asyncio/base_events.py:520: in _check_closed
+    raise RuntimeError('Event loop is closed')
+E   RuntimeError: Event loop is closed</failure></testcase><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestIndexes" name="test_user_templates_uniq_index" time="0.003" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestIndexes" name="test_projection_history_uniq_index" time="0.002" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestRegression" name="test_templates_apply_unknown_still_400" time="0.145" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestRegression" name="test_usage_daily_still_works" time="0.158" /><testcase classname="backend.tests.test_iteration42_templates_v2_projection_history.TestRegression" name="test_config_redaction" time="0.177" /></testsuite></testsuites>

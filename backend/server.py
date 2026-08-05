@@ -109,6 +109,44 @@ async def _startup():
 
     app.state.provider_health_task = asyncio.create_task(_provider_health_loop())
 
+    async def _projection_snapshot_loop():
+        """Once every 6h, snapshot each user's month-end projection into
+        `projection_history` so the frontend can render a trend chart.
+
+        We don't need to snapshot exactly at midnight — the `snapshot_projections`
+        writer is idempotent per (user, provider, day), so re-running the same
+        day just overwrites. Interval slightly under 6h so a UTC day always
+        gets at least four passes.
+        """
+        from services.llm_router import snapshot_projections
+        await asyncio.sleep(45)  # small stagger from other startup tasks
+        while True:
+            try:
+                async for u in deps_db_users_projection():
+                    try:
+                        await snapshot_projections(u)
+                    except Exception:  # noqa: BLE001
+                        pass
+            except asyncio.CancelledError:
+                break
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(6 * 3600)
+
+    app.state.projection_task = asyncio.create_task(_projection_snapshot_loop())
+
+
+async def deps_db_users_projection():
+    """Yield user_ids that have a routing_configs doc — same seed the provider
+    health sweep uses. Kept as a tiny helper so the snapshot loop can be tested
+    without pulling in the whole health module.
+    """
+    from deps import db as _db
+    async for doc in _db.routing_configs.find({}, {"_id": 0, "user_id": 1}):
+        uid = doc.get("user_id")
+        if uid:
+            yield uid
+
 
 api_router = APIRouter(prefix="/api")
 
@@ -222,7 +260,7 @@ app.add_middleware(
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    for name in ("letter_task", "provider_health_task"):
+    for name in ("letter_task", "provider_health_task", "projection_task"):
         task = getattr(app.state, name, None)
         if task:
             task.cancel()

@@ -113,6 +113,15 @@ async def ensure_indexes() -> None:
         # Multi-provider router config (Phase 35+ — separate from user_providers)
         ("routing_configs", [("user_id", 1)], {"unique": True, "name": "user_uniq"}),
 
+        # Custom (user-saved) routing templates
+        ("user_templates", [("user_id", 1), ("created_at", 1)], {"name": "user_created"}),
+        ("user_templates", [("template_id", 1)], {"unique": True, "name": "template_id_uniq"}),
+
+        # Projection history snapshots — one row per (user, provider, day).
+        ("projection_history", [("user_id", 1), ("provider", 1), ("day", 1)],
+            {"unique": True, "name": "user_provider_day_uniq"}),
+        ("projection_history", [("user_id", 1), ("day", -1)], {"name": "user_day"}),
+
         # companion_commands hot path (poller reads by user_id + status)
         ("companion_commands", [("user_id", 1), ("status", 1), ("created_at", 1)],
             {"name": "user_status_created"}),

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Activity, Check, DollarSign, Eye, EyeOff, KeyRound, Layers, Loader2, Route as RouteIcon, ShieldCheck, TrendingUp, X, Zap } from "lucide-react";
+import { AlertTriangle, Activity, Check, Copy, DollarSign, Eye, EyeOff, KeyRound, Layers, Loader2, Route as RouteIcon, Save, ShieldCheck, TrendingUp, Trash2, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePageMeta } from "@/lib/usePageMeta";
@@ -51,6 +51,17 @@ function Sparkline({ values, dayLabels = [], width = 120, height = 32, testid })
   const tooltipCost = hoverIdx !== null ? values[hoverIdx] : null;
   const tooltipDay = hoverIdx !== null ? dayLabels[hoverIdx] : null;
 
+  const copy = (e) => {
+    // Prevent parent enable-checkbox click; copy the current hovered pair.
+    e.stopPropagation();
+    if (tooltipDay == null || tooltipCost == null) return;
+    const text = `${tooltipDay}, $${tooltipCost.toFixed(4)}`;
+    navigator.clipboard.writeText(text).then(
+      () => toast.success(`Copied: ${text}`),
+      () => toast.error("Copy failed"),
+    );
+  };
+
   return (
     <div className="relative" style={{ width, height }}>
       <svg
@@ -58,9 +69,10 @@ function Sparkline({ values, dayLabels = [], width = 120, height = 32, testid })
         height={height}
         viewBox={`0 0 ${width} ${height}`}
         data-testid={testid}
-        style={{ overflow: "visible" }}
+        style={{ overflow: "visible", cursor: hoverIdx !== null ? "pointer" : "default" }}
         onMouseMove={handleMove}
         onMouseLeave={() => setHoverIdx(null)}
+        onClick={copy}
       >
         <polyline
           fill="none"
@@ -102,16 +114,17 @@ function Sparkline({ values, dayLabels = [], width = 120, height = 32, testid })
       </svg>
       {hoverIdx !== null && (
         <div
-          className="absolute z-10 px-2 py-1 rounded-sm text-xs font-mono whitespace-nowrap pointer-events-none"
+          className="absolute z-10 px-2 py-1 rounded-sm text-xs font-mono whitespace-nowrap pointer-events-none flex items-center gap-1"
           style={{
             background: "var(--surface-elev)",
             color: "var(--text-primary)",
             border: "1px solid var(--border-default)",
             bottom: height + 6,
-            left: Math.max(0, Math.min(width - 90, hoverIdx * stepX - 45)),
+            left: Math.max(0, Math.min(width - 130, hoverIdx * stepX - 55)),
           }}
           data-testid={`${testid}-tip`}
         >
+          <Copy className="w-2.5 h-2.5" style={{ color: "var(--text-muted)" }} />
           {tooltipDay} · ${tooltipCost?.toFixed(4)}
         </div>
       )}
@@ -132,6 +145,14 @@ export default function Routing() {
   const [projections, setProjections] = useState({});
   const [templates, setTemplates] = useState([]);
   const [applyingTemplate, setApplyingTemplate] = useState("");
+  const [previewFor, setPreviewFor] = useState(null); // {template_id, ...}
+  const [previewData, setPreviewData] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveLabel, setSaveLabel] = useState("");
+  const [saveBlurb, setSaveBlurb] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [projHistory, setProjHistory] = useState({ days: [], series: {} });
   const [checkingHealth, setCheckingHealth] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState({});
@@ -140,7 +161,7 @@ export default function Routing() {
 
   useEffect(() => { (async () => {
     try {
-      const [c, cf, u, ev, h, dd, pj, tp] = await Promise.all([
+      const [c, cf, u, ev, h, dd, pj, tp, ph] = await Promise.all([
         api.get("/routing/catalog"),
         api.get("/routing/config"),
         api.get("/routing/usage?days=30"),
@@ -149,12 +170,14 @@ export default function Routing() {
         api.get("/routing/usage/daily?days=30"),
         api.get("/routing/usage/projection"),
         api.get("/routing/templates"),
+        api.get("/routing/usage/projection/history?days=14"),
       ]);
       setCatalog(c.data); setCfg(cf.data); setUsage(u.data); setEvents(ev.data);
       setHealth(h.data);
       setDaily(dd.data);
       setProjections(pj.data);
       setTemplates(tp.data);
+      setProjHistory(ph.data);
     } catch (e) { toast.error("Couldn't load router config"); }
   })(); }, []);
 
@@ -240,16 +263,56 @@ export default function Routing() {
     } catch { /* silent */ }
   };
 
-  const applyTemplate = async (templateId) => {
-    setApplyingTemplate(templateId);
+  const openTemplatePreview = async (tpl) => {
+    setPreviewFor(tpl);
+    setPreviewData(null);
+    setPreviewLoading(true);
     try {
-      const { data } = await api.post("/routing/templates/apply", { template_id: templateId });
+      const { data } = await api.get(`/routing/templates/preview?template_id=${tpl.id}`);
+      setPreviewData(data);
+    } catch { toast.error("Couldn't preview template"); setPreviewFor(null); }
+    finally { setPreviewLoading(false); }
+  };
+
+  const confirmApplyTemplate = async () => {
+    if (!previewFor) return;
+    setApplyingTemplate(previewFor.id);
+    try {
+      const { data } = await api.post("/routing/templates/apply", { template_id: previewFor.id });
       setCfg(data.config);
-      const label = (templates.find((t) => t.id === templateId) || {}).label || templateId;
-      toast.success(`Applied "${label}" template`);
+      toast.success(`Applied "${previewFor.label}" template`);
       (data.warnings || []).forEach((w) => toast.warning(w));
-    } catch (e) { toast.error("Couldn't apply template"); }
-    finally { setApplyingTemplate(""); }
+    } catch { toast.error("Couldn't apply template"); }
+    finally {
+      setApplyingTemplate("");
+      setPreviewFor(null);
+      setPreviewData(null);
+    }
+  };
+
+  const saveAsTemplate = async () => {
+    const label = saveLabel.trim();
+    if (!label) { toast.error("Give it a label first"); return; }
+    setSavingTemplate(true);
+    try {
+      await api.post("/routing/templates/save", { label, blurb: saveBlurb.trim() });
+      const { data } = await api.get("/routing/templates");
+      setTemplates(data);
+      toast.success(`Saved "${label}"`);
+      setSaveModalOpen(false);
+      setSaveLabel(""); setSaveBlurb("");
+    } catch { toast.error("Couldn't save template"); }
+    finally { setSavingTemplate(false); }
+  };
+
+  const deleteTemplate = async (tpl) => {
+    if (tpl.kind !== "custom") return;
+    if (!window.confirm(`Delete "${tpl.label}"?`)) return;
+    try {
+      await api.delete(`/routing/templates/${tpl.id}`);
+      setTemplates((prev) => prev.filter((t) => t.id !== tpl.id));
+      toast.success("Template deleted");
+    } catch { toast.error("Couldn't delete template"); }
   };
 
   // Test call — round-trip through /routing/chat to prove routing works
@@ -322,40 +385,227 @@ export default function Routing() {
 
       {/* ── Templates ── */}
       <section data-testid="routing-templates-section">
-        <h2 className="font-serif text-2xl mb-4" style={{ color: "var(--text-primary)" }}>
-          One-click presets
-        </h2>
+        <div className="flex items-baseline justify-between mb-4">
+          <h2 className="font-serif text-2xl" style={{ color: "var(--text-primary)" }}>
+            One-click presets
+          </h2>
+          <button
+            onClick={() => setSaveModalOpen(true)}
+            data-testid="save-current-template-btn"
+            className="text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 border"
+            style={{ color: "var(--text-primary)", background: "var(--surface-elev)", borderColor: "var(--border-default)" }}
+          >
+            <Save className="w-3.5 h-3.5" /> Save current as template
+          </button>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {templates.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => applyTemplate(t.id)}
-              disabled={!!applyingTemplate}
-              data-testid={`template-apply-${t.id}`}
-              className="text-left rounded-md border p-4 transition hover:border-[color:var(--accent)]"
-              style={{ background: "var(--surface)", borderColor: "var(--border-default)" }}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                {applyingTemplate === t.id
-                  ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: "var(--accent)" }} />
-                  : <Layers className="w-4 h-4" style={{ color: "var(--accent)" }} />}
-                <span className="font-medium" style={{ color: "var(--text-primary)" }}>{t.label}</span>
-              </div>
-              <p className="text-xs leading-snug mb-2" style={{ color: "var(--text-muted)" }}>
-                {t.blurb}
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {t.required_providers.map((pid) => (
-                  <span key={pid} className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm"
-                        style={{ background: "var(--surface-elev)", color: "var(--text-secondary)" }}>
-                    {pid}
-                  </span>
-                ))}
-              </div>
-            </button>
+            <div key={t.id} className="relative">
+              <button
+                onClick={() => openTemplatePreview(t)}
+                disabled={!!applyingTemplate}
+                data-testid={`template-apply-${t.id}`}
+                className="w-full text-left rounded-md border p-4 transition hover:border-[color:var(--accent)]"
+                style={{ background: "var(--surface)", borderColor: "var(--border-default)" }}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  {applyingTemplate === t.id
+                    ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: "var(--accent)" }} />
+                    : <Layers className="w-4 h-4" style={{ color: "var(--accent)" }} />}
+                  <span className="font-medium" style={{ color: "var(--text-primary)" }}>{t.label}</span>
+                  {t.kind === "custom" && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm ml-auto mr-6"
+                          style={{ background: "var(--accent-muted)", color: "var(--accent)" }}>
+                      yours
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs leading-snug mb-2" style={{ color: "var(--text-muted)" }}>
+                  {t.blurb}
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {t.required_providers.map((pid) => (
+                    <span key={pid} className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm"
+                          style={{ background: "var(--surface-elev)", color: "var(--text-secondary)" }}>
+                      {pid}
+                    </span>
+                  ))}
+                </div>
+              </button>
+              {t.kind === "custom" && (
+                <button
+                  onClick={() => deleteTemplate(t)}
+                  data-testid={`template-delete-${t.id}`}
+                  className="absolute top-3 right-3 p-1 rounded-sm"
+                  style={{ color: "var(--text-muted)" }}
+                  title="Delete template"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           ))}
         </div>
       </section>
+
+      {/* ── Preview modal ── */}
+      {previewFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+             style={{ background: "rgba(18,17,16,0.75)", backdropFilter: "blur(4px)" }}
+             onClick={() => !applyingTemplate && setPreviewFor(null)}
+             data-testid="template-preview-modal">
+          <div
+            className="w-full max-w-2xl rounded-md border p-6 space-y-4"
+            style={{ background: "var(--surface)", borderColor: "var(--border-default)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="overline">Preview · Template</div>
+                <h3 className="font-serif text-2xl mt-1" style={{ color: "var(--text-primary)" }}>
+                  {previewFor.label}
+                </h3>
+                <p className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>{previewFor.blurb}</p>
+              </div>
+              <button
+                onClick={() => setPreviewFor(null)}
+                data-testid="template-preview-close"
+                className="p-1 rounded-sm"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {previewLoading && (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-5 h-5 animate-spin" style={{ color: "var(--accent)" }} />
+              </div>
+            )}
+
+            {previewData && (
+              <>
+                {previewData.diff.length === 0 ? (
+                  <div className="rounded-sm p-4 text-sm text-center"
+                       style={{ background: "var(--surface-elev)", color: "var(--text-muted)" }}
+                       data-testid="template-preview-no-changes">
+                    No changes — your current routing already matches this template.
+                  </div>
+                ) : (
+                  <div className="rounded-sm border overflow-hidden" style={{ borderColor: "var(--border-default)" }}>
+                    <div className="grid grid-cols-3 px-4 py-2 text-xs uppercase tracking-wide"
+                         style={{ background: "var(--surface-elev)", color: "var(--text-muted)" }}>
+                      <span>Task</span>
+                      <span>Current</span>
+                      <span>After applying</span>
+                    </div>
+                    {previewData.diff.map((d) => (
+                      <div key={d.task}
+                           className="grid grid-cols-3 px-4 py-3 border-t items-center text-sm"
+                           style={{ borderColor: "var(--border-default)" }}
+                           data-testid={`template-preview-diff-${d.task}`}>
+                        <span style={{ color: "var(--text-primary)" }}>{d.task_label}</span>
+                        <span className="font-mono" style={{ color: "var(--text-muted)" }}>
+                          {d.from}
+                        </span>
+                        <span className="font-mono" style={{ color: "var(--accent)" }}>
+                          → {d.to}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setPreviewFor(null)}
+                disabled={applyingTemplate === previewFor.id}
+                data-testid="template-preview-cancel"
+                className="px-4 py-2 rounded-sm text-sm"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmApplyTemplate}
+                disabled={applyingTemplate === previewFor.id || (previewData && previewData.diff.length === 0)}
+                data-testid="template-preview-confirm"
+                className="px-6 py-2 rounded-sm text-sm font-medium flex items-center gap-2"
+                style={{ background: "var(--accent)", color: "var(--surface)" }}
+              >
+                {applyingTemplate === previewFor.id
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Check className="w-4 h-4" />}
+                Apply template
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Save-as-template modal ── */}
+      {saveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+             style={{ background: "rgba(18,17,16,0.75)", backdropFilter: "blur(4px)" }}
+             onClick={() => !savingTemplate && setSaveModalOpen(false)}
+             data-testid="save-template-modal">
+          <div
+            className="w-full max-w-md rounded-md border p-6 space-y-4"
+            style={{ background: "var(--surface)", borderColor: "var(--border-default)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-serif text-2xl" style={{ color: "var(--text-primary)" }}>
+              Save current routing as template
+            </h3>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Snapshot your current task-routes into a preset that appears alongside the built-in ones.
+            </p>
+            <div>
+              <label className="text-xs uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Name</label>
+              <input
+                type="text" value={saveLabel} onChange={(e) => setSaveLabel(e.target.value)}
+                data-testid="save-template-label" maxLength="60"
+                placeholder="e.g. 'Cheap chat, quality tools'"
+                className="mt-1 w-full px-3 py-2 rounded-sm text-sm border"
+                style={{ background: "var(--surface-elev)", color: "var(--text-primary)", borderColor: "var(--border-default)" }}
+              />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Note (optional)</label>
+              <input
+                type="text" value={saveBlurb} onChange={(e) => setSaveBlurb(e.target.value)}
+                data-testid="save-template-blurb" maxLength="200"
+                placeholder="Why this routing?"
+                className="mt-1 w-full px-3 py-2 rounded-sm text-sm border"
+                style={{ background: "var(--surface-elev)", color: "var(--text-primary)", borderColor: "var(--border-default)" }}
+              />
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setSaveModalOpen(false)}
+                disabled={savingTemplate}
+                data-testid="save-template-cancel"
+                className="px-4 py-2 rounded-sm text-sm"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveAsTemplate}
+                disabled={savingTemplate || !saveLabel.trim()}
+                data-testid="save-template-confirm"
+                className="px-6 py-2 rounded-sm text-sm font-medium flex items-center gap-2"
+                style={{ background: "var(--accent)", color: "var(--surface)" }}
+              >
+                {savingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Task routing table ── */}
       <section data-testid="routing-tasks-section">
@@ -458,6 +708,19 @@ export default function Routing() {
                             <TrendingUp className="w-3 h-3" />
                             proj · {fmtUSD(projections[p.id].projected_month_end_usd)}
                           </span>
+                        )}
+                        {projHistory.series && projHistory.series[p.id] && projHistory.series[p.id].some((v) => v > 0) && (
+                          <div className="flex items-center gap-1 mt-0.5" data-testid={`provider-proj-history-${p.id}`}>
+                            <span className="text-[10px] font-mono uppercase tracking-wide"
+                                  style={{ color: "var(--text-muted)" }}>trend</span>
+                            <Sparkline
+                              values={projHistory.series[p.id]}
+                              dayLabels={projHistory.days}
+                              width={80}
+                              height={20}
+                              testid={`provider-proj-history-svg-${p.id}`}
+                            />
+                          </div>
                         )}
                       </div>
                     )}

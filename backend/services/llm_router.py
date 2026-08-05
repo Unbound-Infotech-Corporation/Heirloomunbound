@@ -765,3 +765,62 @@ async def month_end_projections(user_id: str) -> dict:
             "days_in_month": days_in_month,
         }
     return out
+
+
+async def snapshot_projections(user_id: str) -> int:
+    """Persist today's projection numbers so the UI can show a trend chart.
+
+    One row per (user_id, provider, YYYY-MM-DD) — subsequent calls the same
+    day OVERWRITE (idempotent), so the daily snapshotter can run more than
+    once without polluting the series.
+    """
+    now = datetime.now(timezone.utc)
+    day = now.date().isoformat()
+    proj = await month_end_projections(user_id)
+    if not proj:
+        return 0
+    n = 0
+    for pid, p in proj.items():
+        await db.projection_history.update_one(
+            {"user_id": user_id, "provider": pid, "day": day},
+            {"$set": {
+                "user_id": user_id, "provider": pid, "day": day,
+                "mtd_usd": p["mtd_usd"],
+                "projected_month_end_usd": p["projected_month_end_usd"],
+                "days_elapsed": p["days_elapsed"],
+                "days_in_month": p["days_in_month"],
+                "ts": now.isoformat(),
+            }},
+            upsert=True,
+        )
+        n += 1
+    return n
+
+
+async def projection_history(user_id: str, days: int = 14) -> dict:
+    """Return per-day projected month-end per provider, oldest→newest.
+
+    Shape: `{days: [YYYY-MM-DD, ...], series: {provider: [projected_usd, ...]}}`
+    Missing days → 0 (so a fresh archive doesn't look ragged).
+    """
+    from datetime import timedelta
+    days = max(1, min(int(days if days is not None else 14), 90))
+    now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    since = (now - timedelta(days=days - 1)).date().isoformat()
+    day_labels = [(now - timedelta(days=days - 1 - i)).date().isoformat() for i in range(days)]
+    day_index = {d: i for i, d in enumerate(day_labels)}
+
+    series: dict[str, list[float]] = {}
+    cursor = db.projection_history.find(
+        {"user_id": user_id, "day": {"$gte": since}},
+        {"_id": 0, "provider": 1, "day": 1, "projected_month_end_usd": 1},
+    )
+    async for row in cursor:
+        pid = row["provider"]
+        d = row["day"]
+        if d not in day_index:
+            continue
+        arr = series.setdefault(pid, [0.0] * days)
+        arr[day_index[d]] = round(float(row["projected_month_end_usd"] or 0), 6)
+
+    return {"days": day_labels, "series": series}

@@ -1,0 +1,36 @@
+{
+  "summary": "Full backend + frontend testing of iteration 42 (Template Comparison Table, Projection History Chart, Copy Sparkline Tooltip, Template Editor). Wrote /app/backend/tests/test_iteration42_templates_v2_projection_history.py with 26 tests covering: templates list (builtin/custom kind, order, no user_id leak), preview (diff shape, empty diff, own custom, unknown 404), apply (builtin, custom, unknown 400), save (label required, max 60, blurb truncated 200, user_id null in response), delete (built-in 400, non-existent 404, own success), cross-user scoping UA vs UB (list/preview/apply/delete all correctly isolated), projection history endpoint (default 14, clamp 0→1, clamp 1000→90), snapshot_projections idempotency (2 rows for 2 providers, second call keeps count at 2), and unique indexes (template_id_uniq, user_provider_day_uniq). All 26 backend tests pass (26/26 = 100%). Frontend Playwright verified: template preview modal opens with diff rows, cancel closes without applying, empty diff shows template-preview-no-changes notice and disables confirm button, save modal opens, saving a template with valid label refreshes list and adds a 'yours' badge + trash icon (data-testid template-delete-user_...), confirm dialog + delete removes the card, projection history mini-sparkline (data-testid provider-proj-history-svg-emergent) renders labeled 'TREND', and clicking on the daily sparkline while hovering triggers navigator.clipboard.writeText with the exact format 'YYYY-MM-DD, $X.XXXX' AND shows a 'Copied: …' toast.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SaveTemplateModal", "issue": "Spec says 'saving with empty label shows an error toast', but implementation disables the Save button while label is empty (no toast is fired). Functionally prevents empty saves — but does not match the toast requirement exactly.", "selector": "[data-testid=save-template-confirm]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration42_templates_v2_projection_history.py",
+    "/app/test_reports/pytest/iter42.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: If empty-label toast is required per spec, wire toast.error('Label is required') in saveAsTemplate() before/instead of relying solely on the disabled-button guard. Current UX is acceptable but doesn't match written spec."
+  ],
+  "critical_code_review_comments": [
+    "routing.py /templates/apply returns 400 for an unknown template_id, but the spec/general REST convention would be 404. Kept the existing 400 semantics per spec ('Unknown ID → 400'). Just note it diverges from /templates/preview which returns 404 — an inconsistency worth documenting.",
+    "llm_router.snapshot_projections silently returns 0 when month_end_projections is empty. Fine, but the 6h background loop should probably log which users were snapshotted for observability.",
+    "Routing.jsx Sparkline copy uses navigator.clipboard.writeText which requires secure context + user gesture; both are satisfied in production but tooltip is invisible on touch devices (no hover). Consider a fallback tap-to-select on mobile."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration42_templates_v2_projection_history.py (created)"
+  ],
+  "success_rate": {"backend": "100% (26/26)", "frontend": "~95% (only empty-label toast deviates from spec — non-blocking)"},
+  "test_credentials": "session_token=test_routing_session (user_id=test-routing-user); rest_regress_ua_session/rest_regress_ub_session used for cross-user scoping.",
+  "seed_data_creation": "Ephemeral users iter42-snap-<hex>, iter42-sess-<hex> created + cleaned inside test finally blocks. TEST_-prefixed custom templates saved and deleted in-flight so no residue.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 42 is fully green on backend (26/26) and functionally green on frontend. The only deviation from spec is that empty-label save shows a disabled button instead of an error toast (minor UX). Existing regression suites from iter36-41 are unchanged. Test credentials remain valid.",
+  "rca of the issue": "No functional issues found. The empty-label-toast note is a spec-vs-impl deviation, not a bug — the disabled-button approach also prevents the invalid submission; main agent can either update the spec or add a toast for parity."
+}

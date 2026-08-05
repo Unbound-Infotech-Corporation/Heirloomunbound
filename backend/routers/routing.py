@@ -14,6 +14,8 @@ POST /api/routing/verify          — live-check a BYOK key against its provider
 from __future__ import annotations
 
 import json
+import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -33,8 +35,10 @@ from services.llm_router import (
     daily_spend_series,
     get_config,
     month_end_projections,
+    projection_history,
     resolve_provider,
     save_config,
+    snapshot_projections,
     usage_summary,
 )
 from utils import rate_limit
@@ -207,25 +211,91 @@ async def get_usage_projection(user: dict = Depends(get_current_user)):
     return await month_end_projections(user["user_id"])
 
 
-# --------- Provider Templates (one-click presets) ---------
+@router.get("/usage/projection/history")
+async def get_projection_history(days: int = 14, user: dict = Depends(get_current_user)):
+    """Per-day snapshots of the month-end projection over the last N days.
+
+    Powers the "trend" chart on the Routing page so users can see whether
+    their spend estimate is rising or falling week over week.
+    """
+    return await projection_history(user["user_id"], days=days)
+
+
+# --------- Provider Templates (built-in presets + user-saved) ---------
+async def _load_user_templates(user_id: str) -> list[dict]:
+    cursor = db.user_templates.find(
+        {"user_id": user_id}, {"_id": 0, "user_id": 0}
+    ).sort("created_at", 1)
+    return await cursor.to_list(length=200)
+
+
 @router.get("/templates")
-async def list_templates():
-    """Enumerate one-click routing presets. Returned to the client so the UI
-    can render a picker without hard-coding names.
+async def list_templates(user: dict = Depends(get_current_user)):
+    """Enumerate one-click routing presets — built-ins first, then any
+    templates the user has saved themselves. Returned to the client so the
+    UI can render a picker without hard-coding names.
     """
     out = []
     for tid, spec in PRESETS.items():
-        # Report which providers this preset needs so the UI can warn about
-        # missing BYOK keys before the user applies it.
         required = sorted({pid for pid in spec["task_routes"].values()})
         out.append({
-            "id": tid,
-            "label": spec["label"],
-            "blurb": spec["blurb"],
+            "id": tid, "label": spec["label"], "blurb": spec["blurb"],
             "task_routes": spec["task_routes"],
             "required_providers": required,
+            "kind": "builtin",
+        })
+    for row in await _load_user_templates(user["user_id"]):
+        out.append({
+            "id": row["template_id"],
+            "label": row["label"],
+            "blurb": row.get("blurb") or "Saved by you",
+            "task_routes": row["task_routes"],
+            "required_providers": sorted({pid for pid in row["task_routes"].values()}),
+            "kind": "custom",
+            "created_at": row.get("created_at"),
         })
     return out
+
+
+@router.get("/templates/preview")
+async def preview_template(template_id: str, user: dict = Depends(get_current_user)):
+    """Show what a template would change WITHOUT applying it.
+
+    Returns a diff array + the resulting task_routes so the UI can display
+    a "here's what will change" table before the user confirms.
+    """
+    preset = PRESETS.get(template_id)
+    if not preset:
+        # Custom template?
+        custom = await db.user_templates.find_one(
+            {"user_id": user["user_id"], "template_id": template_id},
+            {"_id": 0},
+        )
+        if not custom:
+            raise HTTPException(404, f"unknown template '{template_id}'")
+        target_routes = custom["task_routes"]
+        label = custom["label"]
+    else:
+        target_routes = preset["task_routes"]
+        label = preset["label"]
+
+    existing = await get_config(user["user_id"])
+    current_routes = existing["task_routes"]
+    diff: list[dict] = []
+    for tid in TASKS:
+        cur = current_routes.get(tid, TASKS[tid]["default"])
+        new = target_routes.get(tid, cur)
+        if cur != new:
+            diff.append({
+                "task": tid, "task_label": TASKS[tid]["label"],
+                "from": cur, "to": new,
+            })
+    return {
+        "template_id": template_id, "label": label,
+        "current_routes": current_routes,
+        "new_routes": {**current_routes, **target_routes},
+        "diff": diff,
+    }
 
 
 class ApplyTemplateIn(BaseModel):
@@ -234,27 +304,35 @@ class ApplyTemplateIn(BaseModel):
 
 @router.post("/templates/apply")
 async def apply_template(payload: ApplyTemplateIn, user: dict = Depends(get_current_user)):
-    """Apply a preset to the caller's routing config. Only touches
-    `task_routes` — API keys, enabled flags and budget caps are preserved.
+    """Apply a preset OR user-saved custom template to the caller's routing
+    config. Only touches `task_routes` — API keys, enabled flags and budget
+    caps are preserved.
 
     Returns the updated (redacted) config plus a `warnings` list naming any
-    providers the preset routes to that aren't currently enabled / keyed.
+    providers the template routes to that aren't currently enabled / keyed.
     """
     preset = PRESETS.get(payload.template_id)
-    if not preset:
-        raise HTTPException(400, f"unknown template '{payload.template_id}'")
+    if preset:
+        target_routes = preset["task_routes"]
+    else:
+        custom = await db.user_templates.find_one(
+            {"user_id": user["user_id"], "template_id": payload.template_id},
+            {"_id": 0, "task_routes": 1},
+        )
+        if not custom:
+            raise HTTPException(400, f"unknown template '{payload.template_id}'")
+        target_routes = custom["task_routes"]
 
     existing = await get_config(user["user_id"])
     new_cfg = {
         "providers": existing["providers"],
-        "task_routes": {**existing["task_routes"], **preset["task_routes"]},
+        "task_routes": {**existing["task_routes"], **target_routes},
         "fallback_order": existing["fallback_order"],
     }
     saved = await save_config(user["user_id"], new_cfg)
 
-    # Warn about providers the preset needs but the user hasn't enabled/keyed.
     warnings: list[str] = []
-    for pid in set(preset["task_routes"].values()):
+    for pid in set(target_routes.values()):
         pcfg = saved["providers"].get(pid) or {}
         if not pcfg.get("enabled"):
             warnings.append(f"{pid} is disabled — routes will fall back to Emergent until you enable it")
@@ -262,6 +340,54 @@ async def apply_template(payload: ApplyTemplateIn, user: dict = Depends(get_curr
             warnings.append(f"{pid} has no API key — routes will fall back until you paste one")
 
     return {"config": _redact_keys(saved), "template": payload.template_id, "warnings": warnings}
+
+
+# ---- Custom (user-saved) templates ----
+class SaveTemplateIn(BaseModel):
+    label: str
+    blurb: str = ""
+
+
+@router.post("/templates/save")
+async def save_current_as_template(
+    payload: SaveTemplateIn,
+    user: dict = Depends(get_current_user),
+):
+    """Snapshot the caller's current `task_routes` into a custom template
+    that then appears alongside the built-in presets.
+    """
+    label = (payload.label or "").strip()
+    if not label:
+        raise HTTPException(400, "label is required")
+    if len(label) > 60:
+        raise HTTPException(400, "label too long (max 60 chars)")
+
+    cfg = await get_config(user["user_id"])
+    template_id = f"user_{uuid.uuid4().hex[:10]}"
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "template_id": template_id,
+        "user_id": user["user_id"],
+        "label": label,
+        "blurb": (payload.blurb or "").strip()[:200],
+        "task_routes": dict(cfg["task_routes"]),
+        "created_at": now,
+    }
+    await db.user_templates.insert_one(doc)
+    doc.pop("_id", None)
+    return {**doc, "user_id": None}  # never echo user_id back
+
+
+@router.delete("/templates/{template_id}")
+async def delete_user_template(template_id: str, user: dict = Depends(get_current_user)):
+    if not template_id.startswith("user_"):
+        raise HTTPException(400, "only user-saved templates can be deleted")
+    res = await db.user_templates.delete_one(
+        {"user_id": user["user_id"], "template_id": template_id}
+    )
+    if res.deleted_count == 0:
+        raise HTTPException(404, "template not found")
+    return {"ok": True, "template_id": template_id}
 
 
 # --------- Verify a BYOK key ---------
