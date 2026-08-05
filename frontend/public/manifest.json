@@ -1,0 +1,40 @@
+{
+  "name": "Heirloom · Digital Twin",
+  "short_name": "Heirloom",
+  "description": "Your AI twin — talk to it, feed it memories, receive calls on your behalf.",
+  "start_url": "/m",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#121110",
+  "theme_color": "#121110",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Call the Twin",
+      "short_name": "Call",
+      "url": "/m/call",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Quick Capture",
+      "short_name": "Capture",
+      "url": "/m/capture",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "categories": ["productivity", "lifestyle"]
+}

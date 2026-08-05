@@ -82,3 +82,15 @@ root.render(
     </Sentry.ErrorBoundary>
   </React.StrictMode>,
 );
+
+// Register the PWA service worker so the app is installable to Home Screen
+// and works offline for the mobile shell (/m). Only runs in production
+// builds — dev mode has HMR which the SW would interfere with.
+if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn("SW registration failed:", err);
+    });
+  });
+}

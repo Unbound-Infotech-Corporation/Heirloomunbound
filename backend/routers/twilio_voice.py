@@ -84,6 +84,12 @@ class TwilioConfig(BaseModel):
     phone_number: str = Field(min_length=6, max_length=20)  # E.164
     outbound_enabled: bool = False   # opt-in for twin-initiated calls
     voice_id: Optional[str] = None   # ElevenLabs voice_id override; else look up user's
+    # Optional Voice-SDK (in-app WebRTC dialer) fields. Only set these once you
+    # create an API Key + TwiML App in the Twilio Console — regular PSTN
+    # answering still works without them.
+    api_key_sid: Optional[str] = None    # starts with `SK…`
+    api_key_secret: Optional[str] = None
+    twiml_app_sid: Optional[str] = None  # starts with `AP…`
 
 
 class ConfigStatus(BaseModel):
@@ -92,6 +98,7 @@ class ConfigStatus(BaseModel):
     outbound_enabled: bool = False
     verified: bool = False
     webhook_configured: bool = False
+    webrtc_configured: bool = False
 
 
 @router.get("/config", response_model=ConfigStatus)
@@ -105,6 +112,11 @@ async def get_config(user: dict = Depends(get_current_user)):
         outbound_enabled=bool(doc.get("outbound_enabled", False)),
         verified=bool(doc.get("verified", False)),
         webhook_configured=bool(doc.get("webhook_configured", False)),
+        webrtc_configured=bool(
+            (doc.get("api_key_sid") or "").strip()
+            and (doc.get("api_key_secret") or "").strip()
+            and (doc.get("twiml_app_sid") or "").strip()
+        ),
     )
 
 
@@ -152,10 +164,20 @@ async def put_config(payload: TwilioConfig, user: dict = Depends(get_current_use
         "verified": True,
         "webhook_configured": webhook_ok,
         "friendly_name": friendly,
+        # Optional Voice-SDK fields — persisted only if provided; empty strings
+        # are stored as-is so PUT can also unset them.
+        "api_key_sid": (payload.api_key_sid or "").strip(),
+        "api_key_secret": (payload.api_key_secret or "").strip(),
+        "twiml_app_sid": (payload.twiml_app_sid or "").strip(),
         "updated_at": _now_iso(),
     }
     await db.user_twilio.replace_one({"user_id": user["user_id"]}, doc, upsert=True)
-    return {"ok": True, "phone_number": payload.phone_number, "webhook_configured": webhook_ok}
+    return {
+        "ok": True,
+        "phone_number": payload.phone_number,
+        "webhook_configured": webhook_ok,
+        "webrtc_configured": bool(doc["api_key_sid"] and doc["api_key_secret"] and doc["twiml_app_sid"]),
+    }
 
 
 @router.delete("/config")
@@ -224,6 +246,48 @@ async def list_calls(user: dict = Depends(get_current_user), limit: int = 20):
         {"user_id": user["user_id"]}, {"_id": 0}
     ).sort("created_at", -1).limit(min(limit, 100)).to_list(length=min(limit, 100))
     return {"calls": docs}
+
+
+@router.post("/voice/token")
+async def create_voice_sdk_token(user: dict = Depends(get_current_user)):
+    """Mint a short-lived JWT access token so the browser can register with
+    Twilio and make/receive WebRTC calls (in-app dialer for the mobile app).
+
+    Requires the user to have set `api_key_sid`, `api_key_secret`, and
+    `twiml_app_sid` in their Twilio config — separate from the Account SID +
+    Auth Token used for PSTN. If any of those three is missing we return 400
+    with instructions so the UI can guide them to the Twilio Console.
+    """
+    from twilio.jwt.access_token import AccessToken
+    from twilio.jwt.access_token.grants import VoiceGrant
+
+    doc = await db.user_twilio.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not doc:
+        raise HTTPException(400, "Twilio isn't configured yet — visit /phone first")
+    account_sid = (doc.get("account_sid") or "").strip()
+    api_key = (doc.get("api_key_sid") or "").strip()
+    api_secret = (doc.get("api_key_secret") or "").strip()
+    twiml_app = (doc.get("twiml_app_sid") or "").strip()
+    if not (api_key and api_secret and twiml_app):
+        raise HTTPException(
+            400,
+            "In-app calling needs an API Key + Secret + TwiML App SID. "
+            "Create them in the Twilio Console → API Keys and → TwiML Apps, "
+            "then paste all three into Phone settings.",
+        )
+
+    identity = f"twin-{user['user_id']}"
+    token = AccessToken(account_sid, api_key, api_secret, identity=identity, ttl=3600)
+    grant = VoiceGrant(
+        outgoing_application_sid=twiml_app,
+        incoming_allow=True,
+    )
+    token.add_grant(grant)
+    return {
+        "identity": identity,
+        "token": token.to_jwt(),
+        "ttl": 3600,
+    }
 
 
 # ------------- signature validation -------------

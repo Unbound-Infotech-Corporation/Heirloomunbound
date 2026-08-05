@@ -23,6 +23,10 @@ import PhonePage from "@/pages/Phone";
 import PhotoStory from "@/pages/PhotoStory";
 import Roadmap from "@/pages/Roadmap";
 import Routing from "@/pages/Routing";
+import MobileShell from "@/pages/mobile/MobileShell";
+import MobileCall from "@/pages/mobile/MobileCall";
+import MobileCapture from "@/pages/mobile/MobileCapture";
+import MobileHistory from "@/pages/mobile/MobileHistory";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import HeirPortal from "@/pages/HeirPortal";
@@ -100,6 +104,20 @@ function AppRouter() {
         <Route path="/routing" element={<Routing />} />
         <Route path="/avatar-studio" element={<AvatarStudio />} />
         <Route path="/setup/keys" element={<SetupKeys />} />
+      </Route>
+      {/* Mobile PWA shell — protected but no AppLayout (its own bottom-tab UI). */}
+      <Route
+        path="/m"
+        element={
+          <ProtectedRoute>
+            <MobileShell />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/m/call" replace />} />
+        <Route path="call" element={<MobileCall />} />
+        <Route path="capture" element={<MobileCapture />} />
+        <Route path="history" element={<MobileHistory />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
