@@ -105,7 +105,7 @@ async def _write_health(
     now = datetime.now(timezone.utc).isoformat()
     prior = await db.provider_health.find_one(
         {"user_id": user_id, "provider": provider},
-        {"_id": 0, "status": 1, "rotation_alert_sent": 1},
+        {"_id": 0, "status": 1, "rotation_alert_sent": 1, "rotation_alert_attempts": 1},
     ) or {}
     prior_status = prior.get("status")
 

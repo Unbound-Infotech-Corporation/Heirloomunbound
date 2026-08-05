@@ -1,0 +1,22 @@
+{
+  "summary": "Focused retest of iteration_40's rotation-alert retry-cap fix. Code verified: services/provider_health.py:108 projection now includes 'rotation_alert_attempts': 1 alongside status and rotation_alert_sent. Re-ran the full iter40 pytest suite: 13/13 passing (previously 12/13). The previously-failing TestRotationAlertRetryCap::test_cap_at_3_and_reset_on_green now passes, confirming (a) attempts counter accumulates 1→2→3 across successive green→red cycles when _send_rotation_alert is mocked to fail, (b) 4th green→red probe with attempts=3 does NOT invoke the sender (guard `attempts < 3` holds — call count stays at 2 across cycle-4 probes), (c) status=green resets BOTH rotation_alert_sent=false AND rotation_alert_attempts=0, and (d) fresh green→red after reset starts a new 3-attempt window (calls['n']==3, attempts=1). No regressions in the other 12 tests (templates list, apply, warnings, projection math, config redaction, health, usage_daily).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration40_templates_projection.py",
+    "/app/test_reports/pytest/iter41.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fix is minimal and correct: single projection field added. No other call sites read rotation_alert_attempts, so scope is contained.",
+    "The `except Exception` branch at provider_health.py:163-168 still does an unconditional $inc on rotation_alert_attempts with no cap check. Not exercised by current tests (mock returns False rather than raising) but a Resend SDK that throws consistently could grow the counter past 3. Low priority since the send-path guard already prevents further sends once attempts>=3."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "session_token=test_routing_session (user_id=test-routing-user) — not needed for this retest; scenario uses ephemeral iter40-cap-* users directly against the DB.",
+  "seed_data_creation": "Ephemeral user iter40-cap-<hex> created & cleaned in test finally block.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 40 retry-cap bug fully fixed and verified in iter41. Test file /app/backend/tests/test_iteration40_templates_projection.py TestRotationAlertRetryCap::test_cap_at_3_and_reset_on_green is now the regression guard.",
+  "rca of the issue": "Fixed as recommended in iter40 RCA: services/provider_health.py:108 projection now includes 'rotation_alert_attempts': 1. Verified attempts counter accumulates correctly and 4th probe respects the cap."
+}
