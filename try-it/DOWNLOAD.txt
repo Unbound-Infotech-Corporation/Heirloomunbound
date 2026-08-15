@@ -13,6 +13,12 @@ Then:
 2. Open the new folder
 3. Double-click  Try-Unbound-Keyboard.bat
 
+Drag the top bar (“drag here”) to move the card. It no longer sits on
+top of every window. Tap Stay in front only if you want that.
+
+To sign in: type your email, Send a sign-in note, paste the slip from
+your mail, tap Sign in. We never ask for a Google or Windows password.
+
 If Windows shows a blue box: More info → Run anyway.
 
 The .apk file is only for an Android phone.
