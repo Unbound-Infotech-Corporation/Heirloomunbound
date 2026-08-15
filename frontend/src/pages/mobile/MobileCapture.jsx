@@ -1,36 +1,64 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, Mic, Square, Upload } from "lucide-react";
+import { Camera, CloudOff, Loader2, Mic, RefreshCw, Square, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { count as queueCount, enqueue, flush } from "@/lib/offlineQueue";
 
 /**
- * Mobile Quick Capture — two paths, both explicitly mobile-first:
+ * Mobile Quick Capture — voice memos + photos.
  *
- *   1. **Voice memo** — MediaRecorder captures a WebM/Opus blob, uploaded to
- *      `/api/entries/voice` (existing voice-journal endpoint). One tap starts,
- *      another tap stops + uploads.
- *
- *   2. **Photo** — <input type="file" accept="image/*" capture="environment">
- *      opens the phone's rear-camera directly. Uploaded to `/api/photos`.
- *
- * The Capture flow is deliberately dead-simple — big buttons, no forms.
- * If the user is offline, the service-worker returns a 503 stub and we show
- * a queue notice; upload can be retried once online.
+ * When the browser is offline (or an upload fails), the blob is queued in
+ * IndexedDB and auto-flushed the next time we detect `online`. A small
+ * pending-count row lets the user manually retry too.
  */
 export default function MobileCapture() {
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [lastResult, setLastResult] = useState(null);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [pending, setPending] = useState(0);
+  const [flushing, setFlushing] = useState(false);
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
   const timerRef = useRef(null);
 
+  // Track online status + auto-flush queue on reconnect.
+  useEffect(() => {
+    const refresh = async () => setPending(await queueCount());
+    refresh();
+    const onOnline = async () => {
+      setOnline(true);
+      const p = await queueCount();
+      if (p > 0) doFlush();
+    };
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => () => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
   }, []);
+
+  const doFlush = async () => {
+    setFlushing(true);
+    try {
+      const { succeeded, failed } = await flush(api);
+      setPending(await queueCount());
+      if (succeeded > 0) toast.success(`${succeeded} queued item${succeeded === 1 ? "" : "s"} uploaded`);
+      if (failed > 0 && succeeded === 0) toast.error("Still can't reach the server");
+    } finally {
+      setFlushing(false);
+    }
+  };
 
   const startRecording = async () => {
     try {
@@ -43,7 +71,7 @@ export default function MobileCapture() {
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
-        await uploadVoice(blob);
+        await handleVoice(blob);
       };
       rec.start();
       recorderRef.current = rec;
@@ -63,27 +91,48 @@ export default function MobileCapture() {
     setRecording(false);
   };
 
-  const uploadVoice = async (blob) => {
+  const handleVoice = async (blob) => {
+    if (!navigator.onLine) {
+      try {
+        await enqueue({ kind: "voice", blob, filename: `memo-${Date.now()}.webm` });
+        setPending(await queueCount());
+        toast.success("Saved offline — will upload when you're back online");
+      } catch (e) { toast.error(e.message || "Couldn't queue offline"); }
+      return;
+    }
     setUploading(true);
     try {
       const fd = new FormData();
       fd.append("file", blob, `memo-${Date.now()}.webm`);
-      // The voice-journal endpoint transcribes + saves as an archive entry.
       const { data } = await api.post("/entries/voice", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setLastResult({ kind: "voice", ...data });
       toast.success("Memo captured");
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Upload failed");
+      // Any failure while marked online → queue it and keep going.
+      try {
+        await enqueue({ kind: "voice", blob, filename: `memo-${Date.now()}.webm` });
+        setPending(await queueCount());
+        toast.success("Upload failed — saved for retry");
+      } catch { toast.error(e?.response?.data?.detail || "Upload failed"); }
     } finally {
       setUploading(false);
     }
   };
 
-  const uploadPhoto = async (event) => {
+  const handlePhoto = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!navigator.onLine) {
+      try {
+        await enqueue({ kind: "photo", blob: file, filename: file.name });
+        setPending(await queueCount());
+        toast.success("Saved offline — will upload when you're back online");
+      } catch (e) { toast.error(e.message || "Couldn't queue offline"); }
+      event.target.value = "";
+      return;
+    }
     setUploading(true);
     try {
       const fd = new FormData();
@@ -95,10 +144,14 @@ export default function MobileCapture() {
       setLastResult({ kind: "photo", ...data });
       toast.success("Photo captured");
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Upload failed");
+      try {
+        await enqueue({ kind: "photo", blob: file, filename: file.name });
+        setPending(await queueCount());
+        toast.success("Upload failed — saved for retry");
+      } catch { toast.error(e?.response?.data?.detail || "Upload failed"); }
     } finally {
       setUploading(false);
-      event.target.value = ""; // let the same file be picked again
+      event.target.value = "";
     }
   };
 
@@ -115,6 +168,45 @@ export default function MobileCapture() {
           Voice notes get transcribed. Photos go straight into your archive.
         </p>
       </div>
+
+      {/* Offline / queue status */}
+      {(!online || pending > 0) && (
+        <div
+          className="rounded-md border p-3 flex items-center gap-3 text-sm"
+          style={{
+            background: "var(--surface-elev)",
+            borderColor: online ? "var(--border-default)" : "#c25b3f",
+            color: "var(--text-secondary)",
+          }}
+          data-testid="offline-banner"
+        >
+          <CloudOff className="w-4 h-4" style={{ color: online ? "var(--text-muted)" : "#c25b3f" }} />
+          <div className="flex-1 min-w-0">
+            {online ? (
+              <>
+                <span data-testid="offline-queue-count">{pending} item{pending === 1 ? "" : "s"}</span> waiting to upload.
+              </>
+            ) : (
+              <>
+                You&rsquo;re offline.
+                {pending > 0 && (<> <span data-testid="offline-queue-count">{pending}</span> queued.</>)}
+              </>
+            )}
+          </div>
+          {online && pending > 0 && (
+            <button
+              onClick={doFlush}
+              disabled={flushing}
+              data-testid="offline-retry-btn"
+              className="text-xs px-2.5 py-1 rounded-sm border inline-flex items-center gap-1"
+              style={{ borderColor: "var(--border-default)", color: "var(--accent)" }}
+            >
+              {flushing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Voice recorder */}
       <div
@@ -182,7 +274,7 @@ export default function MobileCapture() {
           type="file"
           accept="image/*"
           capture="environment"
-          onChange={uploadPhoto}
+          onChange={handlePhoto}
           disabled={uploading || recording}
           className="hidden"
           data-testid="capture-photo-input"

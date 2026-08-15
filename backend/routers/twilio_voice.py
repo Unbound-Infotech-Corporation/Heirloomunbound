@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import time
@@ -38,7 +39,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from twilio.request_validator import RequestValidator
 from twilio.rest import Client as TwilioClient
@@ -46,6 +47,7 @@ from twilio.twiml.voice_response import Gather, VoiceResponse
 
 from deps import db, get_current_user
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+from routers.push import notify_user
 
 router = APIRouter(prefix="/twilio", tags=["twilio"])
 log = logging.getLogger("twilio_voice")
@@ -63,6 +65,43 @@ ELEVEN_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 DEFAULT_ELEVEN_MODEL = "eleven_turbo_v2_5"
 
 AUDIO_CACHE: dict[str, tuple[float, bytes]] = {}  # token → (expires_at, mp3 bytes)
+
+# ------------- live transcript pub/sub -------------
+# Process-local in-memory bus. Each call_sid → set of asyncio.Queue()s that the
+# frontend SSE consumers wait on. When a new turn is recorded (either caller
+# speech or twin reply) we push a JSON blob onto every queue subscribed to
+# that call.
+#
+# Single-worker/single-process assumption is fine for now — the mobile PWA
+# only opens one SSE stream per call, and the same worker handles Twilio's
+# webhook. If we ever go multi-worker, swap for Redis pub/sub without touching
+# call sites.
+_TRANSCRIPT_BUS: dict[str, set[asyncio.Queue]] = {}
+
+
+def _publish_turn(call_sid: str, event: dict) -> None:
+    subs = _TRANSCRIPT_BUS.get(call_sid)
+    if not subs:
+        return
+    for q in list(subs):
+        try:
+            q.put_nowait(event)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _subscribe(call_sid: str) -> asyncio.Queue:
+    q: asyncio.Queue = asyncio.Queue(maxsize=64)
+    _TRANSCRIPT_BUS.setdefault(call_sid, set()).add(q)
+    return q
+
+
+def _unsubscribe(call_sid: str, q: asyncio.Queue) -> None:
+    subs = _TRANSCRIPT_BUS.get(call_sid)
+    if subs and q in subs:
+        subs.discard(q)
+        if not subs:
+            _TRANSCRIPT_BUS.pop(call_sid, None)
 
 
 def _now_iso() -> str:
@@ -146,9 +185,11 @@ async def put_config(payload: TwilioConfig, user: dict = Depends(get_current_use
     webhook_ok = False
     if PUBLIC_URL:
         webhook_url = f"{PUBLIC_URL}/api/twilio/voice/incoming"
+        status_cb_url = f"{PUBLIC_URL}/api/twilio/voice/status"
         try:
             await asyncio.to_thread(lambda: client.incoming_phone_numbers(number_sid).update(
-                voice_url=webhook_url, voice_method="POST"))
+                voice_url=webhook_url, voice_method="POST",
+                status_callback=status_cb_url, status_callback_method="POST"))
             webhook_ok = True
         except Exception as exc:  # noqa: BLE001
             log.warning("Couldn't auto-set voice webhook for user %s: %s", user["user_id"], exc)
@@ -225,6 +266,9 @@ async def outbound_call(payload: OutboundReq, user: dict = Depends(get_current_u
             from_=cfg["phone_number"],
             url=f"{PUBLIC_URL}/api/twilio/voice/incoming?seed_id={seed_id}",
             method="POST",
+            status_callback=f"{PUBLIC_URL}/api/twilio/voice/status",
+            status_callback_event=["completed"],
+            status_callback_method="POST",
         ))
     except Exception as exc:  # noqa: BLE001
         await db.twilio_calls.update_one(
@@ -386,6 +430,21 @@ async def voice_incoming(request: Request):
             "status": "in-progress",
             "created_at": _now_iso(),
         })
+        # Wake the owner's mobile PWA — non-blocking so we don't slow Twilio's
+        # webhook. If push isn't configured or all subs are dead, notify_user
+        # returns 0 silently.
+        try:
+            asyncio.create_task(notify_user(cfg["user_id"], {
+                "title": "Incoming call to your twin",
+                "body": f"From {from_number} — join live?",
+                "url": f"/m/call?join={call_sid}",
+                "tag": f"call-{call_sid}",
+                "requireInteraction": True,
+                "call_sid": call_sid,
+                "from": from_number,
+            }))
+        except Exception:  # noqa: BLE001
+            pass
 
     # Build the opening prompt — either seeded outbound line, or default greeting
     if opening_line:
@@ -439,6 +498,10 @@ async def voice_turn(call_sid: str, request: Request):
         {"call_sid": call_sid},
         {"$set": {"turns": turns, "last_updated_at": _now_iso()}},
     )
+
+    # Push both turns to any live-transcript SSE listeners.
+    _publish_turn(call_sid, {"role": "caller", "text": speech, "at": turns[-2]["at"]})
+    _publish_turn(call_sid, {"role": "twin", "text": reply, "at": turns[-1]["at"]})
 
     # Synthesize with the user's ElevenLabs voice; fall back to Twilio TTS.
     try:
@@ -514,3 +577,124 @@ async def get_audio(token_with_ext: str):
         AUDIO_CACHE.pop(token, None)
         raise HTTPException(status_code=404, detail="audio expired")
     return Response(content=blob, media_type="audio/mpeg")
+
+
+# ------------- live transcript SSE + call end hooks -------------
+@router.get("/calls/{call_sid}/transcript/stream")
+async def transcript_stream(call_sid: str, user: dict = Depends(get_current_user)):
+    """SSE feed of every new turn on this call.
+
+    Frontend usage: `new EventSource(url, {withCredentials: true})`. Emits an
+    initial `data: {history:[...]}` event with everything captured so far
+    (so a subscriber that joins mid-call sees prior turns), then live
+    `data: {role, text, at}` events per turn. Sends a `:keepalive` comment
+    every 15s so the browser doesn't kill the connection.
+    """
+    doc = await db.twilio_calls.find_one({"call_sid": call_sid}, {"_id": 0})
+    if not doc or doc.get("user_id") != user["user_id"]:
+        raise HTTPException(404, "Call not found")
+
+    history = list(doc.get("turns") or [])
+
+    async def event_gen():
+        q = _subscribe(call_sid)
+        try:
+            yield f"event: history\ndata: {json.dumps({'turns': history})}\n\n"
+            while True:
+                try:
+                    item = await asyncio.wait_for(q.get(), timeout=15.0)
+                    yield f"data: {json.dumps(item)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            _unsubscribe(call_sid, q)
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
+@router.post("/voice/status")
+async def voice_status(request: Request):
+    """Twilio status callback — fires on call state changes. When the call
+    ends (`completed` / `busy` / `no-answer` / `failed` / `canceled`) we
+    auto-save the transcript into the archive so the twin learns from it,
+    then close the SSE bus for that call_sid.
+    """
+    form = await request.form()
+    call_sid = form.get("CallSid", "")
+    call_status = (form.get("CallStatus") or "").lower()
+
+    doc = await db.twilio_calls.find_one({"call_sid": call_sid}, {"_id": 0})
+    if not doc:
+        return Response(status_code=204)
+    cfg = await db.user_twilio.find_one({"user_id": doc["user_id"]}, {"_id": 0})
+    if cfg and not await _validate_signature(request, cfg["auth_token"]):
+        log.warning("Bad signature on status_callback CallSid=%s", call_sid)
+        raise HTTPException(status_code=403, detail="Bad Twilio signature")
+
+    # Final states — persist to archive + notify listeners.
+    if call_status in {"completed", "busy", "no-answer", "failed", "canceled"} and not doc.get("archived_entry_id"):
+        turns = doc.get("turns") or []
+        if turns:
+            # Compact transcript for the archive entry body.
+            lines = []
+            for t in turns:
+                who = "Caller" if t.get("role") == "caller" else "Twin"
+                lines.append(f"{who}: {t.get('text', '').strip()}")
+            body = "\n".join(lines)
+            direction = doc.get("direction") or "inbound"
+            other = doc.get("from_number") if direction == "inbound" else doc.get("to_number")
+            entry = {
+                "entry_id": uuid.uuid4().hex[:12],
+                "user_id": doc["user_id"],
+                "entry_type": "voice",
+                "title": f"Phone call {direction} · {other or 'unknown'}",
+                "content": body,
+                "source": "twilio_call",
+                "source_ref": call_sid,
+                "created_at": _now_iso(),
+                "updated_at": _now_iso(),
+            }
+            try:
+                await db.entries.insert_one(entry)
+                await db.twilio_calls.update_one(
+                    {"call_sid": call_sid},
+                    {"$set": {"archived_entry_id": entry["entry_id"], "status": call_status}},
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Failed to archive call transcript: %s", exc)
+
+        _publish_turn(call_sid, {"role": "system", "event": "end", "status": call_status})
+
+    else:
+        await db.twilio_calls.update_one(
+            {"call_sid": call_sid}, {"$set": {"status": call_status}}
+        )
+
+    return Response(status_code=204)
+
+
+class CallContactReq(BaseModel):
+    contact_id: str = Field(min_length=6, max_length=32)
+    opening_line: Optional[str] = Field(default=None, max_length=400)
+
+
+@router.post("/call/contact")
+async def call_contact(payload: CallContactReq, user: dict = Depends(get_current_user)):
+    """Place a Twin-initiated outbound call to a saved contact. Thin wrapper
+    around the existing `/call/outbound` flow — just resolves the contact by
+    id first so the mobile UI doesn't have to expose raw numbers."""
+    contact = await db.contacts.find_one(
+        {"user_id": user["user_id"], "contact_id": payload.contact_id},
+        {"_id": 0},
+    )
+    if not contact:
+        raise HTTPException(404, "Contact not found")
+    line = (payload.opening_line
+            or f"Hi {contact['name'].split()[0]}, this is a call from the digital twin.")
+    return await outbound_call(
+        OutboundReq(to_number=contact["phone"], opening_line=line),
+        user=user,
+    )

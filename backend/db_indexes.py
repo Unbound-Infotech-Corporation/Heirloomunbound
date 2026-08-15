@@ -125,6 +125,14 @@ async def ensure_indexes() -> None:
         # companion_commands hot path (poller reads by user_id + status)
         ("companion_commands", [("user_id", 1), ("status", 1), ("created_at", 1)],
             {"name": "user_status_created"}),
+
+        # Web Push subscriptions — one row per (user, endpoint)
+        ("push_subscriptions", [("user_id", 1), ("endpoint", 1)],
+            {"unique": True, "name": "user_endpoint_uniq"}),
+
+        # Mobile contacts book
+        ("contacts", [("user_id", 1), ("name", 1)], {"name": "user_name"}),
+        ("contacts", [("contact_id", 1)], {"unique": True, "name": "contact_id_uniq"}),
     ]
 
     created = 0
