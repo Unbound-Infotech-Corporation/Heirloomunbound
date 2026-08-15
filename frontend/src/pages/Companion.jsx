@@ -36,6 +36,8 @@ export default function Companion() {
   const [activity, setActivity] = useState([]);
   const [cmdDraft, setCmdDraft] = useState({ kind: "shell", text: "" });
   const [busy, setBusy] = useState(false);
+  const [downloadErr, setDownloadErr] = useState("");
+  const [downloadingId, setDownloadingId] = useState(null);
 
   const loadAll = async () => {
     const [d, a] = await Promise.all([
@@ -51,15 +53,49 @@ export default function Companion() {
     return () => clearInterval(t);
   }, []);
 
+  const saveDesktopZip = async (path) => {
+    const r = await api.get(path, { responseType: "blob" });
+    const blob = r.data;
+    if (blob && blob.type && blob.type.includes("application/json")) {
+      throw new Error("Couldn't download Heirloom. Try again.");
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "HeirloomDesktop.zip";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const createDevice = async () => {
     setCreating(true);
+    setDownloadErr("");
     try {
-      const { data } = await api.post("/companion/register", { name: newName });
+      const { data } = await api.post("/companion/register", { name: newName.trim() || "My PC" });
       setIssued(data);
       setNewName("My PC");
-      loadAll();
+      await loadAll();
+      await saveDesktopZip(`/companion/desktop-package?token=${encodeURIComponent(data.device_token)}`);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setDownloadErr(typeof detail === "string" && detail.trim() ? detail : "Couldn't prepare the download. Check your internet and try again.");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const downloadAgain = async (deviceId) => {
+    setDownloadingId(deviceId);
+    setDownloadErr("");
+    try {
+      await saveDesktopZip(`/companion/devices/${deviceId}/desktop-package`);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setDownloadErr(typeof detail === "string" && detail.trim() ? detail : "Couldn't download. Try again.");
+    } finally {
+      window.setTimeout(() => setDownloadingId(null), 800);
     }
   };
 
@@ -130,28 +166,33 @@ export default function Companion() {
           Your hands on the machine.
         </h1>
         <p className="mt-3 text-base max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          A small Python program that runs on your 5090 PC. It listens for your push-to-talk, talks to your Twin in the cloud, and quietly carries out the things you ask it to do.
+          One download. Unzip it, double-click Heirloom.bat, and leave the window until Avatar Studio says this computer is ready.
         </p>
       </header>
 
       {/* Setup */}
       <section className="surface p-7 mb-10">
-        <div className="overline mb-3">setup — two steps</div>
+        <div className="overline mb-3">setup — one download</div>
         <ol className="space-y-3 text-sm leading-relaxed mb-6" style={{ color: "var(--text-secondary)" }}>
-          <li>1. Name this device, then click <b style={{ color: "var(--text-primary)" }}>Issue token</b>.</li>
-          <li>2. On your PC, <b style={{ color: "var(--text-primary)" }}>download the Easy install <code className="font-mono" style={{ color: "var(--accent)" }}>.bat</code> and double-click it</b>. It installs Python silently (if missing), drops the companion in <code className="font-mono">%LOCALAPPDATA%\Heirloom</code>, runs it hidden in the tray, and auto-starts on every sign-in. That&apos;s it.</li>
+          <li>1. Name this computer, then click <b style={{ color: "var(--text-primary)" }}>Download Heirloom</b>.</li>
+          <li>2. Unzip the folder and double-click <code className="font-mono" style={{ color: "var(--accent)" }}>Heirloom.bat</code> (Windows) or <code className="font-mono" style={{ color: "var(--accent)" }}>run.sh</code> (Mac). If Windows asks, choose More info, then Run anyway.</li>
+          <li>3. Leave it open. Twin → Avatar Studio will say this computer is ready. Then add a photo and tap Set up my twin.</li>
         </ol>
         <p className="text-xs mb-6" style={{ color: "var(--text-muted)" }}>
-          Works on Windows 10 (≥ 1809) and Windows 11. No terminal, no pip, no Python knowledge needed.
-          Prefer the manual route? The <b>Windows package (.zip)</b> ships the same script as separate files
-          you can inspect and run yourself.
+          Works on Windows 10 and 11. If Python is missing, Heirloom installs it. Lost the zip later? Tap Download again on the computer below — you do not need a new pairing.
         </p>
+
+        {downloadErr ? (
+          <p className="text-sm mb-4" style={{ color: "var(--danger)" }} data-testid="companion-download-error">
+            {downloadErr}
+          </p>
+        ) : null}
 
         <div className="flex gap-3">
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="Device name (e.g. Studio PC)"
+            placeholder="My PC"
             data-testid="companion-name"
             className="flex-1 px-3 py-2 text-sm rounded-sm"
             style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
@@ -163,8 +204,8 @@ export default function Companion() {
             className="inline-flex items-center gap-2 px-5 py-2 text-sm rounded-sm disabled:opacity-50"
             style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
           >
-            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
-            Issue token
+            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {creating ? "Preparing your download…" : "Download Heirloom"}
           </button>
         </div>
 
@@ -172,11 +213,11 @@ export default function Companion() {
           <div className="mt-6 p-5 rounded-sm" style={{ border: "1px dashed var(--accent)", background: "var(--accent-muted)" }}>
             <div className="flex items-center gap-2 mb-3">
               <CheckCircle2 className="h-4 w-4" style={{ color: "var(--accent)" }} />
-              <div className="overline">token issued — copy or download now</div>
+              <div className="overline">download started</div>
             </div>
-            <div className="font-mono text-xs break-all mb-3" data-testid="issued-token" style={{ color: "var(--text-primary)" }}>
-              {issued.device_token}
-            </div>
+            <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+              Your download should start by itself. If it did not, use the button below. Unzip, then double-click Heirloom.bat.
+            </p>
             <div className="flex gap-3 flex-wrap">
               <button
                 onClick={downloadDesktopApp}
@@ -184,48 +225,53 @@ export default function Companion() {
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
                 style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
               >
-                <Download className="h-3.5 w-3.5" /> Heirloom Desktop (full app)
-              </button>
-              <button
-                onClick={downloadEasyInstaller}
-                data-testid="download-easy-installer"
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
-                style={{ border: "1px solid var(--accent)", color: "var(--text-primary)" }}
-              >
-                <Download className="h-3.5 w-3.5" /> Background companion (.bat)
-              </button>
-              <button
-                onClick={downloadWindows}
-                data-testid="download-windows"
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
-                style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
-              >
-                <Download className="h-3.5 w-3.5" /> Companion .zip
-              </button>
-              <button
-                onClick={downloadScript}
-                data-testid="download-script"
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
-                style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
-              >
-                <Download className="h-3.5 w-3.5" /> .py only (Mac/Linux)
-              </button>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(issued.device_token);
-                }}
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
-                style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
-                data-testid="copy-token"
-              >
-                <Copy className="h-3.5 w-3.5" /> Copy token
+                <Download className="h-3.5 w-3.5" /> Download Heirloom
               </button>
             </div>
-            <p className="text-xs mt-4 leading-relaxed" style={{ color: "var(--text-muted)" }}>
-              <b style={{ color: "var(--accent)" }}>Heirloom Desktop</b> is the full Windows app — a resizable
-              window with your twin&apos;s talking-head avatar, full chat thread, push-to-talk, quick-capture journal,
-              and a pop-out avatar mode for OBS streaming. The background companion <code>.bat</code> is the lightweight
-              option — runs hidden in the tray, listens for Ctrl+Space, no GUI. Both share the same token.</p>
+            <details className="mt-4">
+              <summary className="text-xs cursor-pointer" style={{ color: "var(--text-muted)" }}>
+                Extra files and pairing code (most people skip this)
+              </summary>
+              <div className="font-mono text-xs break-all mt-3 mb-3" data-testid="issued-token" style={{ color: "var(--text-primary)" }}>
+                {issued.device_token}
+              </div>
+              <div className="flex gap-3 flex-wrap">
+                <button
+                  onClick={downloadEasyInstaller}
+                  data-testid="download-easy-installer"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
+                  style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+                >
+                  <Download className="h-3.5 w-3.5" /> Background companion (.bat)
+                </button>
+                <button
+                  onClick={downloadWindows}
+                  data-testid="download-windows"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
+                  style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+                >
+                  <Download className="h-3.5 w-3.5" /> Companion .zip
+                </button>
+                <button
+                  onClick={downloadScript}
+                  data-testid="download-script"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
+                  style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+                >
+                  <Download className="h-3.5 w-3.5" /> .py only (Mac/Linux)
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(issued.device_token);
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
+                  style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+                  data-testid="copy-token"
+                >
+                  <Copy className="h-3.5 w-3.5" /> Copy pairing code
+                </button>
+              </div>
+            </details>
           </div>
         )}
       </section>
@@ -251,14 +297,27 @@ export default function Companion() {
                   </div>
                 </div>
                 {!d.revoked && (
-                  <button onClick={() => revoke(d.device_id)} data-testid={`revoke-${d.device_id}`} className="p-2">
-                    <Trash2 className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => downloadAgain(d.device_id)}
+                      disabled={downloadingId === d.device_id}
+                      data-testid={`download-again-${d.device_id}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-sm disabled:opacity-50"
+                      style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+                    >
+                      {downloadingId === d.device_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                      Download again
+                    </button>
+                    <button onClick={() => revoke(d.device_id)} data-testid={`revoke-${d.device_id}`} className="p-2">
+                      <Trash2 className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
             <p className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>
-              Lost a download? Tokens can't be retrieved after they're issued — revoke the device above and click <b>Issue token</b> again to get a fresh package.
+              Lost the zip? Tap Download again. You do not need to remove the computer or get a new pairing.
             </p>
           </div>
         )}

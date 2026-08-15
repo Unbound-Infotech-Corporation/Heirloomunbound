@@ -76,6 +76,17 @@ export default function AvatarStudio() {
   }, []);
 
   useEffect(() => {
+    if (!data) return undefined;
+    const waitingHome = !data.home?.online;
+    const waitingSetup = setupBusy(data.setup?.last_job);
+    if (!waitingHome && !waitingSetup) return undefined;
+    const timer = setInterval(() => {
+      load();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [data?.home?.online, data?.home?.connected, data?.home?.seen, data?.setup?.last_job?.job_id, data?.setup?.last_job?.status]);
+
+  useEffect(() => {
     const last = data?.setup?.last_job;
     if (!last || last.done) {
       setSetupJob(last || null);
@@ -106,7 +117,7 @@ export default function AvatarStudio() {
       fd.append("angle", angle);
       fd.append("file", file);
       await api.post("/avatar-studio/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success(`${angle} uploaded.`);
+      toast.success(angle === "front" ? "Saved as your twin's face." : "Photo saved.");
       load();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Upload failed.");
@@ -236,7 +247,16 @@ export default function AvatarStudio() {
 
   const runEasySetup = async () => {
     if (!data?.home?.connected) {
-      toast.error("Open the Heirloom app on the computer at home first.");
+      toast.error("Download Heirloom for the home computer first.");
+      nav("/companion");
+      return;
+    }
+    if (!data?.home?.seen) {
+      toast.error("Double-click Heirloom.bat on the home computer. Wait until this page says ready.");
+      return;
+    }
+    if (!data.front) {
+      toast.error("Add a photo of your face first — looking at the camera.");
       return;
     }
     const already = Boolean(data.setup?.consent_at);
@@ -267,6 +287,13 @@ export default function AvatarStudio() {
 
   const primaryAction = async () => {
     if (setupBusy(setupJob)) return;
+    if (!data?.home?.connected) {
+      nav("/companion");
+      return;
+    }
+    if (setupJob?.status === "error") {
+      return runEasySetup();
+    }
     if (setupReady(data) && data.front) {
       return runJob("look", "liveportrait");
     }
@@ -275,6 +302,14 @@ export default function AvatarStudio() {
       return;
     }
     return runEasySetup();
+  };
+
+  const primaryLabel = () => {
+    if (!data?.home?.connected) return "Get Heirloom for this computer";
+    if (setupBusy(setupJob) || busy === "setup") return "Working on your computer…";
+    if (setupJob?.status === "error") return "Try again";
+    if (setupReady(data)) return "Look at me";
+    return "Set up my twin";
   };
 
   const connectMail = async (provider) => {
@@ -304,17 +339,32 @@ export default function AvatarStudio() {
         <div className="overline mb-3">your twin</div>
         <h1 className="font-serif text-4xl mb-3">Look like you. Talk like you.</h1>
         <p className="text-sm mb-6 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          {(data.setup?.blurb) || (data.catalog?.setup?.blurb) || "Three taps. We install the free tools on your home computer. No extra accounts, no passwords."}
+          {(data.setup?.blurb) || (data.catalog?.setup?.blurb) || "Download Heirloom, add a photo, tap Set up my twin. We install the free tools on your home computer. No extra accounts, no passwords."}
           {" "}Use a photo of <em>you</em> — never someone else.
         </p>
         {data.home && (
           <p className="text-xs mb-8" style={{ color: data.home.online ? "var(--ok, #7da06f)" : "var(--text-muted)" }} data-testid="avatar-home-status">
             <Monitor className="inline h-3.5 w-3.5 mr-1" />
-            {data.home.connected
-              ? (data.home.online
-                ? `${data.home.name || "Your computer"} is ready.`
-                : `Open the Heirloom app on ${data.home.name || "the computer at home"}.`)
-              : "First, open the Heirloom app on the computer at home. We install the tools there."}
+            {data.home.next || (
+              data.home.connected
+                ? (data.home.online
+                  ? `${data.home.name || "Your computer"} is ready.`
+                  : `Open the Heirloom app on ${data.home.name || "the computer at home"}.`)
+                : "First, download Heirloom for the computer at home. We install the tools there."
+            )}
+          </p>
+        )}
+        {data.home && !data.home.connected && (
+          <p className="mb-8">
+            <button
+              type="button"
+              onClick={() => nav("/companion")}
+              data-testid="avatar-get-heirloom"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-sm"
+              style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+            >
+              <Download className="h-4 w-4" /> Get Heirloom for this computer
+            </button>
           </p>
         )}
 
@@ -392,17 +442,24 @@ export default function AvatarStudio() {
             className="inline-flex items-center gap-2 px-5 py-3 text-sm rounded-sm"
             style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
           >
-            {(busy === "setup" || setupBusy(setupJob)) ? <Loader2 className="h-4 w-4 animate-spin" /> : setupReady(data) ? <Eye className="h-4 w-4" /> : <Heart className="h-4 w-4" />}
-            {setupBusy(setupJob) || busy === "setup"
-              ? "Working on your computer…"
-              : setupReady(data)
-                ? "Look at me"
-                : "Set up my twin"}
+            {(busy === "setup" || setupBusy(setupJob)) ? <Loader2 className="h-4 w-4 animate-spin" /> : setupJob?.status === "error" ? <Heart className="h-4 w-4" /> : setupReady(data) ? <Eye className="h-4 w-4" /> : !data.home?.connected ? <Download className="h-4 w-4" /> : <Heart className="h-4 w-4" />}
+            {primaryLabel()}
           </button>
           {(setupJob || jobHint) && (
-            <p className="text-xs mt-4" style={{ color: "var(--accent)" }} data-testid="avatar-setup-progress">
+            <p className="text-xs mt-4" style={{ color: setupJob?.status === "error" ? "var(--danger)" : "var(--accent)" }} data-testid="avatar-setup-progress">
               {setupJob?.result_text || jobHint || (setupBusy(setupJob) ? "Downloading the free installer…" : "")}
             </p>
+          )}
+          {setupJob?.status === "error" && (
+            <button
+              type="button"
+              onClick={runEasySetup}
+              data-testid="avatar-setup-retry"
+              className="mt-3 inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
+              style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+            >
+              Try again
+            </button>
           )}
           <div className="mt-6 pt-5" style={{ borderTop: "1px solid var(--border-default)" }} data-testid="avatar-mail-cta">
             {data.mail?.connected ? (

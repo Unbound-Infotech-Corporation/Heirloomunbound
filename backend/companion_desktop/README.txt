@@ -6,8 +6,20 @@ A professional Windows desktop app for your AI Twin.
 QUICK START
 -----------
 1. Double-click `Heirloom.bat`.
-2. First run installs Python deps in %LOCALAPPDATA%\Heirloom — takes ~60 seconds.
-3. The app opens. Your device token is already baked in — no sign-in needed.
+2. First run sets Heirloom up — about a minute. Leave the window open.
+   If Python is missing, Heirloom installs it (via winget). If a Python
+   installer window appears instead, tick "Add python.exe to PATH", finish
+   it, then double-click Heirloom.bat again.
+3. The app opens already signed in. Then go to Twin → Avatar Studio in
+   your browser: add a photo, tick the box, tap Set up my twin.
+
+If Windows shows a blue "Windows protected your PC" box: More info, then
+Run anyway. That is the one click we cannot skip for you.
+
+Lost the zip? Open Local PC in your account and tap Download again on this
+computer. You do not need a new pairing.
+
+Logs: %LOCALAPPDATA%\Heirloom\setup.log
 
 WHAT'S INSIDE
 -------------
@@ -46,7 +58,8 @@ a Window Capture source and pick "Heirloom Twin — Broadcast".
 REQUIREMENTS
 ------------
 - Windows 10 or 11
-- Python 3.10+ (if missing, the launcher will open the install page for you)
+- Python 3.10+ (Heirloom.bat installs it if missing; if a download page
+  opens, tick "Add python.exe to PATH")
 - A working microphone (for push-to-talk)
 - Internet — the twin runs in the cloud
 
@@ -55,7 +68,8 @@ TROUBLESHOOTING
 - No sound when twin speaks? Check default playback device. The D-ID render
   bundles audio inside the MP4 — Windows volume mixer should show Heirloom.
 - Mic not working? Settings → Privacy → Microphone → allow desktop apps.
-- App didn't open? Check %LOCALAPPDATA%\Heirloom for error logs.
+- App didn't open? Open %LOCALAPPDATA%\Heirloom\setup.log. Then Local PC →
+  Download again. Unzip over the old folder and double-click Heirloom.bat.
 
 VOICE CLONING
 -------------

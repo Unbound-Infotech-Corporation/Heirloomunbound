@@ -58,7 +58,7 @@ async def register_device(payload: RegisterReq, user: dict = Depends(get_current
 @router.get("/devices")
 async def list_devices(user: dict = Depends(get_current_user)):
     cursor = db.companion_devices.find(
-        {"user_id": user["user_id"]}, {"_id": 0, "device_token": 0}
+        {"user_id": user["user_id"]}, {"_id": 0, "device_token": 0}  # never expose tokens in the list
     ).sort("created_at", -1)
     return await cursor.to_list(length=20)
 
@@ -321,7 +321,7 @@ async def companion_status(payload: CompanionStatusIn, ctx: dict = Depends(get_d
     return {"ok": True, "models": tags}
 
 
-COMPANION_SCRIPT_VERSION = "2026.08.15.5"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.15.6"  # bump whenever _build_companion_script materially changes
 
 
 class CompanionResult(BaseModel):
@@ -729,6 +729,25 @@ async def desktop_package(
         raise HTTPException(status_code=404, detail="Device token not found")
 
     payload = build_desktop_app_zip_bytes(token)
+    from fastapi import Response
+
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="HeirloomDesktop.zip"'},
+    )
+
+
+@router.get("/devices/{device_id}/desktop-package")
+async def desktop_package_for_device(device_id: str, user: dict = Depends(get_current_user)):
+    """Re-download Heirloom for an existing PC without showing the token again."""
+    device = await db.companion_devices.find_one(
+        {"device_id": device_id, "user_id": user["user_id"], "revoked": False},
+        {"_id": 0},
+    )
+    if not device or not device.get("device_token"):
+        raise HTTPException(status_code=404, detail="Device not found")
+    payload = build_desktop_app_zip_bytes(device["device_token"])
     from fastapi import Response
 
     return Response(
@@ -1762,15 +1781,23 @@ def run_avatar_setup(payload):
         notes.append("Pinokio is already on this computer.")
         launch(found)
     else:
-        try:
-            r = requests.get(
-                "https://api.github.com/repos/pinokiocomputer/pinokio/releases/latest",
-                timeout=30, headers={"Accept": "application/vnd.github+json"},
-            )
-            r.raise_for_status()
-            assets = (r.json() or {}).get("assets") or []
-        except Exception as e:
-            return "error", "Couldn't reach GitHub for the Pinokio installer. (%s)" % e
+        assets = []
+        gh_err = None
+        for _attempt in range(3):
+            try:
+                r = requests.get(
+                    "https://api.github.com/repos/pinokiocomputer/pinokio/releases/latest",
+                    timeout=30,
+                    headers={"Accept": "application/vnd.github+json", "User-Agent": "HeirloomDesktop/1.0"},
+                )
+                r.raise_for_status()
+                assets = (r.json() or {}).get("assets") or []
+                gh_err = None
+                break
+            except Exception as e:
+                gh_err = e
+        if gh_err:
+            return "error", "Couldn't reach GitHub for the Pinokio installer. (%s)" % gh_err
         sysname = platform.system()
         machine = (platform.machine() or "").lower()
         arm = machine in ("arm64", "aarch64")
@@ -1784,41 +1811,61 @@ def run_avatar_setup(payload):
             if sysname == "Windows" and nl == "pinokio.exe":
                 picked = (name, url)
                 break
+            if sysname == "Windows" and nl.endswith(".exe") and "setup" in nl and not picked:
+                picked = (name, url)
+                continue
             if sysname == "Darwin" and nl.endswith(".dmg") and (("arm64" in nl) == arm):
                 picked = (name, url)
                 break
             if sysname != "Windows" and sysname != "Darwin" and nl.endswith(".appimage") and (("arm64" in nl) == arm):
                 picked = (name, url)
                 break
+        if not picked and sysname == "Windows":
+            for a in assets:
+                name = str((a or {}).get("name") or "")
+                url = str((a or {}).get("browser_download_url") or "")
+                nl = name.lower()
+                if name and url and nl.endswith(".exe") and "blockmap" not in nl and host_ok(url):
+                    picked = (name, url)
+                    break
         if not picked:
             return "error", "Couldn't find the official Pinokio download for this computer."
         dest = os.path.join(inst_dir, picked[0])
-        try:
-            with requests.get(picked[1], stream=True, timeout=120, allow_redirects=True) as rr:
-                rr.raise_for_status()
-                if not host_ok(rr.url or picked[1]):
-                    return "error", "Blocked an unexpected download address."
-                written = 0
-                with open(dest, "wb") as f:
-                    for chunk in rr.iter_content(chunk_size=262144):
-                        if not chunk:
-                            continue
-                        written += len(chunk)
-                        if written > 250 * 1024 * 1024:
-                            return "error", "Installer was larger than expected."
-                        f.write(chunk)
-        except Exception as e:
-            return "error", "Download failed: %s" % e
-        notes.append("Downloaded " + picked[0])
+        if os.path.exists(dest) and os.path.getsize(dest) > 1000000:
+            notes.append("Using the installer already saved on this computer.")
+        else:
+            try:
+                with requests.get(picked[1], stream=True, timeout=120, allow_redirects=True) as rr:
+                    rr.raise_for_status()
+                    if not host_ok(rr.url or picked[1]):
+                        return "error", "Blocked an unexpected download address."
+                    written = 0
+                    with open(dest, "wb") as f:
+                        for chunk in rr.iter_content(chunk_size=262144):
+                            if not chunk:
+                                continue
+                            written += len(chunk)
+                            if written > 250 * 1024 * 1024:
+                                return "error", "Installer was larger than expected."
+                            f.write(chunk)
+            except Exception as e:
+                return "error", "Download failed: %s" % e
+            notes.append("Downloaded " + picked[0])
         launch(dest)
         notes.append("If Windows shows a blue box, click More info, then Run anyway.")
-    for url in payload.get("apps") or []:
-        if isinstance(url, str) and url.startswith("https://"):
+    if found:
+        look_urls = [u for u in (payload.get("apps") or []) if isinstance(u, str) and "liveportrait" in u.lower()]
+        for url in look_urls[:1]:
             webbrowser.open(url)
+            notes.append("Opened LivePortrait in Pinokio.")
+    copied = 0
+    wanted = 0
     for i, item in enumerate(payload.get("images") or []):
         if not isinstance(item, dict):
             continue
         image_id = (item.get("image_id") or "").strip()
+        if image_id:
+            wanted += 1
         angle = "".join(ch for ch in (item.get("angle") or ("img" + str(i))) if ch.isalnum() or ch == "_")[:24] or ("img" + str(i))
         data = None
         ct = "image/jpeg"
@@ -1836,6 +1883,9 @@ def run_avatar_setup(payload):
         open(os.path.join(folder, f"{angle}.{ext}"), "wb").write(data)
         if angle == "front" or i == 0:
             open(os.path.join(folder, f"front.{ext}"), "wb").write(data)
+        copied += 1
+    if wanted and copied == 0:
+        return "error", "Couldn't copy your photo onto this computer. Tap Set up my twin again."
     open(os.path.join(folder, "START_HERE.txt"), "w", encoding="utf-8").write(
         "Your twin tools install on THIS computer. No extra accounts.\\n\\n"
         "1. Finish the Pinokio installer if it is on screen.\\n"

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QSizeGrip,
     QSplitter,
@@ -254,8 +255,13 @@ class MainWindow(QMainWindow):
         )
 
     def _on_me_err(self, msg: str) -> None:
-        self.titlebar.set_user_name("sign-in required")
-        self._update_status("not authed")
+        self.titlebar.set_user_name("this copy isn’t signed in")
+        self._update_status("download Heirloom again from your account")
+        QMessageBox.warning(
+            self,
+            "Heirloom",
+            "This copy isn’t signed in. Open Local PC in your account and tap Download again.",
+        )
 
     # ----- twin → avatar -----
     def _on_twin_reply(self, text: str) -> None:

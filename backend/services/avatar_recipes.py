@@ -256,7 +256,7 @@ DOWNLOAD_HOSTS: tuple[str, ...] = (
 
 SIMPLE_SETUP: dict[str, Any] = {
     "title": "Set up my twin",
-    "blurb": "Three taps. We install the free tools on your home computer. No extra accounts, no passwords.",
+    "blurb": "Download Heirloom, add a photo, tap Set up my twin. We install the free tools on your home computer. No extra accounts, no passwords.",
     "consent": (
         "I want Heirloom to install the free twin tools on my home computer. "
         "Pinokio and ComfyUI run on this PC and do not need an email or password. "
@@ -271,10 +271,10 @@ SIMPLE_SETUP: dict[str, Any] = {
     "releases_api": PINOKIO_RELEASES_API,
     "apps": [a["pinokio_url"] for a in PINOKIO_APPS],
     "steps": [
+        "On the home computer, unzip Heirloom and double-click Heirloom.bat. Wait until this page says the computer is ready.",
         "Add a photo of your face (a clear one, looking at the camera).",
-        "Tick the box so we know you want this on your computer.",
-        "Tap Set up my twin. Leave the Heirloom app open on the home computer.",
-        "If Windows asks, click More info, then Run anyway. Then tap Install in the Pinokio window.",
+        "Tick the box, then tap Set up my twin. Leave the Heirloom app open.",
+        "If Windows asks, click More info, then Run anyway. Then tap Install in Pinokio.",
         "When that is done, tap Look at me.",
     ],
 }
@@ -306,6 +306,10 @@ def pick_pinokio_asset(assets: list, system: str, machine: str = "") -> Optional
     if sys_name.startswith("win"):
         for row in rows:
             if row["name"].lower() == "pinokio.exe":
+                return row
+        for row in rows:
+            n = row["name"].lower()
+            if n.endswith(".exe") and "setup" in n:
                 return row
         for row in rows:
             if row["name"].lower().endswith(".exe"):

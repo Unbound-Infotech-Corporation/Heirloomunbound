@@ -159,14 +159,40 @@ async def queue_setup(user: dict, *, consent: bool) -> dict:
     if not consent:
         raise HTTPException(400, "Tick the box so we know you want this on your computer.")
 
+    images = await current_images(user["user_id"])
+    if not any((i.get("angle") or "") == "front" for i in images):
+        raise HTTPException(
+            400,
+            "Add a photo of your face first — looking at the camera.",
+        )
+
     dev = await _active_device(user["user_id"])
     if not dev:
         raise HTTPException(
             409,
-            "Open the Heirloom app on the computer at home first. We install the free tools there.",
+            "Download Heirloom for the home computer first (Local PC in the sidebar). Unzip it, double-click Heirloom.bat, then come back here.",
+        )
+    if not dev.get("last_seen"):
+        raise HTTPException(
+            409,
+            "Double-click Heirloom.bat on the home computer. Wait until this page says the computer is ready, then tap Set up my twin again.",
         )
 
-    images = await current_images(user["user_id"])
+    last = await db.avatar_jobs.find_one(
+        {"user_id": user["user_id"], "kind": "setup"},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+    if last and last.get("status") in ("queued", "dispatched", "processing"):
+        out = public_job(last)
+        out["howto"] = SIMPLE_SETUP.get("windows_note") or ""
+        out["recipe_label"] = SIMPLE_SETUP.get("title") or "Set up my twin"
+        out["hint"] = (
+            "Still working on your computer. Leave the Heirloom app open. "
+            "If Windows shows a blue box, click More info, then Run anyway."
+        )
+        return out
+
     job_id = f"avt_{uuid.uuid4().hex[:12]}"
     now = _now()
     current_engine = (user.get("avatar_engine") or "auto").strip().lower()
@@ -208,7 +234,7 @@ async def queue_setup(user: dict, *, consent: bool) -> dict:
     if not doc["home_online"]:
         doc["hint"] = (
             f"Open {dev.get('name') or 'the Heirloom app'} on the home computer. "
-            "Then we download Pinokio for you."
+            "Setup starts as soon as the app is open."
         )
     else:
         doc["hint"] = (

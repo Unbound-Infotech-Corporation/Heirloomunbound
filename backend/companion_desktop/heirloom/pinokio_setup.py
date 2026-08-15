@@ -30,6 +30,10 @@ ALLOWED_HOSTS = {
     "release-assets.githubusercontent.com",
 }
 MAX_INSTALLER_BYTES = 250 * 1024 * 1024
+_GH_HEADERS = {
+    "Accept": "application/vnd.github+json",
+    "User-Agent": "HeirloomDesktop/1.0",
+}
 
 
 def _headers() -> dict:
@@ -51,28 +55,31 @@ def run_easy_setup(payload: dict) -> tuple[str, str]:
     if found:
         notes.append(f"Pinokio is already on this computer ({found}).")
         _launch_path(found)
+        _open_look_app(payload.get("apps") or [])
+        notes.append("Opened LivePortrait in Pinokio. Tap Install if it asks.")
     else:
         asset = _latest_installer()
         if not asset:
-            return "error", "Couldn't find the official Pinokio download for this computer."
+            return "error", "Couldn't find the official Pinokio download for this computer. Try Set up my twin again in a minute."
         dest = inst_dir / asset["name"]
-        notes.append(f"Downloading {asset['name']}…")
-        try:
-            _download(asset["url"], dest)
-        except Exception as exc:  # noqa: BLE001
-            return "error", f"Download failed: {exc}"
-        notes.append(f"Saved installer to {dest}")
+        if dest.exists() and dest.stat().st_size > 1_000_000:
+            notes.append(f"Using the installer already saved at {dest}.")
+        else:
+            notes.append(f"Downloading {asset['name']}…")
+            try:
+                _download(asset["url"], dest)
+            except Exception as exc:  # noqa: BLE001
+                return "error", f"Download failed: {exc}. Check the internet and tap Set up my twin again."
+            notes.append(f"Saved installer to {dest}")
         _launch_path(dest)
         notes.append(
             "If a blue Windows box appears, click More info, then Run anyway. Then click Install."
         )
 
-    for url in payload.get("apps") or []:
-        if isinstance(url, str) and url.startswith("https://"):
-            webbrowser.open(url)
-            notes.append(f"Opened {url}")
-
     copied = _copy_photos(folder, payload.get("images") or [])
+    wanted = [i for i in (payload.get("images") or []) if isinstance(i, dict) and i.get("image_id")]
+    if wanted and copied == 0:
+        return "error", "Couldn't copy your photo onto this computer. Tap Set up my twin again."
     if copied:
         notes.append(f"Copied {copied} photo(s) into {folder}")
 
@@ -83,11 +90,10 @@ def run_easy_setup(payload: dict) -> tuple[str, str]:
                 "Your twin tools install on THIS computer. No extra accounts.",
                 "",
                 "1. Finish the Pinokio installer if it is on screen.",
-                "2. In Pinokio, tap Install on LivePortrait and ComfyUI.",
-                "3. Go back to Heirloom and tap Look at me.",
-                "4. Turn on the webcam when LivePortrait asks.",
-                "",
-                "Windows blue warning: More info → Run anyway. That is Windows being careful, not a virus.",
+                "2. If Windows shows a blue box: More info, then Run anyway.",
+                "3. In Pinokio, tap Install on LivePortrait.",
+                "4. Go back to Heirloom and tap Look at me.",
+                "5. Turn on the webcam when LivePortrait asks.",
             ]
         ),
         encoding="utf-8",
@@ -100,7 +106,7 @@ def run_easy_setup(payload: dict) -> tuple[str, str]:
     except Exception:
         pass
     job_id = (payload.get("job_id") or "").strip()
-    msg = " ".join(notes)
+    msg = " ".join(notes) or "Pinokio installer started."
     if job_id:
         try:
             requests.post(
@@ -112,6 +118,15 @@ def run_easy_setup(payload: dict) -> tuple[str, str]:
         except Exception:
             pass
     return "ok", msg[:2000]
+
+
+def _open_look_app(apps: list) -> None:
+    """Open LivePortrait only after Pinokio itself is already installed."""
+    urls = [u for u in (apps or []) if isinstance(u, str) and u.startswith("https://")]
+    look = [u for u in urls if "liveportrait" in u.lower()]
+    chosen = (look or urls)[:1]
+    for url in chosen:
+        webbrowser.open(url)
 
 
 def _pinokio_exe() -> str | None:
@@ -140,16 +155,24 @@ def _host_ok(url: str) -> bool:
 
 def _latest_installer() -> dict[str, str] | None:
     # Stay self-contained — the desktop app does not import backend services.
-    r = requests.get(GITHUB_RELEASES, timeout=30, headers={"Accept": "application/vnd.github+json"})
-    r.raise_for_status()
-    assets = (r.json() or {}).get("assets") or []
-    picked = _pick_local(assets, platform.system(), platform.machine())
-    if not picked or not _host_ok(picked.get("url") or ""):
-        return None
-    return {
-        "name": picked.get("name") or "Pinokio.bin",
-        "url": picked["url"],
-    }
+    last_exc: Exception | None = None
+    for _attempt in range(3):
+        try:
+            r = requests.get(GITHUB_RELEASES, timeout=30, headers=_GH_HEADERS)
+            r.raise_for_status()
+            assets = (r.json() or {}).get("assets") or []
+            picked = _pick_local(assets, platform.system(), platform.machine())
+            if not picked or not _host_ok(picked.get("url") or ""):
+                return None
+            return {
+                "name": picked.get("name") or "Pinokio.bin",
+                "url": picked["url"],
+            }
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+    if last_exc:
+        raise last_exc
+    return None
 
 
 def _pick_local(
@@ -171,6 +194,10 @@ def _pick_local(
     if sys_name.startswith("win"):
         for row in rows:
             if row["name"].lower() == "pinokio.exe":
+                return row
+        for row in rows:
+            n = row["name"].lower()
+            if n.endswith(".exe") and "setup" in n:
                 return row
         for row in rows:
             if row["name"].lower().endswith(".exe"):

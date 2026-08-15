@@ -171,11 +171,17 @@ async def upload_avatar(
     )
 
     public_url = _public_url_for(doc)
+    if angle == "front":
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"avatar_source_url": public_url, "updated_at": _now_iso()}},
+        )
     return {
         "image_id": img_id,
         "angle": angle,
         "serve_url": public_url,
         "size": doc["size"],
+        "active": angle == "front",
     }
 
 
@@ -224,6 +230,19 @@ async def get_my_avatars(user: dict = Depends(get_current_user)):
     setup = dict(catalog.get("setup") or {})
     setup["consent_at"] = user.get("avatar_setup_consent_at") or ""
     setup["last_job"] = public_job(last_setup) if last_setup else None
+    has_front = bool(by_angle.get("front"))
+    seen = bool(dev and dev.get("last_seen"))
+    online = _device_is_awake(dev)
+    if not dev:
+        home_next = "Download Heirloom for the home computer (Local PC in the sidebar), unzip it, and double-click Heirloom.bat."
+    elif not seen:
+        home_next = "On the home computer, double-click Heirloom.bat. This page will say ready when it is."
+    elif not online:
+        home_next = f"Open the Heirloom app on {dev.get('name') or 'the computer at home'}."
+    elif not has_front:
+        home_next = "Add a photo of your face looking at the camera."
+    else:
+        home_next = f"{dev.get('name') or 'Your computer'} is ready."
     return {
         "active_source_url": user.get("avatar_source_url") or "",
         "front": by_angle.get("front"),
@@ -238,8 +257,10 @@ async def get_my_avatars(user: dict = Depends(get_current_user)):
         "fal_using_user_key": bool((user.get("fal_api_key") or "").strip()),
         "home": {
             "connected": bool(dev),
-            "online": _device_is_awake(dev),
+            "online": online,
+            "seen": seen,
             "name": (dev or {}).get("name") or "",
+            "next": home_next,
         },
         "jobs": [public_job(j) for j in recent],
         "catalog": catalog,

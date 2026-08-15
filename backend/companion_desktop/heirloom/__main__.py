@@ -8,16 +8,48 @@ time, so the user double-clicks Heirloom.bat and is immediately signed in.
 """
 from __future__ import annotations
 
+import os
 import sys
+import traceback
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from . import config
 from .maintenance import Maintenance
 from .ui.main_window import MainWindow, TrayProxy
 from .ui.splash import Splash
+
+
+def _setup_log_path() -> Path:
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+        folder = Path(base) / "Heirloom"
+    else:
+        folder = Path.home() / ".heirloom"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / "setup.log"
+
+
+def _append_setup_log(text: str) -> None:
+    try:
+        path = _setup_log_path()
+        with path.open("a", encoding="utf-8") as f:
+            f.write(f"\n{datetime.now().isoformat()}\n{text}\n")
+    except Exception:
+        pass
+
+
+def _show_start_error(message: str) -> None:
+    _append_setup_log(message)
+    try:
+        if QApplication.instance() is None:
+            QApplication(sys.argv)
+        QMessageBox.critical(None, "Heirloom", message)
+    except Exception:
+        print(message, file=sys.stderr)
 
 
 def _schedule_midnight_maintenance(window: MainWindow) -> None:
@@ -44,17 +76,18 @@ def _schedule_midnight_maintenance(window: MainWindow) -> None:
     _arm()
 
 
-def main() -> int:
+def _run() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Heirloom")
     app.setOrganizationName("Unbound Infotech")
     app.setQuitOnLastWindowClosed(False)  # tray keeps us alive
 
     if not config.DEVICE_TOKEN:
-        QMessageBox.critical(
-            None,
-            "Heirloom",
-            "No device token configured. Re-download Heirloom from your account.",
+        _show_start_error(
+            "This copy isn’t signed in.\n\n"
+            "Open Local PC in your Heirloom account and tap Download Heirloom "
+            "(or Download again on this computer).\n\n"
+            f"Details: {_setup_log_path()}"
         )
         return 1
 
@@ -70,6 +103,19 @@ def main() -> int:
     splash.start()
 
     return app.exec()
+
+
+def main() -> int:
+    try:
+        return _run()
+    except Exception:
+        tb = traceback.format_exc()
+        _append_setup_log(tb)
+        _show_start_error(
+            "Heirloom couldn't start. Download it again from Local PC in your account.\n\n"
+            f"Details: {_setup_log_path()}"
+        )
+        return 1
 
 
 if __name__ == "__main__":

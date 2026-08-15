@@ -112,6 +112,8 @@ def test_public_catalog_honest_and_complete():
     assert "password" in setup["consent"].lower()
     assert all(u.startswith("https://pinokio.co/") for u in setup["apps"])
     assert len(setup["steps"]) >= 4
+    assert any("Heirloom.bat" in s for s in setup["steps"])
+    assert "Download Heirloom" in setup["blurb"]
 
 
 _GH = "https://github.com/pinokiocomputer/pinokio/releases/download/v8.0.40"
@@ -158,6 +160,13 @@ def test_pick_pinokio_asset_windows_mac_linux():
     assert linux["name"] == "Pinokio-8.0.40.AppImage"
     linux_arm = pick_pinokio_asset(PINOKIO_ASSETS, "Linux", "aarch64")
     assert linux_arm["name"] == "Pinokio-8.0.40-arm64.AppImage"
+    setup_only = pick_pinokio_asset(
+        [_asset("Pinokio-Setup.exe"), _asset("Pinokio.exe.blockmap")],
+        "Windows",
+        "AMD64",
+    )
+    assert setup_only is not None
+    assert setup_only["name"] == "Pinokio-Setup.exe"
 
 
 def test_pick_pinokio_ignores_blockmap_and_foreign_hosts():
@@ -206,7 +215,7 @@ def test_companion_picker_matches_backend():
 def test_companion_script_mentions_easy_setup_and_no_passwords():
     companion = Path(__file__).resolve().parents[1] / "routers" / "companion.py"
     text = companion.read_text(encoding="utf-8")
-    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.5"' in text
+    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.6"' in text
     assert "def run_avatar_setup" in text
     assert '"avatar_setup"' in text
     assert "No accounts. No passwords." in text
