@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { CheckCircle2, Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
@@ -263,9 +264,42 @@ export default function Settings() {
         </div>
       </section>
 
+      <Link
+        to="/models"
+        data-testid="settings-models-link"
+        className="surface p-5 mb-6 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
+        style={{ border: "1px solid var(--accent)" }}
+      >
+        <div>
+          <div className="overline mb-1" style={{ color: "var(--accent)" }}>Models</div>
+          <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+            Connect a cloud API or download a model to your home computer, then pick which one each function uses.
+          </p>
+          <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+            Click the one you want — it connects or downloads and is ready.
+          </p>
+        </div>
+        <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
+      </Link>
+
+      <Link
+        to="/m/call"
+        data-testid="settings-mobile-link"
+        className="surface p-5 mb-6 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
+        style={{ border: "1px solid var(--border-default)" }}
+      >
+        <div>
+          <div className="overline mb-1">Phone companion</div>
+          <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+            The handset app talks to the same archive as your home computer. Add only the desktop packs you still want — phone calls stay available.
+          </p>
+        </div>
+        <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
+      </Link>
+
       {/* BYO keys quick-link — full setup wizard */}
-      <a
-        href="/setup/keys"
+      <Link
+        to="/setup/keys"
         data-testid="settings-setup-keys-link"
         className="surface p-5 mb-6 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
         style={{ border: "1px solid var(--accent)" }}
@@ -280,7 +314,7 @@ export default function Settings() {
           </p>
         </div>
         <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
-      </a>
+      </Link>
 
       {/* Dashboard widget toggles */}
       <section className="surface p-7 mb-6" data-testid="widgets-section">

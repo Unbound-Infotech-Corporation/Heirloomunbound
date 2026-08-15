@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Monitor, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
 import { api, streamSSE } from "../lib/api";
+import FunctionModelPicker, { modelOverride } from "@/components/FunctionModelPicker";
 
 const TOOL_META = {
   search_archive: { label: "searching your archive", icon: Search },
@@ -62,6 +63,7 @@ export default function Twin() {
   const [videos, setVideos] = useState({});
   const [liveTools, setLiveTools] = useState([]);
   const [abilities, setAbilities] = useState([]);
+  const [modelChoice, setModelChoice] = useState(null);
 
   useEffect(() => {
     api.get("/abilities").then(({ data }) => setAbilities(data.abilities || [])).catch(() => {});
@@ -154,7 +156,7 @@ export default function Twin() {
     const toolTrace = [];
     await streamSSE(
       "/twin/message",
-      { conversation_id: conv.conversation_id, message: text },
+      { conversation_id: conv.conversation_id, message: text, ...modelOverride(modelChoice) },
       (chunk) => {
         full += chunk;
         setStreaming(full);
@@ -248,7 +250,8 @@ export default function Twin() {
             Your twin draws from everything you&apos;ve put into the archive. The more you&apos;ve added, the truer it sounds.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+        <FunctionModelPicker functionId="chat" compact onChange={setModelChoice} />
         <button
           type="button"
           onClick={() => {

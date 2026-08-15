@@ -201,6 +201,8 @@ DEFAULT_CONFIG = {
         for pid in PROVIDERS
     },
     "task_routes": {task_id: spec["default"] for task_id, spec in TASKS.items()},
+    "task_models": {},          # optional per-task model override (Maestro picker)
+    "local_task_routes": {},    # task -> ollama tag when the function runs on the home PC
     "fallback_order": list(DEFAULT_FALLBACK),
 }
 
@@ -211,6 +213,8 @@ async def get_config(user_id: str) -> dict:
     cfg = {
         "providers": {**DEFAULT_CONFIG["providers"]},
         "task_routes": {**DEFAULT_CONFIG["task_routes"]},
+        "task_models": dict(doc.get("task_models") or {}),
+        "local_task_routes": dict(doc.get("local_task_routes") or {}),
         "fallback_order": list(doc.get("fallback_order") or DEFAULT_CONFIG["fallback_order"]),
     }
     for pid, defaults in DEFAULT_CONFIG["providers"].items():
@@ -226,6 +230,8 @@ async def save_config(user_id: str, cfg: dict) -> dict:
         "user_id": user_id,
         "providers": cfg.get("providers", {}),
         "task_routes": cfg.get("task_routes", {}),
+        "task_models": cfg.get("task_models", {}),
+        "local_task_routes": cfg.get("local_task_routes", {}),
         "fallback_order": cfg.get("fallback_order", DEFAULT_CONFIG["fallback_order"]),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -325,7 +331,12 @@ async def chat_once(
     attempted: list[dict] = []
     for provider in chain:
         pcfg = cfg["providers"].get(provider) or {}
-        model = model_override or pcfg.get("default_model") or PROVIDERS[provider]["default_model"]
+        model = (
+            model_override
+            or (cfg.get("task_models") or {}).get(task)
+            or pcfg.get("default_model")
+            or PROVIDERS[provider]["default_model"]
+        )
         try:
             if provider == "emergent":
                 result = await _dispatch_emergent(user_id, model, messages)
@@ -450,7 +461,12 @@ async def chat_stream(
     last_error: Optional[str] = None
     for idx, provider in enumerate(chain):
         pcfg = cfg["providers"].get(provider) or {}
-        model = model_override or pcfg.get("default_model") or PROVIDERS[provider]["default_model"]
+        model = (
+            model_override
+            or (cfg.get("task_models") or {}).get(task)
+            or pcfg.get("default_model")
+            or PROVIDERS[provider]["default_model"]
+        )
         if idx > 0:
             yield {"fallback": provider, "model": model}
         try:

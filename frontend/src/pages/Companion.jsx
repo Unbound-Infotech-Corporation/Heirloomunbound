@@ -7,6 +7,7 @@ const KIND_ICONS = {
   media_key: Volume2, power: Power, notify: Bell, type_text: Keyboard,
   clipboard_get: Clipboard, clipboard_set: Clipboard, system_status: Cpu,
   find_file: Search, screenshot: Eye, shell: Terminal,
+  pull_model: Download, list_models: Cpu, llm_chat: Cpu,
 };
 
 const STATUS_META = {

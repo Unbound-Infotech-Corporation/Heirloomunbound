@@ -526,6 +526,15 @@ def execute(cmd: dict):
             return "ok", "spoken"  # desktop app speaks replies elsewhere
         if kind == "restore_photo":
             return restore_photo_via_local(payload)
+        if kind == "pull_model":
+            from .local_ai import pull_model
+            return pull_model(payload.get("model", ""))
+        if kind == "list_models":
+            from .local_ai import list_local_models
+            return list_local_models()
+        if kind == "llm_chat":
+            from .local_ai import llm_chat_local
+            return llm_chat_local(payload)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)
@@ -560,6 +569,20 @@ class CommandPoller(QThread):
                                           timeout=15)
                         except Exception:
                             pass
+                    try:
+                        from .local_ai import list_local_models, ollama_installed
+                        st, out = list_local_models()
+                        models = []
+                        if st == "ok":
+                            models = [ln.split()[0] for ln in out.splitlines() if ln.split() and not ln.startswith("(")]
+                        requests.post(
+                            _api("/companion/status"),
+                            headers=_headers(),
+                            json={"ollama": ollama_installed() or st == "ok", "models": models},
+                            timeout=10,
+                        )
+                    except Exception:
+                        pass
             except Exception:
                 pass
             for _ in range(POLL_INTERVAL_SEC * 2):

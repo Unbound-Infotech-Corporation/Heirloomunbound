@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from deps import EMERGENT_LLM_KEY, db, get_current_user
+from services.model_runtime import build_llm_chat, resolve_runtime, run_local_chat
+from deps import db, get_current_user
 from routers.memory import (
     build_memory_pack,
     format_memory_pack_for_prompt,
@@ -101,6 +102,8 @@ class StartTwinReq(BaseModel):
 class TwinMsgReq(BaseModel):
     conversation_id: str
     message: str
+    provider: Optional[str] = None
+    model: Optional[str] = None
 
 
 @router.post("/start")
@@ -336,66 +339,71 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     # Only expose the tools from abilities the owner has enabled (+ core memory).
     active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
 
-    chat = (
-        LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=payload.conversation_id,
-            system_message=system,
-            initial_messages=initial_messages,
-        )
-        .with_model("anthropic", "claude-sonnet-4-6")
-        .with_tools(active_schemas)
+    resolved = await resolve_runtime(
+        user["user_id"], "chat",
+        provider_override=payload.provider, model_override=payload.model,
     )
 
     user_turn = {"role": "user", "content": payload.message, "ts": datetime.now(timezone.utc).isoformat()}
 
     async def gen():
-        """Streams a tool-use aware conversation.
-
-        Loop:
-          1. Send the user message → get ChatResponse
-          2. If tool_calls, emit `event: tool` for each, execute, feed results back
-          3. Loop until finish_reason != "tool_calls" (max 6 iterations)
-          4. Stream the final text as one JSON `data:` event (frontend already
-             handles this cleanly — same shape as single-shot deltas)
-        """
+        """Streams a tool-use aware conversation, honouring the Models picker."""
         full = ""
         tool_trace: list[dict] = []
         try:
-            # First call — carries the user message
-            resp = await chat.send_message_with_tools(UserMessage(text=payload.message))
-            for _iteration in range(6):
-                if resp.finish_reason != "tool_calls" or not resp.tool_calls:
-                    break
-                # Emit tool_start for each call, execute, add result
-                for tc in resp.tool_calls:
-                    yield "event: tool\ndata: " + json.dumps({
-                        "phase": "start",
-                        "id": tc.id,
-                        "name": tc.name,
-                        "args": tc.arguments,
-                    }) + "\n\n"
-                    result = await execute_tool(tc.name, user["user_id"], tc.arguments or {})
-                    chat.add_tool_result(tc.id, result.get("summary", ""))
-                    tool_trace.append({
-                        "id": tc.id,
-                        "name": tc.name,
-                        "args": tc.arguments,
-                        "ui": result.get("ui") or {},
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                    })
-                    yield "event: tool\ndata: " + json.dumps({
-                        "phase": "result",
-                        "id": tc.id,
-                        "name": tc.name,
-                        "ui": result.get("ui") or {},
-                    }) + "\n\n"
-                # Continue the conversation — no new user message
-                resp = await chat.send_message_with_tools()
-            full = (resp.content or "").strip()
-            if full:
-                # One-shot delta so the frontend renders it in the same pipeline
-                yield "data: " + json.dumps({"text": full}) + "\n\n"
+            if resolved["kind"] == "local":
+                msgs = list(initial_messages) + [{"role": "user", "content": payload.message}]
+                full = await run_local_chat(user["user_id"], resolved["model"], msgs)
+                if full:
+                    yield "data: " + json.dumps({"text": full}) + "\n\n"
+            elif resolved["kind"] == "compat" or not resolved.get("tools_ok"):
+                from services.llm_router import chat_once
+                result = await chat_once(
+                    user["user_id"], "chat",
+                    initial_messages + [{"role": "user", "content": payload.message}],
+                    model_override=resolved["model"],
+                    provider_override=resolved["provider"],
+                )
+                full = (result.get("text") or "").strip()
+                if full:
+                    yield "data: " + json.dumps({"text": full}) + "\n\n"
+            else:
+                chat = build_llm_chat(
+                    resolved,
+                    session_id=payload.conversation_id,
+                    system_message=system,
+                    initial_messages=initial_messages,
+                ).with_tools(active_schemas)
+                resp = await chat.send_message_with_tools(UserMessage(text=payload.message))
+                for _iteration in range(6):
+                    if resp.finish_reason != "tool_calls" or not resp.tool_calls:
+                        break
+                    for tc in resp.tool_calls:
+                        yield "event: tool\ndata: " + json.dumps({
+                            "phase": "start",
+                            "id": tc.id,
+                            "name": tc.name,
+                            "args": tc.arguments,
+                        }) + "\n\n"
+                        result = await execute_tool(tc.name, user["user_id"], tc.arguments or {})
+                        chat.add_tool_result(tc.id, result.get("summary", ""))
+                        tool_trace.append({
+                            "id": tc.id,
+                            "name": tc.name,
+                            "args": tc.arguments,
+                            "ui": result.get("ui") or {},
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                        })
+                        yield "event: tool\ndata: " + json.dumps({
+                            "phase": "result",
+                            "id": tc.id,
+                            "name": tc.name,
+                            "ui": result.get("ui") or {},
+                        }) + "\n\n"
+                    resp = await chat.send_message_with_tools()
+                full = (resp.content or "").strip()
+                if full:
+                    yield "data: " + json.dumps({"text": full}) + "\n\n"
         except Exception as exc:  # noqa: BLE001
             yield "event: error\ndata: " + json.dumps({"error": str(exc)}) + "\n\n"
             return

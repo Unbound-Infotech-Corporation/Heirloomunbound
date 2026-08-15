@@ -30,6 +30,12 @@
       "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     },
     {
+      "name": "Talk to Twin",
+      "short_name": "Twin",
+      "url": "/m/twin",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
       "name": "Quick Capture",
       "short_name": "Capture",
       "url": "/m/capture",

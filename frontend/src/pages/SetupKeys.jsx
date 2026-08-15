@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   Check,
@@ -165,10 +165,27 @@ export default function SetupKeys() {
             {connectedCount} of {totalConnectable} connected
           </div>
         </div>
-        <p className="text-base mb-14 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
+        <p className="text-base mb-8 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
           Every connection makes your twin more like you — its voice, its knowledge, its face.
           Skip any of these for now and come back later. Nothing here is required to start.
         </p>
+        <Link
+          to="/models"
+          data-testid="setup-models-link"
+          className="surface p-5 mb-14 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
+          style={{ border: "1px solid var(--accent)" }}
+        >
+          <div>
+            <div className="overline mb-1" style={{ color: "var(--accent)" }}>click the brain you want</div>
+            <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+              Connect OpenAI, Claude, Gemini, Groq… or download a model onto your home PC. Then pick which one Twin, Interviewer, and Focus use.
+            </p>
+            <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              One key paste or one tap to download. No extra setup screens.
+            </p>
+          </div>
+          <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
+        </Link>
 
         {/* SECTION: OAuth 1-clicks */}
         <SectionHeader

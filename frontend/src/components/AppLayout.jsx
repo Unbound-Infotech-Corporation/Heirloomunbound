@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   BookOpen,
   Camera,
+  Cpu,
   Database,
   Feather,
   Home,
@@ -48,6 +49,7 @@ const navItems = [
   { to: "/personality", label: "Your portrait", icon: UserIcon, tid: "nav-personality" },
   { to: "/skills", label: "Skills", icon: Wrench, tid: "nav-skills" },
   { to: "/companion", label: "Local PC", icon: MonitorSpeaker, tid: "nav-companion" },
+  { to: "/models", label: "Models", icon: Cpu, tid: "nav-models" },
   { to: "/routing", label: "AI Router", icon: RouteIcon, tid: "nav-routing" },
   { to: "/heirs", label: "Heirs", icon: Users, tid: "nav-heirs" },
   { to: "/letters", label: "Sealed letters", icon: Mail, tid: "nav-letters" },

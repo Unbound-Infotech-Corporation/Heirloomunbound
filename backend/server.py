@@ -40,6 +40,7 @@ from routers import (
     contacts,
     photo_story,
     providers,
+    models,
     push,
     restoration,
     routing,
@@ -60,6 +61,7 @@ from routers import (
     letters,
     live,
     memory,
+    mobile,
     music,
     nudges,
     oauth,
@@ -168,6 +170,8 @@ api_router.include_router(push.router)
 api_router.include_router(contacts.router)
 api_router.include_router(restoration.router)
 api_router.include_router(routing.router)
+api_router.include_router(models.router)
+api_router.include_router(mobile.router)
 api_router.include_router(twilio_voice.router)
 api_router.include_router(interviewer.router)
 api_router.include_router(voice.router)

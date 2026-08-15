@@ -34,6 +34,7 @@ export default function MobileCall() {
   const [activeCallSid, setActiveCallSid] = useState(null);
   const [pushState, setPushState] = useState("unknown"); // unsupported|default|granted|denied
   const [transcript, setTranscript] = useState([]); // {role,text,at}
+  const [callsOn, setCallsOn] = useState(true);
   const deviceRef = useRef(null);
   const callRef = useRef(null);
   const timerRef = useRef(null);
@@ -45,6 +46,11 @@ export default function MobileCall() {
         const { data } = await api.get("/twilio/config");
         setCfg(data);
       } catch { /* ignore */ }
+      try {
+        const { data } = await api.get("/mobile/integrations");
+        const pack = (data.integrations || []).find((i) => i.id === "phone_calls");
+        if (pack) setCallsOn(Boolean(pack.phone_enabled));
+      } catch { /* default on */ }
       if (await pushSupported()) setPushState(await getPushPermission());
       else setPushState("unsupported");
     })();
@@ -173,6 +179,10 @@ export default function MobileCall() {
   };
 
   const startInAppCall = async () => {
+    if (!callsOn) {
+      toast.error("Turn on Phone calls in Packs first.");
+      return;
+    }
     setError(null);
     setState("connecting");
     setDurationSec(0);
@@ -310,6 +320,21 @@ export default function MobileCall() {
         </h1>
       </div>
 
+      {!callsOn && (
+        <div
+          className="rounded-md border p-4 text-sm"
+          style={{ background: "var(--surface)", borderColor: "var(--border-default)" }}
+          data-testid="mobile-calls-off"
+        >
+          <p style={{ color: "var(--text-secondary)" }}>
+            Phone calls are off on this handset. Turn them on in Packs to answer and place calls.
+          </p>
+          <Link to="/m/packs" className="text-xs underline mt-2 inline-block" style={{ color: "var(--accent)" }}>
+            Open Packs
+          </Link>
+        </div>
+      )}
+
       {/* Push notifications toggle */}
       {pushState !== "unsupported" && (
         <button
@@ -343,7 +368,8 @@ export default function MobileCall() {
       {/* In-app WebRTC dialer */}
       {webrtcReady ? (
         <button
-          onClick={startInAppCall}
+          onClick={callsOn ? startInAppCall : undefined}
+          disabled={!callsOn}
           data-testid="in-app-call-btn"
           className="w-full rounded-md border p-6 text-left flex items-center gap-4"
           style={{ background: "var(--surface)", borderColor: "var(--accent)" }}
