@@ -158,6 +158,11 @@ export default function Models() {
             Connect a cloud API with one key, or download a model onto your home computer.
             Then pick which one each part of Heirloom uses. That&apos;s the whole setup.
           </p>
+          <p className="text-sm max-w-2xl mt-3" style={{ color: "var(--text-muted)" }}>
+            Twin chat, the Interviewer, and Quick replies work together. One talks as you,
+            one asks better questions, one keeps the voice honest. Pick different brains if
+            you like, or leave the Heirloom key on all three.
+          </p>
           <div
             className="mt-5 inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-full"
             style={{ background: "var(--surface-elev)", color: home.online ? "#527a3d" : "var(--text-muted)" }}
@@ -297,7 +302,10 @@ export default function Models() {
 
         {/* Per-function dropdowns */}
         <section data-testid="models-functions">
-          <h2 className="font-serif text-2xl mb-4">What uses which model</h2>
+          <h2 className="font-serif text-2xl mb-1">What uses which model</h2>
+          <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+            Different jobs, not three twins arguing. Leave them on Heirloom if you&apos;re happy.
+          </p>
           <div className="rounded-md border overflow-hidden" style={{ borderColor: "var(--border-default)" }}>
             {studio.functions.map((fn, idx) => {
               const asg = assignments[fn.id] || {};

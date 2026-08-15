@@ -10,6 +10,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from services.model_runtime import build_llm_chat, resolve_runtime, run_local_chat
+from services.voice_council import (
+    format_portrait_for_prompt,
+    maybe_run_voice_council,
+    render_twin_voice_section,
+)
 from deps import db, get_current_user
 from routers.memory import (
     build_memory_pack,
@@ -41,6 +46,7 @@ def _build_twin_system(
     persona: dict | None = None,
     brand: dict | None = None,
     abilities_block: str = "",
+    voice_blob: str = "",
 ) -> str:
     fence = ""
     if safe_topics:
@@ -83,7 +89,7 @@ Voice rules:
 - When asked about specific memories, quote the archive faithfully. When asked your opinion on something, reason from the values in the archive.
 - Be warm with family. Be honest about not remembering when you don't.
 - Keep replies to 2-6 sentences unless asked for a longer story.
-
+{render_twin_voice_section(voice_blob)}
 Your memory tools (always available — call them silently, the UI shows a chip when a tool fires):
 - `search_archive(query)` — the owner's factual record. Call it ONLY when the user asks about the owner's past, life, or specific facts (a person, place, date, job, event, or story — e.g. "where did you grow up", "what was your first job"). ONE focused call is enough. Do NOT call it for greetings, small talk, or opinion/feeling questions ("what do you think…", "how are you", "what's your take on life") — for those, answer directly from the archive excerpts and long-term memory already included below.
 - `save_memory(content, type, title)` — when the user shares something worth remembering long-term (a story, belief, value), quietly capture it so the archive grows.
@@ -202,6 +208,23 @@ async def _skills_blob(user_id: str) -> str:
     return "\n".join(lines)
 
 
+async def _voice_blob(user_id: str) -> str:
+    """Cached portrait only — never regenerate on a twin turn."""
+    doc = await db.personality_profiles.find_one({"user_id": user_id}, {"_id": 0})
+    return format_portrait_for_prompt(doc)
+
+
+async def _after_twin_turn(user_id: str, conversation_id: str) -> None:
+    try:
+        await maybe_summarise_episode(user_id, conversation_id)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        await maybe_run_voice_council(user_id, conversation_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def _maybe_screen_prelook(user_id: str, message: str, enabled_ids: set[str]) -> dict | None:
     """Look at the home PC when the owner is clearly asking about what's in front of them."""
     if "screen_vision" not in enabled_ids:
@@ -255,9 +278,11 @@ async def complete_twin_turn(
     if not any(brand.values()):
         brand = None
     abilities_block = ab.build_abilities_prompt(enabled_ids)
+    voice_blob = await _voice_blob(user_id)
     system = _build_twin_system(
         user.get("name", ""), memory_blob, archive, skills, merged_safe,
         persona=persona, brand=brand, abilities_block=abilities_block,
+        voice_blob=voice_blob,
     )
     initial_messages = [{"role": "system", "content": system}]
     for m in conv.get("messages", []):
@@ -326,10 +351,7 @@ async def complete_twin_turn(
             "$set": {"updated_at": now_iso},
         },
     )
-    try:
-        await maybe_summarise_episode(user_id, conversation_id)
-    except Exception:  # noqa: BLE001
-        pass
+    await _after_twin_turn(user_id, conversation_id)
     try:
         await live_publish_turn(user_id, "user", message, source=source)
         await live_publish_turn(user_id, "assistant", full, source=source)
@@ -469,9 +491,11 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     if not any(brand.values()):
         brand = None
     abilities_block = ab.build_abilities_prompt(enabled_ids)
+    voice_blob = await _voice_blob(user["user_id"])
     system = _build_twin_system(
         user.get("name", ""), memory_blob, archive, skills, merged_safe,
         persona=persona, brand=brand, abilities_block=abilities_block,
+        voice_blob=voice_blob,
     )
 
     # Replay prior turns so the twin remembers what was just said.
@@ -584,11 +608,8 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
             },
         )
-        # Fire-and-forget episodic summary (won't block the SSE close)
-        try:
-            await maybe_summarise_episode(user["user_id"], payload.conversation_id)
-        except Exception:  # noqa: BLE001
-            pass
+        # Episodic summary + quiet voice check (won't raise into the SSE)
+        await _after_twin_turn(user["user_id"], payload.conversation_id)
         # Fan out to live-stream viewers (no-op if broadcast is off)
         try:
             await live_publish_turn(user["user_id"], "user", payload.message, source="web")

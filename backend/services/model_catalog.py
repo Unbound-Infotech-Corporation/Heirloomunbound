@@ -195,14 +195,14 @@ FUNCTIONS: list[dict] = [
         "id": "chat",
         "task": "chat",
         "label": "Twin chat",
-        "blurb": "Talk to your twin — the main conversation.",
+        "blurb": "Talks as you. Uses your portrait so it sounds like you.",
         "page": "/twin",
     },
     {
         "id": "interview",
         "task": "interview",
         "label": "Interviewer",
-        "blurb": "The patient questions that fill the archive.",
+        "blurb": "Asks the questions that fill your archive and portrait.",
         "page": "/interviewer",
     },
     {
@@ -216,7 +216,7 @@ FUNCTIONS: list[dict] = [
         "id": "cheap",
         "task": "cheap",
         "label": "Quick replies",
-        "blurb": "Nudges, titles, one-liners. Fast and cheap is fine.",
+        "blurb": "After you chat, quietly checks that the twin still sounds like you.",
         "page": "/today",
     },
     {
