@@ -278,26 +278,22 @@ def find_file(query, open_it):
 
 
 def capture_and_upload_screenshot(cmd_id):
-    img = None
+    from .screen import grab_screen_jpeg
+
     try:
-        from PIL import ImageGrab
-        img = ImageGrab.grab()
-    except Exception:
-        import mss
-        from PIL import Image
-        with mss.mss() as s:
-            raw = s.grab(s.monitors[0])
-            img = Image.frombytes("RGB", raw.size, raw.rgb)
-    img = img.convert("RGB")
-    max_w = 1600
-    if img.width > max_w:
-        img = img.resize((max_w, int(img.height * max_w / img.width)))
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=75)
+        jpeg = grab_screen_jpeg(max_width=1920, quality=85)
+    except Exception as exc:  # noqa: BLE001
+        return "error", f"screenshot failed: {exc} (try: pip install Pillow mss)"
+    buf = io.BytesIO(jpeg)
     buf.seek(0)
     files = {"file": ("screen.jpg", buf, "image/jpeg")}
-    r = requests.post(_api("/companion/screenshot"), headers=_headers(),
-                      data={"cmd_id": cmd_id}, files=files, timeout=30)
+    r = requests.post(
+        _api("/companion/screenshot"),
+        headers=_headers(),
+        data={"cmd_id": cmd_id},
+        files=files,
+        timeout=30,
+    )
     if r.status_code == 200:
         return "ok", "captured"
     return "error", f"upload failed ({r.status_code})"

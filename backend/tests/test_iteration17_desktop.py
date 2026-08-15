@@ -257,6 +257,7 @@ class TestBuildDesktopZip:
         "heirloom/ui/panels.py",
         "heirloom/ui/settings_dialog.py",
         "heirloom/ui/talk_window.py",
+        "heirloom/screen.py",
     }
 
     def test_zip_structure_and_token_injection(self):

@@ -29,6 +29,14 @@ card stays on your screen with the twin's face, a short chat, and hold-to-speak.
 Ask it to do tasks the same way as in the full window. Click "Full window" to
 bring Heirloom back, or close the small card — Heirloom stays in the tray.
 
+LOOK AT MY SCREEN
+-----------------
+Click "Look at my screen" (or say it out loud). The twin takes a picture of
+this computer, helps with whatever is on it — a game, a sentence, a movie —
+then deletes the picture. It does not keep what it saw. The Heirloom app must
+be open. Fullscreen games work best with this look; if a game is exclusive
+fullscreen and the picture is black, switch that game to borderless window.
+
 OBS / STREAMING
 ---------------
 Click "Pop out for OBS ↗" on the avatar panel to detach the twin into its own

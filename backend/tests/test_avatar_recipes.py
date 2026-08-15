@@ -206,7 +206,7 @@ def test_companion_picker_matches_backend():
 def test_companion_script_mentions_easy_setup_and_no_passwords():
     companion = Path(__file__).resolve().parents[1] / "routers" / "companion.py"
     text = companion.read_text(encoding="utf-8")
-    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.4"' in text
+    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.5"' in text
     assert "def run_avatar_setup" in text
     assert '"avatar_setup"' in text
     assert "No accounts. No passwords." in text

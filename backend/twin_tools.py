@@ -896,13 +896,16 @@ async def exec_find_file(user_id: str, args: dict) -> dict:
 
 
 async def exec_see_screen(user_id: str, args: dict) -> dict:
-    question = (args.get("question") or "Describe what is currently on the screen in a clear, concise way.").strip()
+    from services.screen_coach import VISION_SYSTEM, coach_question_for
+
+    raw_q = (args.get("question") or "").strip()
+    question = raw_q or coach_question_for("")
     dev, err = await _pc_precheck(user_id)
     if err:
         return err
     cmd_id = await _queue_pc_command(user_id, "screenshot", {})
     # Wait for the companion to upload the capture (stored in companion_screens by cmd_id).
-    deadline = time.monotonic() + 22.0
+    deadline = time.monotonic() + 30.0
     shot: dict | None = None
     while time.monotonic() < deadline:
         shot = await db.companion_screens.find_one({"cmd_id": cmd_id, "user_id": user_id}, {"_id": 0})
@@ -913,14 +916,17 @@ async def exec_see_screen(user_id: str, args: dict) -> dict:
             return {"summary": f"Couldn't capture the screen: {cmd.get('result')}", "ui": {"ok": False}}
         await asyncio.sleep(0.8)
     if not shot or not shot.get("image_b64"):
-        return {"summary": "The PC didn't send a screenshot in time.", "ui": {"ok": False}}
+        return {
+            "summary": "The PC didn't send a screenshot in time. Open the Heirloom app on the home computer and try again.",
+            "ui": {"ok": False},
+        }
     try:
         from emergentintegrations.llm.chat import ImageContent, LlmChat, StreamDone, TextDelta, UserMessage
 
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"see_{cmd_id}",
-            system_message="You are looking at a screenshot of the user's computer screen. Answer their question about it directly and briefly.",
+            system_message=VISION_SYSTEM,
         ).with_model("anthropic", "claude-sonnet-4-6")
         text = ""
         async for ev in chat.stream_message(
@@ -1295,9 +1301,17 @@ COMPUTER_TOOL_SCHEMAS: list[dict] = [
     }},
     {"type": "function", "function": {
         "name": "see_screen",
-        "description": "Take a screenshot of the user's PC and analyse it with vision to answer a question about what's on screen. Use for 'what's on my screen?', 'read this error for me', 'what tab am I on?'.",
+        "description": (
+            "Look at the owner's computer screen (screenshot on the home PC, then deleted) and coach them. "
+            "Use whenever they ask you to look at the screen, help with a video game, check grammar or writing "
+            "that's on screen, identify a movie or show, read an error, or say 'look at this'. "
+            "Pass a question that says what kind of help they want."
+        ),
         "parameters": {"type": "object", "properties": {
-            "question": {"type": "string", "description": "What to look for / answer about the screen"},
+            "question": {
+                "type": "string",
+                "description": "What to look for — e.g. game advice, grammar edits, what movie this is, read this error",
+            },
         }},
     }},
     {"type": "function", "function": {

@@ -210,14 +210,27 @@ export default function TwinMini() {
           <div className="overline">your twin</div>
           <p className="font-serif text-lg leading-tight">Just you and your twin</p>
         </div>
-        <Link
-          to="/twin"
-          data-testid="twin-mini-full"
-          className="text-xs px-3 py-1.5 rounded-sm"
-          style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
-        >
-          Full window
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => send("Look at my screen and help me with whatever is on it.")}
+            disabled={pending || !conv}
+            data-testid="twin-mini-look-screen"
+            className="text-xs px-3 py-1.5 rounded-sm disabled:opacity-50"
+            style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+            title="Looks at your home computer. The picture is deleted after."
+          >
+            Look at my screen
+          </button>
+          <Link
+            to="/twin"
+            data-testid="twin-mini-full"
+            className="text-xs px-3 py-1.5 rounded-sm"
+            style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+          >
+            Full window
+          </Link>
+        </div>
       </header>
 
       <div

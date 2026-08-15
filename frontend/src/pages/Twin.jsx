@@ -317,6 +317,18 @@ export default function Twin() {
           {lookBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
           look at me
         </button>
+        <button
+          type="button"
+          onClick={() => send("Look at my screen and help me with whatever is on it.")}
+          disabled={pending || !conv}
+          data-testid="twin-look-at-screen"
+          className="inline-flex items-center gap-2 text-xs px-4 py-2 rounded-sm disabled:opacity-50"
+          style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+          title="The twin looks at your home computer and helps — games, writing, movies. The picture is deleted after."
+        >
+          <Monitor className="h-3.5 w-3.5" />
+          Look at my screen
+        </button>
         <Link
           to="/avatar-studio"
           data-testid="twin-avatar-studio"
@@ -394,6 +406,7 @@ export default function Twin() {
             <ul className="space-y-3">
               {[
                 "What's on my plate today?",
+                "Look at my screen and help me with this.",
                 "What did you love most about being a father?",
                 "What's a story from your twenties you'd want me to know?",
                 "Who in my address book should I call?",

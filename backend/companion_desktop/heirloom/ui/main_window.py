@@ -390,6 +390,14 @@ class MainWindow(QMainWindow):
                 action=self.open_mini_talk,
             ),
             Command(
+                id="lookscreen",
+                label="Look at my screen",
+                hint="The twin looks at this computer and helps — games, writing, movies",
+                action=lambda: self.conversation.send_text(
+                    "Look at my screen and help me with whatever is on it."
+                ),
+            ),
+            Command(
                 id="popout",
                 label="Pop out avatar for OBS",
                 hint="Detach the twin as a transparent always-on-top window",

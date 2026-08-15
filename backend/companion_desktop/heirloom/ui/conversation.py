@@ -99,6 +99,14 @@ class ConversationPanel(QWidget):
         header.addWidget(title)
         header.addStretch(1)
 
+        self.btn_look = QPushButton("Look at my screen")
+        self.btn_look.setObjectName("ghost")
+        self.btn_look.setToolTip(
+            "The twin looks at this computer and helps — games, writing, movies. The picture is deleted after."
+        )
+        self.btn_look.clicked.connect(self._on_look_at_screen)
+        header.addWidget(self.btn_look)
+
         self.btn_style = QPushButton(
             "Bubbles" if settings.get("bubble_style", True) else "Flat"
         )
@@ -171,7 +179,9 @@ class ConversationPanel(QWidget):
         self._busy = True
         self.append("user", text)
         self.message_sent.emit(text)
-        if self._local_chat_active():
+        # Screen looks need the cloud twin (screenshot + tools). Local Ollama
+        # cannot see this computer.
+        if self._local_chat_active() and not self._needs_screen_look(text):
             self._send_via_local_chat(text)
             return
         api.post_async(
@@ -179,6 +189,19 @@ class ConversationPanel(QWidget):
             {"text": text},
             on_ok=self._on_reply,
             on_err=self._on_error,
+        )
+
+    @staticmethod
+    def _needs_screen_look(text: str) -> bool:
+        lower = (text or "").lower()
+        return any(
+            needle in lower
+            for needle in (
+                "look at my screen",
+                "look at the screen",
+                "on my screen",
+                "look at this",
+            )
         )
 
     # ---- internal ----
@@ -229,6 +252,9 @@ class ConversationPanel(QWidget):
 
     def _on_send(self) -> None:
         self.send_text(self.input.toPlainText())
+
+    def _on_look_at_screen(self) -> None:
+        self.send_text("Look at my screen and help me with whatever is on it.")
 
     # -------- Local chat (Ollama / LM Studio / OpenAI-compat) --------
     def _local_chat_active(self) -> bool:

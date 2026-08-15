@@ -23,6 +23,11 @@ from routers.skills import invoke_skill_internal, match_skill_trigger
 from twin_tools import TOOL_SCHEMAS, execute_tool
 from utils import rate_limit
 import abilities as ab
+from services.screen_coach import (
+    coach_question_for,
+    format_screen_context,
+    should_look_at_screen,
+)
 
 router = APIRouter(prefix="/twin", tags=["twin"])
 
@@ -197,6 +202,142 @@ async def _skills_blob(user_id: str) -> str:
     return "\n".join(lines)
 
 
+async def _maybe_screen_prelook(user_id: str, message: str, enabled_ids: set[str]) -> dict | None:
+    """Look at the home PC when the owner is clearly asking about what's in front of them."""
+    if "screen_vision" not in enabled_ids:
+        return None
+    if not should_look_at_screen(message):
+        return None
+    return await execute_tool("see_screen", user_id, {"question": coach_question_for(message)})
+
+
+def _prelook_trace(look: dict) -> dict:
+    return {
+        "id": "see_screen_prelook",
+        "name": "see_screen",
+        "args": {"question": "look at the screen"},
+        "ui": (look or {}).get("ui") or {},
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def complete_twin_turn(
+    user: dict,
+    conv: dict,
+    message: str,
+    *,
+    source: str = "desktop",
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> dict:
+    """Non-streaming twin turn with the same tools as the web Twin.
+
+    Used by the desktop app (including the small talk window) so asking the
+    twin to look at the screen, send mail, or run PC tasks actually works.
+    """
+    user_id = user["user_id"]
+    conversation_id = conv["conversation_id"]
+    enabled_ids = await ab.enabled_ability_ids(user_id)
+    enabled_tools = await ab.enabled_tool_names(user_id)
+    await rate_limit(user_id, "twin", max_calls=20, per_seconds=60)
+
+    archive = await _archive_blob(user_id, query_hint=message)
+    skills = await _skills_blob(user_id)
+    memory_pack = await build_memory_pack(user_id, query_hint=message)
+    memory_blob = format_memory_pack_for_prompt(memory_pack)
+    persona = await get_active_persona(user_id, user)
+    merged_safe = list({*(user.get("safe_topics") or []), *((persona or {}).get("extra_safe_topics") or [])})
+    brand = {
+        "brand_name": user.get("brand_name") or "",
+        "brand_tagline": user.get("brand_tagline") or "",
+        "brand_signoff": user.get("brand_signoff") or "",
+    }
+    if not any(brand.values()):
+        brand = None
+    abilities_block = ab.build_abilities_prompt(enabled_ids)
+    system = _build_twin_system(
+        user.get("name", ""), memory_blob, archive, skills, merged_safe,
+        persona=persona, brand=brand, abilities_block=abilities_block,
+    )
+    initial_messages = [{"role": "system", "content": system}]
+    for m in conv.get("messages", []):
+        if m.get("role") in ("user", "assistant") and m.get("content"):
+            initial_messages.append({"role": m["role"], "content": m["content"]})
+    active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
+    resolved = await resolve_runtime(
+        user_id, "chat", provider_override=provider, model_override=model,
+    )
+
+    tool_trace: list[dict] = []
+    llm_message = message
+    look = await _maybe_screen_prelook(user_id, message, enabled_ids)
+    if look:
+        llm_message = format_screen_context(message, look)
+        tool_trace.append(_prelook_trace(look))
+
+    full = ""
+    if resolved["kind"] == "local":
+        msgs = list(initial_messages) + [{"role": "user", "content": llm_message}]
+        full = await run_local_chat(user_id, resolved["model"], msgs)
+    elif resolved["kind"] == "compat" or not resolved.get("tools_ok"):
+        from services.llm_router import chat_once
+        result = await chat_once(
+            user_id, "chat",
+            initial_messages + [{"role": "user", "content": llm_message}],
+            model_override=resolved["model"],
+            provider_override=resolved["provider"],
+        )
+        full = (result.get("text") or "").strip()
+    else:
+        chat = build_llm_chat(
+            resolved,
+            session_id=conversation_id,
+            system_message=system,
+            initial_messages=initial_messages,
+        ).with_tools(active_schemas)
+        resp = await chat.send_message_with_tools(UserMessage(text=llm_message))
+        for _iteration in range(6):
+            if resp.finish_reason != "tool_calls" or not resp.tool_calls:
+                break
+            for tc in resp.tool_calls:
+                result = await execute_tool(tc.name, user_id, tc.arguments or {})
+                chat.add_tool_result(tc.id, result.get("summary", ""))
+                tool_trace.append({
+                    "id": tc.id,
+                    "name": tc.name,
+                    "args": tc.arguments,
+                    "ui": result.get("ui") or {},
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                })
+            resp = await chat.send_message_with_tools()
+        full = (resp.content or "").strip()
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    assistant_turn = {"role": "assistant", "content": full, "ts": now_iso, "source": source}
+    if tool_trace:
+        assistant_turn["tool_trace"] = tool_trace
+    await db.conversations.update_one(
+        {"conversation_id": conversation_id, "user_id": user_id},
+        {
+            "$push": {"messages": {"$each": [
+                {"role": "user", "content": message, "ts": now_iso, "source": source},
+                assistant_turn,
+            ]}},
+            "$set": {"updated_at": now_iso},
+        },
+    )
+    try:
+        await maybe_summarise_episode(user_id, conversation_id)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        await live_publish_turn(user_id, "user", message, source=source)
+        await live_publish_turn(user_id, "assistant", full, source=source)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"reply": full, "ts": now_iso, "tool_trace": tool_trace}
+
+
 @router.post("/message")
 async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     conv = await db.conversations.find_one(
@@ -353,9 +494,26 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         """Streams a tool-use aware conversation, honouring the Models picker."""
         full = ""
         tool_trace: list[dict] = []
+        llm_message = payload.message
         try:
+            look = await _maybe_screen_prelook(user["user_id"], payload.message, enabled_ids)
+            if look:
+                llm_message = format_screen_context(payload.message, look)
+                tool_trace.append(_prelook_trace(look))
+                yield "event: tool\ndata: " + json.dumps({
+                    "phase": "start",
+                    "id": "see_screen_prelook",
+                    "name": "see_screen",
+                    "args": {"question": "look at the screen"},
+                }) + "\n\n"
+                yield "event: tool\ndata: " + json.dumps({
+                    "phase": "result",
+                    "id": "see_screen_prelook",
+                    "name": "see_screen",
+                    "ui": look.get("ui") or {},
+                }) + "\n\n"
             if resolved["kind"] == "local":
-                msgs = list(initial_messages) + [{"role": "user", "content": payload.message}]
+                msgs = list(initial_messages) + [{"role": "user", "content": llm_message}]
                 full = await run_local_chat(user["user_id"], resolved["model"], msgs)
                 if full:
                     yield "data: " + json.dumps({"text": full}) + "\n\n"
@@ -363,7 +521,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 from services.llm_router import chat_once
                 result = await chat_once(
                     user["user_id"], "chat",
-                    initial_messages + [{"role": "user", "content": payload.message}],
+                    initial_messages + [{"role": "user", "content": llm_message}],
                     model_override=resolved["model"],
                     provider_override=resolved["provider"],
                 )
@@ -377,7 +535,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     system_message=system,
                     initial_messages=initial_messages,
                 ).with_tools(active_schemas)
-                resp = await chat.send_message_with_tools(UserMessage(text=payload.message))
+                resp = await chat.send_message_with_tools(UserMessage(text=llm_message))
                 for _iteration in range(6):
                     if resp.finish_reason != "tool_calls" or not resp.tool_calls:
                         break

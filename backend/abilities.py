@@ -183,18 +183,26 @@ ABILITIES: list[dict] = [
     {
         "id": "screen_vision",
         "name": "Screen Vision",
-        "tagline": "“What's on my screen?” — your twin takes a look and helps.",
+        "tagline": "Your twin can look at your screen and help — games, grammar, movies, errors.",
         "icon": "eye",
         "category": "computer",
         "default_enabled": True,
         "requires_companion": True,
         "tools": ["see_screen"],
         "permissions": [
-            {"id": "capture_screen", "label": "Capture and analyse your screen (image is deleted after)"},
+            {"id": "capture_screen", "label": "Look at your screen to help (the picture is deleted after)"},
         ],
         "prompt_block": (
-            "Screen vision (enabled): `see_screen(question)` — screenshot + look at what's on their screen "
-            "('what's on my screen?', 'read this error').\n"
+            "Screen vision (enabled) — you can SEE their computer when they ask for help with what's in front of them:\n"
+            "- `see_screen(question)` — take a screenshot on the home PC, look at it, then coach.\n"
+            "- ALWAYS call this when they ask you to look at the screen, help with a game, check grammar "
+            "or writing on screen, identify a movie/show, read an error, or say 'look at this'.\n"
+            "- Games: name the game if you can, say what's happening, give a clear next step. No spoilers unless asked.\n"
+            "- Grammar/writing: quote the text you can read, then give specific edits.\n"
+            "- Movies/TV: identify title/scene if you can; no unsolicited spoilers.\n"
+            "- The picture is deleted after you look. If no PC is connected, tell them to open the Heirloom app "
+            "on the home computer. Never ask for a password.\n"
+            "- If the user message already includes a screen look, do NOT call see_screen again.\n"
         ),
     },
     {

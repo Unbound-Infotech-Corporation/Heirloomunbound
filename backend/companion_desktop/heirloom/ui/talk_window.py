@@ -189,7 +189,20 @@ class MiniTalkWindow(QWidget):
         ptt.pressed.connect(self.ptt_pressed.emit)
         ptt.released.connect(self.ptt_released.emit)
         col.addWidget(ptt)
+
+        look = QPushButton("Look at my screen")
+        look.setObjectName("ghost")
+        look.setToolTip("The twin looks at this computer and helps — games, writing, movies. The picture is deleted after.")
+        look.clicked.connect(self._on_look_at_screen)
+        col.addWidget(look)
         return wrap
+
+    def _on_look_at_screen(self) -> None:
+        if self._busy:
+            return
+        self.send_requested.emit(
+            "Look at my screen and help me with whatever is on it."
+        )
 
     # ---- public API (AvatarPanel + MainWindow) ----
     def set_portrait(self, pixmap: QPixmap) -> None:

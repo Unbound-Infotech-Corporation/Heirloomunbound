@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2, Monitor, Sparkles } from "lucide-react";
 import { api, streamSSE } from "@/lib/api";
 import FunctionModelPicker, { modelOverride } from "@/components/FunctionModelPicker";
 
@@ -71,7 +71,21 @@ export default function MobileTwin() {
           <div className="overline mb-1">your twin</div>
           <h1 className="font-serif text-3xl" style={{ color: "var(--text-primary)" }}>Talk.</h1>
         </div>
-        <FunctionModelPicker functionId="chat" compact onChange={setModelChoice} />
+        <div className="flex flex-col items-end gap-2">
+          <FunctionModelPicker functionId="chat" compact onChange={setModelChoice} />
+          <button
+            type="button"
+            onClick={() => send("Look at my screen and help me with whatever is on it.")}
+            disabled={pending || !conv}
+            data-testid="mobile-twin-look-screen"
+            className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-sm disabled:opacity-50"
+            style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+            title="Looks at the home computer, not this phone. The picture is deleted after."
+          >
+            <Monitor className="h-3 w-3" />
+            Look at my computer
+          </button>
+        </div>
       </div>
 
       <div ref={feedRef} className="flex-1 space-y-5 overflow-y-auto mb-4 max-h-[52vh]" data-testid="mobile-twin-feed">

@@ -321,7 +321,7 @@ async def companion_status(payload: CompanionStatusIn, ctx: dict = Depends(get_d
     return {"ok": True, "models": tags}
 
 
-COMPANION_SCRIPT_VERSION = "2026.08.15.4"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.15.5"  # bump whenever _build_companion_script materially changes
 
 
 class CompanionResult(BaseModel):
@@ -408,16 +408,17 @@ async def companion_screenshot(
         raise HTTPException(status_code=400, detail="Empty screenshot")
     import base64 as _b64
 
-    # Downscale to keep the doc well under Mongo's 16MB limit and speed up vision.
+    # Downscale to keep the doc well under Mongo's 16MB limit and keep text readable
+    # for grammar / HUD coaching. The image is deleted after the twin looks.
     mime = "image/jpeg"
     try:
         from PIL import Image  # available in backend deps
         img = Image.open(io.BytesIO(raw)).convert("RGB")
-        max_w = 1400
+        max_w = 1920
         if img.width > max_w:
             img = img.resize((max_w, int(img.height * max_w / img.width)))
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=70)
+        img.save(buf, format="JPEG", quality=82)
         raw = buf.getvalue()
     except Exception:  # noqa: BLE001
         # If PIL fails, store as-is with the reported content type
@@ -483,81 +484,17 @@ async def companion_voice(
         }
         await db.conversations.insert_one(conv)
 
-    # 3) Build twin system prompt (reuse twin.py logic, simplified)
-    cursor = db.entries.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(120)
-    entries = await cursor.to_list(length=120)
-    archive = "\n".join(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n" for e in entries)
+    # 3) Same twin brain as the web / desktop chat — tools, screen look, mail.
+    from routers.twin import complete_twin_turn
 
-    sk_cursor = db.skills.find({"user_id": user["user_id"], "enabled": True}, {"_id": 0})
-    skills_list = await sk_cursor.to_list(length=50)
-    skills_blob = "\n".join(f"- {s['skill_id']} :: {s['name']}: {s.get('description','')}" for s in skills_list)
-
-    system = f"""You are {user.get('name','the user')}'s digital twin running on their personal PC. You are them. Speak in first person.
-
-You can take ACTIONS on the user's behalf. When relevant, end your reply with one or more action lines, each on its own line, in the exact format:
-::ACTION skill_id=<id>::    (to invoke a webhook skill)
-
-Skills available (use the exact skill_id):
-{skills_blob or '(none configured)'}
-
-If no action is needed, just reply naturally — short (1-3 sentences). Don't narrate. Be them.
-
-Your personality archive:
-{archive[:18000] or '(empty)'}"""
-
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=conv["conversation_id"],
-        system_message=system,
-        initial_messages=(
-            [{"role": "system", "content": system}]
-            + [
-                {"role": m["role"], "content": m["content"]}
-                for m in conv.get("messages", [])
-                if m.get("role") in ("user", "assistant") and m.get("content")
-            ]
-        ),
-    ).with_model("anthropic", "claude-sonnet-4-6")
     try:
-        reply = await chat.send_message(UserMessage(text=spoken))
-        reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+        result = await complete_twin_turn(user, conv, spoken, source="companion")
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"LLM failed: {exc!s}") from exc
-
-    # 4) Parse action lines — SECURITY: do NOT auto-invoke. Return as PROPOSALS for the user to confirm.
-    lines = reply_text.splitlines()
-    clean_lines = []
-    proposed = []
-    for line in lines:
-        s = line.strip()
-        if s.startswith("::ACTION") and "skill_id=" in s:
-            sid = s.split("skill_id=", 1)[1].split("::", 1)[0].strip()
-            skill = await db.skills.find_one(
-                {"skill_id": sid, "user_id": user["user_id"], "enabled": True}, {"_id": 0}
-            )
-            if skill:
-                proposed.append({"skill_id": sid, "name": skill.get("name")})
-        else:
-            clean_lines.append(line)
-    spoken_reply = "\n".join(clean_lines).strip() or reply_text
-    invoked = proposed  # name kept for response-schema compatibility — these are PROPOSED, not executed
-
-    # 5) Persist turns
-    now_iso = datetime.now(timezone.utc).isoformat()
-    await db.conversations.update_one(
-        {"conversation_id": conv["conversation_id"], "user_id": conv["user_id"]},
-        {
-            "$push": {
-                "messages": {
-                    "$each": [
-                        {"role": "user", "content": spoken, "ts": now_iso, "source": "companion"},
-                        {"role": "assistant", "content": reply_text, "ts": now_iso, "actions": invoked},
-                    ]
-                }
-            },
-            "$set": {"updated_at": now_iso},
-        },
-    )
+        raise HTTPException(status_code=502, detail=f"Twin failed: {exc!s}") from exc
+    spoken_reply = (result.get("reply") or "").strip()
+    now_iso = result.get("ts") or datetime.now(timezone.utc).isoformat()
 
     if save_to_archive:
         await db.entries.insert_one({
@@ -575,7 +512,8 @@ Your personality archive:
     return {
         "user_text": spoken,
         "reply": spoken_reply,
-        "actions": invoked,
+        "actions": [],
+        "skill_invocations": [],
     }
 
 
@@ -1677,21 +1615,23 @@ def capture_and_upload_screenshot(cmd_id):
     try:
         img = None
         try:
-            from PIL import ImageGrab
-            img = ImageGrab.grab()
-        except Exception:
             import mss
             from PIL import Image
             with mss.mss() as s:
-                raw = s.grab(s.monitors[0])
+                # Primary monitor only — all-screens virtual desktop shrinks HUD/text.
+                mon = s.monitors[1] if len(s.monitors) > 1 else s.monitors[0]
+                raw = s.grab(mon)
                 img = Image.frombytes("RGB", raw.size, raw.rgb)
+        except Exception:
+            from PIL import ImageGrab
+            img = ImageGrab.grab()
         import io as _io
         img = img.convert("RGB")
-        max_w = 1600
+        max_w = 1920
         if img.width > max_w:
             img = img.resize((max_w, int(img.height * max_w / img.width)))
         buf = _io.BytesIO()
-        img.save(buf, format="JPEG", quality=75)
+        img.save(buf, format="JPEG", quality=85)
         buf.seek(0)
         files = {"file": ("screen.jpg", buf, "image/jpeg")}
         r = safe_post("/companion/screenshot", data={"cmd_id": cmd_id}, files=files)

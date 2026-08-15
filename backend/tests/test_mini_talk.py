@@ -11,7 +11,7 @@ COMPANION = ROOT / "routers" / "companion.py"
 
 def test_companion_script_version_for_mini_talk():
     text = COMPANION.read_text(encoding="utf-8")
-    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.4"' in text
+    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.5"' in text
 
 
 def test_mini_talk_window_is_grandmother_simple_not_obs():
@@ -24,6 +24,8 @@ def test_mini_talk_window_is_grandmother_simple_not_obs():
     assert 'setWindowTitle("Your twin")' in text
     assert "Heirloom Twin — Broadcast" not in text
     assert "WindowStaysOnTopHint" in text
+    assert "Look at my screen" in text
+    assert "Look at my screen and help me with whatever is on it." in text
 
 
 def test_avatar_panel_keeps_obs_and_adds_talk_button():
