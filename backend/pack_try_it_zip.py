@@ -8,6 +8,7 @@ Unzip, copy to Desktop, double-click Try-Unbound-Keyboard.bat.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -53,7 +54,16 @@ def _add_tree(zf: zipfile.ZipFile, src_root: Path, zip_prefix: str) -> int:
         info.compress_type = zipfile.ZIP_DEFLATED
         if path.name in {"run.sh", "Try-Unbound-Keyboard.bat", "Heirloom.bat"}:
             info.external_attr = 0o755 << 16
-        zf.writestr(info, path.read_bytes())
+        data = path.read_bytes()
+        if path.name == "config.py":
+            url = (
+                os.environ.get("PUBLIC_BACKEND_URL")
+                or os.environ.get("REACT_APP_BACKEND_URL")
+                or ""
+            ).strip().rstrip("/")
+            if url:
+                data = data.decode("utf-8").replace('"__BACKEND_URL__"', f'"{url}"').encode("utf-8")
+        zf.writestr(info, data)
         count += 1
     return count
 

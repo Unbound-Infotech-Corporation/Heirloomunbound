@@ -190,6 +190,13 @@ def test_windows_helper_is_not_a_keylogger():
     assert "Check writing" in window
     assert "Fix spelling" in window
     assert "Leave it" in window
+    assert "Sign in" in window
+    assert "Send a sign-in note" in window
+    assert "drag here" in window
+    assert "Stay in front" in window
+    assert "desktop-login" in (ROOT / "routers" / "auth.py").read_text(encoding="utf-8")
+    assert "send_desktop_sign_in_email" in (ROOT / "email_service.py").read_text(encoding="utf-8")
+    assert "persist_login" in (DESKTOP / "heirloom" / "config.py").read_text(encoding="utf-8")
     assert "proofread_local" in window
     assert "_house_is_paired" in window
     assert "def open_writing_helper" in main
@@ -269,6 +276,7 @@ def test_desktop_writing_brain_matches_cloud():
     assert "Try-Unbound-Keyboard.bat" in start
     assert "I recieve this" in start
     assert "Fix spelling" in start
+    assert "Sign in" in start
     assert "iPhone" in start or "IPHONE" in start
     assert "password" in start.lower()
     assert "HEIRLOOM_TRY_KEYBOARD" in try_bat

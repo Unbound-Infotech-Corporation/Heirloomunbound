@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMessageBox,
     QPushButton,
     QSizeGrip,
     QSplitter,
@@ -261,12 +260,8 @@ class MainWindow(QMainWindow):
 
     def _on_me_err(self, msg: str) -> None:
         self.titlebar.set_user_name("this copy isn’t signed in")
-        self._update_status("download Heirloom again from your account")
-        QMessageBox.warning(
-            self,
-            "Heirloom",
-            "This copy isn’t signed in. Open Local PC in your account and tap Download again.",
-        )
+        self._update_status("sign in from Unbound Keyboard — or Download again from Local PC")
+        self.open_writing_helper()
 
     # ----- twin → avatar -----
     def _on_twin_reply(self, text: str) -> None:
@@ -401,6 +396,12 @@ class MainWindow(QMainWindow):
                 action=self.open_mini_talk,
             ),
             Command(
+                id="signin",
+                label="Sign in",
+                hint="Email a slip — paste it here. No Google or Windows password.",
+                action=self.open_writing_helper,
+            ),
+            Command(
                 id="unboundkb",
                 label="Unbound Keyboard",
                 hint="Fix spelling and overused words — not a spy on every key",
@@ -455,7 +456,7 @@ class MainWindow(QMainWindow):
         ]
 
     def open_writing_helper(self) -> None:
-        """Always-on-top Unbound Keyboard card. Does not hide the full window."""
+        """Unbound Keyboard card. Draggable; not stuck in front of every window."""
         if self._writing is None:
             self._writing = WritingWindow()
             self._writing.closed.connect(self._persist_writing_geo)
@@ -557,6 +558,8 @@ class TrayProxy:
         minitalk.triggered.connect(window.open_mini_talk)
         write = QAction("Unbound Keyboard", menu)
         write.triggered.connect(window.open_writing_helper)
+        signin = QAction("Sign in", menu)
+        signin.triggered.connect(window.open_writing_helper)
         popout = QAction("Pop out avatar for OBS", menu)
         popout.triggered.connect(window.avatar.pop_out)
         quit_act = QAction("Quit Heirloom", menu)
@@ -567,6 +570,7 @@ class TrayProxy:
         menu.addAction(ptt)
         menu.addAction(minitalk)
         menu.addAction(write)
+        menu.addAction(signin)
         menu.addAction(popout)
         menu.addSeparator()
         menu.addAction(quit_act)

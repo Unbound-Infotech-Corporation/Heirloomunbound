@@ -1,4 +1,7 @@
-"""Emergent-managed Google Auth routes."""
+"""Emergent-managed Google Auth routes plus desktop email sign-in."""
+import os
+import re
+import secrets
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -211,3 +214,119 @@ async def delete_account(
 
     response.delete_cookie("session_token", path="/", samesite="none", secure=True)
     return {"deleted": True, "counts": counts}
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_ML_RE = re.compile(r"ml_[A-Za-z0-9_-]+")
+
+
+class DesktopLoginReq(BaseModel):
+    email: str
+
+
+class DesktopFinishReq(BaseModel):
+    code: str
+
+
+def _public_house_url() -> str:
+    return (os.environ.get("PUBLIC_BACKEND_URL") or os.environ.get("REACT_APP_BACKEND_URL") or "").rstrip("/")
+
+
+@router.post("/desktop-login")
+async def request_desktop_login(payload: DesktopLoginReq):
+    """Email a paste-in slip for the Heirloom app. Not a third-party password."""
+    email = (payload.email or "").strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="That doesn't look like an email address.")
+
+    now = datetime.now(timezone.utc)
+    recent = await db.magic_links.find_one(
+        {"email": email, "issued_via": "desktop", "created_at": {"$gt": (now - timedelta(seconds=45)).isoformat()}},
+        {"_id": 0},
+    )
+    if recent:
+        return {
+            "ok": True,
+            "note": "Check your mail. Paste the slip into Unbound Keyboard on this computer.",
+        }
+
+    user = await db.users.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}, {"_id": 0})
+    if not user:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        user = {
+            "user_id": user_id,
+            "email": email,
+            "name": email.split("@", 1)[0],
+            "picture": "",
+            "created_at": now.isoformat(),
+            "last_login": now.isoformat(),
+            "tour_completed": True,
+        }
+        await db.users.insert_one(user)
+    else:
+        user_id = user["user_id"]
+
+    magic_token = "ml_" + secrets.token_urlsafe(32)
+    await db.magic_links.insert_one({
+        "magic_token": magic_token,
+        "user_id": user_id,
+        "email": email,
+        "consumed": False,
+        "issued_via": "desktop",
+        "expires_at": (now + timedelta(hours=1)).isoformat(),
+        "created_at": now.isoformat(),
+    })
+
+    from email_service import send_desktop_sign_in_email
+
+    sent = await send_desktop_sign_in_email(to=email, code=magic_token)
+    if sent.get("error") or sent.get("skipped"):
+        raise HTTPException(
+            status_code=503,
+            detail="Couldn't send the note. Try again in a minute.",
+        )
+    return {
+        "ok": True,
+        "note": "Check your mail. Paste the slip into Unbound Keyboard on this computer.",
+    }
+
+
+@router.post("/desktop-login/finish")
+async def finish_desktop_login(payload: DesktopFinishReq):
+    """Paste the email slip in the app. Pairs this computer. No website needed."""
+    found = _ML_RE.search(payload.code or "")
+    if not found:
+        raise HTTPException(
+            status_code=400,
+            detail="Paste the whole slip from your mail. It starts with ml_.",
+        )
+    from routers.fulfillment import redeem_magic_link
+
+    user, session_token = await redeem_magic_link(found.group(0))
+    device_id = f"dev_{uuid.uuid4().hex[:10]}"
+    device_token = "comp_" + secrets.token_urlsafe(32)
+    await db.companion_devices.insert_one({
+        "device_id": device_id,
+        "user_id": user["user_id"],
+        "name": "This computer",
+        "device_token": device_token,
+        "revoked": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "last_seen": None,
+        "paired_via": "desktop_login",
+    })
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {
+        "session_token": session_token,
+        "device_token": device_token,
+        "house_url": _public_house_url(),
+        "user": {
+            "user_id": user["user_id"],
+            "email": user.get("email") or "",
+            "name": user.get("name") or "",
+        },
+        "note": "This computer is signed in. Spelling still never reads a password box.",
+    }

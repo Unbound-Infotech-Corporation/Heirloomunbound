@@ -52,6 +52,8 @@ _DEFAULTS: Dict[str, Any] = {
     "mini_talk_geometry": None,  # compact "just the twin" window
     "writing_geometry": None,    # Unbound Keyboard helper
     "stay_logged_in": True,
+    "device_token": "",
+    "backend_url": "",
     # ---- Local Vault ----
     "vault_folder": None,             # None → default (Documents/HeirloomVault)
     "storage_tier": "partial",        # "full" | "partial" | "lite"
@@ -80,3 +82,37 @@ def save_settings(data: Dict[str, Any]) -> None:
         SETTINGS_PATH.write_text(json.dumps(data, indent=2))
     except Exception:
         pass
+
+
+def _looks_real_token(token: str) -> bool:
+    blob = (token or "").strip()
+    return bool(blob) and not blob.startswith("__")
+
+
+def apply_saved_login() -> None:
+    """Unsigned try-it zips pick up a later in-app sign-in from settings.json."""
+    global BACKEND_URL, DEVICE_TOKEN
+    saved = load_settings()
+    tok = str(saved.get("device_token") or "").strip()
+    url = str(saved.get("backend_url") or "").strip().rstrip("/")
+    if not _looks_real_token(DEVICE_TOKEN) and _looks_real_token(tok):
+        DEVICE_TOKEN = tok
+    localish = (not BACKEND_URL) or BACKEND_URL.startswith("__") or "localhost" in BACKEND_URL
+    if localish and url.startswith("http"):
+        BACKEND_URL = url
+
+
+def persist_login(device_token: str, backend_url: str = "") -> None:
+    """Remember this computer's house token. Never a third-party password."""
+    global BACKEND_URL, DEVICE_TOKEN
+    DEVICE_TOKEN = (device_token or "").strip()
+    url = (backend_url or BACKEND_URL or "").strip().rstrip("/")
+    if url:
+        BACKEND_URL = url
+    data = load_settings()
+    data["device_token"] = DEVICE_TOKEN
+    data["backend_url"] = BACKEND_URL
+    save_settings(data)
+
+
+apply_saved_login()

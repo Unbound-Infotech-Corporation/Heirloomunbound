@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -36,7 +37,7 @@ def _house_is_paired() -> bool:
 
 
 class WritingWindow(QWidget):
-    """Always-on-top cream card for Unbound Keyboard on Windows."""
+    """Movable cream card for Unbound Keyboard on Windows. Not a keylogger."""
 
     closed = Signal()
 
@@ -44,17 +45,14 @@ class WritingWindow(QWidget):
         super().__init__(parent)
         self.setObjectName("writing_window")
         self.setWindowTitle("Unbound Keyboard")
-        self.setWindowFlags(
-            Qt.Window
-            | Qt.FramelessWindowHint
-            | Qt.WindowStaysOnTopHint
-        )
+        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setStyleSheet(QSS)
-        self.resize(420, 560)
+        self.resize(420, 620)
         self.setMinimumSize(340, 420)
 
         self._drag_pos = None
+        self._pin_front = False
         self._busy = False
         self._issues: list[dict[str, Any]] = []
         self._ignored: set[str] = set()
@@ -75,7 +73,7 @@ class WritingWindow(QWidget):
             "QWidget#card { background: #f4e8c8; border-radius: 28px;"
             " border: 5px solid #c45c38; }"
             "QWidget#card QLabel { color: #3a2418; }"
-            "QWidget#card QPlainTextEdit { background: #fff8e4; color: #3a2418;"
+            "QWidget#card QPlainTextEdit, QWidget#card QLineEdit { background: #fff8e4; color: #3a2418;"
             " border: 4px solid #3a2418; border-radius: 18px; padding: 8px; }"
         )
         root.addWidget(card, 1)
@@ -84,7 +82,7 @@ class WritingWindow(QWidget):
         col.setSpacing(8)
 
         col.addWidget(self._build_titlebar())
-        kicker = QLabel("Unbound Keyboard")
+        kicker = QLabel("Unbound Keyboard  ·  drag the top bar to move")
         kicker.setStyleSheet("font-size: 11px; letter-spacing: 0.12em; color: #8a5a3a;")
         col.addWidget(kicker)
         title = QLabel("Write here. We'll catch the slips.")
@@ -98,6 +96,7 @@ class WritingWindow(QWidget):
         blurb.setWordWrap(True)
         blurb.setStyleSheet("font-size: 12px; color: #5a3a28;")
         col.addWidget(blurb)
+        col.addWidget(self._build_sign_in())
 
         self.editor = QPlainTextEdit()
         self.editor.setPlaceholderText("Type or paste the words you want help with…")
@@ -156,30 +155,149 @@ class WritingWindow(QWidget):
 
     def _build_titlebar(self) -> QWidget:
         bar = QWidget()
+        bar.setCursor(Qt.SizeAllCursor)
         row = QHBoxLayout(bar)
         row.setContentsMargins(0, 0, 0, 0)
-        title = QLabel("Unbound Keyboard")
+        title = QLabel("Unbound Keyboard  ·  drag here")
         title.setStyleSheet("font-size: 13px; font-weight: 600;")
+        title.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.btn_pin = QPushButton("Stay in front")
+        self.btn_pin.setCheckable(True)
+        self.btn_pin.setCursor(Qt.ArrowCursor)
+        self.btn_pin.clicked.connect(self._toggle_pin)
         close = QPushButton("×")
         close.setFixedSize(28, 28)
+        close.setCursor(Qt.ArrowCursor)
         close.clicked.connect(self.close)
         row.addWidget(title)
         row.addStretch(1)
+        row.addWidget(self.btn_pin)
         row.addWidget(close)
+        bar.mousePressEvent = self._bar_press  # type: ignore[method-assign]
+        bar.mouseMoveEvent = self._bar_move  # type: ignore[method-assign]
+        bar.mouseReleaseEvent = self._bar_release  # type: ignore[method-assign]
         return bar
 
-    def mousePressEvent(self, event):  # noqa: N802
+    def _build_sign_in(self) -> QWidget:
+        box = QWidget()
+        box.setObjectName("signin")
+        col = QVBoxLayout(box)
+        col.setContentsMargins(0, 0, 0, 8)
+        col.setSpacing(6)
+        hint = QLabel(
+            "This copy isn’t signed in. Type your email — we’ll send a slip. "
+            "Paste it below. We never ask for a Google or Windows password."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("font-size: 12px; color: #5a3a28;")
+        col.addWidget(hint)
+        self.email_in = QLineEdit()
+        self.email_in.setPlaceholderText("Your email")
+        col.addWidget(self.email_in)
+        self.house_in = QLineEdit()
+        self.house_in.setPlaceholderText("House address (https://…) if this copy doesn’t know it")
+        url = (config.BACKEND_URL or "").strip()
+        if url and "localhost" not in url and not url.startswith("__"):
+            self.house_in.setText(url)
+            self.house_in.hide()
+        col.addWidget(self.house_in)
+        self.btn_send_login = QPushButton("Send a sign-in note")
+        self.btn_send_login.clicked.connect(self._send_sign_in)
+        col.addWidget(self.btn_send_login)
+        self.code_in = QLineEdit()
+        self.code_in.setPlaceholderText("Paste the slip from your mail")
+        col.addWidget(self.code_in)
+        self.btn_finish_login = QPushButton("Sign in")
+        self.btn_finish_login.clicked.connect(self._finish_sign_in)
+        col.addWidget(self.btn_finish_login)
+        self._sign_in_box = box
+        box.setVisible(not _house_is_paired())
+        return box
+
+    def _toggle_pin(self, checked: bool) -> None:
+        self._pin_front = bool(checked)
+        flags = Qt.Window | Qt.FramelessWindowHint
+        if self._pin_front:
+            flags |= Qt.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+        self.show()
+        self.btn_pin.setText("In front" if self._pin_front else "Stay in front")
+
+    def _bar_press(self, event) -> None:  # noqa: N802
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
-    def mouseMoveEvent(self, event):  # noqa: N802
+    def _bar_move(self, event) -> None:  # noqa: N802
         if self._drag_pos is not None and event.buttons() & Qt.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag_pos)
             event.accept()
 
-    def mouseReleaseEvent(self, event):  # noqa: N802
+    def _bar_release(self, event) -> None:  # noqa: N802
         self._drag_pos = None
+        event.accept()
+
+    def _apply_house_url(self) -> None:
+        typed = (self.house_in.text() or "").strip().rstrip("/")
+        if typed.startswith("http"):
+            config.BACKEND_URL = typed
+
+    def _send_sign_in(self) -> None:
+        self._apply_house_url()
+        email = (self.email_in.text() or "").strip()
+        if "@" not in email:
+            self.note.setText("Type the email you use for Heirloom.")
+            return
+        self._set_busy(True)
+        api.post_async(
+            "/auth/desktop-login",
+            {"email": email},
+            on_ok=lambda data: self._on_send_ok(data if isinstance(data, dict) else {}),
+            on_err=lambda msg: self._on_login_err(msg),
+        )
+
+    def _on_send_ok(self, data: dict) -> None:
+        self._set_busy(False)
+        self.note.setText(str(data.get("note") or "Check your mail. Paste the slip below."))
+        self.code_in.setFocus()
+
+    def _finish_sign_in(self) -> None:
+        self._apply_house_url()
+        code = (self.code_in.text() or "").strip()
+        if "ml_" not in code:
+            self.note.setText("Paste the whole slip from your mail. It starts with ml_.")
+            return
+        self._set_busy(True)
+        api.post_async(
+            "/auth/desktop-login/finish",
+            {"code": code},
+            on_ok=lambda data: self._on_signed_in(data if isinstance(data, dict) else {}),
+            on_err=lambda msg: self._on_login_err(msg),
+        )
+
+    def _on_signed_in(self, data: dict) -> None:
+        self._set_busy(False)
+        token = str(data.get("device_token") or "").strip()
+        house = str(data.get("house_url") or "").strip() or (self.house_in.text() or "").strip()
+        if not token:
+            self.note.setText("That slip didn’t pair this computer. Send a new note.")
+            return
+        config.persist_login(token, house)
+        self._sign_in_box.setVisible(False)
+        self.note.setText(str(data.get("note") or "This computer is signed in."))
+        self.code_in.clear()
+
+    def _on_login_err(self, msg: str) -> None:
+        self._set_busy(False)
+        self.note.setText(msg or "Couldn't sign in. Try the slip again.")
+
+    def mousePressEvent(self, event):  # noqa: N802
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):  # noqa: N802
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):  # noqa: N802
         super().mouseReleaseEvent(event)
 
     def closeEvent(self, event):  # noqa: N802
@@ -200,6 +318,9 @@ class WritingWindow(QWidget):
         self.btn_fix.setEnabled(not busy)
         self.btn_leave.setEnabled(not busy)
         self.btn_polish.setEnabled(not busy)
+        if hasattr(self, "btn_send_login"):
+            self.btn_send_login.setEnabled(not busy)
+            self.btn_finish_login.setEnabled(not busy)
 
     def _from_clipboard(self) -> None:
         status, out = clipboard_get()

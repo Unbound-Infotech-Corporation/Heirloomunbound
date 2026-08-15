@@ -18,9 +18,10 @@ START HERE — Unbound Keyboard for your computer
 
 Tray → Unbound Keyboard, or Ctrl+Shift+U, opens the card any time.
 
-This try-it copy is not signed into your house. Spelling and
-grammar work here. We never read password boxes. We never ask
-for a Google, Microsoft, Windows, or phone password.
+This try-it copy may not be signed in yet. Spelling still works.
+On the card, type your email, tap Send a sign-in note, paste the
+slip from your mail, tap Sign in. We never ask for a Google,
+Microsoft, Windows, or phone password.
 
 MAC
 ---

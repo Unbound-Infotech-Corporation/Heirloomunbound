@@ -31,10 +31,11 @@ def _pool() -> QThreadPool:
 
 
 def _headers() -> dict:
-    return {
-        "Authorization": f"Bearer {config.DEVICE_TOKEN}",
-        "Accept": "application/json",
-    }
+    token = (config.DEVICE_TOKEN or "").strip()
+    headers = {"Accept": "application/json"}
+    if token and not token.startswith("__"):
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
 class _Signals(QObject):
