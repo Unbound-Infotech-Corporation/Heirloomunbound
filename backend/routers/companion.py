@@ -163,6 +163,7 @@ _KIND_LABELS = {
     "avatar_setup": "Set up twin tools on this PC",
     "creative_job": "Started creative work on this PC",
     "security_job": "Windows Safety",
+    "writing_job": "Unbound Keyboard",
 }
 
 
@@ -204,6 +205,9 @@ def _activity_summary(kind: str, payload: dict) -> str:
     if kind == "security_job":
         action = (p.get("kind") or "Windows Security").strip()
         return clip({"status": "checked protection", "open": "opened Windows Security", "scan": "quick scan"}.get(action, action))
+    if kind == "writing_job":
+        action = (p.get("kind") or "").strip()
+        return clip({"paste_text": "put words where you were typing", "read_clipboard": "read the clipboard"}.get(action, "writing helper"))
     return ""
 
 
@@ -347,7 +351,7 @@ async def companion_status(payload: CompanionStatusIn, ctx: dict = Depends(get_d
     return {"ok": True, "models": tags}
 
 
-COMPANION_SCRIPT_VERSION = "2026.08.15.8"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.15.9"  # bump whenever _build_companion_script materially changes
 
 
 class CompanionResult(BaseModel):
@@ -1370,6 +1374,7 @@ import json
 import os
 import platform
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -2237,6 +2242,10 @@ def refuse_pc_command(kind, payload):
         if str(p.get("kind") or "").strip().lower() in ("status", "open", "scan"):
             return None
         return "I only check Windows Security, open it, or start a quick scan. I never turn it off."
+    if k == "writing_job":
+        if str(p.get("kind") or "").strip().lower() in ("paste_text", "read_clipboard"):
+            return None
+        return "I can paste your writing or read the clipboard. I do not watch every key."
     return None
 
 
@@ -2341,6 +2350,43 @@ def run_security_job(payload):
     return "ok", "\n".join(lines)
 
 
+def _looks_secret_writing(text):
+    t = text or ""
+    if re.search(r"(?i)\b(?:password|passwd|passcode|pin)\b\s*[:=]", t):
+        return True
+    if re.search(r"\b\d{3}-\d{2}-\d{4}\b", t):
+        return True
+    if re.search(r"\b(?:\d[ -]?){13,19}\b", t) and len(re.sub(r"[^\d]", "", t)) >= 13:
+        return True
+    return False
+
+
+def paste_keys():
+    system = platform.system()
+    if system == "Windows":
+        _ps('$w=New-Object -ComObject WScript.Shell;$w.SendKeys("^v")')
+        return
+    if system == "Darwin":
+        subprocess.run(["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'], check=False)
+        return
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=False)
+
+
+def run_writing_job(payload):
+    """Paste cleaned words into the last app, or read the clipboard. Not a keylogger."""
+    kind = (payload.get("kind") or "paste_text").strip().lower()
+    if kind == "read_clipboard":
+        return clipboard_get()
+    if kind != "paste_text":
+        return "error", "I can paste your writing or read the clipboard. I do not watch every key."
+    text = str(payload.get("text") or "")
+    if _looks_secret_writing(text):
+        return "error", "That looks private. I will not paste a password or a card number."
+    clipboard_set(text)
+    paste_keys()
+    return "ok", "Put the words where you were typing."
+
+
 def execute(cmd):
     kind = cmd.get("kind")
     payload = cmd.get("payload") or {}
@@ -2397,6 +2443,8 @@ def execute(cmd):
             return run_creative_job(payload)
         if kind == "security_job":
             return run_security_job(payload)
+        if kind == "writing_job":
+            return run_writing_job(payload)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)

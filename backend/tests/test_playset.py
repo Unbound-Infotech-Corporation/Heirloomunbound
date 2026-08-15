@@ -34,11 +34,12 @@ def test_today_leads_with_playset_knobs():
     assert 'data-testid="today-root"' in today
     assert 'data-testid="today-greeting"' in today
     assert 'testid="today-playset"' in today
-    for knob in ("talk", "look", "mail", "safety", "make", "pc"):
+    for knob in ("talk", "look", "mail", "safety", "write", "make", "pc"):
         assert f'playset-knob-{knob}' in today
     assert "Press a button" in today
     assert "not another inbox" in today.lower()
     assert "Look at my screen and help me with whatever is on it." in today
+    assert 'to="/writing"' in today
     assert 'to="/safety"' in today
     assert 'to="/twin"' in today
 
@@ -118,4 +119,4 @@ def test_ollama_still_out_of_cloud_providers():
 
 def test_companion_script_version_unchanged_for_ui_only_playset():
     companion = (ROOT / "routers" / "companion.py").read_text(encoding="utf-8")
-    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.8"' in companion
+    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.9"' in companion

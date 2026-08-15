@@ -303,6 +303,30 @@ ABILITIES: list[dict] = [
         ),
     },
     {
+        "id": "unbound_keyboard",
+        "name": "Unbound Keyboard",
+        "tagline": "A keyboard that fixes spelling as you type, notices words you lean on, and still sounds like you.",
+        "icon": "keyboard",
+        "category": "knowledge",
+        "default_enabled": True,
+        "requires_companion": False,
+        "tools": ["proofread_text", "polish_wording", "word_habits"],
+        "permissions": [
+            {"id": "help_me_write", "label": "Help fix spelling, grammar, and overused words in text you share — never password boxes"},
+        ],
+        "prompt_block": (
+            "Unbound Keyboard (enabled):\n"
+            "- This is their writing helper, not a spy. NEVER ask for a Google, Microsoft, phone, or Windows password. "
+            "NEVER read or store password-box text. Do not keep other people's documents.\n"
+            "- On Android they choose Unbound Keyboard as the keyboard. On Windows they open the writing helper "
+            "(tray or Ctrl+Shift+U) — we cannot sit inside every Windows box the way a phone keyboard can.\n"
+            "- `proofread_text(text)` — instant spelling, grammar, and word-habit notes. Call when they paste a draft, "
+            "ask you to check writing, or say a sentence looks off.\n"
+            "- `polish_wording(text)` — rewrite so it still sounds like them, not like a magazine. Keep their meaning.\n"
+            "- `word_habits()` — words they overuse in the archive. Offer gentler swaps; do not scold.\n"
+        ),
+    },
+    {
         "id": "terminal",
         "name": "Terminal Access",
         "tagline": "Advanced: let your twin run shell commands (with confirmation).",

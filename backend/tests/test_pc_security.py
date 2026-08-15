@@ -136,7 +136,7 @@ def test_ability_and_tools_declare_windows_safety():
         assert f'"{name}": exec_{name}' in tools
     assert "confirmed=true" in abilities
     assert "NEVER ask for a Windows" in abilities
-    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.8"' in companion
+    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.9"' in companion
     assert "def run_security_job" in companion
     assert 'kind == "security_job"' in companion
     assert "def refuse_pc_command" in companion

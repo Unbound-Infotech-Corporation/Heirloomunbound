@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import os
 import platform
+import re
 import subprocess
 import time
 import webbrowser
@@ -204,6 +205,46 @@ def clipboard_set(text):
         return "ok", "copied"
     subprocess.run(["bash", "-c", "xclip -selection clipboard 2>/dev/null || xsel -b 2>/dev/null"], input=text, text=True)
     return "ok", "copied"
+
+
+def _looks_secret_writing(text: str) -> bool:
+    blob = text or ""
+    if re.search(r"(?i)\b(?:password|passwd|passcode|pin)\b\s*[:=]", blob):
+        return True
+    if re.search(r"\b\d{3}-\d{2}-\d{4}\b", blob):
+        return True
+    if re.search(r"\b(?:\d[ -]?){13,19}\b", blob) and len(re.sub(r"[^\d]", "", blob)) >= 13:
+        return True
+    return False
+
+
+def paste_keys() -> None:
+    system = platform.system()
+    if system == "Windows":
+        _ps('$w=New-Object -ComObject WScript.Shell;$w.SendKeys("^v")')
+        return
+    if system == "Darwin":
+        subprocess.run(
+            ["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'],
+            check=False,
+        )
+        return
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=False)
+
+
+def run_writing_job(payload: dict):
+    """Paste cleaned words, or read the clipboard. Never a keylogger."""
+    kind = str((payload or {}).get("kind") or "paste_text").strip().lower()
+    if kind == "read_clipboard":
+        return clipboard_get()
+    if kind != "paste_text":
+        return "error", "I can paste your writing or read the clipboard. I do not watch every key."
+    text = str((payload or {}).get("text") or "")
+    if _looks_secret_writing(text):
+        return "error", "That looks private. I will not paste a password or a card number."
+    clipboard_set(text)
+    paste_keys()
+    return "ok", "Put the words where you were typing."
 
 
 def system_status():
@@ -512,6 +553,8 @@ def execute(cmd: dict):
         if kind == "security_job":
             from .security_local import run_security_job
             return run_security_job(payload)
+        if kind == "writing_job":
+            return run_writing_job(payload)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)

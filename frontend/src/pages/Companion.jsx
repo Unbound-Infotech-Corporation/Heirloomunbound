@@ -11,6 +11,7 @@ const KIND_ICONS = {
   avatar_still: Cpu, avatar_talk: Cpu, avatar_look: Eye, avatar_setup: Download,
   creative_job: Palette,
   security_job: ShieldCheck,
+  writing_job: Keyboard,
 };
 
 const STATUS_META = {

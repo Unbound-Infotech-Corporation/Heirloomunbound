@@ -11,7 +11,7 @@ COMPANION = ROOT / "routers" / "companion.py"
 
 def test_companion_script_version_for_mini_talk():
     text = COMPANION.read_text(encoding="utf-8")
-    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.8"' in text
+    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.9"' in text
 
 
 def test_mini_talk_window_is_grandmother_simple_not_obs():

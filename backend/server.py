@@ -78,6 +78,7 @@ from routers import (
     vault,
     voice,
     voice_clone,
+    writing,
 )
 from storage import init_storage
 
@@ -205,6 +206,7 @@ api_router.include_router(vault.router)
 api_router.include_router(live.router)
 api_router.include_router(avatar_studio.router)
 api_router.include_router(user_keys.router)
+api_router.include_router(writing.router)
 
 app.include_router(api_router)
 

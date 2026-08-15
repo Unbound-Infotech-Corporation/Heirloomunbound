@@ -45,6 +45,9 @@ const TOOL_META = {
   check_pc_safety: { label: "checking Windows Security", icon: ShieldCheck },
   open_windows_security: { label: "opening Windows Security", icon: ShieldCheck },
   scan_pc: { label: "starting a Windows scan", icon: ShieldCheck },
+  proofread_text: { label: "checking your writing", icon: Keyboard },
+  polish_wording: { label: "making it sound like you", icon: Keyboard },
+  word_habits: { label: "noticing word habits", icon: Keyboard },
 };
 
 function ToolChip({ tool }) {

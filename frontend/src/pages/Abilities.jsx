@@ -5,6 +5,7 @@ import {
   Check,
   Eye,
   Globe,
+  Keyboard,
   Loader2,
   Mail,
   Monitor,
@@ -33,6 +34,7 @@ const ICONS = {
   briefcase: Briefcase,
   palette: Palette,
   shield: ShieldCheck,
+  keyboard: Keyboard,
 };
 
 const CATEGORY_LABELS = {

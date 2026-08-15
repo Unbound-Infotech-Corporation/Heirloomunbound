@@ -141,6 +141,9 @@ export default function Today() {
               <ToyKnob color="grass" to="/safety" testid="playset-knob-safety">
                 Safety
               </ToyKnob>
+              <ToyKnob color="sky" to="/writing" testid="playset-knob-write">
+                Write
+              </ToyKnob>
               <ToyKnob
                 color="grape"
                 testid="playset-knob-make"

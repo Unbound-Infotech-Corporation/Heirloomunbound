@@ -50,6 +50,7 @@ _DEFAULTS: Dict[str, Any] = {
     "window_geometry": None,
     "pop_out_geometry": None,
     "mini_talk_geometry": None,  # compact "just the twin" window
+    "writing_geometry": None,    # Unbound Keyboard helper
     "stay_logged_in": True,
     # ---- Local Vault ----
     "vault_folder": None,             # None → default (Documents/HeirloomVault)

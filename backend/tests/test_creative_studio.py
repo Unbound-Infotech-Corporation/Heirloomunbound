@@ -114,7 +114,7 @@ def test_ability_and_tools_declare_creative():
         assert f'"{name}": exec_{name}' in tools
     assert "confirmed=true" in abilities
     assert "NEVER ask for a" in abilities and "password" in abilities
-    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.8"' in companion
+    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.9"' in companion
     assert "def run_creative_job" in companion
     assert 'kind == "creative_job"' in companion
     assert "studio_label" in companion

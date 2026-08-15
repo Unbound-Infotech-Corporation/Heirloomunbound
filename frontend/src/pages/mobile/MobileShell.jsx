@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { Camera, History, Home, Phone, Puzzle, Sparkles } from "lucide-react";
+import { Camera, History, Home, Keyboard, Phone, Puzzle, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 
 /**
@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
  *   /m/capture   → voice memo + photo capture
  *   /m/history   → recent calls + memories
  *   /m/packs     → optional integrations (only those on at the desktop)
+ *   /m/keyboard  → Unbound Keyboard writing helper (IME is the Android app)
  */
 const TABS = [
   { to: "/m/call", label: "Call", icon: Phone, tid: "mobile-tab-call" },
@@ -19,6 +20,7 @@ const TABS = [
   { to: "/m/capture", label: "Capture", icon: Camera, tid: "mobile-tab-capture" },
   { to: "/m/history", label: "Recent", icon: History, tid: "mobile-tab-history" },
   { to: "/m/packs", label: "Packs", icon: Puzzle, tid: "mobile-tab-packs" },
+  { to: "/m/keyboard", label: "Write", icon: Keyboard, tid: "mobile-tab-keyboard" },
 ];
 
 export default function MobileShell() {
@@ -98,7 +100,7 @@ export default function MobileShell() {
         }}
         data-testid="mobile-tabbar"
       >
-        <div className="grid grid-cols-5 h-16">
+        <div className="grid grid-cols-6 h-16">
           {TABS.map((t) => {
             const active = loc.pathname.startsWith(t.to);
             const Icon = t.icon;

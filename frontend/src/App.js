@@ -31,6 +31,7 @@ import MobileCapture from "@/pages/mobile/MobileCapture";
 import MobileHistory from "@/pages/mobile/MobileHistory";
 import MobileTwin from "@/pages/mobile/MobileTwin";
 import MobilePacks from "@/pages/mobile/MobilePacks";
+import MobileKeyboard from "@/pages/mobile/MobileKeyboard";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import HeirPortal from "@/pages/HeirPortal";
@@ -41,6 +42,7 @@ import Buy from "@/pages/Buy";
 import BuySuccess from "@/pages/BuySuccess";
 import Today from "@/pages/Today";
 import Safety from "@/pages/Safety";
+import Writing from "@/pages/Writing";
 import Reminders from "@/pages/Reminders";
 import Onboarding from "@/pages/Onboarding";
 import Sources from "@/pages/Sources";
@@ -97,6 +99,7 @@ function AppRouter() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/today" element={<Today />} />
         <Route path="/safety" element={<Safety />} />
+        <Route path="/writing" element={<Writing />} />
         <Route path="/reminders" element={<Reminders />} />
         <Route path="/sources" element={<Sources />} />
         <Route path="/interviewer" element={<Interviewer />} />
@@ -135,6 +138,7 @@ function AppRouter() {
         <Route path="capture" element={<MobileCapture />} />
         <Route path="history" element={<MobileHistory />} />
         <Route path="packs" element={<MobilePacks />} />
+        <Route path="keyboard" element={<MobileKeyboard />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

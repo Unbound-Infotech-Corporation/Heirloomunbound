@@ -165,4 +165,9 @@ def refuse_command(kind: str, payload: dict) -> Optional[str]:
         if action in ("status", "open", "scan"):
             return None
         return "I only check Windows Security, open it, or start a quick scan. I never turn it off."
+    if k == "writing_job":
+        action = str(p.get("kind") or "").strip().lower()
+        if action in ("paste_text", "read_clipboard"):
+            return None
+        return "I can paste your writing or read the clipboard. I do not watch every key."
     return None

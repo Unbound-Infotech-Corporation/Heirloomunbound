@@ -37,6 +37,7 @@ from .mica import apply as apply_mica
 from .panels import QuickCapture, RecentMemories
 from .settings_dialog import SettingsDialog
 from .talk_window import MiniTalkWindow
+from .writing_window import WritingWindow
 from .titlebar import TitleBar
 
 
@@ -50,6 +51,7 @@ class MainWindow(QMainWindow):
         self._palette: Optional[CommandPalette] = None
         self._mica_applied = False
         self._talk: Optional[MiniTalkWindow] = None
+        self._writing: Optional[WritingWindow] = None
 
         self.setWindowTitle("Heirloom")
         self.resize(1280, 800)
@@ -171,6 +173,9 @@ class MainWindow(QMainWindow):
         sc_ptt = QShortcut(QKeySequence("Ctrl+Space"), self)
         sc_ptt.setContext(Qt.ApplicationShortcut)
         sc_ptt.activated.connect(self._ptt_toggle)
+        sc_write = QShortcut(QKeySequence("Ctrl+Shift+U"), self)
+        sc_write.setContext(Qt.ApplicationShortcut)
+        sc_write.activated.connect(self.open_writing_helper)
 
     def _restore_geometry(self) -> None:
         geo = self._settings.get("window_geometry")
@@ -396,6 +401,13 @@ class MainWindow(QMainWindow):
                 action=self.open_mini_talk,
             ),
             Command(
+                id="unboundkb",
+                label="Unbound Keyboard",
+                hint="Fix spelling and overused words — not a spy on every key",
+                shortcut="ctrl · shift · U",
+                action=self.open_writing_helper,
+            ),
+            Command(
                 id="lookscreen",
                 label="Look at my screen",
                 hint="The twin looks at this computer and helps — games, writing, movies",
@@ -441,6 +453,29 @@ class MainWindow(QMainWindow):
                 action=self.quit_requested.emit,
             ),
         ]
+
+    def open_writing_helper(self) -> None:
+        """Always-on-top Unbound Keyboard card. Does not hide the full window."""
+        if self._writing is None:
+            self._writing = WritingWindow()
+            self._writing.closed.connect(self._persist_writing_geo)
+        geo = self._settings.get("writing_geometry")
+        if isinstance(geo, list) and len(geo) == 4:
+            self._writing.setGeometry(*geo)
+        self._writing.show()
+        self._writing.raise_()
+        self._writing.activateWindow()
+
+    def _persist_writing_geo(self) -> None:
+        if self._writing is None:
+            return
+        self._settings["writing_geometry"] = [
+            self._writing.x(),
+            self._writing.y(),
+            self._writing.width(),
+            self._writing.height(),
+        ]
+        config.save_settings(self._settings)
 
     def open_mini_talk(self) -> None:
         """Hide the full window and talk to the twin in a small always-on-top card."""
@@ -520,6 +555,8 @@ class TrayProxy:
         ptt.triggered.connect(window._ptt_toggle)
         minitalk = QAction("Talk in a small window", menu)
         minitalk.triggered.connect(window.open_mini_talk)
+        write = QAction("Unbound Keyboard", menu)
+        write.triggered.connect(window.open_writing_helper)
         popout = QAction("Pop out avatar for OBS", menu)
         popout.triggered.connect(window.avatar.pop_out)
         quit_act = QAction("Quit Heirloom", menu)
@@ -529,6 +566,7 @@ class TrayProxy:
         menu.addSeparator()
         menu.addAction(ptt)
         menu.addAction(minitalk)
+        menu.addAction(write)
         menu.addAction(popout)
         menu.addSeparator()
         menu.addAction(quit_act)

@@ -2299,6 +2299,91 @@ CREATIVE_TOOL_SCHEMAS: list[dict] = [
 ]
 
 
+async def exec_proofread_text(user_id: str, args: dict) -> dict:
+    from services.writing_coach import proofread_for_user
+
+    text = str(args.get("text") or "")
+    if not text.strip():
+        return {"summary": "Need some words to look at.", "ui": {"kind": "writing", "error": "empty"}}
+    result = await proofread_for_user(user_id, text)
+    if result.get("secret"):
+        return {
+            "summary": result.get("style_note") or "That looks private. I will not read it.",
+            "ui": {"kind": "writing", "secret": True},
+        }
+    issues = result.get("issues") or []
+    bits = [str(result.get("style_note") or "").strip()]
+    for item in issues[:8]:
+        note = str(item.get("note") or "").strip()
+        if note:
+            bits.append(f"- {item.get('text')}: {note}")
+    corrected = str(result.get("corrected") or text)
+    if corrected != text:
+        bits.append("Cleaned version:\n" + corrected[:1500])
+    return {
+        "summary": "\n".join(b for b in bits if b) or "Looks clean.",
+        "ui": {"kind": "writing", "ok": True, "issues": issues, "corrected": corrected},
+    }
+
+
+async def exec_polish_wording(user_id: str, args: dict) -> dict:
+    from services.writing_coach import polish_for_user
+
+    text = str(args.get("text") or "")
+    if not text.strip():
+        return {"summary": "Need some words to polish.", "ui": {"kind": "writing", "error": "empty"}}
+    result = await polish_for_user(user_id, text, str(args.get("instruction") or ""))
+    if result.get("secret"):
+        return {
+            "summary": result.get("note") or "That looks private. I will not rewrite it.",
+            "ui": {"kind": "writing", "secret": True},
+        }
+    polished = str(result.get("polished") or text)
+    note = str(result.get("note") or "")
+    return {
+        "summary": f"{note}\n\n{polished}".strip(),
+        "ui": {"kind": "writing", "ok": True, "polished": polished},
+    }
+
+
+async def exec_word_habits(user_id: str, args: dict) -> dict:
+    del args
+    from services.writing_coach import style_for_user
+
+    result = await style_for_user(user_id)
+    return {"summary": str(result.get("summary") or ""), "ui": {"kind": "writing", **result}}
+
+
+WRITING_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "proofread_text",
+        "description": (
+            "Check spelling, little grammar slips, and words they overuse. "
+            "Pass the draft they shared. Never send password-box text. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "The words to look at"},
+        }, "required": ["text"]},
+    }},
+    {"type": "function", "function": {
+        "name": "polish_wording",
+        "description": (
+            "Rewrite so it still sounds like them — fix grammar, ease overused words. "
+            "Keep their meaning. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "The words to polish"},
+            "instruction": {"type": "string", "description": "Optional extra ask, e.g. shorter, warmer"},
+        }, "required": ["text"]},
+    }},
+    {"type": "function", "function": {
+        "name": "word_habits",
+        "description": "Words they reach for too often in their archive, with gentler swaps in their voice.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+]
+
+
 SECURITY_TOOL_SCHEMAS: list[dict] = [
     {"type": "function", "function": {
         "name": "check_pc_safety",
@@ -2338,6 +2423,7 @@ TOOL_SCHEMAS += PEOPLE_TOOL_SCHEMAS
 TOOL_SCHEMAS += BUSINESS_TOOL_SCHEMAS
 TOOL_SCHEMAS += CREATIVE_TOOL_SCHEMAS
 TOOL_SCHEMAS += SECURITY_TOOL_SCHEMAS
+TOOL_SCHEMAS += WRITING_TOOL_SCHEMAS
 
 
 TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
@@ -2390,6 +2476,9 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
     "check_pc_safety": exec_check_pc_safety,
     "open_windows_security": exec_open_windows_security,
     "scan_pc": exec_scan_pc,
+    "proofread_text": exec_proofread_text,
+    "polish_wording": exec_polish_wording,
+    "word_habits": exec_word_habits,
 }
 
 
