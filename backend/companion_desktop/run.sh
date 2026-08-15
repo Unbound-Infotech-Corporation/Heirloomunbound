@@ -28,6 +28,9 @@ fi
 if [[ -f ./README.txt ]]; then
   cp -f ./README.txt "${INSTALL_DIR}/README.txt"
 fi
+if [[ -f "./START HERE.txt" ]]; then
+  cp -f "./START HERE.txt" "${INSTALL_DIR}/START HERE.txt"
+fi
 
 PY=""
 if command -v python3 >/dev/null 2>&1; then

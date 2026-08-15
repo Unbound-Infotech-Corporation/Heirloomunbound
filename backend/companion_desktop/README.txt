@@ -44,6 +44,19 @@ card stays on your screen with the twin's face, a short chat, and hold-to-speak.
 Ask it to do tasks the same way as in the full window. Click "Full window" to
 bring Heirloom back, or close the small card — Heirloom stays in the tray.
 
+UNBOUND KEYBOARD
+----------------
+Tray → Unbound Keyboard, or press Ctrl+Shift+U. Type or paste in that card.
+We catch spelling, little grammar slips, and words you lean on. Then
+"Put this where I was typing" pastes the cleaned words back.
+
+A try-it copy (no house pairing) still does spelling and grammar on this
+computer. To make it sound like you, download Heirloom from Local PC in
+your account. We never read password boxes. We never ask for a Windows
+password.
+
+Double-click Try-Unbound-Keyboard.bat to open the writing card on launch.
+
 LOOK AT MY SCREEN
 -----------------
 Click "Look at my screen" (or say it out loud). The twin takes a picture of

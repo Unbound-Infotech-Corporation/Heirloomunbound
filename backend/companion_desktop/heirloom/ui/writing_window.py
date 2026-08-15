@@ -23,9 +23,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import api
+from .. import api, config
 from ..commands import _looks_secret_writing, clipboard_get, clipboard_set, paste_keys
+from ..writing_local import proofread_local
 from . import QSS
+
+
+def _house_is_paired() -> bool:
+    """True when this copy was downloaded from Local PC with a house token."""
+    token = (config.DEVICE_TOKEN or "").strip()
+    return bool(token) and not token.startswith("__")
 
 
 class WritingWindow(QWidget):
@@ -248,12 +255,15 @@ class WritingWindow(QWidget):
             self.note.setText("That looks private. I will not read it.")
             self._render_issues([])
             return
+        if not _house_is_paired():
+            self._on_proofread(proofread_local(text))
+            return
         self._set_busy(True)
         api.post_async(
             "/writing/proofread",
             {"text": text},
             on_ok=self._on_proofread,
-            on_err=self._on_err,
+            on_err=lambda _msg: self._on_proofread(proofread_local(text)),
         )
 
     def _on_proofread(self, data: object) -> None:
@@ -279,12 +289,33 @@ class WritingWindow(QWidget):
         if _looks_secret_writing(text):
             self.note.setText("That looks private. I will not rewrite it.")
             return
+        if not _house_is_paired():
+            local = proofread_local(text)
+            self._on_polish(
+                {
+                    "secret": local.get("secret"),
+                    "polished": local.get("corrected") or text,
+                    "note": (
+                        "Spelling is cleaned here. Pair this computer from Local PC "
+                        "to make it sound like you."
+                    ),
+                    "issues": local.get("issues") or [],
+                }
+            )
+            return
         self._set_busy(True)
         api.post_async(
             "/writing/polish",
             {"text": text},
             on_ok=self._on_polish,
-            on_err=self._on_err,
+            on_err=lambda _msg: self._on_polish(
+                {
+                    "secret": False,
+                    "polished": proofread_local(text).get("corrected") or text,
+                    "note": "Couldn't reach the house, so I cleaned spelling here.",
+                    "issues": proofread_local(text).get("issues") or [],
+                }
+            ),
         )
 
     def _on_polish(self, data: object) -> None:

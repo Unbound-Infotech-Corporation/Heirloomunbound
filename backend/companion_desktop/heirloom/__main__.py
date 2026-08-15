@@ -82,14 +82,14 @@ def _run() -> int:
     app.setOrganizationName("Unbound Infotech")
     app.setQuitOnLastWindowClosed(False)  # tray keeps us alive
 
-    if not config.DEVICE_TOKEN:
-        _show_start_error(
-            "This copy isn’t signed in.\n\n"
-            "Open Local PC in your Heirloom account and tap Download Heirloom "
-            "(or Download again on this computer).\n\n"
-            f"Details: {_setup_log_path()}"
+    unsigned = not (config.DEVICE_TOKEN or "").strip()
+    if unsigned:
+        # Try-it zip / source tree: Unbound Keyboard still works locally.
+        # Twin chat and PC jobs need a pairing from Local PC.
+        _append_setup_log(
+            "This copy isn’t signed in. Unbound Keyboard will still catch spelling "
+            "here. Download Heirloom again from Local PC to pair this computer."
         )
-        return 1
 
     window = MainWindow()
     tray = TrayProxy(window)  # noqa: F841 — kept alive by app
@@ -97,9 +97,15 @@ def _run() -> int:
     app.aboutToQuit.connect(window.shutdown)
     _schedule_midnight_maintenance(window)
 
+    def _after_splash() -> None:
+        window.show()
+        try_keyboard = os.environ.get("HEIRLOOM_TRY_KEYBOARD", "").strip() == "1"
+        if unsigned or try_keyboard:
+            QTimer.singleShot(450, window.open_writing_helper)
+
     # Serif boot fade — 800ms, then reveal the main window
     splash = Splash()
-    splash.finished.connect(window.show)
+    splash.finished.connect(_after_splash)
     splash.start()
 
     return app.exec()

@@ -19,6 +19,7 @@ echo Heirloom setup %DATE% %TIME%>> "%LOG%"
 xcopy /S /E /Y /Q "%~dp0heirloom" "%APP_DIR%\heirloom\" >nul
 if exist "%~dp0requirements.txt" copy /Y "%~dp0requirements.txt" "%INSTALL_DIR%\requirements.txt" >nul
 if exist "%~dp0README.txt" copy /Y "%~dp0README.txt" "%INSTALL_DIR%\README.txt" >nul
+if exist "%~dp0START HERE.txt" copy /Y "%~dp0START HERE.txt" "%INSTALL_DIR%\START HERE.txt" >nul
 
 if not exist "%APP_DIR%\heirloom\__main__.py" (
   echo Unzip the Heirloom folder first. Then double-click Heirloom.bat inside that folder.

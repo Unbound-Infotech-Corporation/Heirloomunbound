@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import sys
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -138,12 +139,15 @@ def test_windows_helper_is_not_a_keylogger():
     main = (DESKTOP / "heirloom" / "ui" / "main_window.py").read_text(encoding="utf-8")
     commands = (DESKTOP / "heirloom" / "commands.py").read_text(encoding="utf-8")
     companion = (ROOT / "routers" / "companion.py").read_text(encoding="utf-8")
+    boot = (DESKTOP / "heirloom" / "__main__.py").read_text(encoding="utf-8")
     assert "Unbound Keyboard" in window
     assert "not every key on the computer" in window
     assert "Never a password box" in window
     assert "Put this where I was typing" in window
     assert "Make it sound like me" in window
     assert "Check writing" in window
+    assert "proofread_local" in window
+    assert "_house_is_paired" in window
     assert "def open_writing_helper" in main
     assert "Ctrl+Shift+U" in main
     assert 'QAction("Unbound Keyboard"' in main
@@ -152,6 +156,8 @@ def test_windows_helper_is_not_a_keylogger():
     assert "def run_writing_job" in companion
     assert 'kind == "writing_job"' in companion
     assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.9"' in companion
+    assert "open_writing_helper" in boot
+    assert "HEIRLOOM_TRY_KEYBOARD" in boot
     compile(window, str(DESKTOP / "heirloom" / "ui" / "writing_window.py"), "exec")
 
 
@@ -182,10 +188,57 @@ def test_ollama_still_out_of_cloud_providers():
 
 
 def test_writing_coach_module_parses():
-    path = ROOT / "services" / "writing_coach.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    local_path = ROOT / "services" / "writing_local.py"
+    tree = ast.parse(local_path.read_text(encoding="utf-8"))
     names = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
     assert "proofread_local" in names
     assert "looks_secret" in names
-    assert "build_habit_profile" in names
-    compile(path.read_text(encoding="utf-8"), str(path), "exec")
+    compile(local_path.read_text(encoding="utf-8"), str(local_path), "exec")
+    coach = ROOT / "services" / "writing_coach.py"
+    coach_tree = ast.parse(coach.read_text(encoding="utf-8"))
+    coach_names = {
+        n.name
+        for n in coach_tree.body
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "build_habit_profile" in coach_names
+    assert "polish_for_user" in coach_names
+    compile(coach.read_text(encoding="utf-8"), str(coach), "exec")
+
+
+def test_desktop_writing_brain_matches_cloud():
+    cloud = (ROOT / "services" / "writing_local.py").read_bytes()
+    desk = (DESKTOP / "heirloom" / "writing_local.py").read_bytes()
+    assert cloud == desk
+    start = (DESKTOP / "START HERE.txt").read_text(encoding="utf-8")
+    try_bat = (DESKTOP / "Try-Unbound-Keyboard.bat").read_text(encoding="utf-8", errors="replace")
+    assert "Try-Unbound-Keyboard.bat" in start
+    assert "I recieve this" in start
+    assert "password" in start.lower()
+    assert "HEIRLOOM_TRY_KEYBOARD" in try_bat
+    assert "Heirloom.bat" in try_bat
+
+
+def test_try_it_zip_is_double_click_installable():
+    sys.path.insert(0, str(ROOT))
+    from pack_try_it_zip import build_try_it_zip
+
+    dest = ROOT.parent / "tmp-Heirloom-Unbound-Keyboard-test.zip"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    build_try_it_zip(dest)
+    with zipfile.ZipFile(dest) as zf:
+        names = set(zf.namelist())
+        start = zf.read("Heirloom-Unbound-Keyboard/START HERE.txt").decode("utf-8")
+    assert "Heirloom-Unbound-Keyboard/Windows/Heirloom.bat" in names
+    assert "Heirloom-Unbound-Keyboard/Windows/Try-Unbound-Keyboard.bat" in names
+    assert "Heirloom-Unbound-Keyboard/Windows/run.sh" in names
+    assert "Heirloom-Unbound-Keyboard/Windows/heirloom/writing_local.py" in names
+    assert "Heirloom-Unbound-Keyboard/Windows/heirloom/ui/writing_window.py" in names
+    assert "Heirloom-Unbound-Keyboard/Windows/START HERE.txt" in names
+    assert any(n.endswith("AndroidManifest.xml") for n in names)
+    assert any(n.endswith("UnboundImeService.kt") for n in names)
+    assert "BIND_INPUT_METHOD" in zipfile.ZipFile(dest).read(
+        next(n for n in names if n.endswith("AndroidManifest.xml"))
+    ).decode("utf-8")
+    assert "Try-Unbound-Keyboard.bat" in start
+    dest.unlink(missing_ok=True)

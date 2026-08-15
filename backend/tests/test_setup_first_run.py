@@ -147,5 +147,8 @@ def test_baked_desktop_files_include_both_starters():
     sh = DESKTOP_FILES["run.sh"].decode("utf-8")
     assert "python3" in sh
     cfg = DESKTOP_FILES["heirloom/config.py"].decode("utf-8")
+    assert "START HERE.txt" in DESKTOP_FILES
+    assert "Try-Unbound-Keyboard.bat" in DESKTOP_FILES
+    assert "heirloom/writing_local.py" in DESKTOP_FILES
     assert '"__BACKEND_URL__"' in cfg
     assert "if not BACKEND_URL or BACKEND_URL.startswith" in cfg

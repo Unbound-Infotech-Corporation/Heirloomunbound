@@ -21,6 +21,16 @@ import textwrap
 
 SRC_ROOT = pathlib.Path(__file__).resolve().parent / "companion_desktop"
 OUT = pathlib.Path(__file__).resolve().parent / "companion_desktop_data.py"
+WRITING_LOCAL_SRC = pathlib.Path(__file__).resolve().parent / "services" / "writing_local.py"
+WRITING_LOCAL_DST = SRC_ROOT / "heirloom" / "writing_local.py"
+
+
+def sync_writing_local() -> None:
+    """Keep the desktop copy identical to the cloud local brain."""
+    if not WRITING_LOCAL_SRC.is_file():
+        raise SystemExit(f"missing {WRITING_LOCAL_SRC}")
+    WRITING_LOCAL_DST.parent.mkdir(parents=True, exist_ok=True)
+    WRITING_LOCAL_DST.write_text(WRITING_LOCAL_SRC.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def collect_files() -> list[tuple[str, bytes]]:
@@ -58,6 +68,7 @@ def build_module(files: list[tuple[str, bytes]]) -> str:
 def main() -> None:
     if not SRC_ROOT.is_dir():
         raise SystemExit(f"source not found at {SRC_ROOT}")
+    sync_writing_local()
     files = collect_files()
     if not files:
         raise SystemExit(f"no files under {SRC_ROOT}")

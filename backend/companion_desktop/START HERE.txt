@@ -1,0 +1,45 @@
+START HERE — try Unbound Keyboard
+=================================
+
+Unzip this folder first. Copy it to your Desktop.
+Do not double-click anything from inside the zip.
+
+WINDOWS (easiest)
+-----------------
+1. Open the Windows folder.
+2. Double-click  Try-Unbound-Keyboard.bat
+   (Heirloom.bat also works.)
+3. First time takes about a minute. Leave the window open.
+   If Windows shows a blue box: More info → Run anyway.
+4. An Unbound Keyboard card opens. Type:
+
+     I recieve this and should of said thanks just just just
+
+5. Tap a chip to swap a word. Or click Check writing.
+   Then try Put this where I was typing.
+
+Tray → Unbound Keyboard, or Ctrl+Shift+U, opens the card any time.
+
+This try-it copy is not signed into your house. Spelling and grammar
+work here. To make it sound like you, open Heirloom in your browser,
+go to Local PC, and Download for this computer.
+
+We never read password boxes. We never ask for a Google, Microsoft,
+Windows, or phone password.
+
+MAC
+---
+Open the Windows folder (same files) and double-click run.sh.
+
+ANDROID
+-------
+The Android folder is a real keyboard. Open it in Android Studio,
+plug in the phone, Run. Then:
+
+  Settings → System → Languages & input → On-screen keyboard
+  → Manage keyboards → turn on Unbound Keyboard.
+
+Paste your house address and house key from Heirloom → Write →
+Copy my house key. Password, PIN, and card boxes stay silent.
+
+— Unbound Infotech
