@@ -58,7 +58,7 @@ Do these in order — if something breaks, you'll know which key.
 - Cloud Console → https://console.cloud.google.com/apis/credentials
 - OAuth client type: Web application.
 - Redirect URI: `{PUBLIC_BACKEND_URL}/api/oauth/google/callback`
-- Scopes: `gmail.readonly` + `gmail.send` (plus openid/email/profile). Production
+- Scopes: `gmail.readonly` + `gmail.send` + `calendar.events` (plus openid/email/profile). Production
   needs Google app verification; until then the Connect button is fine in
   test/internal use.
 - Optional `GOOGLE_REDIRECT_URI` override. Heirloom never stores the user's
@@ -67,7 +67,7 @@ Do these in order — if something breaks, you'll know which key.
 ### 9. Microsoft OAuth · Outlook · `MICROSOFT_CLIENT_ID` + `MICROSOFT_CLIENT_SECRET`
 - Azure app registration → https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps
 - Redirect URI: `{PUBLIC_BACKEND_URL}/api/oauth/microsoft/callback`
-- Scopes: `offline_access User.Read Mail.Read Mail.Send`
+- Scopes: `offline_access User.Read Mail.Read Mail.Send Calendars.ReadWrite`
 - Optional `MICROSOFT_TENANT` (default `common`) and `MICROSOFT_REDIRECT_URI`.
 - Same rule: sign-in happens on Microsoft's page. No Outlook password in Heirloom.
 

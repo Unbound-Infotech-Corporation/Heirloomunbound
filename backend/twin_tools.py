@@ -113,6 +113,49 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "list_reminders",
+            "description": "List the owner's open reminders and to-dos. Use for 'what's on my list', 'what did I ask you to remind me'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "default": 12},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_reminder",
+            "description": "Mark a reminder done after the owner says it is finished. Use the reminder_id from list_reminders.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reminder_id": {"type": "string"},
+                },
+                "required": ["reminder_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "whats_on_my_plate",
+            "description": (
+                "Daily briefing: today's calendar, open reminders, a peek at recent mail, and on-this-day memories. "
+                "Use for 'good morning', 'what's on today', 'catch me up', 'what's on my plate'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {"type": "integer", "description": "How many days ahead (1-7)", "default": 1},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_weather",
             "description": "Get the current weather for a city or location (uses Open-Meteo, no API key).",
             "parameters": {
@@ -340,6 +383,131 @@ async def exec_list_recent_memories(user_id: str, args: dict) -> dict:
     for r in rows:
         lines.append(f"- {r.get('created_at', '')[:10]} [{r.get('type')}] {r.get('title') or '(untitled)'} — {_truncate(r.get('content', ''), 140)}")
     return {"summary": "\n".join(lines), "ui": {"count": len(rows), "days": days}}
+
+
+async def exec_list_reminders(user_id: str, args: dict) -> dict:
+    limit = min(20, max(1, int(args.get("limit") or 12)))
+    rows = await db.reminders.find(
+        {"user_id": user_id, "status": "open"},
+        {"_id": 0, "reminder_id": 1, "text": 1, "due_at": 1, "status": 1},
+    ).sort([("due_at", 1), ("created_at", -1)]).to_list(length=limit)
+    if not rows:
+        return {"summary": "No open reminders.", "ui": {"kind": "reminders", "items": []}}
+    lines = ["Open reminders:"]
+    for r in rows:
+        due = (r.get("due_at") or "no date")[:16]
+        lines.append(f"- {r.get('reminder_id')}: {r.get('text')} (due {due})")
+    return {"summary": "\n".join(lines), "ui": {"kind": "reminders", "items": rows}}
+
+
+async def exec_complete_reminder(user_id: str, args: dict) -> dict:
+    rid = (args.get("reminder_id") or "").strip()
+    if not rid:
+        return {"summary": "Need a reminder_id from list_reminders.", "ui": {"ok": False}}
+    res = await db.reminders.update_one(
+        {"reminder_id": rid, "user_id": user_id, "status": "open"},
+        {"$set": {"status": "done", "completed_at": _now_iso()}},
+    )
+    if res.matched_count == 0:
+        return {"summary": "I couldn't find that open reminder.", "ui": {"ok": False}}
+    return {"summary": f"Marked {rid} done.", "ui": {"ok": True, "reminder_id": rid}}
+
+
+def _parse_when(when_str: str) -> datetime | None:
+    raw = (when_str or "").strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        pass
+    try:
+        import dateparser
+        dt = dateparser.parse(raw, settings={"PREFER_DATES_FROM": "future", "RETURN_AS_TIMEZONE_AWARE": True})
+        if not dt:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+async def exec_whats_on_my_plate(user_id: str, args: dict) -> dict:
+    days = max(1, min(int(args.get("days") or 1), 7))
+    now = datetime.now(timezone.utc)
+    end = now + timedelta(days=days)
+    sections: list[str] = []
+    ui: dict[str, Any] = {"kind": "briefing", "days": days}
+
+    rem_rows = await db.reminders.find(
+        {
+            "user_id": user_id,
+            "status": "open",
+            "$or": [{"due_at": None}, {"due_at": {"$lte": end.isoformat()}}],
+        },
+        {"_id": 0, "reminder_id": 1, "text": 1, "due_at": 1},
+    ).sort("due_at", 1).to_list(length=12)
+    ui["reminders"] = rem_rows
+    if rem_rows:
+        lines = [f"- {r.get('text')} (due {(r.get('due_at') or 'sometime')[:16]})" for r in rem_rows]
+        sections.append("Reminders:\n" + "\n".join(lines))
+    else:
+        sections.append("Reminders: none open for this window.")
+
+    cal_lines = "Calendar isn't connected. Tap Connect Gmail if they want the twin to see the day."
+    bundle, status = await _mail_bundle(user_id)
+    if bundle:
+        provider, token, _profile = bundle
+        from services.day_assist import (
+            CALENDAR_RECONNECT,
+            format_events,
+            list_google_events,
+            list_graph_events,
+            scope_has_calendar,
+        )
+        conn = await db.oauth_connections.find_one(
+            {"user_id": user_id, "provider": provider},
+            {"_id": 0, "scope": 1},
+        )
+        if not scope_has_calendar((conn or {}).get("scope") or ""):
+            cal_lines = CALENDAR_RECONNECT
+        else:
+            try:
+                events = list_google_events(token, days=days) if provider == "google" else list_graph_events(token, days=days)
+                ui["events"] = events
+                cal_lines = "Calendar:\n" + (format_events(events) or "(nothing on the calendar)")
+            except RuntimeError as exc:
+                cal_lines = str(exc)
+    elif (status or {}).get("connected"):
+        cal_lines = "Calendar sign-in expired. Tap Connect Gmail again."
+    sections.append(cal_lines)
+
+    if bundle:
+        from services import mail_inbox as mail
+        try:
+            rows = _list_owner_mail(bundle[0], bundle[1])
+            ui["mail"] = [mail.public_row(r) for r in rows[:5]]
+            if rows:
+                sections.append("Recent mail:\n" + _mail_summary(rows[:5]))
+        except RuntimeError:
+            pass
+
+    mm, dd = f"{now.month:02d}", f"{now.day:02d}"
+    memory_rows = await db.entries.find(
+        {"user_id": user_id, "created_at": {"$regex": f"-{mm}-{dd}T"}},
+        {"_id": 0, "title": 1, "created_at": 1, "type": 1},
+    ).sort("created_at", -1).to_list(length=3)
+    ui["on_this_day"] = memory_rows
+    if memory_rows:
+        bits = [f"- {r.get('created_at', '')[:10]} {r.get('title') or r.get('type')}" for r in memory_rows]
+        sections.append("On this day in the archive:\n" + "\n".join(bits))
+
+    header = f"What's on their plate ({days} day{'s' if days != 1 else ''}):"
+    return {"summary": header + "\n\n" + "\n\n".join(sections), "ui": ui}
 
 
 def _sync_weather(location: str) -> dict:
@@ -899,6 +1067,178 @@ async def exec_send_email(user_id: str, args: dict) -> dict:
     }
 
 
+async def exec_find_follow_ups(user_id: str, args: dict) -> dict:
+    bundle, status = await _mail_bundle(user_id)
+    if not bundle:
+        hint = MAIL_EXPIRED_HINT if (status or {}).get("connected") else MAIL_CONNECT_HINT
+        return {"summary": hint, "ui": {"kind": "mail", "connected": False, "follow_ups": True}}
+    provider, token, _profile = bundle
+    from services import mail_inbox as mail
+    try:
+        rows = _list_owner_mail(provider, token)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "mail", "error": str(exc)}}
+    hits = [r for r in rows if mail.looks_like_follow_up(r.get("subject") or "", r.get("snippet") or "", r.get("from") or "")]
+    public = [mail.public_row(r) for r in hits]
+    if not public:
+        return {
+            "summary": "Nothing in recent mail looks like it is waiting on them.",
+            "ui": {"kind": "mail", "messages": [], "follow_ups": True},
+        }
+    return {
+        "summary": (
+            "Mail that may need a reply (draft with send_email — do not send until they say yes):\n"
+            + _mail_summary(hits)
+        ),
+        "ui": {"kind": "mail", "messages": public, "follow_ups": True},
+    }
+
+
+async def _calendar_session(user_id: str):
+    from services.day_assist import CALENDAR_RECONNECT, scope_has_calendar
+    bundle, status = await _mail_bundle(user_id)
+    if not bundle:
+        hint = MAIL_EXPIRED_HINT if (status or {}).get("connected") else MAIL_CONNECT_HINT
+        return None, hint
+    provider, token, _profile = bundle
+    conn = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": provider},
+        {"_id": 0, "scope": 1},
+    )
+    if not scope_has_calendar((conn or {}).get("scope") or ""):
+        return None, CALENDAR_RECONNECT
+    return (provider, token), None
+
+
+async def exec_list_events(user_id: str, args: dict) -> dict:
+    from services.day_assist import format_events, list_google_events, list_graph_events, public_event
+    days = max(1, min(int(args.get("days") or 1), 14))
+    session, err = await _calendar_session(user_id)
+    if not session:
+        return {"summary": err or MAIL_CONNECT_HINT, "ui": {"kind": "calendar", "connected": False}}
+    provider, token = session
+    try:
+        rows = list_google_events(token, days=days) if provider == "google" else list_graph_events(token, days=days)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "calendar", "error": str(exc)}}
+    public = [public_event(r) for r in rows]
+    if not public:
+        return {"summary": "Nothing on the calendar in that window.", "ui": {"kind": "calendar", "events": []}}
+    return {"summary": "Upcoming:\n" + format_events(rows), "ui": {"kind": "calendar", "events": public}}
+
+
+async def exec_create_event(user_id: str, args: dict) -> dict:
+    from services.day_assist import create_google_event, create_graph_event, event_preview
+    title = (args.get("title") or "").strip()
+    when_str = (args.get("when") or "").strip()
+    where = (args.get("where") or "").strip()
+    notes = (args.get("notes") or "").strip()
+    try:
+        minutes = int(args.get("duration_minutes") or 60)
+    except (TypeError, ValueError):
+        minutes = 60
+    minutes = max(15, min(minutes, 480))
+    if not title:
+        return {"summary": "Need a title for the event.", "ui": {"kind": "calendar", "error": "missing_title"}}
+    start = _parse_when(when_str)
+    if not start:
+        return {"summary": "I couldn't tell when that is. Ask for a day and time.", "ui": {"kind": "calendar", "error": "bad_when"}}
+    end = start + timedelta(minutes=minutes)
+    start_iso, end_iso = start.isoformat(), end.isoformat()
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": event_preview(title, start_iso, end_iso, where, notes),
+            "ui": {"kind": "calendar", "needs_confirm": True, "title": title, "start": start_iso},
+        }
+    session, err = await _calendar_session(user_id)
+    if not session:
+        return {"summary": err or MAIL_CONNECT_HINT, "ui": {"kind": "calendar", "connected": False}}
+    provider, token = session
+    try:
+        if provider == "google":
+            create_google_event(token, title, start_iso, end_iso, where=where, notes=notes)
+        else:
+            create_graph_event(token, title, start_iso, end_iso, where=where, notes=notes)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "calendar", "error": str(exc)}}
+    return {
+        "summary": f"Added '{title}' to the calendar at {start_iso[:16]}.",
+        "ui": {"kind": "calendar", "created": True, "title": title},
+    }
+
+
+async def exec_find_contact(user_id: str, args: dict) -> dict:
+    name = (args.get("name") or "").strip()
+    if not name:
+        return {"summary": "Need a name to look up.", "ui": {"kind": "people", "error": "missing_name"}}
+    rows = await db.contacts.find(
+        {"user_id": user_id},
+        {"_id": 0, "contact_id": 1, "name": 1, "phone": 1, "note": 1},
+    ).sort("name", 1).to_list(length=200)
+    needle = name.lower()
+    hits = [c for c in rows if needle in (c.get("name") or "").lower()]
+    if not hits:
+        return {
+            "summary": f"No one named '{name}' in the Heirloom address book. They can add people on the Phone page.",
+            "ui": {"kind": "people", "contacts": []},
+        }
+    lines = [f"- {c.get('name')} ({c.get('phone')})" + (f" — {c.get('note')}" if c.get("note") else "") for c in hits[:8]]
+    return {"summary": "Address book:\n" + "\n".join(lines), "ui": {"kind": "people", "contacts": hits[:8]}}
+
+
+async def exec_call_contact(user_id: str, args: dict) -> dict:
+    name = (args.get("name") or "").strip()
+    if not name:
+        return {"summary": "Need a name to call.", "ui": {"kind": "people", "error": "missing_name"}}
+    rows = await db.contacts.find(
+        {"user_id": user_id},
+        {"_id": 0, "contact_id": 1, "name": 1, "phone": 1},
+    ).to_list(length=200)
+    needle = name.lower()
+    hits = [c for c in rows if needle in (c.get("name") or "").lower()]
+    if not hits:
+        return {
+            "summary": f"I don't have '{name}' in the address book. Add them on the Phone page first. Never invent a number.",
+            "ui": {"kind": "people", "contacts": []},
+        }
+    if len(hits) > 1 and not args.get("contact_id"):
+        names = ", ".join(c.get("name") or "" for c in hits[:6])
+        return {
+            "summary": f"A few people match '{name}': {names}. Ask which one, then call that exact name.",
+            "ui": {"kind": "people", "contacts": hits[:6], "needs_pick": True},
+        }
+    chosen = hits[0]
+    if args.get("contact_id"):
+        chosen = next((c for c in hits if c.get("contact_id") == args.get("contact_id")), chosen)
+    opening = (args.get("opening_line") or "").strip() or f"Hi {chosen['name'].split()[0]}, this is a call from the digital twin."
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": (
+                f"I'm about to call {chosen['name']} at the number in the address book. "
+                "Ask them to confirm, then call call_contact again with confirmed=true."
+            ),
+            "ui": {"kind": "people", "needs_confirm": True, "name": chosen["name"], "contact_id": chosen.get("contact_id")},
+        }
+    from fastapi import HTTPException
+    from routers.twilio_voice import OutboundReq, outbound_call
+    try:
+        result = await outbound_call(
+            OutboundReq(to_number=chosen["phone"], opening_line=opening[:400]),
+            user={"user_id": user_id},
+        )
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "Couldn't place the call."
+        if "Twilio" in detail or "Outbound" in detail:
+            detail = "Phone isn't ready. Tell them to open Connect → Phone and turn on outbound calls."
+        return {"summary": detail, "ui": {"kind": "people", "error": detail}}
+    except Exception as exc:  # noqa: BLE001
+        return {"summary": f"Couldn't place the call: {exc!s}"[:200], "ui": {"kind": "people", "ok": False}}
+    return {
+        "summary": f"Calling {chosen['name']} now.",
+        "ui": {"kind": "people", "calling": True, "name": chosen["name"], "call_sid": (result or {}).get("call_sid")},
+    }
+
+
 COMPUTER_TOOL_SCHEMAS: list[dict] = [
     {"type": "function", "function": {
         "name": "open_on_pc",
@@ -1023,10 +1363,69 @@ EMAIL_TOOL_SCHEMAS: list[dict] = [
             "confirmed": {"type": "boolean", "default": False, "description": "Set true ONLY after the owner explicitly confirms the draft"},
         }, "required": ["to", "subject", "body"]},
     }},
+    {"type": "function", "function": {
+        "name": "find_follow_ups",
+        "description": (
+            "Find recent inbox mail that looks like it is waiting on the owner (questions, RSVPs, please confirm). "
+            "Skip newsletters. Offer to draft a reply with send_email."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    }},
+]
+
+
+CALENDAR_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "list_events",
+        "description": "List upcoming calendar events (same Gmail/Outlook connection). Default is today.",
+        "parameters": {"type": "object", "properties": {
+            "days": {"type": "integer", "description": "How many days ahead (1-14)", "default": 1},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "create_event",
+        "description": (
+            "Add an event to the owner's calendar. First call WITHOUT confirmed so they see a draft. "
+            "Only after they clearly say yes, call again with confirmed=true."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"},
+            "when": {"type": "string", "description": "ISO datetime or natural language like 'tomorrow 3pm'"},
+            "duration_minutes": {"type": "integer", "default": 60},
+            "where": {"type": "string"},
+            "notes": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["title", "when"]},
+    }},
+]
+
+
+PEOPLE_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "find_contact",
+        "description": "Look up a person in the owner's Heirloom address book (name, phone). Not their phone SIM.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"},
+        }, "required": ["name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "call_contact",
+        "description": (
+            "Place a phone call to someone in the address book, in the twin's voice. "
+            "First call WITHOUT confirmed. Only after they clearly say yes, call again with confirmed=true."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"},
+            "opening_line": {"type": "string", "description": "Optional first sentence the twin says"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["name"]},
+    }},
 ]
 
 TOOL_SCHEMAS += COMPUTER_TOOL_SCHEMAS
 TOOL_SCHEMAS += EMAIL_TOOL_SCHEMAS
+TOOL_SCHEMAS += CALENDAR_TOOL_SCHEMAS
+TOOL_SCHEMAS += PEOPLE_TOOL_SCHEMAS
 
 
 TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
@@ -1034,6 +1433,9 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
     "save_memory": exec_save_memory,
     "set_reminder": exec_set_reminder,
     "list_recent_memories": exec_list_recent_memories,
+    "list_reminders": exec_list_reminders,
+    "complete_reminder": exec_complete_reminder,
+    "whats_on_my_plate": exec_whats_on_my_plate,
     "get_weather": exec_get_weather,
     "web_search": exec_web_search,
     "web_fetch": exec_web_fetch,
@@ -1053,6 +1455,11 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
     "search_mail": exec_search_mail,
     "find_setup_mail": exec_find_setup_mail,
     "send_email": exec_send_email,
+    "find_follow_ups": exec_find_follow_ups,
+    "list_events": exec_list_events,
+    "create_event": exec_create_event,
+    "find_contact": exec_find_contact,
+    "call_contact": exec_call_contact,
 }
 
 

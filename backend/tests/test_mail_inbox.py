@@ -49,6 +49,13 @@ def test_looks_like_setup_and_not_spam():
     assert not looks_like_setup("Your weekly newsletter", "recipes and tips", "news@example.com")
 
 
+def test_looks_like_follow_up_skips_robots():
+    from services.mail_inbox import looks_like_follow_up
+    assert looks_like_follow_up("Quick question", "Can you send the form?", "pat@family.com")
+    assert looks_like_follow_up("Dinner?", "Are you free Friday?", "sam@x.com")
+    assert not looks_like_follow_up("Weekly deals", "Save 20% today", "noreply@store.com")
+
+
 def test_valid_recipient():
     assert valid_recipient("grandma@example.com")
     assert not valid_recipient("not-an-email")
@@ -74,7 +81,7 @@ def test_catalog_files_declare_email_tools():
     abilities = (root / "abilities.py").read_text()
     tools = (root / "twin_tools.py").read_text()
     assert '"id": "email"' in abilities
-    for name in ("read_inbox", "search_mail", "find_setup_mail", "send_email"):
+    for name in ("read_inbox", "search_mail", "find_setup_mail", "send_email", "find_follow_ups"):
         assert name in abilities
         assert name in tools
         assert f'"{name}": exec_{name}' in tools or f"'{name}': exec_{name}" in tools

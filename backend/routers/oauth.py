@@ -53,7 +53,8 @@ GOOGLE_REDIRECT_URI = (os.environ.get("GOOGLE_REDIRECT_URI") or f"{PUBLIC_BACKEN
 GOOGLE_SCOPES = (
     "openid email profile "
     "https://www.googleapis.com/auth/gmail.readonly "
-    "https://www.googleapis.com/auth/gmail.send"
+    "https://www.googleapis.com/auth/gmail.send "
+    "https://www.googleapis.com/auth/calendar.events"
 )
 
 MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "")
@@ -61,7 +62,7 @@ MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET", "")
 MICROSOFT_REDIRECT_URI = (
     os.environ.get("MICROSOFT_REDIRECT_URI") or f"{PUBLIC_BACKEND}/api/oauth/microsoft/callback"
 ).rstrip("/")
-MICROSOFT_SCOPES = "offline_access User.Read Mail.Read Mail.Send"
+MICROSOFT_SCOPES = "offline_access User.Read Mail.Read Mail.Send Calendars.ReadWrite"
 MICROSOFT_TENANT = os.environ.get("MICROSOFT_TENANT", "common")
 
 
@@ -102,7 +103,7 @@ async def list_connections(user: dict = Depends(get_current_user)):
         {
             "provider": "google",
             "label": "Gmail",
-            "description": "One tap. Google asks you — we never see your password. Your twin can read recent mail and send only after you say yes. It can also find setup confirmations (Pinokio, Ollama, magic links).",
+            "description": "One tap. Google asks you — we never see your password. Your twin can read recent mail, see your calendar, and send or add a date only after you say yes.",
             "configured": bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI.startswith("http")),
             "connected": "google" in by_provider,
             "profile": by_provider.get("google", {}).get("profile") or None,
@@ -111,7 +112,7 @@ async def list_connections(user: dict = Depends(get_current_user)):
         {
             "provider": "microsoft",
             "label": "Outlook",
-            "description": "Same idea for Outlook / Hotmail / Microsoft 365. Sign in on Microsoft's page. No password typed into Heirloom.",
+            "description": "Same idea for Outlook / Hotmail / Microsoft 365 — mail and calendar. Sign in on Microsoft's page. No password typed into Heirloom.",
             "configured": bool(MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET and MICROSOFT_REDIRECT_URI.startswith("http")),
             "connected": "microsoft" in by_provider,
             "profile": by_provider.get("microsoft", {}).get("profile") or None,
@@ -693,10 +694,11 @@ async def _store_connection(
 async def _after_mail_connected(user_id: str, label: str, email: str) -> None:
     try:
         import abilities as ab
-        perms = [p["id"] for p in ab.ABILITY_BY_ID["email"]["permissions"]]
-        await ab.set_state(user_id, "email", True, perms)
+        for aid in ("email", "calendar"):
+            perms = [p["id"] for p in ab.ABILITY_BY_ID[aid]["permissions"]]
+            await ab.set_state(user_id, aid, True, perms)
     except Exception as exc:  # noqa: BLE001
-        print(f"[oauth] enable email ability failed: {exc}")
+        print(f"[oauth] enable email/calendar ability failed: {exc}")
     try:
         import uuid
         addr = email or "your inbox"
@@ -706,8 +708,8 @@ async def _after_mail_connected(user_id: str, label: str, email: str) -> None:
             "type": "memory",
             "title": f"{label} connected",
             "content": (
-                f"I connected {label} as {addr}. My twin may read recent mail to help me, "
-                "and may send mail only after I say yes. It never stored my password — "
+                f"I connected {label} as {addr}. My twin may read recent mail and my calendar to help me, "
+                "and may send mail or add a date only after I say yes. It never stored my password — "
                 "I signed in on the provider's own page."
             ),
             "tags": ["email", label.lower(), "personality"],
@@ -724,7 +726,7 @@ async def public_mail_status(user_id: str) -> dict:
     for provider, label in (("google", "Gmail"), ("microsoft", "Outlook")):
         row = await db.oauth_connections.find_one(
             {"user_id": user_id, "provider": provider},
-            {"_id": 0, "profile": 1, "connected_at": 1},
+            {"_id": 0, "profile": 1, "connected_at": 1, "scope": 1},
         )
         if row:
             profile = row.get("profile") or {}
@@ -735,6 +737,7 @@ async def public_mail_status(user_id: str) -> dict:
                 "email": profile.get("email") or "",
                 "display_name": profile.get("display_name") or "",
                 "connected_at": row.get("connected_at") or "",
+                "calendar": "calendar" in (row.get("scope") or "").lower(),
             }
     return {
         "connected": False,

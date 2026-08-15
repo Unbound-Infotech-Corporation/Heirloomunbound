@@ -406,14 +406,21 @@ export default function AvatarStudio() {
           )}
           <div className="mt-6 pt-5" style={{ borderTop: "1px solid var(--border-default)" }} data-testid="avatar-mail-cta">
             {data.mail?.connected ? (
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                <Mail className="inline h-3.5 w-3.5 mr-1" />
-                Watching {data.mail.email || data.mail.label}. Ask your twin: &ldquo;check my setup emails.&rdquo;
-              </p>
+              <>
+                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                  <Mail className="inline h-3.5 w-3.5 mr-1" />
+                  Watching {data.mail.email || data.mail.label}. Ask your twin: &ldquo;what&apos;s on my plate?&rdquo; or &ldquo;check my setup emails.&rdquo;
+                </p>
+                {data.mail.calendar === false && (
+                  <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
+                    Tap Connect Gmail again so we can also see your calendar. We still never see your password.
+                  </p>
+                )}
+              </>
             ) : (
               <>
                 <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
-                  Want me to watch your inbox for setup emails? Connect Gmail — Google asks, we never see your password.
+                  Want me to watch your inbox and calendar? Connect Gmail — Google asks, we never see your password.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {data.mail?.google_ready !== false && (

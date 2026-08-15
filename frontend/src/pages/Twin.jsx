@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Monitor, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
+import { ArrowRight, BookOpen, Calendar, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Mail, Monitor, Phone, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api, streamSSE } from "../lib/api";
 import FunctionModelPicker, { modelOverride } from "@/components/FunctionModelPicker";
@@ -24,6 +24,18 @@ const TOOL_META = {
   system_status: { label: "checking your rig", icon: Cpu },
   run_command: { label: "running a command", icon: Terminal },
   find_file: { label: "finding a file", icon: SearchIcon },
+  read_inbox: { label: "reading your mail", icon: Mail },
+  search_mail: { label: "searching mail", icon: Mail },
+  find_setup_mail: { label: "looking for setup mail", icon: Mail },
+  send_email: { label: "sending mail", icon: Mail },
+  find_follow_ups: { label: "finding follow-ups", icon: Mail },
+  list_reminders: { label: "checking reminders", icon: Timer },
+  complete_reminder: { label: "checking off a reminder", icon: Timer },
+  whats_on_my_plate: { label: "catching you up", icon: Calendar },
+  list_events: { label: "checking your calendar", icon: Calendar },
+  create_event: { label: "adding a calendar date", icon: Calendar },
+  find_contact: { label: "looking up a person", icon: Phone },
+  call_contact: { label: "placing a call", icon: Phone },
 };
 
 function ToolChip({ tool }) {
@@ -370,9 +382,10 @@ export default function Twin() {
             <div className="overline mb-3">try asking</div>
             <ul className="space-y-3">
               {[
+                "What's on my plate today?",
                 "What did you love most about being a father?",
                 "What's a story from your twenties you'd want me to know?",
-                "What scares you most, and what helps?",
+                "Who in my address book should I call?",
               ].map((q) => (
                 <li key={q}>
                   <button

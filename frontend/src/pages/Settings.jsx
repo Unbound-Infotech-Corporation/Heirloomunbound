@@ -830,7 +830,7 @@ export default function Settings() {
         <div className="overline mb-4">on the roadmap</div>
         <ul className="space-y-3 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
           <li>· Wake-word (&ldquo;Hey Twin&rdquo;) on the companion.</li>
-          <li>· Google Drive / Calendar (Gmail and Outlook are live — Connect my email).</li>
+          <li>· Google Drive (Calendar is live with Connect Gmail / Outlook).</li>
           <li>· Sealed letters auto-delivered to heirs on a date you set.</li>
           <li>· Heir release workflow.</li>
         </ul>

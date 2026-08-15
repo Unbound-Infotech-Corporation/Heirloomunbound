@@ -20,7 +20,10 @@ from datetime import datetime, timezone
 from deps import db
 
 # Tools that are ALWAYS available — the twin's memory. Not part of any ability.
-CORE_TOOLS: set[str] = {"search_archive", "save_memory", "set_reminder", "list_recent_memories"}
+CORE_TOOLS: set[str] = {
+    "search_archive", "save_memory", "set_reminder", "list_recent_memories",
+    "list_reminders", "complete_reminder", "whats_on_my_plate",
+}
 
 
 ABILITIES: list[dict] = [
@@ -51,7 +54,7 @@ ABILITIES: list[dict] = [
         "category": "knowledge",
         "default_enabled": True,
         "requires_companion": False,
-        "tools": ["read_inbox", "search_mail", "find_setup_mail", "send_email"],
+        "tools": ["read_inbox", "search_mail", "find_setup_mail", "send_email", "find_follow_ups"],
         "permissions": [
             {"id": "read_mail", "label": "Read recent mail (who it's from, the subject, a short snippet)"},
             {"id": "send_mail", "label": "Send mail only after you say yes"},
@@ -66,6 +69,50 @@ ABILITIES: list[dict] = [
             "Help them tap the link. Do not create third-party accounts for them. Pinokio and ComfyUI usually don't need accounts.\n"
             "- `send_email(to, subject, body)` — first call WITHOUT confirmed so they see a draft. "
             "Only after they clearly say yes, call again with confirmed=true.\n"
+            "- `find_follow_ups()` — mail that looks like it is waiting on them (questions, RSVPs, 'please confirm'). "
+            "Offer to draft a reply with send_email; never send until they say yes.\n"
+        ),
+    },
+    {
+        "id": "calendar",
+        "name": "Calendar",
+        "tagline": "See what's on today and add a date — same Gmail or Outlook tap, never a password.",
+        "icon": "calendar",
+        "category": "companion",
+        "default_enabled": True,
+        "requires_companion": False,
+        "tools": ["list_events", "create_event"],
+        "permissions": [
+            {"id": "read_calendar", "label": "See upcoming events on your calendar"},
+            {"id": "write_calendar", "label": "Add an event only after you say yes"},
+        ],
+        "prompt_block": (
+            "Calendar (enabled):\n"
+            "- Uses the same Connect Gmail / Outlook tap as email. If a tool says to reconnect, tell them to tap it again "
+            "so Google/Microsoft can share the calendar. NEVER ask for a password.\n"
+            "- `list_events(days)` — what's coming up (default today).\n"
+            "- `create_event(title, when)` — first call without confirmed so they see a draft. "
+            "Only after they clearly say yes, call again with confirmed=true.\n"
+        ),
+    },
+    {
+        "id": "people",
+        "name": "People & Calls",
+        "tagline": "Look up family in your address book. Place a call only after you say yes.",
+        "icon": "phone",
+        "category": "companion",
+        "default_enabled": True,
+        "requires_companion": False,
+        "tools": ["find_contact", "call_contact"],
+        "permissions": [
+            {"id": "read_contacts", "label": "Look up names in your Heirloom address book"},
+            {"id": "place_call", "label": "Place a phone call only after you say yes"},
+        ],
+        "prompt_block": (
+            "People & calls (enabled):\n"
+            "- `find_contact(name)` — search the Heirloom address book (not their phone SIM).\n"
+            "- `call_contact(name)` — first call WITHOUT confirmed. Only after they clearly say yes, call again with confirmed=true. "
+            "If phone isn't set up, tell them to open Connect → Phone. Never invent a number.\n"
         ),
     },
     {

@@ -48,7 +48,7 @@ const OAUTH = [
   {
     id: "google",
     name: "Gmail",
-    tagline: "One tap. Google asks you — we never see your password. Your twin can read recent mail and send only after you say yes.",
+    tagline: "One tap. Google asks you — we never see your password. Mail, calendar, and send-only-after-yes.",
     connectPath: "/api/oauth/google/connect",
     accent: "#EA4335",
     icon: Mail,
@@ -56,7 +56,7 @@ const OAUTH = [
   {
     id: "microsoft",
     name: "Outlook",
-    tagline: "Same idea for Outlook / Hotmail / Microsoft 365. Sign in on Microsoft's page.",
+    tagline: "Same idea for Outlook / Hotmail / Microsoft 365 — mail and calendar. Sign in on Microsoft's page.",
     connectPath: "/api/oauth/microsoft/connect",
     accent: "#0078D4",
     icon: Mail,

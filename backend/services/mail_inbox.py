@@ -44,6 +44,24 @@ GMAIL_SETUP_QUERY = (
     + ")"
 )
 
+FOLLOW_UP_TERMS = (
+    "can you",
+    "could you",
+    "please reply",
+    "please confirm",
+    "let me know",
+    "waiting on",
+    "waiting for",
+    "rsvp",
+    "need you to",
+    "when you get a chance",
+    "following up",
+    "follow up",
+    "did you get",
+    "checking in",
+)
+NOREPLY_MARKERS = ("noreply", "no-reply", "do-not-reply", "donotreply", "mailer-daemon", "notifications@")
+
 _LINK_RE = re.compile(r"https?://[^\s<>\"']+", re.I)
 _CARD_RE = re.compile(r"\b(?:\d[ -]*?){13,19}\b")
 _PASSWORD_RE = re.compile(r"(password|passwd|pwd)\s*[:=]\s*\S+", re.I)
@@ -81,6 +99,18 @@ def snippet_safe(text: str, limit: int = MAX_SNIPPET) -> str:
 def looks_like_setup(subject: str, snippet: str, sender: str) -> bool:
     blob = f"{subject} {snippet} {sender}".lower()
     return any(term in blob for term in SETUP_TERMS)
+
+
+def looks_like_follow_up(subject: str, snippet: str, sender: str) -> bool:
+    """Inbound mail that likely wants a human answer. Skip newsletters and robots."""
+    low_sender = (sender or "").lower()
+    if any(marker in low_sender for marker in NOREPLY_MARKERS):
+        return False
+    blob = f"{subject} {snippet}"
+    if "?" in blob:
+        return True
+    low = blob.lower()
+    return any(term in low for term in FOLLOW_UP_TERMS)
 
 
 def gmail_headers(payload: Optional[dict]) -> dict[str, str]:
