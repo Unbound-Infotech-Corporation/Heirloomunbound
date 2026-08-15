@@ -436,3 +436,33 @@ def apply_suggestion(text: str, start: int, end: int, replacement: str) -> str:
     if start < 0 or end > len(blob) or start > end:
         return blob
     return blob[:start] + (replacement or "") + blob[end:]
+
+
+_HOUSE_KEY_RE = re.compile(r"kb_[A-Za-z0-9_-]+")
+_HOUSE_URL_RE = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+
+
+def format_house_blob(house_url: str, token: str) -> str:
+    """One paste for Unbound Keyboard settings. Not a third-party password."""
+    url = (house_url or "").strip().rstrip("/")
+    key = (token or "").strip()
+    lines = ["HOUSE"]
+    if url:
+        lines.append(url)
+    if key:
+        lines.append(key)
+    return "\n".join(lines) + "\n"
+
+
+def parse_house_blob(blob: str) -> dict[str, str]:
+    """Pull house URL + kb_ token out of a pasted blob, URL, or bare key."""
+    text = (blob or "").strip()
+    token = ""
+    found = _HOUSE_KEY_RE.search(text)
+    if found:
+        token = found.group(0)
+    url = ""
+    found_url = _HOUSE_URL_RE.search(text)
+    if found_url:
+        url = found_url.group(0).rstrip("/.,)")
+    return {"house_url": url, "token": token}

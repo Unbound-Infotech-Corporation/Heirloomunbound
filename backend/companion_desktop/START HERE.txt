@@ -15,7 +15,8 @@ WINDOWS (easiest)
 
      I recieve this and should of said thanks just just just
 
-5. Tap a chip to swap a word. Or click Check writing.
+5. Tap a chip to swap a word. Or click Check writing, then Fix spelling.
+   Leave it if you meant what you typed.
    Then try Put this where I was typing.
 
 Tray → Unbound Keyboard, or Ctrl+Shift+U, opens the card any time.
@@ -33,13 +34,25 @@ Open the Windows folder (same files) and double-click run.sh.
 
 ANDROID
 -------
-The Android folder is a real keyboard. Open it in Android Studio,
-plug in the phone, Run. Then:
+If you see UnboundKeyboard.apk in the Android folder, copy it to the
+phone and tap it to install. Then:
 
   Settings → System → Languages & input → On-screen keyboard
   → Manage keyboards → turn on Unbound Keyboard.
 
-Paste your house address and house key from Heirloom → Write →
-Copy my house key. Password, PIN, and card boxes stay silent.
+Tap 🌐 to switch back to your old keyboard. Tap 123 for numbers.
+
+Spelling works before you pair. To polish in your voice, open
+Heirloom → Write → Copy my house key, then paste that whole slip
+once into Unbound Keyboard settings.
+
+If there is no APK, the Android folder is still a real keyboard —
+open it and run ./gradlew :app:assembleDebug (or Android Studio),
+then tap the built APK on the phone.
+
+IPHONE
+------
+Apple does not let us install this keyboard. Use Write inside the
+Heirloom app instead.
 
 — Unbound Infotech

@@ -20,6 +20,7 @@ from services.writing_coach import (  # noqa: E402
     looks_secret,
     proofread_local,
 )
+from services.writing_local import format_house_blob, parse_house_blob, SPELLING  # noqa: E402
 
 
 def test_fixes_spelling_and_should_of():
@@ -104,6 +105,10 @@ def test_writing_api_never_stores_buffer_or_third_party_passwords():
     assert "proofread_for_user" in router
     assert "keyboard_tokens" in router
     assert "kb_" in router
+    assert "format_house_blob" in router
+    assert "parse_house_blob" in router
+    assert 'blob' in router
+    assert "/house-key/revoke" in router
     assert "writing.router" in server
     assert "Google" in router
     assert "password" in router.lower()
@@ -111,11 +116,30 @@ def test_writing_api_never_stores_buffer_or_third_party_passwords():
     assert "NEVER ask" in (ROOT / "abilities.py").read_text(encoding="utf-8") or "never ask" in router.lower()
 
 
+def test_house_blob_roundtrip():
+    blob = format_house_blob("https://example.com/app/", "kb_abc-DEF_123")
+    assert blob.startswith("HOUSE\n")
+    assert "https://example.com/app" in blob
+    parsed = parse_house_blob(blob)
+    assert parsed["token"] == "kb_abc-DEF_123"
+    assert parsed["house_url"] == "https://example.com/app"
+    mixed = parse_house_blob("please use https://house.example/  kb_zz99")
+    assert mixed["token"] == "kb_zz99"
+    assert mixed["house_url"] == "https://house.example"
+    bare = parse_house_blob("kb_onlytoken")
+    assert bare["token"] == "kb_onlytoken"
+
+
 def test_android_ime_is_a_real_keyboard_and_skips_password_fields():
+    kt = ANDROID / "app" / "src" / "main" / "java" / "com" / "unboundinfotech" / "keyboard"
     manifest = (ANDROID / "app" / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8")
-    ime = (ANDROID / "app" / "src" / "main" / "java" / "com" / "unboundinfotech" / "keyboard" / "UnboundImeService.kt").read_text(encoding="utf-8")
-    guard = (ANDROID / "app" / "src" / "main" / "java" / "com" / "unboundinfotech" / "keyboard" / "PasswordGuard.kt").read_text(encoding="utf-8")
-    settings = (ANDROID / "app" / "src" / "main" / "java" / "com" / "unboundinfotech" / "keyboard" / "SettingsActivity.kt").read_text(encoding="utf-8")
+    ime = (kt / "UnboundImeService.kt").read_text(encoding="utf-8")
+    guard = (kt / "PasswordGuard.kt").read_text(encoding="utf-8")
+    settings = (kt / "SettingsActivity.kt").read_text(encoding="utf-8")
+    local = (kt / "LocalProofread.kt").read_text(encoding="utf-8")
+    house = (kt / "HouseKey.kt").read_text(encoding="utf-8")
+    qwerty = (ANDROID / "app" / "src" / "main" / "res" / "xml" / "qwerty.xml").read_text(encoding="utf-8")
+    numbers = (ANDROID / "app" / "src" / "main" / "res" / "xml" / "numbers.xml").read_text(encoding="utf-8")
     method = (ANDROID / "app" / "src" / "main" / "res" / "xml" / "method.xml").read_text(encoding="utf-8")
     readme = (ANDROID / "README.md").read_text(encoding="utf-8")
     assert "BIND_INPUT_METHOD" in manifest
@@ -128,10 +152,28 @@ def test_android_ime_is_a_real_keyboard_and_skips_password_fields():
     assert "PasswordGuard.isSecretField" in ime
     assert "secretField" in ime
     assert "house_key" in settings
+    assert "house_blob" in settings
+    assert "HouseKey.parse" in settings
+    assert "KEYCODE_MODE_CHANGE" in ime
+    assert "KEYCODE_GLOBE = -10" in ime
+    assert "LocalProofread.proofread" in ime
+    assert "Fix spelling" in ime
+    assert "Leave it" in ime
+    assert 'android:codes="-2"' in qwerty
+    assert 'android:codes="-10"' in qwerty
+    assert 'android:codes="-2"' in numbers
     assert "imeSubtypeMode" in method
     assert "Languages" in readme
     assert "password" in readme.lower()
     assert "house key" in readme.lower()
+    assert "assembleDebug" in readme
+    assert "iPhone" in readme
+    assert "kb_" in house
+    for key in SPELLING:
+        assert f'"{key}"' in local, key
+    wrapper = ANDROID / "gradle" / "wrapper" / "gradle-wrapper.properties"
+    assert wrapper.is_file()
+    assert "distributionUrl" in wrapper.read_text(encoding="utf-8")
 
 
 def test_windows_helper_is_not_a_keylogger():
@@ -146,6 +188,8 @@ def test_windows_helper_is_not_a_keylogger():
     assert "Put this where I was typing" in window
     assert "Make it sound like me" in window
     assert "Check writing" in window
+    assert "Fix spelling" in window
+    assert "Leave it" in window
     assert "proofread_local" in window
     assert "_house_is_paired" in window
     assert "def open_writing_helper" in main
@@ -173,8 +217,16 @@ def test_web_and_phone_surfaces():
     assert 'path="keyboard"' in app
     assert 'data-testid="writing-root"' in writing
     assert "Copy my house key" in writing
+    assert "Fix spelling" in writing
+    assert "Leave it" in writing
+    assert "Stop this phone key" in writing
+    assert "data.blob" in writing
+    assert "/house-key/revoke" in writing
     assert "password boxes" in writing.lower()
     assert 'data-testid="mobile-keyboard-root"' in mobile
+    assert "Fix spelling" in mobile
+    assert "Leave it" in mobile
+    assert "data.blob" in mobile
     assert 'tid: "mobile-tab-keyboard"' in shell
     assert "grid-cols-6" in shell
     assert 'tid: "nav-writing"' in nav
@@ -193,6 +245,8 @@ def test_writing_coach_module_parses():
     names = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
     assert "proofread_local" in names
     assert "looks_secret" in names
+    assert "format_house_blob" in names
+    assert "parse_house_blob" in names
     compile(local_path.read_text(encoding="utf-8"), str(local_path), "exec")
     coach = ROOT / "services" / "writing_coach.py"
     coach_tree = ast.parse(coach.read_text(encoding="utf-8"))
@@ -214,6 +268,8 @@ def test_desktop_writing_brain_matches_cloud():
     try_bat = (DESKTOP / "Try-Unbound-Keyboard.bat").read_text(encoding="utf-8", errors="replace")
     assert "Try-Unbound-Keyboard.bat" in start
     assert "I recieve this" in start
+    assert "Fix spelling" in start
+    assert "iPhone" in start or "IPHONE" in start
     assert "password" in start.lower()
     assert "HEIRLOOM_TRY_KEYBOARD" in try_bat
     assert "Heirloom.bat" in try_bat
@@ -237,6 +293,12 @@ def test_try_it_zip_is_double_click_installable():
     assert "Heirloom-Unbound-Keyboard/Windows/START HERE.txt" in names
     assert any(n.endswith("AndroidManifest.xml") for n in names)
     assert any(n.endswith("UnboundImeService.kt") for n in names)
+    assert any(n.endswith("LocalProofread.kt") for n in names)
+    assert any(n.endswith("numbers.xml") for n in names)
+    assert any(n.endswith("gradle-wrapper.properties") for n in names)
+    debug_apk = ANDROID / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
+    if debug_apk.is_file():
+        assert "Heirloom-Unbound-Keyboard/Android/UnboundKeyboard.apk" in names
     assert "BIND_INPUT_METHOD" in zipfile.ZipFile(dest).read(
         next(n for n in names if n.endswith("AndroidManifest.xml"))
     ).decode("utf-8")

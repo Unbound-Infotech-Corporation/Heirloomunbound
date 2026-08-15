@@ -14,6 +14,7 @@ data class WritingIssue(
     val text: String,
     val suggestions: List<String>,
     val note: String,
+    val auto: Boolean = false,
 )
 
 data class ProofreadResult(
@@ -25,7 +26,9 @@ data class ProofreadResult(
 
 object WritingClient {
     fun proofread(houseUrl: String, houseKey: String, text: String): ProofreadResult {
-        val base = houseUrl.trim().trimEnd('/')
+        val parsed = HouseKey.parse("$houseUrl\n$houseKey")
+        val base = (parsed.first.ifBlank { houseUrl }).trim().trimEnd('/')
+        val key = parsed.second.ifBlank { houseKey.trim() }
         val url = URL("$base/api/writing/proofread")
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -33,7 +36,7 @@ object WritingClient {
             readTimeout = 8000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("Authorization", "Bearer $houseKey")
+            setRequestProperty("Authorization", "Bearer $key")
         }
         OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(JSONObject().put("text", text).toString()) }
         val code = conn.responseCode
@@ -41,7 +44,7 @@ object WritingClient {
         val body = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
         conn.disconnect()
         if (code !in 200..299) {
-            return ProofreadResult(false, text, "Couldn't reach the house.", emptyList())
+            throw java.io.IOException("house HTTP $code")
         }
         val json = JSONObject(body)
         val issues = mutableListOf<WritingIssue>()
@@ -62,6 +65,7 @@ object WritingClient {
                         text = item.optString("text"),
                         suggestions = suggestions,
                         note = item.optString("note"),
+                        auto = item.optBoolean("auto"),
                     ),
                 )
             }

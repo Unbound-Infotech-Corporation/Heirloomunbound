@@ -11,16 +11,34 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
         val prefs = getSharedPreferences("unbound", MODE_PRIVATE)
-        val url = findViewById<EditText>(R.id.house_url)
-        val key = findViewById<EditText>(R.id.house_key)
-        url.setText(prefs.getString("house_url", ""))
-        key.setText(prefs.getString("house_key", ""))
+        val blobField = findViewById<EditText>(R.id.house_blob)
+        val savedUrl = prefs.getString("house_url", "") ?: ""
+        val savedKey = prefs.getString("house_key", "") ?: ""
+        blobField.setText(
+            if (savedUrl.isNotBlank() || savedKey.isNotBlank()) {
+                HouseKey.format(savedUrl, savedKey).trim()
+            } else {
+                ""
+            },
+        )
         findViewById<Button>(R.id.save).setOnClickListener {
+            val pasted = blobField.text.toString()
+            val (url, key) = HouseKey.parse(pasted)
+            val nextUrl = url.ifBlank { savedUrl }
+            val nextKey = key.ifBlank { savedKey }
             prefs.edit()
-                .putString("house_url", url.text.toString().trim())
-                .putString("house_key", key.text.toString().trim())
+                .putString("house_url", nextUrl.trim())
+                .putString("house_key", nextKey.trim())
                 .apply()
-            Toast.makeText(this, "Saved. Choose Unbound Keyboard when you type.", Toast.LENGTH_LONG).show()
+            if (nextUrl.isBlank() || nextKey.isBlank()) {
+                Toast.makeText(
+                    this,
+                    "Paste the whole house slip from Heirloom → Write. Spelling still works without it.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } else {
+                Toast.makeText(this, "Saved. Choose Unbound Keyboard when you type.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 }

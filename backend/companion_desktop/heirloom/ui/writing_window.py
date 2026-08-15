@@ -57,6 +57,8 @@ class WritingWindow(QWidget):
         self._drag_pos = None
         self._busy = False
         self._issues: list[dict[str, Any]] = []
+        self._ignored: set[str] = set()
+        self._last_corrected = ""
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(700)
@@ -123,9 +125,15 @@ class WritingWindow(QWidget):
         row = QHBoxLayout()
         self.btn_check = QPushButton("Check writing")
         self.btn_check.clicked.connect(self._check_writing)
+        self.btn_fix = QPushButton("Fix spelling")
+        self.btn_fix.clicked.connect(self._fix_spelling)
+        self.btn_leave = QPushButton("Leave it")
+        self.btn_leave.clicked.connect(self._leave_it)
         self.btn_polish = QPushButton("Make it sound like me")
         self.btn_polish.clicked.connect(self._polish)
         row.addWidget(self.btn_check)
+        row.addWidget(self.btn_fix)
+        row.addWidget(self.btn_leave)
         row.addWidget(self.btn_polish)
         col.addLayout(row)
 
@@ -179,6 +187,8 @@ class WritingWindow(QWidget):
         super().closeEvent(event)
 
     def _on_text(self) -> None:
+        if not self._text().strip():
+            self._ignored.clear()
         self._debounce.start()
 
     def _text(self) -> str:
@@ -187,6 +197,8 @@ class WritingWindow(QWidget):
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         self.btn_check.setEnabled(not busy)
+        self.btn_fix.setEnabled(not busy)
+        self.btn_leave.setEnabled(not busy)
         self.btn_polish.setEnabled(not busy)
 
     def _from_clipboard(self) -> None:
@@ -218,13 +230,16 @@ class WritingWindow(QWidget):
         self.show()
         self.raise_()
 
+    def _issue_key(self, issue: dict[str, Any]) -> str:
+        return f"{issue.get('kind') or ''}:{str(issue.get('text') or '').lower()}"
+
     def _render_issues(self, issues: list[dict[str, Any]]) -> None:
         while self.chips_layout.count():
             item = self.chips_layout.takeAt(0)
             w = item.widget()
             if w is not None:
                 w.deleteLater()
-        self._issues = issues or []
+        self._issues = [i for i in (issues or []) if self._issue_key(i) not in self._ignored]
         for idx, issue in enumerate(self._issues[:8]):
             label = str(issue.get("text") or "fix")
             btn = QPushButton(label[:24])
@@ -232,6 +247,19 @@ class WritingWindow(QWidget):
             btn.clicked.connect(lambda _=False, i=idx: self._apply_issue(i))
             self.chips_layout.addWidget(btn)
         self.chips_layout.addStretch(1)
+
+    def _fix_spelling(self) -> None:
+        if not self._last_corrected:
+            return
+        self.editor.setPlainText(self._last_corrected)
+        self._render_issues([])
+        self.note.setText("Looks clean. Keep going.")
+
+    def _leave_it(self) -> None:
+        for issue in self._issues:
+            self._ignored.add(self._issue_key(issue))
+        self._render_issues([])
+        self.note.setText("Okay — I won't nag about those.")
 
     def _apply_issue(self, idx: int) -> None:
         if idx < 0 or idx >= len(self._issues):
@@ -271,16 +299,12 @@ class WritingWindow(QWidget):
         body = data if isinstance(data, dict) else {}
         if body.get("secret"):
             self.note.setText(str(body.get("style_note") or "That looks private. I will not read it."))
+            self._last_corrected = ""
             self._render_issues([])
             return
         self.note.setText(str(body.get("style_note") or "Looks clean. Keep going."))
+        self._last_corrected = str(body.get("corrected") or "")
         self._render_issues(list(body.get("issues") or []))
-        corrected = str(body.get("corrected") or "")
-        if corrected and corrected != self._text() and any(
-            i.get("kind") in ("spelling", "grammar") for i in (body.get("issues") or [])
-        ):
-            # Keep their buffer; chips offer the fix. Auto-fill only if they asked Check.
-            pass
 
     def _polish(self) -> None:
         text = self._text()
@@ -327,6 +351,7 @@ class WritingWindow(QWidget):
         polished = str(body.get("polished") or "")
         if polished:
             self.editor.setPlainText(polished)
+            self._last_corrected = polished
         self.note.setText(str(body.get("note") or "Rewritten so it still sounds like you."))
         self._render_issues(list(body.get("issues") or []))
 

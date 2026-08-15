@@ -77,6 +77,16 @@ def build_try_it_zip(dest: Path) -> Path:
         zf.writestr(info, start_here)
         win = _add_tree(zf, DESKTOP, "Heirloom-Unbound-Keyboard/Windows")
         droid = _add_tree(zf, ANDROID, "Heirloom-Unbound-Keyboard/Android")
+        apk = ANDROID / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
+        if apk.is_file():
+            apk_info = zipfile.ZipInfo("Heirloom-Unbound-Keyboard/Android/UnboundKeyboard.apk")
+            apk_info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(apk_info, apk.read_bytes())
+            droid += 1
+            artifacts = Path("/opt/cursor/artifacts")
+            if artifacts.is_dir() or artifacts.parent.is_dir():
+                artifacts.mkdir(parents=True, exist_ok=True)
+                (artifacts / "UnboundKeyboard.apk").write_bytes(apk.read_bytes())
 
     size = dest.stat().st_size
     print(f"wrote {dest} ({size:,} bytes, {win} Windows files, {droid} Android files)")

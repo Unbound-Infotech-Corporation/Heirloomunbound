@@ -8,9 +8,15 @@ import { api } from "@/lib/api";
  * The real Android IME lives in android/unbound-keyboard; this page lets
  * someone try proofreading before they sideload the keyboard.
  */
+function issueKey(issue) {
+  return `${issue.kind || ""}:${String(issue.text || "").toLowerCase()}`;
+}
+
 export default function MobileKeyboard() {
   const [text, setText] = useState("");
   const [issues, setIssues] = useState([]);
+  const [ignored, setIgnored] = useState(() => new Set());
+  const [lastCorrected, setLastCorrected] = useState("");
   const [note, setNote] = useState("Type here. Unbound Keyboard will catch slips — never in a password box.");
   const [busy, setBusy] = useState(false);
   const [style, setStyle] = useState(null);
@@ -20,20 +26,27 @@ export default function MobileKeyboard() {
   }, []);
 
   useEffect(() => {
-    if (!text.trim()) return undefined;
+    if (!text.trim()) {
+      setIgnored(new Set());
+      return undefined;
+    }
     const t = setTimeout(() => {
       api.post("/writing/proofread", { text }).then(({ data }) => {
         if (data.secret) {
           setNote(data.style_note);
           setIssues([]);
+          setLastCorrected("");
           return;
         }
         setNote(data.style_note || "");
         setIssues(data.issues || []);
+        setLastCorrected(data.corrected || "");
       }).catch(() => {});
     }, 700);
     return () => clearTimeout(t);
   }, [text]);
+
+  const visibleIssues = issues.filter((issue) => !ignored.has(issueKey(issue)));
 
   const applyIssue = (issue) => {
     const next = issue.suggestions?.[0];
@@ -51,6 +64,7 @@ export default function MobileKeyboard() {
         if (data.polished) setText(data.polished);
         setNote(data.note || "");
         setIssues(data.issues || []);
+        setLastCorrected(data.polished || lastCorrected);
       }
     } catch (e) {
       toast.error(e.response?.data?.detail || "Couldn't polish that.");
@@ -62,8 +76,9 @@ export default function MobileKeyboard() {
   const copyKey = async () => {
     try {
       const { data } = await api.post("/writing/house-key");
-      await navigator.clipboard.writeText(data.token);
-      toast.success("House key copied. Paste it in Unbound Keyboard settings.");
+      const blob = data.blob || `HOUSE\n${data.house_url || ""}\n${data.token}\n`;
+      await navigator.clipboard.writeText(blob);
+      toast.success("House slip copied. Paste it once in Unbound Keyboard settings.");
     } catch (e) {
       toast.error(e.response?.data?.detail || "Couldn't make a house key.");
     }
@@ -77,7 +92,7 @@ export default function MobileKeyboard() {
       <h1 className="text-2xl font-semibold mb-2">Write. We'll catch the slips.</h1>
       <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
         Choose Unbound Keyboard as your Android keyboard to fix spelling in any app.
-        This page is the same helper. We never read password boxes.
+        This page is the same helper. We never read password boxes. On iPhone, stay here.
       </p>
       <textarea
         data-testid="mobile-keyboard-editor"
@@ -92,9 +107,9 @@ export default function MobileKeyboard() {
         onChange={(e) => setText(e.target.value)}
       />
       <p className="text-sm mb-3" data-testid="mobile-keyboard-note">{note}</p>
-      {issues.length > 0 && (
+      {visibleIssues.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4">
-          {issues.map((issue, i) => (
+          {visibleIssues.map((issue, i) => (
             <button
               key={`${issue.start}-${i}`}
               type="button"
@@ -108,6 +123,30 @@ export default function MobileKeyboard() {
           ))}
         </div>
       )}
+      <button
+        type="button"
+        data-testid="mobile-keyboard-fix-spelling"
+        onClick={() => lastCorrected && setText(lastCorrected)}
+        disabled={!lastCorrected || lastCorrected === text}
+        className="w-full py-3 rounded-md mb-2 border text-sm"
+      >
+        Fix spelling
+      </button>
+      <button
+        type="button"
+        data-testid="mobile-keyboard-leave-it"
+        onClick={() => {
+          setIgnored((prev) => {
+            const next = new Set(prev);
+            visibleIssues.forEach((issue) => next.add(issueKey(issue)));
+            return next;
+          });
+        }}
+        disabled={visibleIssues.length === 0}
+        className="w-full py-3 rounded-md mb-2 border text-sm"
+      >
+        Leave it
+      </button>
       <button
         type="button"
         data-testid="mobile-keyboard-polish"

@@ -22,19 +22,14 @@
             android:text="@string/settings_blurb"
             android:textColor="#5A3A28" />
         <EditText
-            android:id="@+id/house_url"
+            android:id="@+id/house_blob"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:hint="@string/house_url_hint"
-            android:inputType="textUri" />
-        <EditText
-            android:id="@+id/house_key"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="@string/house_key_hint"
-            android:inputType="textVisiblePassword" />
+            android:gravity="top|start"
+            android:hint="@string/house_blob_hint"
+            android:inputType="textMultiLine|textVisiblePassword"
+            android:minLines="4" />
         <Button
             android:id="@+id/save"
             android:layout_width="match_parent"

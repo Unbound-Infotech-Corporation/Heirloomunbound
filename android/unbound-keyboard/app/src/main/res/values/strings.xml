@@ -4,9 +4,8 @@
     <string name="ime_name">Unbound Keyboard</string>
     <string name="subtype_en">English</string>
     <string name="settings_title">Unbound Keyboard</string>
-    <string name="settings_blurb">Paste your Heirloom house address and house key. This is not a Google, Microsoft, or phone password — we never ask for those.</string>
-    <string name="house_url_hint">House address (https://…)</string>
-    <string name="house_key_hint">House key from Heirloom → Write</string>
+    <string name="settings_blurb">Paste the house slip from Heirloom → Write → Copy my house key. One paste. This is not a Google, Microsoft, or phone password — we never ask for those. Spelling still works before you paste.</string>
+    <string name="house_blob_hint">Paste the whole house slip here</string>
     <string name="save">Save</string>
-    <string name="password_note">Unbound Keyboard never reads password, PIN, or card-number boxes. We do not keep other people\'s documents.</string>
+    <string name="password_note">Unbound Keyboard never reads password, PIN, or card-number boxes. We do not keep other people\'s documents. On iPhone, use Write inside the Heirloom app — Apple does not let us install this keyboard.</string>
 </resources>

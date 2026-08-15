@@ -23,6 +23,7 @@ from services.writing_coach import (
     proofread_for_user,
     style_for_user,
 )
+from services.writing_local import format_house_blob, parse_house_blob
 
 router = APIRouter(prefix="/writing", tags=["writing"])
 
@@ -40,6 +41,7 @@ async def get_writing_owner(request: Request) -> dict:
     token = _extract_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    house_token = parse_house_blob(token).get("token") or token
 
     session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
     if session:
@@ -61,12 +63,12 @@ async def get_writing_owner(request: Request) -> dict:
         if user:
             return user
 
-    house = await db.keyboard_tokens.find_one({"token": token, "revoked": False}, {"_id": 0})
+    house = await db.keyboard_tokens.find_one({"token": house_token, "revoked": False}, {"_id": 0})
     if house:
         user = await db.users.find_one({"user_id": house["user_id"]}, {"_id": 0})
         if user:
             await db.keyboard_tokens.update_one(
-                {"token": token},
+                {"token": house_token},
                 {"$set": {"last_seen": _now_iso()}},
             )
             return user
@@ -124,11 +126,14 @@ async def make_house_key(user: dict = Depends(get_current_user)):
         "last_seen": None,
     }
     await db.keyboard_tokens.insert_one(doc)
+    house_url = _public_house_url()
+    blob = format_house_blob(house_url, token)
     return {
         "token": token,
-        "house_url": _public_house_url(),
+        "house_url": house_url,
+        "blob": blob,
         "note": (
-            "Paste this into Unbound Keyboard on your phone. It is a Heirloom house key — "
+            "Paste this once into Unbound Keyboard on your phone. It is a Heirloom house key — "
             "not a Google, Microsoft, or phone password. We never ask for those."
         ),
     }
@@ -138,3 +143,17 @@ async def make_house_key(user: dict = Depends(get_current_user)):
 async def house_key_status(user: dict = Depends(get_current_user)):
     count = await db.keyboard_tokens.count_documents({"user_id": user["user_id"], "revoked": False})
     return {"active_keys": int(count), "house_url": _public_house_url()}
+
+
+@router.post("/house-key/revoke")
+async def revoke_house_keys(user: dict = Depends(get_current_user)):
+    """Stop every active phone house key for this person. Session only."""
+    result = await db.keyboard_tokens.update_many(
+        {"user_id": user["user_id"], "revoked": False},
+        {"$set": {"revoked": True, "revoked_at": _now_iso()}},
+    )
+    return {
+        "revoked": int(result.modified_count),
+        "active_keys": 0,
+        "note": "That phone key will not work anymore. You can copy a new one anytime.",
+    }
