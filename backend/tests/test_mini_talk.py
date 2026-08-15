@@ -21,7 +21,8 @@ def test_mini_talk_window_is_grandmother_simple_not_obs():
     assert "Tell your twin what to do" in text
     assert "hold to speak" in text
     assert "Full window" in text
-    assert "OBS" not in text
+    assert 'setWindowTitle("Your twin")' in text
+    assert "Heirloom Twin — Broadcast" not in text
     assert "WindowStaysOnTopHint" in text
 
 
