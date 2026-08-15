@@ -51,7 +51,7 @@ def test_safety_page_is_a_toy_panel_not_a_password_form():
     assert "safety-scan" in safety
     assert "security_job" in safety
     assert "Should I ask Windows to look?" in safety
-    assert "never ask for your Windows password" in safety.lower()
+    assert "never ask for your windows password" in safety.lower()
     assert "never turn protection off" in safety.lower()
     assert "Open the Heirloom app on the home computer" in safety
     assert "Turn off" not in safety
@@ -68,7 +68,7 @@ def test_safety_route_and_nav():
     nav = (FRONT / "components" / "AppLayout.jsx").read_text(encoding="utf-8")
     assert 'path="/safety"' in app
     assert "Safety" in app
-    assert 'to="/safety"' in nav
+    assert 'to: "/safety"' in nav
     assert 'tid: "nav-safety"' in nav
     assert 'tid: "nav-today"' in nav
     assert "Play desk" in nav

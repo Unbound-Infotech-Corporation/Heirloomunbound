@@ -320,7 +320,7 @@ export default function Twin() {
             <div className="toy-knob-grid">
               <ToyKnob
                 color="sunflower"
-                testid="twin-mini-open"
+                data-testid="twin-mini-open"
                 onClick={() => openTwinMiniWindow()}
                 title="Open just you and your twin in a small window"
               >
@@ -328,7 +328,7 @@ export default function Twin() {
               </ToyKnob>
               <ToyKnob
                 color="sky"
-                testid="twin-look-at-screen"
+                data-testid="twin-look-at-screen"
                 disabled={pending || !conv}
                 onClick={() => send("Look at my screen and help me with whatever is on it.")}
                 title="The twin looks at your home computer and helps — games, writing, movies. The picture is deleted after."
@@ -338,7 +338,7 @@ export default function Twin() {
               </ToyKnob>
               <ToyKnob
                 color="grape"
-                testid="twin-look-at-me"
+                data-testid="twin-look-at-me"
                 disabled={lookBusy}
                 onClick={lookAtMe}
                 title="Opens LivePortrait on your home PC so your twin looks back at you"

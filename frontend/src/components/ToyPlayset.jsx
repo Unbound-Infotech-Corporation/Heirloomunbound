@@ -50,11 +50,14 @@ export function ToyKnob({
   type = "button",
   title,
   className = "",
+  ...rest
 }) {
   const cls = `toy-knob toy-knob-${color} ${className}`.trim();
+  const { "data-testid": dataTid, ...fwd } = rest;
+  const tid = testid || dataTid;
   if (to) {
     return (
-      <Link to={to} className={cls} data-testid={testid} title={title}>
+      <Link to={to} className={cls} data-testid={tid} title={title} {...fwd}>
         {children}
       </Link>
     );
@@ -65,8 +68,9 @@ export function ToyKnob({
       onClick={onClick}
       disabled={disabled}
       className={cls}
-      data-testid={testid}
+      data-testid={tid}
       title={title}
+      {...fwd}
     >
       {children}
     </button>
