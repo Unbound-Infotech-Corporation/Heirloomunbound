@@ -66,7 +66,7 @@ agenthub/agents/youtube/db
 
 # Archive files and large assets
 **/*.zip
-!try-it/Heirloom-Unbound-Keyboard.zip
+!try-it/*.zip
 **/*.tar.gz
 **/*.tar
 **/*.tgz

@@ -1,17 +1,18 @@
-DOWNLOAD THESE — Unbound Keyboard
-=================================
+Unbound Keyboard — the file you want
+====================================
 
-The Cursor agent page does not download a zip or APK when you click it.
-Use GitHub instead (you must be signed in if the repo is private):
+For your computer, download this zip (not the .apk):
 
-Windows / Mac try-it pack
-  https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/raw/cursor/maestro-models-mobile-37e2/try-it/Heirloom-Unbound-Keyboard.zip
+  Unbound-Keyboard-for-Windows.zip
 
-Android keyboard (tap this on the phone)
-  https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/raw/cursor/maestro-models-mobile-37e2/try-it/UnboundKeyboard.apk
+On the GitHub page, click the download icon (arrow pointing down)
+at the top right. The zip goes to your Downloads folder.
 
-After the zip downloads: unzip to the Desktop, open Windows,
-double-click Try-Unbound-Keyboard.bat. If Windows shows a blue box:
-More info → Run anyway.
+Then:
+1. Right-click the zip → Extract All → choose Desktop → Extract
+2. Open the new folder
+3. Double-click  Try-Unbound-Keyboard.bat
 
-We never ask for a Google, Microsoft, Windows, or phone password.
+If Windows shows a blue box: More info → Run anyway.
+
+The .apk file is only for an Android phone.

@@ -1,58 +1,40 @@
-START HERE — try Unbound Keyboard
-=================================
+START HERE — Unbound Keyboard for your computer
+===============================================
 
-Unzip this folder first. Copy it to your Desktop.
-Do not double-click anything from inside the zip.
-
-WINDOWS (easiest)
------------------
-1. Open the Windows folder.
-2. Double-click  Try-Unbound-Keyboard.bat
-   (Heirloom.bat also works.)
-3. First time takes about a minute. Leave the window open.
+1. Unzip this. Put the folder on your Desktop.
+   Do not double-click anything from inside the zip.
+2. Open the folder.
+3. Double-click  Try-Unbound-Keyboard.bat
+   If you only see a Windows folder, open that first, then
+   double-click Try-Unbound-Keyboard.bat.
+4. First time takes about a minute. Leave the window open.
    If Windows shows a blue box: More info → Run anyway.
-4. An Unbound Keyboard card opens. Type:
+5. When the card opens, type:
 
      I recieve this and should of said thanks just just just
 
-5. Tap a chip to swap a word. Or click Check writing, then Fix spelling.
-   Leave it if you meant what you typed.
-   Then try Put this where I was typing.
+6. Click Fix spelling, or tap a chip. Leave it if you meant
+   what you typed. Then try Put this where I was typing.
 
 Tray → Unbound Keyboard, or Ctrl+Shift+U, opens the card any time.
 
-This try-it copy is not signed into your house. Spelling and grammar
-work here. To make it sound like you, open Heirloom in your browser,
-go to Local PC, and Download for this computer.
-
-We never read password boxes. We never ask for a Google, Microsoft,
-Windows, or phone password.
+This try-it copy is not signed into your house. Spelling and
+grammar work here. We never read password boxes. We never ask
+for a Google, Microsoft, Windows, or phone password.
 
 MAC
 ---
-Open the Windows folder (same files) and double-click run.sh.
+Double-click run.sh in this folder (or in the Windows folder).
 
-ANDROID
--------
-If you see UnboundKeyboard.apk in the Android folder, copy it to the
-phone and tap it to install. Then:
-
-  Settings → System → Languages & input → On-screen keyboard
-  → Manage keyboards → turn on Unbound Keyboard.
-
-Tap 🌐 to switch back to your old keyboard. Tap 123 for numbers.
-
-Spelling works before you pair. To polish in your voice, open
-Heirloom → Write → Copy my house key, then paste that whole slip
-once into Unbound Keyboard settings.
-
-If there is no APK, the Android folder is still a real keyboard —
-open it and run ./gradlew :app:assembleDebug (or Android Studio),
-then tap the built APK on the phone.
+ANDROID PHONE
+-------------
+The phone keyboard is a separate file: UnboundKeyboard.apk
+Copy it to the phone and tap it. Then Settings → System →
+Languages & input → On-screen keyboard → Unbound Keyboard.
 
 IPHONE
 ------
-Apple does not let us install this keyboard. Use Write inside the
-Heirloom app instead.
+Apple does not let us install this keyboard. Use Write inside
+the Heirloom app instead.
 
 — Unbound Infotech

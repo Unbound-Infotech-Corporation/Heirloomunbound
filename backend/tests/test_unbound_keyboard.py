@@ -304,3 +304,20 @@ def test_try_it_zip_is_double_click_installable():
     ).decode("utf-8")
     assert "Try-Unbound-Keyboard.bat" in start
     dest.unlink(missing_ok=True)
+
+
+def test_windows_zip_has_the_bat_right_there():
+    sys.path.insert(0, str(ROOT))
+    from pack_try_it_zip import build_windows_zip
+
+    dest = ROOT.parent / "tmp-Unbound-Keyboard-for-Windows-test.zip"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    build_windows_zip(dest)
+    with zipfile.ZipFile(dest) as zf:
+        names = set(zf.namelist())
+    assert "Unbound-Keyboard-for-Windows/Try-Unbound-Keyboard.bat" in names
+    assert "Unbound-Keyboard-for-Windows/Heirloom.bat" in names
+    assert "Unbound-Keyboard-for-Windows/START HERE.txt" in names
+    assert "Unbound-Keyboard-for-Windows/heirloom/ui/writing_window.py" in names
+    assert not any("/Windows/Try-Unbound-Keyboard.bat" in n for n in names)
+    dest.unlink(missing_ok=True)

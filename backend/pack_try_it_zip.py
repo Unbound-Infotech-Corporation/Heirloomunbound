@@ -58,6 +58,23 @@ def _add_tree(zf: zipfile.ZipFile, src_root: Path, zip_prefix: str) -> int:
     return count
 
 
+def build_windows_zip(dest: Path) -> Path:
+    """Windows-only zip: unzip and the .bat is right there."""
+    if not DESKTOP.is_dir():
+        raise SystemExit(f"missing desktop app at {DESKTOP}")
+
+    from build_desktop_data import sync_writing_local
+
+    sync_writing_local()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    prefix = "Unbound-Keyboard-for-Windows"
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+        win = _add_tree(zf, DESKTOP, prefix)
+    size = dest.stat().st_size
+    print(f"wrote {dest} ({size:,} bytes, {win} files)")
+    return dest
+
+
 def build_try_it_zip(dest: Path) -> Path:
     if not DESKTOP.is_dir():
         raise SystemExit(f"missing desktop app at {DESKTOP}")
@@ -98,6 +115,20 @@ def default_destinations() -> list[Path]:
     artifacts = Path("/opt/cursor/artifacts")
     if artifacts.is_dir() or artifacts.parent.is_dir():
         dests.append(artifacts / "Heirloom-Unbound-Keyboard.zip")
+    try_it = ROOT / "try-it"
+    if try_it.is_dir():
+        dests.append(try_it / "Heirloom-Unbound-Keyboard.zip")
+    return dests
+
+
+def default_windows_destinations() -> list[Path]:
+    dests = [Path("/tmp/Unbound-Keyboard-for-Windows.zip")]
+    artifacts = Path("/opt/cursor/artifacts")
+    if artifacts.is_dir() or artifacts.parent.is_dir():
+        dests.append(artifacts / "Unbound-Keyboard-for-Windows.zip")
+    try_it = ROOT / "try-it"
+    if try_it.is_dir():
+        dests.append(try_it / "Unbound-Keyboard-for-Windows.zip")
     return dests
 
 
@@ -106,11 +137,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("dest", nargs="?", help="Zip path (default: /tmp and artifacts)")
     args = parser.parse_args(argv)
     if args.dest:
-        build_try_it_zip(Path(args.dest))
+        path = Path(args.dest)
+        if "Windows" in path.name or "windows" in path.name:
+            build_windows_zip(path)
+        else:
+            build_try_it_zip(path)
         return 0
     for dest in default_destinations():
         try:
             build_try_it_zip(dest)
+        except OSError as exc:
+            print(f"skip {dest}: {exc}")
+    for dest in default_windows_destinations():
+        try:
+            build_windows_zip(dest)
         except OSError as exc:
             print(f"skip {dest}: {exc}")
     return 0
