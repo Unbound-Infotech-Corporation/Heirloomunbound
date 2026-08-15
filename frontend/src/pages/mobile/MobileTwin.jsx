@@ -77,7 +77,7 @@ export default function MobileTwin() {
       <div ref={feedRef} className="flex-1 space-y-5 overflow-y-auto mb-4 max-h-[52vh]" data-testid="mobile-twin-feed">
         {messages.length === 0 && !streaming && (
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Same archive as your home computer. Ask anything.
+            Same archive as your home computer. Ask anything. The lifelike video twin runs on that PC — open Avatar Studio there, not on the phone.
           </p>
         )}
         {messages.map((m, i) => (

@@ -254,6 +254,7 @@ export default function Models() {
           <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
             Like Pinokio&apos;s Maestro: tap one, it installs on the home computer, then it&apos;s in the dropdown.
             Needs <a href="https://ollama.com" target="_blank" rel="noreferrer" className="underline">Ollama</a> (one installer) and the Heirloom desktop app open.
+            {" "}Want a face that looks back at you? <Link to="/avatar-studio" className="underline">Avatar Studio</Link> installs LivePortrait and ComfyUI the same way.
           </p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {studio.local_models.map((m) => {

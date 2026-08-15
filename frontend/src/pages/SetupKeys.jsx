@@ -67,7 +67,7 @@ const BYOK = [
   {
     id: "did",
     name: "D-ID",
-    tagline: "Talking-head video — your face speaks the twin's replies.",
+    tagline: "Paid cloud talking-head. Skip this if you use the free Pinokio/ComfyUI path in Avatar Studio.",
     accent: "#c084fc",
     keyEndpoint: "/avatar/api-key",
     placeholder: "email:secret",

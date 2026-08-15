@@ -413,62 +413,21 @@ def _run_comfyui(base_url: str, api_key: str, workflow_str: str, image_bytes: by
     (which is one-click via Pinokio). If a node is missing ComfyUI returns a
     clear error string that we bubble up to the UI.
     """
-    import json as _json
-    import time as _time
+    from .comfy_client import run_comfy_media
 
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    # 1. Upload the source image
-    up = requests.post(
-        base_url + "/upload/image",
-        headers=headers,
-        files={"image": ("input.png", io.BytesIO(image_bytes), "image/png")},
-        data={"overwrite": "true"},
-        timeout=60,
+    uploaded_name = "input.png"
+    default = _default_gfpgan_workflow(uploaded_name, prompt)
+    # run_comfy_media uploads as input.png, matching the default graph.
+    return run_comfy_media(
+        base_url,
+        api_key,
+        workflow_str,
+        image_bytes,
+        prompt,
+        model,
+        timeout_sec=300,
+        default_workflow=default if not (workflow_str or "").strip() else None,
     )
-    up.raise_for_status()
-    uploaded = up.json().get("name") or "input.png"
-
-    workflow = _json.loads(workflow_str) if workflow_str.strip() else _default_gfpgan_workflow(uploaded, prompt)
-
-    # 2. Submit the workflow
-    client_id = f"heirloom-{os.getpid()}"
-    body = {"prompt": workflow, "client_id": client_id}
-    submit = requests.post(base_url + "/prompt", headers=headers, json=body, timeout=60)
-    submit.raise_for_status()
-    prompt_id = submit.json().get("prompt_id")
-    if not prompt_id:
-        raise RuntimeError("comfyui: no prompt_id returned")
-
-    # 3. Poll /history/{prompt_id} until outputs appear
-    deadline = _time.time() + 300  # 5 min hard cap
-    while _time.time() < deadline:
-        hist = requests.get(base_url + f"/history/{prompt_id}", headers=headers, timeout=20)
-        if hist.status_code == 200:
-            data = hist.json() or {}
-            record = data.get(prompt_id)
-            if record and record.get("outputs"):
-                outputs = record["outputs"]
-                for _node_id, out in outputs.items():
-                    for img in out.get("images") or []:
-                        fn = img.get("filename")
-                        sub = img.get("subfolder") or ""
-                        typ = img.get("type") or "output"
-                        r = requests.get(
-                            base_url + "/view",
-                            headers=headers,
-                            params={"filename": fn, "subfolder": sub, "type": typ},
-                            timeout=60,
-                        )
-                        r.raise_for_status()
-                        return r.content, r.headers.get("content-type", "image/png")
-                # No images in the output — that means the workflow ran but
-                # produced text/latents only. Surface a clear error.
-                raise RuntimeError("comfyui: workflow completed but produced no image output")
-        _time.sleep(1.5)
-    raise RuntimeError("comfyui: timed out waiting for restore (5 min)")
 
 
 def _default_gfpgan_workflow(image_name: str, prompt: str) -> dict:
@@ -535,6 +494,15 @@ def execute(cmd: dict):
         if kind == "llm_chat":
             from .local_ai import llm_chat_local
             return llm_chat_local(payload)
+        if kind in ("avatar_still", "avatar_talk", "avatar_look"):
+            from .avatar_local import run_avatar_job
+            body = dict(payload)
+            body["kind"] = {
+                "avatar_still": "still",
+                "avatar_talk": "talk",
+                "avatar_look": "look",
+            }[kind]
+            return run_avatar_job(body)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)

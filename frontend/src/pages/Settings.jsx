@@ -351,7 +351,7 @@ export default function Settings() {
         </div>
         <h2 className="font-serif text-2xl mb-2">Your face, speaking.</h2>
         <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          Paste a public URL to a photo of you (imgur, your social, etc.). When you click <i>Play as video</i> on a twin reply, D-ID renders a short clip of your face speaking the text in your cloned voice.
+          Paste a public URL to a photo of you (imgur, your social, etc.). When you click <i>Play as video</i> on a twin reply, we render a clip of your face speaking — locally via Pinokio/ComfyUI when that&apos;s set, or D-ID if you have a key.
           {!avatarConfigured && (
             <span className="block mt-2 text-xs" style={{ color: "#c95a5a" }}>
               D-ID API not configured — contact the operator.
@@ -395,7 +395,7 @@ export default function Settings() {
               className="inline-flex items-center gap-1.5 text-xs underline mt-1"
               style={{ color: "var(--accent)" }}
             >
-              ✨ Or open Avatar Studio — upload 3 angles, optional subtle enhance →
+              ✨ Avatar Studio — photos, body sheet, free Pinokio/ComfyUI twin →
             </a>
           </div>
         </div>

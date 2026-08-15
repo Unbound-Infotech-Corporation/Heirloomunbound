@@ -152,6 +152,9 @@ _KIND_LABELS = {
     "pull_model": "Downloaded a local model",
     "list_models": "Listed local models",
     "llm_chat": "Ran a local model",
+    "avatar_still": "Built a local twin still",
+    "avatar_talk": "Rendered a local talking clip",
+    "avatar_look": "Opened LivePortrait look-at-you",
 }
 
 
@@ -185,6 +188,8 @@ def _activity_summary(kind: str, payload: dict) -> str:
         return clip(p.get("model"))
     if kind == "llm_chat":
         return clip(p.get("model"))
+    if kind in ("avatar_still", "avatar_talk", "avatar_look"):
+        return clip(p.get("recipe_id") or p.get("kind") or p.get("job_id"))
     return ""
 
 
@@ -315,7 +320,7 @@ async def companion_status(payload: CompanionStatusIn, ctx: dict = Depends(get_d
     return {"ok": True, "models": tags}
 
 
-COMPANION_SCRIPT_VERSION = "2026.08.15.1"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.15.2"  # bump whenever _build_companion_script materially changes
 
 
 class CompanionResult(BaseModel):
@@ -364,6 +369,25 @@ async def companion_result(payload: CompanionResult, ctx: dict = Depends(get_dev
             await db.companion_devices.update_one(
                 {"device_id": ctx["device"]["device_id"]},
                 {"$addToSet": {"local_models": model}, "$set": {"ollama": True}},
+            )
+    if cmd and cmd.get("kind") in ("avatar_still", "avatar_talk", "avatar_look"):
+        job_id = (cmd.get("payload") or {}).get("job_id")
+        if job_id:
+            now = datetime.now(timezone.utc).isoformat()
+            existing = await db.avatar_jobs.find_one(
+                {"job_id": job_id, "user_id": user["user_id"]},
+                {"_id": 0, "status": 1},
+            )
+            patch = {
+                "result_text": (payload.output or "")[:2000],
+                "updated_at": now,
+                "cmd_id": payload.cmd_id,
+            }
+            if not existing or existing.get("status") != "complete":
+                patch["status"] = "done" if payload.status == "ok" else "error"
+            await db.avatar_jobs.update_one(
+                {"job_id": job_id, "user_id": user["user_id"]},
+                {"$set": patch},
             )
     return {"ok": True}
 
@@ -1758,6 +1782,87 @@ def report_local_ai():
     safe_post("/companion/status", json={"ollama": st == "ok" or bool(_ollama_bin()), "models": models})
 
 
+def run_avatar_job(payload):
+    """Copy face photos onto this PC, write the body prompt, open Pinokio."""
+    kind = (payload.get("kind") or "").strip().lower()
+    job_id = (payload.get("job_id") or "").strip()
+    if kind not in ("still", "talk", "look") or not job_id:
+        return "error", "bad avatar job"
+    folder = os.path.join(os.path.expanduser("~"), "Heirloom", "avatar", job_id[:40])
+    os.makedirs(folder, exist_ok=True)
+    prompt = (payload.get("prompt") or payload.get("text") or "").strip()
+    try:
+        open(os.path.join(folder, "prompt.txt"), "w", encoding="utf-8").write(prompt)
+        if payload.get("text"):
+            open(os.path.join(folder, "script.txt"), "w", encoding="utf-8").write(payload.get("text"))
+    except Exception:
+        pass
+    got = 0
+    for i, item in enumerate(payload.get("images") or []):
+        if not isinstance(item, dict):
+            continue
+        image_id = (item.get("image_id") or "").strip()
+        angle = "".join(ch for ch in (item.get("angle") or f"img{i}") if ch.isalnum() or ch == "_")[:24] or f"img{i}"
+        data = None
+        ct = "image/jpeg"
+        if image_id:
+            try:
+                r = requests.get(f"{BACKEND_URL}/api/avatar-studio/companion-file/{image_id}",
+                                 headers={"Authorization": f"Bearer {DEVICE_TOKEN}"}, timeout=45)
+                if r.status_code == 200:
+                    data, ct = r.content, r.headers.get("content-type") or ct
+            except Exception:
+                data = None
+        if data is None and item.get("url"):
+            try:
+                r = requests.get(item["url"], timeout=45)
+                if r.status_code == 200:
+                    data, ct = r.content, r.headers.get("content-type") or ct
+            except Exception:
+                data = None
+        if not data:
+            continue
+        ext = "png" if "png" in ct else ("webp" if "webp" in ct else "jpg")
+        path = os.path.join(folder, f"{angle}.{ext}")
+        open(path, "wb").write(data)
+        if angle == "front" or i == 0:
+            open(os.path.join(folder, f"front.{ext}"), "wb").write(data)
+        got += 1
+    if got == 0:
+        try:
+            requests.post(f"{BACKEND_URL}/api/avatar-studio/jobs/{job_id}/fail",
+                          headers={"Authorization": f"Bearer {DEVICE_TOKEN}"},
+                          json={"reason": "no reference photos on this PC"}, timeout=15)
+        except Exception:
+            pass
+        return "error", "no reference photos — upload a front photo in Avatar Studio"
+    url = (payload.get("pinokio_url") or "").strip()
+    if url:
+        webbrowser.open(url)
+    try:
+        if platform.system() == "Windows":
+            os.startfile(folder)  # type: ignore[attr-defined]
+        elif platform.system() == "Darwin":
+            subprocess.run(["open", folder], check=False)
+        else:
+            subprocess.run(["xdg-open", folder], check=False)
+    except Exception:
+        pass
+    hint = {
+        "look": "LivePortrait is opening. Load front.jpg and turn on your webcam.",
+        "talk": "Load these photos + script.txt in EchoMimic / Sonic inside ComfyUI.",
+        "still": "Load these photos as InstantID refs and paste prompt.txt.",
+    }.get(kind, "Opened Pinokio.")
+    msg = f"{hint} Folder: {folder}"
+    try:
+        requests.post(f"{BACKEND_URL}/api/avatar-studio/jobs/{job_id}/note",
+                      headers={"Authorization": f"Bearer {DEVICE_TOKEN}"},
+                      json={"message": msg[:1500]}, timeout=15)
+    except Exception:
+        pass
+    return "ok", msg
+
+
 def execute(cmd):
     kind = cmd.get("kind")
     payload = cmd.get("payload") or {}
@@ -1801,6 +1906,10 @@ def execute(cmd):
             return list_local_models()
         if kind == "llm_chat":
             return llm_chat_local(payload)
+        if kind in ("avatar_still", "avatar_talk", "avatar_look"):
+            body = dict(payload)
+            body["kind"] = {"avatar_still": "still", "avatar_talk": "talk", "avatar_look": "look"}[kind]
+            return run_avatar_job(body)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)

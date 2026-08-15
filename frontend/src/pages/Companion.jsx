@@ -8,6 +8,7 @@ const KIND_ICONS = {
   clipboard_get: Clipboard, clipboard_set: Clipboard, system_status: Cpu,
   find_file: Search, screenshot: Eye, shell: Terminal,
   pull_model: Download, list_models: Cpu, llm_chat: Cpu,
+  avatar_still: Cpu, avatar_talk: Cpu, avatar_look: Eye,
 };
 
 const STATUS_META = {

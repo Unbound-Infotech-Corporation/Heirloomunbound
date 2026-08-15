@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Monitor, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
+import { Link } from "react-router-dom";
 import { api, streamSSE } from "../lib/api";
 import FunctionModelPicker, { modelOverride } from "@/components/FunctionModelPicker";
 
@@ -64,6 +65,8 @@ export default function Twin() {
   const [liveTools, setLiveTools] = useState([]);
   const [abilities, setAbilities] = useState([]);
   const [modelChoice, setModelChoice] = useState(null);
+  const [lookHint, setLookHint] = useState("");
+  const [lookBusy, setLookBusy] = useState(false);
 
   useEffect(() => {
     api.get("/abilities").then(({ data }) => setAbilities(data.abilities || [])).catch(() => {});
@@ -212,29 +215,48 @@ export default function Twin() {
     try {
       const { data } = await api.post("/avatar/talk", { text });
       const talkId = data.talk_id;
-      // Poll up to 120s (60 attempts × 2s). D-ID renders take 30-90s depending on text length.
-      for (let i = 0; i < 60; i++) {
+      const local = data.engine === "local";
+      // Local Comfy/Pinokio jobs can take several minutes; D-ID is usually < 90s.
+      const attempts = local ? 180 : 60;
+      for (let i = 0; i < attempts; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         let poll;
         try {
           const r = await api.get(`/avatar/talks/${talkId}`);
           poll = r.data;
         } catch (pollErr) {
-          // Transient network/proxy hiccup — keep polling rather than failing the whole render
           continue;
         }
         if (poll.result_url) {
           setVideos((v) => ({ ...v, [idx]: { state: "ready", url: poll.result_url } }));
           return;
         }
+        if (poll.status === "done" && !poll.result_url) {
+          setVideos((v) => ({ ...v, [idx]: { state: "opened", err: poll.hint || "Opened EchoMimic / ComfyUI on your PC." } }));
+          return;
+        }
         if (poll.status === "error" || poll.status === "rejected") {
-          setVideos((v) => ({ ...v, [idx]: { state: "error", err: poll.error?.description || poll.error || "render failed" } }));
+          setVideos((v) => ({ ...v, [idx]: { state: "error", err: poll.error?.description || poll.error || poll.hint || "render failed" } }));
           return;
         }
       }
-      setVideos((v) => ({ ...v, [idx]: { state: "error", err: "timed out after 2 min" } }));
+      setVideos((v) => ({ ...v, [idx]: { state: "error", err: local ? "timed out waiting on your PC" : "timed out after 2 min" } }));
     } catch (e) {
       setVideos((v) => ({ ...v, [idx]: { state: "error", err: e.response?.data?.detail || e.message } }));
+    }
+  };
+
+  const lookAtMe = async () => {
+    if (lookBusy) return;
+    setLookBusy(true);
+    setLookHint("");
+    try {
+      const { data } = await api.post("/avatar-studio/jobs", { kind: "look" });
+      setLookHint(data.hint || "LivePortrait is opening on your PC. Turn on the webcam.");
+    } catch (e) {
+      setLookHint(e.response?.data?.detail || "Couldn't start LivePortrait. Open Avatar Studio.");
+    } finally {
+      setLookBusy(false);
     }
   };
 
@@ -252,6 +274,26 @@ export default function Twin() {
         </div>
         <div className="flex items-center gap-3 flex-wrap justify-end">
         <FunctionModelPicker functionId="chat" compact onChange={setModelChoice} />
+        <button
+          type="button"
+          onClick={lookAtMe}
+          disabled={lookBusy}
+          data-testid="twin-look-at-me"
+          className="inline-flex items-center gap-2 text-xs px-4 py-2 rounded-sm"
+          style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+          title="Opens LivePortrait on your home PC so your twin looks back at you"
+        >
+          {lookBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+          look at me
+        </button>
+        <Link
+          to="/avatar-studio"
+          data-testid="twin-avatar-studio"
+          className="text-xs px-4 py-2 rounded-sm"
+          style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+        >
+          avatar studio
+        </Link>
         <button
           type="button"
           onClick={() => {
@@ -285,6 +327,11 @@ export default function Twin() {
         </label>
         </div>
       </header>
+      {lookHint && (
+        <p className="text-xs mb-6 -mt-4" style={{ color: "var(--accent)" }} data-testid="twin-look-hint">
+          {lookHint}
+        </p>
+      )}
 
       {abilities.length > 0 && (
         <div className="flex items-center flex-wrap gap-2 mb-8" data-testid="twin-abilities-bar">
@@ -419,7 +466,14 @@ export default function Twin() {
                         className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-sm"
                         style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-muted)" }}
                       >
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> rendering your face speaking…
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> rendering on your PC or D-ID…
+                      </div>
+                    ) : videos[i]?.state === "opened" ? (
+                      <div
+                        className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-sm"
+                        style={{ background: "var(--bg-base)", border: "1px solid var(--accent)", color: "var(--text-secondary)" }}
+                      >
+                        {videos[i].err}
                       </div>
                     ) : videos[i]?.state === "error" ? (
                       <div
