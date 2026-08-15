@@ -35,6 +35,7 @@ from .conversation import ConversationPanel
 from .mica import apply as apply_mica
 from .panels import QuickCapture, RecentMemories
 from .settings_dialog import SettingsDialog
+from .talk_window import MiniTalkWindow
 from .titlebar import TitleBar
 
 
@@ -47,6 +48,7 @@ class MainWindow(QMainWindow):
         self._user: dict = {}
         self._palette: Optional[CommandPalette] = None
         self._mica_applied = False
+        self._talk: Optional[MiniTalkWindow] = None
 
         self.setWindowTitle("Heirloom")
         self.resize(1280, 800)
@@ -148,11 +150,13 @@ class MainWindow(QMainWindow):
         self.quickcap.saved.connect(lambda _d: self.memories.refresh())
         # Twin reply triggers avatar speak
         self.conversation.reply_received.connect(self._on_twin_reply)
+        self.conversation.messages_changed.connect(self._sync_mini_talk)
         # Vault capture — every text turn (user + assistant)
         self.conversation.message_sent.connect(lambda t: self._vault_capture("user", t, "chat"))
         self.conversation.reply_received.connect(lambda t: self._vault_capture("assistant", t, "chat"))
         # Avatar status → titlebar pill + aura
         self.avatar.status_changed.connect(self._update_status)
+        self.avatar.talk_requested.connect(self.open_mini_talk)
         # Recorder
         self.recorder.level.connect(self.avatar.set_level)
         self.recorder.wav_bytes.connect(self._upload_voice)
@@ -344,16 +348,7 @@ class MainWindow(QMainWindow):
         def speak_query(q: str):
             if not q:
                 return
-            self.conversation.input.setPlainText("")
-            self.conversation.append("user", q)
-            self.conversation.message_sent.emit(q)
-            self.conversation._busy = True  # type: ignore[attr-defined]
-            api.post_async(
-                "/desktop/chat",
-                {"text": q},
-                on_ok=lambda d: self.conversation._on_reply(d),  # type: ignore[attr-defined]
-                on_err=lambda m: self.conversation._on_error(m),  # type: ignore[attr-defined]
-            )
+            self.conversation.send_text(q)
 
         def capture_query(q: str):
             if not q:
@@ -387,6 +382,12 @@ class MainWindow(QMainWindow):
                 hint="Start listening from your microphone",
                 shortcut="ctrl · space",
                 action=self._ptt_toggle,
+            ),
+            Command(
+                id="minitalk",
+                label="Talk in a small window",
+                hint="Just you and your twin — hide the big window",
+                action=self.open_mini_talk,
             ),
             Command(
                 id="popout",
@@ -427,6 +428,59 @@ class MainWindow(QMainWindow):
             ),
         ]
 
+    def open_mini_talk(self) -> None:
+        """Hide the full window and talk to the twin in a small always-on-top card."""
+        if self._talk is None:
+            self._talk = MiniTalkWindow()
+            self._talk.send_requested.connect(self.conversation.send_text)
+            self._talk.ptt_pressed.connect(self._ptt_start)
+            self._talk.ptt_released.connect(self._ptt_stop)
+            self._talk.restore_full.connect(self.restore_from_mini_talk)
+            self._talk.closed.connect(self._on_mini_talk_closed)
+            self.avatar.attach_talk_window(self._talk)
+            self.avatar.status_changed.connect(self._talk.set_status)
+        geo = self._settings.get("mini_talk_geometry")
+        if isinstance(geo, list) and len(geo) == 4:
+            self._talk.setGeometry(*geo)
+        self._sync_mini_talk()
+        self._talk.set_status(self.titlebar.pill_label.text() or "idle")
+        self._talk.show()
+        self._talk.raise_()
+        self._talk.activateWindow()
+        self.avatar.attach_talk_window(self._talk)
+        self.hide()
+
+    def restore_from_mini_talk(self) -> None:
+        """Bring the full Heirloom window back; hide the compact talk card."""
+        self._persist_mini_talk_geo()
+        if self._talk is not None:
+            self._talk.hide()
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self.avatar._route_video_output()  # type: ignore[attr-defined]
+
+    def _on_mini_talk_closed(self) -> None:
+        self._persist_mini_talk_geo()
+        self.avatar._route_video_output()  # type: ignore[attr-defined]
+
+    def _persist_mini_talk_geo(self) -> None:
+        if self._talk is None:
+            return
+        self._settings["mini_talk_geometry"] = [
+            self._talk.x(),
+            self._talk.y(),
+            self._talk.width(),
+            self._talk.height(),
+        ]
+        config.save_settings(self._settings)
+
+    def _sync_mini_talk(self) -> None:
+        if self._talk is None:
+            return
+        self._talk.set_messages(self.conversation.recent_messages(8))
+        self._talk.set_busy(self.conversation.is_busy)
+
 
 class TrayProxy:
     """Wraps QSystemTrayIcon so MainWindow can show/hide via tray actions."""
@@ -450,6 +504,8 @@ class TrayProxy:
         palette.triggered.connect(window._open_palette)
         ptt = QAction("Push-to-talk", menu)
         ptt.triggered.connect(window._ptt_toggle)
+        minitalk = QAction("Talk in a small window", menu)
+        minitalk.triggered.connect(window.open_mini_talk)
         popout = QAction("Pop out avatar for OBS", menu)
         popout.triggered.connect(window.avatar.pop_out)
         quit_act = QAction("Quit Heirloom", menu)
@@ -458,6 +514,7 @@ class TrayProxy:
         menu.addAction(palette)
         menu.addSeparator()
         menu.addAction(ptt)
+        menu.addAction(minitalk)
         menu.addAction(popout)
         menu.addSeparator()
         menu.addAction(quit_act)
@@ -467,6 +524,9 @@ class TrayProxy:
         self.tray.show()
 
     def _show(self) -> None:
+        if self.window._talk is not None and self.window._talk.isVisible():
+            self.window.restore_from_mini_talk()
+            return
         self.window.showNormal()
         self.window.raise_()
         self.window.activateWindow()
@@ -475,7 +535,9 @@ class TrayProxy:
         from PySide6.QtWidgets import QSystemTrayIcon
 
         if reason == QSystemTrayIcon.Trigger:
-            if self.window.isVisible():
+            if self.window._talk is not None and self.window._talk.isVisible():
+                self.window.restore_from_mini_talk()
+            elif self.window.isVisible():
                 self.window.hide()
             else:
                 self._show()

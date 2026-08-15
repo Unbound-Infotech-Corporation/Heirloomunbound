@@ -321,7 +321,7 @@ async def companion_status(payload: CompanionStatusIn, ctx: dict = Depends(get_d
     return {"ok": True, "models": tags}
 
 
-COMPANION_SCRIPT_VERSION = "2026.08.15.3"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.15.4"  # bump whenever _build_companion_script materially changes
 
 
 class CompanionResult(BaseModel):

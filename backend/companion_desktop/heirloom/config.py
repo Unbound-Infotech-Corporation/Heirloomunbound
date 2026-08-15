@@ -48,6 +48,7 @@ _DEFAULTS: Dict[str, Any] = {
     "ptt_hotkey": "ctrl+space",
     "window_geometry": None,
     "pop_out_geometry": None,
+    "mini_talk_geometry": None,  # compact "just the twin" window
     "stay_logged_in": True,
     # ---- Local Vault ----
     "vault_folder": None,             # None → default (Documents/HeirloomVault)

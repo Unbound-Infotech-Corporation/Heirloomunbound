@@ -13,6 +13,7 @@ import Library from "@/pages/Library";
 import Photos from "@/pages/Photos";
 import Import from "@/pages/Import";
 import Twin from "@/pages/Twin";
+import TwinMini from "@/pages/TwinMini";
 import TwinLive from "@/pages/TwinLive";
 import AvatarStudio from "@/pages/AvatarStudio";
 import SetupKeys from "@/pages/SetupKeys";
@@ -69,6 +70,14 @@ function AppRouter() {
       <Route path="/auth/magic/:token" element={<MagicLink />} />
       <Route path="/heir/:token" element={<HeirPortal />} />
       <Route path="/twin/live/:handle" element={<TwinLive />} />
+      <Route
+        path="/twin/mini"
+        element={
+          <ProtectedRoute>
+            <TwinMini />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/onboarding"
         element={

@@ -9,9 +9,12 @@ The panel exposes:
 - `set_level(level)` — drive the waveform while user is recording / twin is talking
 - `pop_out()` — detach the avatar to a borderless, transparent, always-on-top
   window so OBS can window-capture just the twin's face for streaming.
+- `talk_requested` — grandmother-simple compact window (face + chat). Owned by
+  MainWindow; this panel only mirrors the live face into it.
 
 Pop-out mode keeps an `_BroadcastWindow` instance and mirrors playback into
 it (the same QMediaPlayer drives a second QVideoWidget by reparenting).
+The compact talk window uses the same single video sink when it is visible.
 """
 from __future__ import annotations
 
@@ -87,6 +90,8 @@ class _Waveform(QWidget):
 class _PortraitVideo(QStackedWidget):
     """Either the user's portrait JPG, or a QVideoWidget playing D-ID output."""
 
+    portrait_loaded = Signal()
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._portrait_url: Optional[str] = None
@@ -130,6 +135,7 @@ class _PortraitVideo(QStackedWidget):
             )
             self._portrait.setPixmap(scaled)
             self._portrait._raw = pm  # keep for re-scale on resize
+            self.portrait_loaded.emit()
 
     def show_portrait(self) -> None:
         self.setCurrentIndex(0)
@@ -202,12 +208,14 @@ class AvatarPanel(QFrame):
     """Center-stage avatar with controls."""
 
     status_changed = Signal(str)  # "idle" | "thinking" | "speaking"
+    talk_requested = Signal()  # open the compact "just the twin" window
 
     def __init__(self, settings: dict, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("avatar_panel")
         self._settings = settings
         self._broadcast: Optional[_BroadcastWindow] = None
+        self._talk = None
         self._tmp_video: Optional[str] = None
 
         # Media
@@ -252,6 +260,12 @@ class AvatarPanel(QFrame):
         self.btn_mode.clicked.connect(self._toggle_mode)
         header.addWidget(self.btn_mode)
 
+        self.btn_talk = QPushButton("Talk in a small window")
+        self.btn_talk.setObjectName("ghost")
+        self.btn_talk.setToolTip("Just you and your twin — the big window hides")
+        self.btn_talk.clicked.connect(self.talk_requested.emit)
+        header.addWidget(self.btn_talk)
+
         self.btn_popout = QPushButton("Pop out for OBS ↗")
         self.btn_popout.setObjectName("ghost")
         self.btn_popout.clicked.connect(self.pop_out)
@@ -269,6 +283,7 @@ class AvatarPanel(QFrame):
         # Add aura FIRST so it's beneath (StackAll draws in insertion order)
         stack.addWidget(self.aura)
         stack.addWidget(self.portrait_video)
+        self.portrait_video.portrait_loaded.connect(self._mirror_faces)
         root.addWidget(stage, 1)
 
         self.waveform = _Waveform(self)
@@ -287,8 +302,7 @@ class AvatarPanel(QFrame):
     # ---- public ----
     def set_portrait_url(self, url: Optional[str]) -> None:
         self.portrait_video.set_portrait_url(url)
-        if self._broadcast is not None:
-            self.portrait_video.set_portrait_url(url)
+        self._mirror_faces()
 
     def set_level(self, level: float) -> None:
         self.waveform.set_level(level)
@@ -439,6 +453,54 @@ class AvatarPanel(QFrame):
                 )
             )
         self._broadcast.show()
+        self._mirror_faces()
+        self._route_video_output()
+
+    def attach_talk_window(self, window) -> None:
+        """MainWindow owns the compact talk window; we only mirror the face."""
+        self._talk = window
+        self._mirror_faces()
+        self._route_video_output()
+
+    def _talk_visible(self) -> bool:
+        return self._talk is not None and self._talk.isVisible()
+
+    def _broadcast_visible(self) -> bool:
+        return self._broadcast is not None and self._broadcast.isVisible()
+
+    def _portrait_raw(self):
+        return getattr(self.portrait_video._portrait, "_raw", None)
+
+    def _mirror_faces(self) -> None:
+        raw = self._portrait_raw()
+        if raw is None:
+            return
+        if self._broadcast is not None:
+            self._broadcast.portrait.setPixmap(
+                raw.scaled(
+                    self._broadcast.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+            )
+        if self._talk is not None:
+            self._talk.set_portrait(raw)
+
+    def _route_video_output(self) -> None:
+        """Qt allows one video sink per player. Prefer the window the user is looking at."""
+        playing = self.player.playbackState() == QMediaPlayer.PlayingState
+        if self._talk_visible():
+            self.player.setVideoOutput(self._talk.video)
+            if playing:
+                self._talk.show_video_surface()
+            return
+        if self._broadcast_visible():
+            self.player.setVideoOutput(self._broadcast.video)
+            if playing:
+                self._broadcast.video.show()
+                self._broadcast.portrait.hide()
+            return
+        if playing:
+            video = self.portrait_video.show_video()
+            self.player.setVideoOutput(video)
 
     # ---- internal ----
     def _toggle_mode(self) -> None:
@@ -515,9 +577,11 @@ class AvatarPanel(QFrame):
         self._tmp_video = path
         video = self.portrait_video.show_video()
         self.player.setVideoOutput(video)
-        # Mirror into broadcast window if visible
-        if self._broadcast is not None and self._broadcast.isVisible():
-            # Qt only supports one video sink per player — swap on every pop
+        # One sink: compact talk window first, then OBS broadcast, then this panel.
+        if self._talk_visible():
+            self.player.setVideoOutput(self._talk.video)
+            self._talk.show_video_surface()
+        elif self._broadcast_visible():
             self.player.setVideoOutput(self._broadcast.video)
             self._broadcast.video.show()
             self._broadcast.portrait.hide()
@@ -528,13 +592,17 @@ class AvatarPanel(QFrame):
         if status == QMediaPlayer.EndOfMedia:
             self.set_status("idle")
             self.portrait_video.show_portrait()
-            if self._broadcast is not None and self._broadcast.isVisible():
+            if self._broadcast_visible():
                 self._broadcast.video.hide()
                 self._broadcast.portrait.show()
+            if self._talk_visible():
+                self._talk.show_portrait_surface()
 
     def _on_media_error(self, _err, _msg: str = "") -> None:
         self.set_status("idle")
         self.portrait_video.show_portrait()
+        if self._talk_visible():
+            self._talk.show_portrait_surface()
 
     # --- Public: volume control ---------------------------------------
     def set_playback_volume(self, volume: float) -> None:

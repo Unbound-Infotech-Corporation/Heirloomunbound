@@ -76,6 +76,7 @@ class ConversationPanel(QWidget):
 
     message_sent = Signal(str)   # raw user text right after submit
     reply_received = Signal(str)  # assistant text after API returns
+    messages_changed = Signal()  # transcript updated (chat, voice, history)
 
     def __init__(self, settings: dict, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -148,6 +149,37 @@ class ConversationPanel(QWidget):
         msg = {"role": role, "content": text}
         self._messages.append(msg)
         self._add_widget(msg)
+        self.messages_changed.emit()
+
+    def recent_messages(self, limit: int = 8) -> List[dict]:
+        if limit < 1:
+            return []
+        return list(self._messages[-limit:])
+
+    @property
+    def is_busy(self) -> bool:
+        return bool(self._busy)
+
+    def send_text(self, text: str) -> None:
+        """Send a user turn from the composer or the small talk window."""
+        if self._busy:
+            return
+        text = (text or "").strip()
+        if not text:
+            return
+        self.input.clear()
+        self._busy = True
+        self.append("user", text)
+        self.message_sent.emit(text)
+        if self._local_chat_active():
+            self._send_via_local_chat(text)
+            return
+        api.post_async(
+            "/desktop/chat",
+            {"text": text},
+            on_ok=self._on_reply,
+            on_err=self._on_error,
+        )
 
     # ---- internal ----
     def _on_history(self, data: dict) -> None:
@@ -162,6 +194,7 @@ class ConversationPanel(QWidget):
                 w.deleteLater()
         for m in self._messages:
             self._add_widget(m)
+        self.messages_changed.emit()
 
     def _add_widget(self, msg: dict) -> None:
         bubbles = bool(self._settings.get("bubble_style", True))
@@ -195,26 +228,7 @@ class ConversationPanel(QWidget):
         self._on_history({"messages": self._messages})
 
     def _on_send(self) -> None:
-        if self._busy:
-            return
-        text = self.input.toPlainText().strip()
-        if not text:
-            return
-        self.input.clear()
-        self.append("user", text)
-        self.message_sent.emit(text)
-        self._busy = True
-        # If the user has a local chat provider enabled, route directly to it
-        # from the desktop — nothing leaves the machine.
-        if self._local_chat_active():
-            self._send_via_local_chat(text)
-            return
-        api.post_async(
-            "/desktop/chat",
-            {"text": text},
-            on_ok=self._on_reply,
-            on_err=self._on_error,
-        )
+        self.send_text(self.input.toPlainText())
 
     # -------- Local chat (Ollama / LM Studio / OpenAI-compat) --------
     def _local_chat_active(self) -> bool:
@@ -275,6 +289,8 @@ class ConversationPanel(QWidget):
         if reply:
             self.append("assistant", reply)
             self.reply_received.emit(reply)
+        else:
+            self.messages_changed.emit()
 
     def _on_error(self, msg: str) -> None:
         self._busy = False

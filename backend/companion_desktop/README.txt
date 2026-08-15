@@ -19,13 +19,21 @@ WHAT'S INSIDE
 - A recent-memories sidebar on the left.
 - Push-to-talk: hold Ctrl+Space anywhere in the app to speak; release to send.
 - System tray icon: closing the window minimises to tray; right-click for
-  Quit / Pop-out / Push-to-talk.
+  Quit / Talk in a small window / Pop-out / Push-to-talk.
+
+SMALL TALK WINDOW
+-----------------
+Click "Talk in a small window" on the twin's face, in the tray, or in the
+command palette (Ctrl+K). The big Heirloom window hides. A small always-on-top
+card stays on your screen with the twin's face, a short chat, and hold-to-speak.
+Ask it to do tasks the same way as in the full window. Click "Full window" to
+bring Heirloom back, or close the small card — Heirloom stays in the tray.
 
 OBS / STREAMING
 ---------------
 Click "Pop out for OBS ↗" on the avatar panel to detach the twin into its own
-borderless, transparent, always-on-top window. In OBS, add a Window Capture
-source and pick "Heirloom Twin — Broadcast".
+borderless, transparent, always-on-top window (face only, no chat). In OBS, add
+a Window Capture source and pick "Heirloom Twin — Broadcast".
 
 REQUIREMENTS
 ------------

@@ -3,6 +3,7 @@ import { ArrowRight, BookOpen, Calendar, Clipboard, Cloud, Cpu, Eye, Globe, Keyb
 import { Link } from "react-router-dom";
 import { api, streamSSE } from "../lib/api";
 import FunctionModelPicker, { modelOverride } from "@/components/FunctionModelPicker";
+import { openTwinMiniWindow } from "@/pages/TwinMini";
 
 const TOOL_META = {
   search_archive: { label: "searching your archive", icon: Search },
@@ -294,6 +295,16 @@ export default function Twin() {
         </div>
         <div className="flex items-center gap-3 flex-wrap justify-end">
         <FunctionModelPicker functionId="chat" compact onChange={setModelChoice} />
+        <button
+          type="button"
+          onClick={() => openTwinMiniWindow()}
+          data-testid="twin-mini-open"
+          className="inline-flex items-center gap-2 text-xs px-4 py-2 rounded-sm"
+          style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+          title="Open just you and your twin in a small window"
+        >
+          Talk in a small window
+        </button>
         <button
           type="button"
           onClick={lookAtMe}
