@@ -20,10 +20,11 @@ from typing import Any, Dict
 BACKEND_URL = "__BACKEND_URL__"
 DEVICE_TOKEN = "__DEVICE_TOKEN__"
 
-# Fall back to env vars when running from source (developer mode)
-if BACKEND_URL.startswith("__"):
+# Fall back to env vars when running from source (developer mode),
+# or if a zip was baked without a public URL.
+if not BACKEND_URL or BACKEND_URL.startswith("__"):
     BACKEND_URL = os.environ.get("HEIRLOOM_BACKEND_URL", "http://localhost:8001")
-if DEVICE_TOKEN.startswith("__"):
+if not DEVICE_TOKEN or DEVICE_TOKEN.startswith("__"):
     DEVICE_TOKEN = os.environ.get("HEIRLOOM_DEVICE_TOKEN", "")
 
 

@@ -7,7 +7,7 @@ from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai import OpenAISpeechToText
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from deps import EMERGENT_LLM_KEY, db, get_current_user
@@ -649,7 +649,23 @@ def build_windows_zip_bytes(token: str, wake_word: bool = False) -> bytes:
 
 
 # ---------- Heirloom Desktop (PySide6 full GUI) ----------
-def build_desktop_app_zip_bytes(token: str) -> bytes:
+def _desktop_backend_url(request: Optional[Request] = None) -> str:
+    """Public API root baked into the zip. Never write an empty URL — that
+    disables the desktop app's placeholder fallback."""
+    import os
+
+    env = (os.environ.get("PUBLIC_BACKEND_URL") or "").strip().rstrip("/")
+    if env:
+        return env
+    if request is not None:
+        try:
+            return str(request.base_url).rstrip("/")
+        except Exception:
+            return ""
+    return ""
+
+
+def build_desktop_app_zip_bytes(token: str, backend_url: Optional[str] = None) -> bytes:
     """Returns the in-memory zip for the full PySide6 desktop app, with the
     user's device token + backend URL baked into heirloom/config.py.
 
@@ -663,7 +679,9 @@ def build_desktop_app_zip_bytes(token: str) -> bytes:
     import pathlib
     import zipfile
 
-    backend_url = os.environ.get("PUBLIC_BACKEND_URL", "")
+    if backend_url is None:
+        backend_url = _desktop_backend_url()
+    backend_url = (backend_url or "").strip().rstrip("/")
 
     # 1) Prefer the in-memory data baked into companion_desktop_data.py — this
     #    GUARANTEES the files ship with production deploys (Emergent's bundler
@@ -701,23 +719,30 @@ def build_desktop_app_zip_bytes(token: str) -> bytes:
             # Token + URL injection happens only on the config.py
             if rel == "heirloom/config.py":
                 text = data.decode("utf-8")
-                text = text.replace('"__BACKEND_URL__"', f'"{backend_url}"')
-                text = text.replace('"__DEVICE_TOKEN__"', f'"{token}"')
+                if backend_url:
+                    text = text.replace('"__BACKEND_URL__"', f'"{backend_url}"')
+                if token:
+                    text = text.replace('"__DEVICE_TOKEN__"', f'"{token}"')
                 data = text.encode("utf-8")
-            z.writestr(rel, data)
+            info = zipfile.ZipInfo(rel)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            if rel == "run.sh":
+                info.external_attr = 0o755 << 16
+            z.writestr(info, data)
     return buf.getvalue()
 
 
 @router.get("/desktop-package")
 async def desktop_package(
     token: str,
+    request: Request,
     user: dict = Depends(get_current_user),
 ):
     """Returns a zip with the full PySide6 desktop app, personalized to `token`.
 
     The zip contains:
       - heirloom/  (the PySide6 package with config.py baked with your token)
-      - Heirloom.bat (one-click launcher; creates venv + installs deps on first run)
+      - Heirloom.bat (Windows) / run.sh (Mac)
       - requirements.txt
       - README.txt
     """
@@ -728,7 +753,7 @@ async def desktop_package(
     if not device:
         raise HTTPException(status_code=404, detail="Device token not found")
 
-    payload = build_desktop_app_zip_bytes(token)
+    payload = build_desktop_app_zip_bytes(token, backend_url=_desktop_backend_url(request))
     from fastapi import Response
 
     return Response(
@@ -739,7 +764,11 @@ async def desktop_package(
 
 
 @router.get("/devices/{device_id}/desktop-package")
-async def desktop_package_for_device(device_id: str, user: dict = Depends(get_current_user)):
+async def desktop_package_for_device(
+    device_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
     """Re-download Heirloom for an existing PC without showing the token again."""
     device = await db.companion_devices.find_one(
         {"device_id": device_id, "user_id": user["user_id"], "revoked": False},
@@ -747,7 +776,7 @@ async def desktop_package_for_device(device_id: str, user: dict = Depends(get_cu
     )
     if not device or not device.get("device_token"):
         raise HTTPException(status_code=404, detail="Device not found")
-    payload = build_desktop_app_zip_bytes(device["device_token"])
+    payload = build_desktop_app_zip_bytes(device["device_token"], backend_url=_desktop_backend_url(request))
     from fastapi import Response
 
     return Response(

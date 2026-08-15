@@ -54,7 +54,7 @@ export default function AvatarStudio() {
   const [showExtras, setShowExtras] = useState(false);
   const [setupJob, setSetupJob] = useState(null);
 
-  const load = async () => {
+  const load = async (opts = {}) => {
     try {
       const r = await api.get("/avatar-studio/me");
       setData(r.data);
@@ -68,7 +68,9 @@ export default function AvatarStudio() {
       });
       setEngine(r.data.engine || "auto");
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Couldn't load avatars.");
+      if (!opts.quiet) {
+        toast.error(e.response?.data?.detail || "Couldn't load avatars.");
+      }
     }
   };
   useEffect(() => {
@@ -81,7 +83,7 @@ export default function AvatarStudio() {
     const waitingSetup = setupBusy(data.setup?.last_job);
     if (!waitingHome && !waitingSetup) return undefined;
     const timer = setInterval(() => {
-      load();
+      load({ quiet: true });
     }, 4000);
     return () => clearInterval(timer);
   }, [data?.home?.online, data?.home?.connected, data?.home?.seen, data?.setup?.last_job?.job_id, data?.setup?.last_job?.status]);

@@ -20,6 +20,14 @@ xcopy /S /E /Y /Q "%~dp0heirloom" "%APP_DIR%\heirloom\" >nul
 if exist "%~dp0requirements.txt" copy /Y "%~dp0requirements.txt" "%INSTALL_DIR%\requirements.txt" >nul
 if exist "%~dp0README.txt" copy /Y "%~dp0README.txt" "%INSTALL_DIR%\README.txt" >nul
 
+if not exist "%APP_DIR%\heirloom\__main__.py" (
+  echo Unzip the Heirloom folder first. Then double-click Heirloom.bat inside that folder.
+  echo Don't run it from inside the zip — copy the folder to your Desktop first.
+  echo Details: %LOG%
+  pause
+  exit /b 1
+)
+
 set "NEED_DEPS=0"
 if not exist "%PYW%" set "NEED_DEPS=1"
 if not exist "%INSTALL_DIR%\requirements.ok" set "NEED_DEPS=1"
@@ -28,7 +36,7 @@ if exist "%INSTALL_DIR%\requirements.txt" if exist "%INSTALL_DIR%\requirements.o
   if errorlevel 1 set "NEED_DEPS=1"
 )
 if exist "%PYV%" (
-  "%PYV%" -c "import PySide6, requests, PIL" >> "%LOG%" 2>&1
+  "%PYV%" -c "import PySide6, requests, PIL, mss" >> "%LOG%" 2>&1
   if errorlevel 1 set "NEED_DEPS=1"
 )
 
@@ -68,7 +76,7 @@ if "%NEED_DEPS%"=="1" (
     pause
     exit /b 1
   )
-  "%PYV%" -c "import PySide6, requests, PIL" >> "%LOG%" 2>&1
+  "%PYV%" -c "import PySide6, requests, PIL, mss" >> "%LOG%" 2>&1
   if errorlevel 1 (
     echo Heirloom didn't finish installing. Double-click Heirloom.bat to try again.
     echo Details: %LOG%
@@ -86,6 +94,7 @@ if not exist "%PYW%" (
 )
 
 cd /d "%APP_DIR%"
+echo Opening Heirloom...
 start "" "%PYW%" -m heirloom
 endlocal
 exit /b 0

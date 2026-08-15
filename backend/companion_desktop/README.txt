@@ -5,13 +5,16 @@ A professional Windows desktop app for your AI Twin.
 
 QUICK START
 -----------
-1. Double-click `Heirloom.bat`.
+1. Double-click `Heirloom.bat` (Windows) or `run.sh` (Mac).
 2. First run sets Heirloom up — about a minute. Leave the window open.
-   If Python is missing, Heirloom installs it (via winget). If a Python
-   installer window appears instead, tick "Add python.exe to PATH", finish
-   it, then double-click Heirloom.bat again.
+   If Python is missing, Heirloom installs it (via winget on Windows). If a
+   Python installer window appears instead, tick "Add python.exe to PATH",
+   finish it, then run the starter again.
 3. The app opens already signed in. Then go to Twin → Avatar Studio in
    your browser: add a photo, tick the box, tap Set up my twin.
+
+Unzip the folder first. Don't run the starter from inside the zip — copy
+the folder to your Desktop, then double-click.
 
 If Windows shows a blue "Windows protected your PC" box: More info, then
 Run anyway. That is the one click we cannot skip for you.
@@ -57,9 +60,10 @@ a Window Capture source and pick "Heirloom Twin — Broadcast".
 
 REQUIREMENTS
 ------------
-- Windows 10 or 11
-- Python 3.10+ (Heirloom.bat installs it if missing; if a download page
-  opens, tick "Add python.exe to PATH")
+- Windows 10 or 11 (double-click Heirloom.bat)
+- Mac: double-click run.sh
+- Python 3.10+ (Heirloom.bat installs it if missing on Windows; if a download
+  page opens, tick "Add python.exe to PATH")
 - A working microphone (for push-to-talk)
 - Internet — the twin runs in the cloud
 

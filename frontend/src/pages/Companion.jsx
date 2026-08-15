@@ -40,12 +40,16 @@ export default function Companion() {
   const [downloadingId, setDownloadingId] = useState(null);
 
   const loadAll = async () => {
-    const [d, a] = await Promise.all([
-      api.get("/companion/devices"),
-      api.get("/companion/activity"),
-    ]);
-    setDevices(d.data);
-    setActivity(a.data.items || []);
+    try {
+      const [d, a] = await Promise.all([
+        api.get("/companion/devices"),
+        api.get("/companion/activity"),
+      ]);
+      setDevices(d.data);
+      setActivity(a.data.items || []);
+    } catch {
+      /* next poll retries */
+    }
   };
   useEffect(() => {
     loadAll();
@@ -76,8 +80,14 @@ export default function Companion() {
       const { data } = await api.post("/companion/register", { name: newName.trim() || "My PC" });
       setIssued(data);
       setNewName("My PC");
-      await loadAll();
-      await saveDesktopZip(`/companion/desktop-package?token=${encodeURIComponent(data.device_token)}`);
+      const zipPath = `/companion/desktop-package?token=${encodeURIComponent(data.device_token)}`;
+      try {
+        await saveDesktopZip(zipPath);
+      } catch {
+        window.location.assign(`${API_BASE}${zipPath}`);
+        return;
+      }
+      loadAll();
     } catch (err) {
       const detail = err?.response?.data?.detail;
       setDownloadErr(typeof detail === "string" && detail.trim() ? detail : "Couldn't prepare the download. Check your internet and try again.");
