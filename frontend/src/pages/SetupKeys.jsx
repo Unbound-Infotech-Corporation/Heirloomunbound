@@ -9,6 +9,7 @@ import {
   EyeOff,
   KeyRound,
   Loader2,
+  Mail,
   Music2,
   Phone,
   Server,
@@ -43,6 +44,22 @@ const OAUTH = [
     connectPath: "/api/oauth/github/connect",
     accent: "#8b949e",
     icon: Server,
+  },
+  {
+    id: "google",
+    name: "Gmail",
+    tagline: "One tap. Google asks you — we never see your password. Your twin can read recent mail and send only after you say yes.",
+    connectPath: "/api/oauth/google/connect",
+    accent: "#EA4335",
+    icon: Mail,
+  },
+  {
+    id: "microsoft",
+    name: "Outlook",
+    tagline: "Same idea for Outlook / Hotmail / Microsoft 365. Sign in on Microsoft's page.",
+    connectPath: "/api/oauth/microsoft/connect",
+    accent: "#0078D4",
+    icon: Mail,
   },
 ];
 
@@ -197,11 +214,6 @@ export default function SetupKeys() {
           {OAUTH.map((s) => (
             <OAuthTile key={s.id} svc={s} status={status[s.id]} />
           ))}
-          <ComingSoonTile
-            name="Google"
-            tagline="Calendar, Photos, Gmail — coming next session."
-            accent="#4285F4"
-          />
           <ComingSoonTile
             name="Discord"
             tagline="DMs + servers you're active in feed the archive."
@@ -383,7 +395,26 @@ function SectionHeader({ overline, title, hint }) {
 // ---------- OAuth tile ----------
 function OAuthTile({ svc, status }) {
   const connected = status?.source === "you";
+  const serverReady = status?.server_ready !== false;
+  const [busy, setBusy] = useState(false);
   const Icon = svc.icon;
+
+  const connect = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.get(`/oauth/${svc.id}/connect`);
+      if (data?.authorize_url) {
+        window.location.href = data.authorize_url;
+        return;
+      }
+      toast.error("Couldn't start sign-in.");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Couldn't start sign-in.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div
       className="rounded-sm p-6 flex flex-col justify-between transition-all"
@@ -407,19 +438,28 @@ function OAuthTile({ svc, status }) {
         </div>
         <p className="text-sm mb-6" style={{ color: "var(--text-secondary)" }}>{svc.tagline}</p>
       </div>
-      <a
-        href={svc.connectPath}
-        data-testid={`oauth-tile-btn-${svc.id}`}
-        className="inline-flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-sm text-sm font-medium"
-        style={{
-          background: connected ? "transparent" : svc.accent,
-          color: connected ? svc.accent : "#ffffff",
-          border: `1px solid ${svc.accent}`,
-        }}
-      >
-        {connected ? "Reconnect" : `Connect ${svc.name}`}
-        <ChevronRight className="h-4 w-4" />
-      </a>
+      {!serverReady ? (
+        <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>
+          Ask the person who set up Heirloom to add {svc.name}. We never ask for your password.
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={connect}
+          disabled={busy}
+          data-testid={`oauth-tile-btn-${svc.id}`}
+          className="inline-flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-sm text-sm font-medium disabled:opacity-60"
+          style={{
+            background: connected ? "transparent" : svc.accent,
+            color: connected ? svc.accent : "#ffffff",
+            border: `1px solid ${svc.accent}`,
+          }}
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {connected ? "Reconnect" : `Connect ${svc.name}`}
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 }

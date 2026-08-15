@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from deps import db, get_current_user
 from routers.companion import get_device_user
+from routers.oauth import public_mail_status
 from services.avatar_jobs import public_job, queue_job, queue_setup
 from services.avatar_recipes import (
     ENGINES,
@@ -243,6 +244,7 @@ async def get_my_avatars(user: dict = Depends(get_current_user)):
         "jobs": [public_job(j) for j in recent],
         "catalog": catalog,
         "setup": setup,
+        "mail": await public_mail_status(user["user_id"]),
     }
 
 

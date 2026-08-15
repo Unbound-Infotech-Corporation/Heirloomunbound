@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Camera, Check, ChevronDown, Download, ExternalLink, Eye, Heart, Loader2, Monitor, Sparkles, Upload, Video, X } from "lucide-react";
+import { Camera, Check, ChevronDown, Download, ExternalLink, Eye, Heart, Loader2, Mail, Monitor, Sparkles, Upload, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePageMeta } from "@/lib/usePageMeta";
@@ -277,6 +277,19 @@ export default function AvatarStudio() {
     return runEasySetup();
   };
 
+  const connectMail = async (provider) => {
+    try {
+      const { data: d } = await api.get(`/oauth/${provider}/connect`);
+      if (d?.authorize_url) {
+        window.location.href = d.authorize_url;
+        return;
+      }
+      toast.error("Couldn't start email sign-in.");
+    } catch (e) {
+      toast.error(plainErr(e, "Couldn't start email sign-in."));
+    }
+  };
+
   if (!data) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ color: "var(--text-muted)" }}>
@@ -391,6 +404,49 @@ export default function AvatarStudio() {
               {setupJob?.result_text || jobHint || (setupBusy(setupJob) ? "Downloading the free installer…" : "")}
             </p>
           )}
+          <div className="mt-6 pt-5" style={{ borderTop: "1px solid var(--border-default)" }} data-testid="avatar-mail-cta">
+            {data.mail?.connected ? (
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                <Mail className="inline h-3.5 w-3.5 mr-1" />
+                Watching {data.mail.email || data.mail.label}. Ask your twin: &ldquo;check my setup emails.&rdquo;
+              </p>
+            ) : (
+              <>
+                <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+                  Want me to watch your inbox for setup emails? Connect Gmail — Google asks, we never see your password.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {data.mail?.google_ready !== false && (
+                    <button
+                      type="button"
+                      onClick={() => connectMail("google")}
+                      data-testid="avatar-connect-gmail"
+                      className="inline-flex items-center gap-2 px-3 py-2 text-xs rounded-sm"
+                      style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+                    >
+                      <Mail className="h-3.5 w-3.5" /> Connect Gmail
+                    </button>
+                  )}
+                  {data.mail?.microsoft_ready && (
+                    <button
+                      type="button"
+                      onClick={() => connectMail("microsoft")}
+                      data-testid="avatar-connect-outlook"
+                      className="inline-flex items-center gap-2 px-3 py-2 text-xs rounded-sm"
+                      style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+                    >
+                      Connect Outlook
+                    </button>
+                  )}
+                </div>
+                {data.mail?.google_ready === false && !data.mail?.microsoft_ready && (
+                  <p className="text-xs mt-2 italic" style={{ color: "var(--text-muted)" }}>
+                    Ask the person who set up Heirloom to add Google. We never ask for your email password.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </section>
 
         <button

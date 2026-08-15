@@ -44,6 +44,31 @@ ABILITIES: list[dict] = [
         ),
     },
     {
+        "id": "email",
+        "name": "Email",
+        "tagline": "Connect Gmail or Outlook once. Your twin can read recent mail and send only after you say yes.",
+        "icon": "mail",
+        "category": "knowledge",
+        "default_enabled": True,
+        "requires_companion": False,
+        "tools": ["read_inbox", "search_mail", "find_setup_mail", "send_email"],
+        "permissions": [
+            {"id": "read_mail", "label": "Read recent mail (who it's from, the subject, a short snippet)"},
+            {"id": "send_mail", "label": "Send mail only after you say yes"},
+        ],
+        "prompt_block": (
+            "Email (enabled):\n"
+            "- If they haven't connected, tell them to tap Connect my email. Google or Microsoft will ask — "
+            "NEVER ask them to type an email password here.\n"
+            "- `read_inbox()` — recent subjects + short snippets. Do not dump full bodies.\n"
+            "- `search_mail(query)` — find mail matching a phrase.\n"
+            "- `find_setup_mail()` — look for Pinokio / Ollama / Heirloom verification or magic-link mail and show the links. "
+            "Help them tap the link. Do not create third-party accounts for them. Pinokio and ComfyUI usually don't need accounts.\n"
+            "- `send_email(to, subject, body)` — first call WITHOUT confirmed so they see a draft. "
+            "Only after they clearly say yes, call again with confirmed=true.\n"
+        ),
+    },
+    {
         "id": "music",
         "name": "Music",
         "tagline": "Say “play some Pink Floyd” and your twin cues it up on your PC or browser.",

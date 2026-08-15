@@ -4,6 +4,7 @@ import {
   Eye,
   Globe,
   Loader2,
+  Mail,
   Monitor,
   Music,
   ShieldCheck,
@@ -15,7 +16,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePageMeta } from "@/lib/usePageMeta";
 
-const ICONS = { globe: Globe, music: Music, wrench: Wrench, monitor: Monitor, eye: Eye, terminal: Terminal };
+const ICONS = { globe: Globe, mail: Mail, music: Music, wrench: Wrench, monitor: Monitor, eye: Eye, terminal: Terminal };
 
 const CATEGORY_LABELS = {
   knowledge: "Knowledge",

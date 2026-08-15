@@ -54,7 +54,24 @@ Do these in order — if something breaks, you'll know which key.
 - Put new value in secret store, redeploy.
 - Expect anyone already linked to be forced to re-authorise.
 
-### 8. Sentry · `SENTRY_DSN` (low priority)
+### 8. Google OAuth · Gmail · `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`
+- Cloud Console → https://console.cloud.google.com/apis/credentials
+- OAuth client type: Web application.
+- Redirect URI: `{PUBLIC_BACKEND_URL}/api/oauth/google/callback`
+- Scopes: `gmail.readonly` + `gmail.send` (plus openid/email/profile). Production
+  needs Google app verification; until then the Connect button is fine in
+  test/internal use.
+- Optional `GOOGLE_REDIRECT_URI` override. Heirloom never stores the user's
+  Gmail password — only OAuth tokens in `oauth_connections`.
+
+### 9. Microsoft OAuth · Outlook · `MICROSOFT_CLIENT_ID` + `MICROSOFT_CLIENT_SECRET`
+- Azure app registration → https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps
+- Redirect URI: `{PUBLIC_BACKEND_URL}/api/oauth/microsoft/callback`
+- Scopes: `offline_access User.Read Mail.Read Mail.Send`
+- Optional `MICROSOFT_TENANT` (default `common`) and `MICROSOFT_REDIRECT_URI`.
+- Same rule: sign-in happens on Microsoft's page. No Outlook password in Heirloom.
+
+### 10. Sentry · `SENTRY_DSN` (low priority)
 - Not really a "secret" — it's a public write endpoint token, but rotating is
   still good hygiene once a year.
 - https://sentry.io → Settings → Client Keys (DSN) → generate new, deprecate old.
@@ -82,7 +99,7 @@ $ curl -s $PUBLIC_BACKEND_URL/api/ping
 #    - ElevenLabs: /api/voice/list-voices
 #    - D-ID: /api/avatar/list
 #    - Fal: /api/photo-story/generate (any generation)
-#    - GitHub / Spotify OAuth: click "Link account" in the UI
+#    - GitHub / Spotify / Gmail / Outlook OAuth: click "Connect" in Settings
 ```
 
 ## Ongoing hygiene

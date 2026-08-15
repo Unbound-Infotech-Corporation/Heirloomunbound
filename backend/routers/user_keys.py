@@ -37,7 +37,19 @@ USER_FIELDS = {
     # resend is the app's transactional sender — not per-user overrideable here
 }
 
-OAUTH_SERVICES = ("spotify", "github")
+OAUTH_SERVICES = ("spotify", "github", "google", "microsoft")
+
+
+def _oauth_server_ready(svc: str) -> bool:
+    if svc == "google":
+        return bool(os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get("GOOGLE_CLIENT_SECRET"))
+    if svc == "microsoft":
+        return bool(os.environ.get("MICROSOFT_CLIENT_ID") and os.environ.get("MICROSOFT_CLIENT_SECRET"))
+    if svc == "spotify":
+        return bool(os.environ.get("SPOTIFY_CLIENT_ID") and os.environ.get("SPOTIFY_CLIENT_SECRET"))
+    if svc == "github":
+        return bool(os.environ.get("GITHUB_CLIENT_ID") and os.environ.get("GITHUB_CLIENT_SECRET"))
+    return False
 
 
 @router.get("/status")
@@ -61,14 +73,19 @@ async def get_status(user: dict = Depends(get_current_user)):
         "configured": bool(ADMIN_KEYS["stripe"]),
         "source": "admin" if ADMIN_KEYS["stripe"] else "none",
     }
-    # OAuth links — check user doc for stored tokens
+    # OAuth lives in oauth_connections — never on the user doc, never sent to the client.
+    rows = await db.oauth_connections.find(
+        {"user_id": user["user_id"], "provider": {"$in": list(OAUTH_SERVICES)}},
+        {"_id": 0, "provider": 1},
+    ).to_list(length=20)
+    linked = {r.get("provider") for r in rows}
     for svc in OAUTH_SERVICES:
-        token_field = f"{svc}_oauth"
-        has_oauth = bool((user.get(token_field) or {}).get("access_token"))
+        has_oauth = svc in linked
         out[svc] = {
             "configured": has_oauth,
             "source": "you" if has_oauth else "none",
             "oauth": True,
+            "server_ready": _oauth_server_ready(svc),
         }
     return out
 

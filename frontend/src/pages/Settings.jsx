@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { CheckCircle2, Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { CheckCircle2, Github, Languages, Loader2, Mail, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -830,7 +830,7 @@ export default function Settings() {
         <div className="overline mb-4">on the roadmap</div>
         <ul className="space-y-3 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
           <li>· Wake-word (&ldquo;Hey Twin&rdquo;) on the companion.</li>
-          <li>· OAuth Gmail + Drive (post Google verification).</li>
+          <li>· Google Drive / Calendar (Gmail and Outlook are live — Connect my email).</li>
           <li>· Sealed letters auto-delivered to heirs on a date you set.</li>
           <li>· Heir release workflow.</li>
         </ul>
@@ -1035,15 +1035,24 @@ function ConnectedAccountsSection() {
   };
   useEffect(() => { load(); }, []);
 
-  // Handle callback for any provider — currently spotify + github
+  // Handle callback for any provider
   useEffect(() => {
     const u = new URL(window.location.href);
-    for (const provider of ["spotify", "github"]) {
+    const labels = { spotify: "Spotify", github: "GitHub", google: "Gmail", microsoft: "Outlook" };
+    const mail = new Set(["google", "microsoft"]);
+    for (const provider of Object.keys(labels)) {
       const p = u.searchParams.get(provider);
       if (!p) continue;
-      const label = provider.charAt(0).toUpperCase() + provider.slice(1);
-      if (p === "connected") toast.success(`${label} connected. Personality signals imported into your archive.`);
-      else toast.error(`${label} connection failed (${p.replace("error:", "")})`);
+      const label = labels[provider];
+      if (p === "connected") {
+        toast.success(
+          mail.has(provider)
+            ? `${label} connected. Your twin can read recent mail and send only after you say yes.`
+            : `${label} connected. Personality signals imported into your archive.`
+        );
+      } else {
+        toast.error(`${label} connection failed (${p.replace("error:", "")})`);
+      }
       u.searchParams.delete(provider);
       window.history.replaceState({}, "", u.toString());
       load();
@@ -1090,7 +1099,10 @@ function ConnectedAccountsSection() {
                 border: `1px solid ${c.connected ? "var(--accent)" : "var(--border-default)"}`,
               }}
             >
-              <Music className="h-5 w-5" style={{ color: c.connected ? "var(--accent)" : "var(--text-muted)" }} />
+              {(() => {
+                const Icon = c.provider === "github" ? Github : (c.provider === "google" || c.provider === "microsoft" ? Mail : Music);
+                return <Icon className="h-5 w-5" style={{ color: c.connected ? "var(--accent)" : "var(--text-muted)" }} />;
+              })()}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline justify-between gap-3">
@@ -1106,7 +1118,9 @@ function ConnectedAccountsSection() {
               </p>
               {!c.configured ? (
                 <div className="text-xs italic" style={{ color: "var(--text-muted)" }}>
-                  Not configured on the server. Set the {c.provider.toUpperCase()}_CLIENT_ID and _CLIENT_SECRET env vars.
+                  {c.provider === "google" || c.provider === "microsoft"
+                    ? "This isn't wired on this server yet. Ask the person who set up Heirloom. We never ask for your email password."
+                    : `Not configured on the server. Set the ${c.provider.toUpperCase()}_CLIENT_ID and _CLIENT_SECRET env vars.`}
                 </div>
               ) : c.connected ? (
                 <button

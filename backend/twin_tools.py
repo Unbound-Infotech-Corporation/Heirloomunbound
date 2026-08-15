@@ -774,6 +774,131 @@ async def exec_see_screen(user_id: str, args: dict) -> dict:
     return {"summary": f"Looking at your screen: {text}", "ui": {"ok": True}}
 
 
+MAIL_CONNECT_HINT = (
+    "Email isn't connected. Tell them: tap Connect my email (Gmail or Outlook) on Settings or Avatar Studio. "
+    "Google or Microsoft will ask — Heirloom never sees the password. "
+    "Do not ask them to type an email password here."
+)
+MAIL_EXPIRED_HINT = (
+    "Email sign-in expired. Tell them to tap Connect my email again. Never ask for their password."
+)
+
+
+async def _mail_bundle(user_id: str):
+    from routers.oauth import get_fresh_mail_token, public_mail_status
+    bundle = await get_fresh_mail_token(user_id)
+    if bundle:
+        return bundle, None
+    status = await public_mail_status(user_id)
+    return None, status
+
+
+def _list_owner_mail(provider: str, token: str, *, query: str = "", setup_only: bool = False):
+    from services import mail_inbox as mail
+    if provider == "google":
+        return mail.list_gmail(token, query=query, setup_only=setup_only)
+    return mail.list_graph(token, query=query, setup_only=setup_only)
+
+
+def _mail_summary(rows: list, *, setup: bool = False) -> str:
+    from services import mail_inbox as mail
+    if not rows:
+        return ""
+    lines = []
+    for raw in rows:
+        row = mail.public_row(raw, setup=setup)
+        line = f"{row['from']} — {row['subject']}: {row['snippet']}"
+        if setup and row.get("links"):
+            line += "\n  Links: " + " · ".join(row["links"])
+        lines.append(line)
+    return "\n".join(lines)
+
+
+async def exec_read_inbox(user_id: str, args: dict) -> dict:
+    bundle, status = await _mail_bundle(user_id)
+    if not bundle:
+        hint = MAIL_EXPIRED_HINT if (status or {}).get("connected") else MAIL_CONNECT_HINT
+        return {"summary": hint, "ui": {"kind": "mail", "connected": False}}
+    provider, token, _profile = bundle
+    from services import mail_inbox as mail
+    try:
+        rows = _list_owner_mail(provider, token, query=str(args.get("query") or ""))
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "mail", "error": str(exc)}}
+    public = [mail.public_row(r) for r in rows]
+    if not public:
+        return {"summary": "No recent mail matched.", "ui": {"kind": "mail", "messages": []}}
+    return {"summary": "Recent mail:\n" + _mail_summary(rows), "ui": {"kind": "mail", "messages": public}}
+
+
+async def exec_search_mail(user_id: str, args: dict) -> dict:
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"summary": "Need a search phrase.", "ui": {"kind": "mail", "error": "missing_query"}}
+    return await exec_read_inbox(user_id, {"query": query})
+
+
+async def exec_find_setup_mail(user_id: str, args: dict) -> dict:
+    bundle, status = await _mail_bundle(user_id)
+    if not bundle:
+        hint = MAIL_EXPIRED_HINT if (status or {}).get("connected") else MAIL_CONNECT_HINT
+        return {"summary": hint, "ui": {"kind": "mail", "connected": False, "setup": True}}
+    provider, token, _profile = bundle
+    from services import mail_inbox as mail
+    try:
+        rows = _list_owner_mail(provider, token, setup_only=True)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "mail", "error": str(exc), "setup": True}}
+    public = [mail.public_row(r, setup=True) for r in rows]
+    if not public:
+        return {
+            "summary": (
+                "No setup or confirmation emails in the last few weeks. "
+                "Pinokio and ComfyUI usually don't send mail — they install on the home computer without accounts."
+            ),
+            "ui": {"kind": "mail", "messages": [], "setup": True},
+        }
+    return {
+        "summary": (
+            "Setup / confirmation mail (show the links; they tap them — do not create accounts for them):\n"
+            + _mail_summary(rows, setup=True)
+        ),
+        "ui": {"kind": "mail", "messages": public, "setup": True},
+    }
+
+
+async def exec_send_email(user_id: str, args: dict) -> dict:
+    from services import mail_inbox as mail
+    to = (args.get("to") or "").strip()
+    subject = (args.get("subject") or "").strip()
+    body = (args.get("body") or "").strip()
+    if not mail.valid_recipient(to):
+        return {"summary": "That doesn't look like an email address.", "ui": {"kind": "mail", "error": "bad_to"}}
+    if not subject or not body:
+        return {"summary": "Need a subject and a message.", "ui": {"kind": "mail", "error": "missing_fields"}}
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": mail.draft_preview(to, subject, body),
+            "ui": {"kind": "mail", "needs_confirm": True, "to": to, "subject": subject},
+        }
+    bundle, status = await _mail_bundle(user_id)
+    if not bundle:
+        hint = MAIL_EXPIRED_HINT if (status or {}).get("connected") else MAIL_CONNECT_HINT
+        return {"summary": hint, "ui": {"kind": "mail", "connected": False}}
+    provider, token, _profile = bundle
+    try:
+        if provider == "google":
+            mail.send_gmail(token, to, subject, body)
+        else:
+            mail.send_graph(token, to, subject, body)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "mail", "error": str(exc)}}
+    return {
+        "summary": f"Sent to {to} with subject '{subject}'.",
+        "ui": {"kind": "mail", "sent": True, "to": to},
+    }
+
+
 COMPUTER_TOOL_SCHEMAS: list[dict] = [
     {"type": "function", "function": {
         "name": "open_on_pc",
@@ -854,11 +979,54 @@ COMPUTER_TOOL_SCHEMAS: list[dict] = [
         "parameters": {"type": "object", "properties": {
             "query": {"type": "string", "description": "Name or partial name to search for"},
             "open_it": {"type": "boolean", "default": False, "description": "Open the top match after finding it"},
+        },         "required": ["query"]},
+    }},
+]
+
+
+EMAIL_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "read_inbox",
+        "description": (
+            "Read the owner's recent inbox (who it's from, subject, a short snippet). "
+            "Use when they ask what's in their email. Never dump full bodies."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "Optional Gmail-style search (from:, subject:, a phrase)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "search_mail",
+        "description": "Search the owner's inbox for a phrase, sender, or subject.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "What to look for"},
         }, "required": ["query"]},
+    }},
+    {"type": "function", "function": {
+        "name": "find_setup_mail",
+        "description": (
+            "Find recent setup / verification / magic-link mail (Pinokio, Ollama, Heirloom, confirm your email). "
+            "Show the links so they can tap them. Do not create accounts for them."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "send_email",
+        "description": (
+            "Send email from the owner's connected inbox. First call WITHOUT confirmed so they see a draft. "
+            "Only after they clearly say yes, call again with confirmed=true."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "to": {"type": "string", "description": "Recipient email address"},
+            "subject": {"type": "string"},
+            "body": {"type": "string", "description": "Plain-text body"},
+            "confirmed": {"type": "boolean", "default": False, "description": "Set true ONLY after the owner explicitly confirms the draft"},
+        }, "required": ["to", "subject", "body"]},
     }},
 ]
 
 TOOL_SCHEMAS += COMPUTER_TOOL_SCHEMAS
+TOOL_SCHEMAS += EMAIL_TOOL_SCHEMAS
 
 
 TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
@@ -881,6 +1049,10 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
     "system_status": exec_system_status,
     "run_command": exec_run_command,
     "find_file": exec_find_file,
+    "read_inbox": exec_read_inbox,
+    "search_mail": exec_search_mail,
+    "find_setup_mail": exec_find_setup_mail,
+    "send_email": exec_send_email,
 }
 
 
