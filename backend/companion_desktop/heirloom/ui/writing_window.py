@@ -27,7 +27,57 @@ from PySide6.QtWidgets import (
 from .. import api, config
 from ..commands import _looks_secret_writing, clipboard_get, clipboard_set, paste_keys
 from ..writing_local import proofread_local
-from . import QSS
+
+# Cream card of its own. The rest of the desktop app uses a dark theme
+# (pale text on glass). That theme makes chips and buttons vanish here.
+WRITING_QSS = """
+    QWidget { color: #3a2418; font-family: 'Segoe UI', sans-serif; font-size: 13px; }
+    QLabel { color: #3a2418; background: transparent; }
+    QPushButton {
+        color: #3a2418;
+        background: #fffdf6;
+        border: 3px solid #3a2418;
+        border-radius: 12px;
+        padding: 8px 12px;
+        font-weight: 800;
+        min-height: 28px;
+    }
+    QPushButton:hover { background: #fff3c4; }
+    QPushButton:pressed { background: #f0c040; }
+    QPushButton:disabled { color: #8a7060; background: #f3ead8; border-color: #c4b49a; }
+    QPushButton#chip {
+        background: #f0c040;
+        color: #3a2418;
+        border: 3px solid #3a2418;
+        border-radius: 18px;
+        padding: 6px 14px;
+        font-weight: 800;
+        min-height: 26px;
+    }
+    QPushButton#chip:hover { background: #ffd95a; }
+    QPushButton#primary {
+        background: #c45c38;
+        color: #fff8e4;
+        border: 3px solid #3a2418;
+    }
+    QPushButton#primary:hover { background: #a94c2e; color: #fff8e4; }
+    QPlainTextEdit, QLineEdit {
+        background: #fff8e4;
+        color: #3a2418;
+        border: 3px solid #3a2418;
+        border-radius: 12px;
+        padding: 8px;
+        selection-background-color: #f0c040;
+        selection-color: #3a2418;
+    }
+    QScrollArea { background: transparent; border: none; }
+"""
+
+CHIP_STYLE = (
+    "QPushButton { background: #f0c040; color: #3a2418; border: 3px solid #3a2418;"
+    " border-radius: 18px; padding: 6px 14px; font-weight: 800; }"
+    "QPushButton:hover { background: #ffd95a; }"
+)
 
 
 def _house_is_paired() -> bool:
@@ -47,7 +97,7 @@ class WritingWindow(QWidget):
         self.setWindowTitle("Unbound Keyboard")
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setStyleSheet(QSS)
+        self.setStyleSheet(WRITING_QSS)
         self.resize(420, 620)
         self.setMinimumSize(340, 420)
 
@@ -72,9 +122,24 @@ class WritingWindow(QWidget):
         card.setStyleSheet(
             "QWidget#card { background: #f4e8c8; border-radius: 28px;"
             " border: 5px solid #c45c38; }"
-            "QWidget#card QLabel { color: #3a2418; }"
-            "QWidget#card QPlainTextEdit, QWidget#card QLineEdit { background: #fff8e4; color: #3a2418;"
-            " border: 4px solid #3a2418; border-radius: 18px; padding: 8px; }"
+            "QWidget#card QLabel { color: #3a2418; background: transparent; }"
+            "QWidget#card QPlainTextEdit, QWidget#card QLineEdit {"
+            " background: #fff8e4; color: #3a2418;"
+            " border: 4px solid #3a2418; border-radius: 18px; padding: 8px;"
+            " selection-background-color: #f0c040; selection-color: #3a2418; }"
+            "QWidget#card QPushButton {"
+            " background: #fffdf6; color: #3a2418; border: 3px solid #3a2418;"
+            " border-radius: 12px; padding: 8px 10px; font-weight: 800; }"
+            "QWidget#card QPushButton:hover { background: #fff3c4; }"
+            "QWidget#card QPushButton:disabled { color: #8a7060; background: #f3ead8;"
+            " border-color: #c4b49a; }"
+            "QWidget#card QPushButton#chip {"
+            " background: #f0c040; color: #3a2418; border: 3px solid #3a2418;"
+            " border-radius: 18px; padding: 6px 14px; }"
+            "QWidget#card QPushButton#chip:hover { background: #ffd95a; }"
+            "QWidget#card QPushButton#primary {"
+            " background: #c45c38; color: #fff8e4; border: 3px solid #3a2418; }"
+            "QWidget#card QPushButton#primary:hover { background: #a94c2e; color: #fff8e4; }"
         )
         root.addWidget(card, 1)
         col = QVBoxLayout(card)
@@ -125,10 +190,12 @@ class WritingWindow(QWidget):
         self.btn_check = QPushButton("Check writing")
         self.btn_check.clicked.connect(self._check_writing)
         self.btn_fix = QPushButton("Fix spelling")
+        self.btn_fix.setObjectName("primary")
         self.btn_fix.clicked.connect(self._fix_spelling)
         self.btn_leave = QPushButton("Leave it")
         self.btn_leave.clicked.connect(self._leave_it)
         self.btn_polish = QPushButton("Make it sound like me")
+        self.btn_polish.setObjectName("primary")
         self.btn_polish.clicked.connect(self._polish)
         row.addWidget(self.btn_check)
         row.addWidget(self.btn_fix)
@@ -142,6 +209,7 @@ class WritingWindow(QWidget):
         self.btn_copy = QPushButton("Copy")
         self.btn_copy.clicked.connect(self._copy)
         self.btn_paste = QPushButton("Put this where I was typing")
+        self.btn_paste.setObjectName("primary")
         self.btn_paste.clicked.connect(self._paste_back)
         row2.addWidget(self.btn_clip)
         row2.addWidget(self.btn_copy)
@@ -208,6 +276,7 @@ class WritingWindow(QWidget):
         self.code_in.setPlaceholderText("Paste the slip from your mail")
         col.addWidget(self.code_in)
         self.btn_finish_login = QPushButton("Sign in")
+        self.btn_finish_login.setObjectName("primary")
         self.btn_finish_login.clicked.connect(self._finish_sign_in)
         col.addWidget(self.btn_finish_login)
         self._sign_in_box = box
@@ -362,9 +431,14 @@ class WritingWindow(QWidget):
                 w.deleteLater()
         self._issues = [i for i in (issues or []) if self._issue_key(i) not in self._ignored]
         for idx, issue in enumerate(self._issues[:8]):
-            label = str(issue.get("text") or "fix")
-            btn = QPushButton(label[:24])
-            btn.setToolTip(str(issue.get("note") or ""))
+            raw = str(issue.get("text") or "fix")
+            sug = (issue.get("suggestions") or [None])[0]
+            label = f"{raw} → {sug}" if sug else raw
+            btn = QPushButton(label[:28])
+            btn.setObjectName("chip")
+            btn.setStyleSheet(CHIP_STYLE)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip(str(issue.get("note") or label))
             btn.clicked.connect(lambda _=False, i=idx: self._apply_issue(i))
             self.chips_layout.addWidget(btn)
         self.chips_layout.addStretch(1)

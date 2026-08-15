@@ -194,6 +194,12 @@ def test_windows_helper_is_not_a_keylogger():
     assert "Send a sign-in note" in window
     assert "drag here" in window
     assert "Stay in front" in window
+    assert "WRITING_QSS" in window
+    assert 'setObjectName("chip")' in window
+    assert "#3a2418" in window
+    assert "#f0c040" in window
+    assert "self.setStyleSheet(QSS)" not in window
+    assert "from . import QSS" not in window
     assert "desktop-login" in (ROOT / "routers" / "auth.py").read_text(encoding="utf-8")
     assert "send_desktop_sign_in_email" in (ROOT / "email_service.py").read_text(encoding="utf-8")
     assert "persist_login" in (DESKTOP / "heirloom" / "config.py").read_text(encoding="utf-8")

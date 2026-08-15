@@ -13,7 +13,7 @@ START HERE — Unbound Keyboard for your computer
 
      I recieve this and should of said thanks just just just
 
-6. Click Fix spelling, or tap a chip. Leave it if you meant
+6. Click Fix spelling, or tap a yellow chip. Leave it if you meant
    what you typed. Then try Put this where I was typing.
 
 Tray → Unbound Keyboard, or Ctrl+Shift+U, opens the card any time.

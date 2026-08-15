@@ -19,6 +19,9 @@ top of every window. Tap Stay in front only if you want that.
 To sign in: type your email, Send a sign-in note, paste the slip from
 your mail, tap Sign in. We never ask for a Google or Windows password.
 
+Suggestion chips are yellow with dark brown letters so you can read
+them. Buttons are dark letters on cream, or cream letters on tomato.
+
 If Windows shows a blue box: More info → Run anyway.
 
 The .apk file is only for an Android phone.
