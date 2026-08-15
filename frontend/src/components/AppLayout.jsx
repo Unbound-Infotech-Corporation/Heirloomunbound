@@ -18,6 +18,7 @@ import {
   Route as RouteIcon,
   ScanFace,
   Settings as SettingsIcon,
+  ShieldCheck,
   Sparkles,
   Sunrise,
   Target,
@@ -34,7 +35,7 @@ import TourOverlay from "./TourOverlay";
 import { useAuth } from "../lib/auth";
 
 const navItems = [
-  { to: "/today", label: "Today", icon: Sunrise, tid: "nav-today" },
+  { to: "/today", label: "Play desk", icon: Sunrise, tid: "nav-today" },
   { to: "/dashboard", label: "Archive", icon: Home, tid: "nav-dashboard" },
   { to: "/reminders", label: "Reminders", icon: ListTodo, tid: "nav-reminders" },
   { to: "/interviewer", label: "Interviewer", icon: MessageCircleHeart, tid: "nav-interviewer" },
@@ -50,6 +51,7 @@ const navItems = [
   { to: "/abilities", label: "Abilities", icon: ToggleRight, tid: "nav-abilities" },
   { to: "/personality", label: "Your portrait", icon: UserIcon, tid: "nav-personality" },
   { to: "/skills", label: "Skills", icon: Wrench, tid: "nav-skills" },
+  { to: "/safety", label: "Safety", icon: ShieldCheck, tid: "nav-safety" },
   { to: "/companion", label: "Local PC", icon: MonitorSpeaker, tid: "nav-companion" },
   { to: "/models", label: "Models", icon: Cpu, tid: "nav-models" },
   { to: "/routing", label: "AI Router", icon: RouteIcon, tid: "nav-routing" },

@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Manrope:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Fredoka:wght@400;500;600;700&family=Manrope:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap");
 
 :root {
     /* Design tokens — heirloom dark palette */
@@ -23,6 +23,21 @@
     --font-serif: "Cormorant Garamond", "Georgia", serif;
     --font-sans: "Manrope", "Helvetica Neue", sans-serif;
     --font-mono: "IBM Plex Mono", "Menlo", monospace;
+    --font-toy: "Fredoka", "Nunito", "Manrope", sans-serif;
+
+    /* Painted-wood playset — used only on .toy surfaces, never the archive */
+    --toy-cream: #f4e8c8;
+    --toy-cream-deep: #e8d4a0;
+    --toy-ink: #3a2418;
+    --toy-ink-soft: #5c4030;
+    --toy-tomato: #e24a3a;
+    --toy-tomato-deep: #c0392b;
+    --toy-sunflower: #f0c040;
+    --toy-sky: #4aa3e0;
+    --toy-grass: #3d9a4a;
+    --toy-grape: #7b5ea7;
+    --toy-shadow: #1a1008;
+    --toy-rim: #c45c38;
 }
 
 /* Shadcn HSL tokens mapped to heirloom palette so all shadcn primitives match */
@@ -164,5 +179,404 @@
     50% {
         transform: translateY(-20px) translateX(10px);
         opacity: 0.8;
+    }
+}
+
+/* ------------------------------------------------------------------
+   Playset — a child's toy sitting on the dark library table.
+   Archive, letters, and heirs stay serif. Only .toy-* uses Fredoka.
+   ------------------------------------------------------------------ */
+@keyframes toy-wiggle {
+    0%,
+    100% {
+        transform: rotate(0deg);
+    }
+    25% {
+        transform: rotate(-2.4deg);
+    }
+    75% {
+        transform: rotate(2.4deg);
+    }
+}
+
+@keyframes toy-blink {
+    0%,
+    92%,
+    100% {
+        transform: scaleY(1);
+    }
+    96% {
+        transform: scaleY(0.08);
+    }
+}
+
+.toy-desk {
+    position: relative;
+    padding: 36px 28px 28px;
+    color: var(--toy-ink);
+    font-family: var(--font-toy);
+    background-color: var(--toy-cream);
+    background-image:
+        repeating-linear-gradient(
+            90deg,
+            rgba(160, 110, 40, 0.07) 0px,
+            rgba(160, 110, 40, 0.07) 2px,
+            transparent 2px,
+            transparent 16px
+        ),
+        linear-gradient(180deg, #f8edd4 0%, #edd6a4 72%, #e4c88e 100%);
+    border: 5px solid var(--toy-rim);
+    border-bottom-color: #9a3d28;
+    border-right-color: #9a3d28;
+    border-radius: 32px;
+    box-shadow:
+        10px 10px 0 var(--toy-shadow),
+        inset 0 3px 0 rgba(255, 255, 255, 0.5),
+        inset 0 -5px 0 rgba(120, 70, 20, 0.16);
+}
+
+.toy-desk::before {
+    content: "";
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 78px;
+    height: 16px;
+    background: linear-gradient(180deg, #ef6b52, var(--toy-tomato-deep));
+    border: 3px solid var(--toy-ink);
+    border-radius: 12px;
+    box-shadow: 3px 3px 0 var(--toy-shadow);
+}
+
+.toy-desk h1,
+.toy-desk h2,
+.toy-desk .toy-title {
+    font-family: var(--font-toy);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: var(--toy-ink);
+    line-height: 1.05;
+}
+
+.toy-kicker {
+    font-family: var(--font-toy);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--toy-tomato-deep);
+    margin-bottom: 6px;
+}
+
+.toy-copy {
+    font-family: var(--font-toy);
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: var(--toy-ink-soft);
+    line-height: 1.35;
+    max-width: 36rem;
+}
+
+.toy-screw {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 32%, #f4dc9a, #8a5a28 70%);
+    border: 2px solid var(--toy-ink);
+    box-shadow: 2px 2px 0 var(--toy-shadow);
+    pointer-events: none;
+}
+
+.toy-screw::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    right: 3px;
+    top: 6px;
+    border-top: 2px solid rgba(58, 36, 24, 0.55);
+    transform: rotate(40deg);
+}
+
+.toy-screw-tl {
+    top: 18px;
+    left: 18px;
+}
+.toy-screw-tr {
+    top: 18px;
+    right: 18px;
+}
+.toy-screw-bl {
+    bottom: 18px;
+    left: 18px;
+}
+.toy-screw-br {
+    bottom: 18px;
+    right: 18px;
+}
+
+.toy-playset-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 28px;
+}
+
+.toy-knob-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 18px;
+}
+
+.toy-knob {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 56px;
+    padding: 12px 22px;
+    border-radius: 999px;
+    border: 4px solid var(--toy-ink);
+    font-family: var(--font-toy);
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    text-decoration: none;
+    color: #fff8e8;
+    box-shadow: 5px 5px 0 var(--toy-shadow);
+    cursor: pointer;
+    user-select: none;
+    transition: transform 80ms ease, box-shadow 80ms ease;
+}
+
+.toy-knob:hover {
+    animation: toy-wiggle 0.32s ease;
+}
+
+.toy-knob:active,
+.toy-knob:disabled {
+    animation: none;
+}
+
+.toy-knob:active:not(:disabled) {
+    transform: translate(4px, 4px);
+    box-shadow: 1px 1px 0 var(--toy-shadow);
+}
+
+.toy-knob:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.toy-knob-tomato {
+    background: linear-gradient(180deg, #ff6a56, var(--toy-tomato));
+    color: #fff8e8;
+}
+.toy-knob-sunflower {
+    background: linear-gradient(180deg, #ffe06a, var(--toy-sunflower));
+    color: var(--toy-ink);
+}
+.toy-knob-sky {
+    background: linear-gradient(180deg, #73c2f4, var(--toy-sky));
+    color: #fff;
+}
+.toy-knob-grass {
+    background: linear-gradient(180deg, #5dcc68, var(--toy-grass));
+    color: #fff;
+}
+.toy-knob-grape {
+    background: linear-gradient(180deg, #9b7cc4, var(--toy-grape));
+    color: #fff;
+}
+.toy-knob-cream {
+    background: linear-gradient(180deg, #fff6dc, #f0d9a0);
+    color: var(--toy-ink);
+}
+
+.toy-send {
+    width: 64px;
+    height: 64px;
+    min-height: 64px;
+    padding: 0;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.toy-porthole {
+    position: relative;
+    width: 176px;
+    height: 176px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #2a1810;
+    border: 12px solid var(--toy-tomato);
+    box-shadow:
+        6px 6px 0 var(--toy-shadow),
+        inset 0 0 0 8px var(--toy-sunflower),
+        inset 0 0 28px rgba(0, 0, 0, 0.35);
+}
+
+.toy-porthole img,
+.toy-porthole video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.toy-porthole-status {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--toy-sunflower);
+    border: 2px solid var(--toy-ink);
+    color: var(--toy-ink);
+    font-family: var(--font-toy);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.toy-face-paint {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 40%, #ffe08a, #f0b429);
+}
+
+.toy-eye {
+    position: absolute;
+    top: 38%;
+    width: 18px;
+    height: 22px;
+    background: var(--toy-ink);
+    border-radius: 50%;
+    animation: toy-blink 4.8s ease-in-out infinite;
+}
+
+.toy-eye-l {
+    left: 30%;
+}
+.toy-eye-r {
+    right: 30%;
+}
+
+.toy-smile {
+    position: absolute;
+    left: 50%;
+    bottom: 28%;
+    width: 54px;
+    height: 28px;
+    margin-left: -27px;
+    border: 5px solid var(--toy-ink);
+    border-top: none;
+    border-radius: 0 0 28px 28px;
+}
+
+.toy-bead {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 3px solid var(--toy-ink);
+    font-family: var(--font-toy);
+    font-size: 0.82rem;
+    font-weight: 600;
+    box-shadow: 3px 3px 0 var(--toy-shadow);
+    cursor: pointer;
+}
+
+.toy-light-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-toy);
+    font-weight: 600;
+    color: var(--toy-ink);
+}
+
+.toy-light {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 3px solid var(--toy-ink);
+    box-shadow: 3px 3px 0 var(--toy-shadow);
+    flex-shrink: 0;
+}
+
+.toy-light-on {
+    background: radial-gradient(circle at 35% 30%, #b6f0b0, var(--toy-grass));
+    box-shadow: 3px 3px 0 var(--toy-shadow), 0 0 12px rgba(61, 154, 74, 0.7);
+}
+.toy-light-off {
+    background: radial-gradient(circle at 35% 30%, #ff9a8a, var(--toy-tomato));
+}
+.toy-light-unknown {
+    background: radial-gradient(circle at 35% 30%, #ffe9a0, var(--toy-sunflower));
+}
+
+.toy-light-label {
+    font-size: 1rem;
+}
+
+.toy-plate {
+    background: rgba(58, 36, 24, 0.08);
+    border: 3px solid var(--toy-ink);
+    border-radius: 22px;
+    box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.25);
+    padding: 16px 18px;
+}
+
+.toy-composer {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+.toy-composer textarea,
+.toy-composer input {
+    flex: 1;
+    background: #fff8e4;
+    border: 4px solid var(--toy-ink);
+    border-radius: 22px;
+    padding: 14px 16px;
+    font-family: var(--font-toy);
+    font-size: 1.05rem;
+    color: var(--toy-ink);
+    box-shadow: 4px 4px 0 var(--toy-shadow);
+    resize: none;
+    outline: none;
+}
+
+.toy-composer textarea::placeholder,
+.toy-composer input::placeholder {
+    color: #8a6a4a;
+}
+
+.toy-modal-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(18, 12, 8, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 60;
+    padding: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toy-knob:hover,
+    .toy-eye {
+        animation: none;
     }
 }

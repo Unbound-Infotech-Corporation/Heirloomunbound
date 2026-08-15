@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Loader2, Volume2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api, streamSSE } from "@/lib/api";
+import { ToyDesk, ToyKnob, ToyPorthole } from "@/components/ToyPlayset";
 
 const POPUP_FEATURES =
   "popup=yes,width=400,height=680,menubar=no,toolbar=no,location=no,status=no,resizable=yes";
@@ -198,109 +199,70 @@ export default function TwinMini() {
 
   return (
     <div
-      className="min-h-screen flex flex-col"
+      className="min-h-screen flex flex-col p-3"
       data-testid="twin-mini-root"
       style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}
     >
-      <header
-        className="flex items-center justify-between gap-3 px-4 py-3"
-        style={{ borderBottom: "1px solid var(--border-default)" }}
-      >
+      <ToyDesk className="flex-1 flex flex-col min-h-0">
+      <header className="flex items-center justify-between gap-3 pb-3">
         <div>
-          <div className="overline">your twin</div>
-          <p className="font-serif text-lg leading-tight">Just you and your twin</p>
+          <div className="toy-kicker">your twin</div>
+          <p className="toy-title text-xl leading-tight">Just you and your twin</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => send("Look at my screen and help me with whatever is on it.")}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <ToyKnob
+            color="sunflower"
+            testid="twin-mini-look-screen"
             disabled={pending || !conv}
-            data-testid="twin-mini-look-screen"
-            className="text-xs px-3 py-1.5 rounded-sm disabled:opacity-50"
-            style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+            onClick={() => send("Look at my screen and help me with whatever is on it.")}
             title="Looks at your home computer. The picture is deleted after."
           >
             Look at my screen
-          </button>
+          </ToyKnob>
           <Link
             to="/twin"
             data-testid="twin-mini-full"
-            className="text-xs px-3 py-1.5 rounded-sm"
-            style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+            className="toy-bead toy-knob-cream"
           >
             Full window
           </Link>
         </div>
       </header>
 
-      <div
-        className="relative mx-4 mt-3 overflow-hidden rounded-sm"
-        style={{
-          height: 220,
-          background: "var(--surface-elev, rgba(255,245,230,0.04))",
-          border: "1px solid var(--border-default)",
-        }}
-        data-testid="twin-mini-face"
-      >
-        {portrait && !videoUrl && (
-          <img
-            src={portrait}
-            alt="Your twin"
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-        )}
-        {videoUrl && (
-          <video
-            key={videoUrl}
-            src={videoUrl}
-            autoPlay
-            playsInline
-            className="absolute inset-0 w-full h-full object-cover"
-            onEnded={() => setVideoUrl("")}
-          />
-        )}
-        {!portrait && !videoUrl && (
-          <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ color: "var(--text-muted)" }}>
-            Your twin
-          </div>
-        )}
-        <div
-          className="absolute left-3 bottom-3 text-[10px] tracking-widest uppercase"
-          style={{ color: "var(--accent)" }}
-          data-testid="twin-mini-status"
-        >
-          {pending ? "thinking…" : speaking ? "speaking" : faceHint || "idle"}
-        </div>
+      <div className="flex justify-center my-2" data-testid="twin-mini-face">
+        <ToyPorthole
+          src={portrait}
+          videoSrc={videoUrl}
+          status={pending ? "thinking…" : speaking ? "speaking" : faceHint || "idle"}
+          onVideoEnded={() => setVideoUrl("")}
+        />
       </div>
       {faceHint && (
-        <p className="px-4 pt-2 text-xs" style={{ color: "var(--text-muted)" }} data-testid="twin-mini-face-hint">
+        <p className="pt-2 text-sm toy-copy" data-testid="twin-mini-face-hint">
           {faceHint}
         </p>
       )}
 
-      <div ref={feedRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3" data-testid="twin-mini-feed">
+      <div ref={feedRef} className="flex-1 overflow-y-auto py-3 space-y-3 min-h-0" data-testid="twin-mini-feed">
         {recent.length === 0 && !streaming && (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          <p className="toy-copy">
             Ask anything. Your twin can still do tasks — mail, calendar, the computer — from this small window.
           </p>
         )}
         {recent.map((m, i) => (
           <div key={`${m.ts || "m"}-${i}`} data-testid={`twin-mini-msg-${i}`}>
-            <div className="overline mb-0.5">{m.role === "assistant" ? "twin" : "you"}</div>
-            <p
-              className="text-sm leading-relaxed"
-              style={{ color: m.role === "assistant" ? "var(--text-primary)" : "var(--text-secondary)" }}
-            >
+            <div className="toy-kicker mb-0.5">{m.role === "assistant" ? "twin" : "you"}</div>
+            <p className="toy-copy">
               {m.content}
             </p>
           </div>
         ))}
         {streaming && (
           <div>
-            <div className="overline mb-0.5">twin</div>
-            <p className="text-sm leading-relaxed">
+            <div className="toy-kicker mb-0.5">twin</div>
+            <p className="toy-copy">
               {streaming}
-              <span className="inline-block w-1.5 h-4 ml-1 align-middle animate-pulse" style={{ background: "var(--accent)" }} />
+              <span className="inline-block w-1.5 h-4 ml-1 align-middle animate-pulse" style={{ background: "var(--toy-tomato)" }} />
             </p>
           </div>
         )}
@@ -311,10 +273,9 @@ export default function TwinMini() {
           e.preventDefault();
           send(input);
         }}
-        className="px-4 pb-4 pt-2"
-        style={{ borderTop: "1px solid var(--border-default)" }}
+        className="pt-2"
       >
-        <div className="flex items-end gap-2">
+        <div className="toy-composer">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -328,25 +289,23 @@ export default function TwinMini() {
             disabled={pending || !conv}
             placeholder="Tell your twin what to do…"
             data-testid="twin-mini-input"
-            className="flex-1 bg-transparent outline-none resize-none text-sm leading-relaxed"
-            style={{ color: "var(--text-primary)" }}
           />
-          <button
+          <ToyKnob
+            color="tomato"
+            className="toy-send"
             type="submit"
             disabled={pending || !input.trim()}
-            data-testid="twin-mini-send"
-            className="inline-flex items-center gap-1 px-3 py-2 text-sm rounded-sm disabled:opacity-50"
-            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+            testid="twin-mini-send"
           >
-            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-            Send
-          </button>
+            {pending ? <Loader2 className="h-6 w-6 animate-spin" /> : <ArrowRight className="h-6 w-6" />}
+          </ToyKnob>
         </div>
-        <p className="mt-2 text-[10px] tracking-widest uppercase flex items-center gap-1" style={{ color: "var(--text-muted)" }}>
+        <p className="mt-3 toy-kicker flex items-center gap-1">
           <Volume2 className="h-3 w-3" />
           Replies speak aloud. The live face is strongest in the Heirloom app on your computer.
         </p>
       </form>
+      </ToyDesk>
     </div>
   );
 }

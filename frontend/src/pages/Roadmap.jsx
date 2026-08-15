@@ -22,6 +22,7 @@ const ROADMAP = [
       { title: "Avatar Studio", detail: "One photo and one permission. We install Pinokio on the home computer. No extra accounts." },
       { title: "Creative twin", detail: "Describe a picture, clip, or song. We sketch it on the home computer, then open Photoshop, CapCut, or your DAW. No Adobe password. We cannot click every button inside those programs." },
       { title: "Windows Safety", detail: "An extra pair of eyes on Windows Security. We can check whether protection is on, open that same Windows app, and start a quick scan after you say yes. We never turn protection off, bypass the blue Windows box, or ask for your Windows password — even if someone on the phone tells you to say yes." },
+      { title: "Play desk", detail: "The twin sits on the table like a child's toy — a face in a round window and a few giant buttons. Talk, look, mail, safety, make. Not another inbox to live in. Archive, letters, and heirs stay the quiet library." },
       { title: "Abilities framework", detail: "Turn skills on and off — web search, PC control, smart home, and more." },
     ],
   },

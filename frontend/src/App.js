@@ -40,6 +40,7 @@ import Personality from "@/pages/Personality";
 import Buy from "@/pages/Buy";
 import BuySuccess from "@/pages/BuySuccess";
 import Today from "@/pages/Today";
+import Safety from "@/pages/Safety";
 import Reminders from "@/pages/Reminders";
 import Onboarding from "@/pages/Onboarding";
 import Sources from "@/pages/Sources";
@@ -95,6 +96,7 @@ function AppRouter() {
       >
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/today" element={<Today />} />
+        <Route path="/safety" element={<Safety />} />
         <Route path="/reminders" element={<Reminders />} />
         <Route path="/sources" element={<Sources />} />
         <Route path="/interviewer" element={<Interviewer />} />

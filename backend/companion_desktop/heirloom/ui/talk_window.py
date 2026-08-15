@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPixmap, QRegion
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import PALETTE, QSS
+from . import QSS
 
 
 class MiniTalkWindow(QWidget):
@@ -63,6 +63,13 @@ class MiniTalkWindow(QWidget):
         card = QWidget()
         card.setObjectName("card")
         card.setAttribute(Qt.WA_StyledBackground, True)
+        card.setStyleSheet(
+            "QWidget#card { background: #f4e8c8; border-radius: 28px;"
+            " border: 5px solid #c45c38; }"
+            "QWidget#card QLabel { color: #3a2418; }"
+            "QWidget#card QPlainTextEdit { background: #fff8e4; color: #3a2418;"
+            " border: 4px solid #3a2418; border-radius: 18px; padding: 8px; }"
+        )
         root.addWidget(card, 1)
         col = QVBoxLayout(card)
         col.setContentsMargins(0, 0, 0, 0)
@@ -94,14 +101,14 @@ class MiniTalkWindow(QWidget):
         titles.setSpacing(0)
         overline = QLabel("YOUR TWIN")
         overline.setStyleSheet(
-            f"color: {PALETTE['text_muted']}; letter-spacing: 2px;"
-            " font-family: 'JetBrains Mono','Consolas','Courier New',monospace;"
-            " font-size: 8px;"
+            "color: #c0392b; letter-spacing: 2px;"
+            " font-family: 'Segoe UI','Inter',sans-serif;"
+            " font-size: 9px; font-weight: 700;"
         )
         hint = QLabel("Just you and your twin")
         hint.setStyleSheet(
-            f"color: {PALETTE['text_primary']}; font-family:'Cormorant Garamond','Garamond',serif;"
-            " font-size: 14px;"
+            "color: #3a2418; font-family:'Segoe UI','Inter',sans-serif;"
+            " font-size: 15px; font-weight: 700;"
         )
         titles.addWidget(overline)
         titles.addWidget(hint)
@@ -109,7 +116,7 @@ class MiniTalkWindow(QWidget):
 
         self.status_label = QLabel("idle")
         self.status_label.setStyleSheet(
-            f"color: {PALETTE['text_muted']}; letter-spacing: 1px; font-size: 10px;"
+            "color: #5c4030; letter-spacing: 1px; font-size: 10px; font-weight: 700;"
         )
         row.addWidget(self.status_label)
 
@@ -128,26 +135,36 @@ class MiniTalkWindow(QWidget):
         return bar
 
     def _build_face(self) -> QWidget:
+        ring = QWidget()
+        ring.setObjectName("porthole")
+        ring.setAttribute(Qt.WA_StyledBackground, True)
+        ring.setMinimumHeight(200)
+        ring.setStyleSheet(
+            "QWidget#porthole { background: #e24a3a; border: 8px solid #f0c040;"
+            " border-radius: 999px; }"
+        )
+        wrap = QVBoxLayout(ring)
+        wrap.setContentsMargins(14, 14, 14, 14)
+
         stage = QStackedWidget()
-        stage.setMinimumHeight(180)
+        stage.setMinimumHeight(160)
         stage.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.portrait = QLabel()
         self.portrait.setAlignment(Qt.AlignCenter)
-        self.portrait.setStyleSheet("background: transparent; border-radius: 6px;")
         self.portrait.setText("Your twin")
-        self.portrait.setStyleSheet(
-            f"background: transparent; color: {PALETTE['text_muted']};"
-        )
+        self.portrait.setStyleSheet("background: #2a1810; color: #f4e8c8; border-radius: 999px;")
         stage.addWidget(self.portrait)
 
         self.video = QVideoWidget()
-        self.video.setStyleSheet("background: transparent;")
+        self.video.setStyleSheet("background: #2a1810;")
         stage.addWidget(self.video)
 
+        wrap.addWidget(stage)
         self._face = stage
         self._face.setCurrentIndex(0)
-        return stage
+        self._porthole = ring
+        return ring
 
     def _build_transcript(self) -> QWidget:
         self.scroll = QScrollArea()
@@ -177,21 +194,43 @@ class MiniTalkWindow(QWidget):
 
         send = QPushButton("Send")
         send.setObjectName("primary")
+        send.setFixedSize(72, 72)
+        send.setStyleSheet(
+            "QPushButton { background: #e24a3a; color: #fff8e8; border: 4px solid #3a2418;"
+            " border-radius: 36px; font-weight: 700; font-size: 12px; }"
+            "QPushButton:pressed { background: #c0392b; }"
+        )
         send.clicked.connect(self._on_send)
         self._send_btn = send
         row.addWidget(send)
         col.addLayout(row)
 
+        ptt_row = QHBoxLayout()
+        ptt_row.addStretch(1)
         ptt = QPushButton("hold to speak")
         ptt.setObjectName("ptt")
         ptt.setCursor(Qt.PointingHandCursor)
+        ptt.setFixedSize(112, 112)
+        ptt.setStyleSheet(
+            "QPushButton#ptt { background: #e24a3a; color: #fff8e8; border: 5px solid #3a2418;"
+            " border-radius: 56px; font-size: 12px; font-weight: 700; padding: 8px; }"
+            "QPushButton#ptt:pressed { background: #c0392b; }"
+        )
         ptt.setToolTip("Hold and talk. Let go when you're done. (Ctrl+Space also works.)")
         ptt.pressed.connect(self.ptt_pressed.emit)
         ptt.released.connect(self.ptt_released.emit)
-        col.addWidget(ptt)
+        ptt_row.addWidget(ptt)
+        ptt_row.addStretch(1)
+        col.addLayout(ptt_row)
 
         look = QPushButton("Look at my screen")
         look.setObjectName("ghost")
+        look.setCursor(Qt.PointingHandCursor)
+        look.setStyleSheet(
+            "QPushButton { background: #f0c040; color: #3a2418; border: 4px solid #3a2418;"
+            " border-radius: 24px; font-weight: 700; padding: 12px 16px; }"
+            "QPushButton:pressed { background: #d4a628; }"
+        )
         look.setToolTip("The twin looks at this computer and helps — games, writing, movies. The picture is deleted after.")
         look.clicked.connect(self._on_look_at_screen)
         col.addWidget(look)
@@ -250,13 +289,10 @@ class MiniTalkWindow(QWidget):
             if not text:
                 continue
             who = "YOU" if role == "user" else "TWIN"
-            color = PALETTE["text_secondary"] if role == "user" else PALETTE["text_primary"]
             body = QLabel(f"{who}\n{text}")
             body.setWordWrap(True)
             body.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            body.setStyleSheet(
-                f"color: {color}; font-size: 12px; line-height: 1.4;"
-            )
+            body.setStyleSheet("color: #3a2418; font-size: 13px; line-height: 1.4; font-weight: 600;")
             self._thread.insertWidget(self._thread.count() - 1, body)
         bar = self.scroll.verticalScrollBar()
         from PySide6.QtCore import QTimer
@@ -283,8 +319,16 @@ class MiniTalkWindow(QWidget):
                 return True
         return super().eventFilter(watched, event)
 
+    def _apply_porthole_mask(self) -> None:
+        w = self._face
+        side = min(max(w.width(), 1), max(w.height(), 1))
+        x = max(0, (w.width() - side) // 2)
+        y = max(0, (w.height() - side) // 2)
+        w.setMask(QRegion(x, y, side, side, QRegion.Ellipse))
+
     def resizeEvent(self, ev) -> None:  # noqa: N802
         super().resizeEvent(ev)
+        self._apply_porthole_mask()
         if self._raw_portrait is not None:
             self.portrait.setPixmap(
                 self._raw_portrait.scaled(
