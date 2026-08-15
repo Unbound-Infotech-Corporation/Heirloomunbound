@@ -62,6 +62,10 @@ COMPANION_KINDS: dict[str, str] = {
         "Sketch art/video/music on this PC then open a studio. "
         "payload={kind:'art'|'video'|'music'|'open', prompt:str, pinokio_url:str, studio_label:str}"
     ),
+    "security_job": (
+        "Check or open Windows Security, or start a quick scan. "
+        "payload={kind:'status'|'open'|'scan'}. Never disable protection."
+    ),
 }
 
 STEP_TIMEOUT_SEC = 45  # per-step wall clock; long enough for slow open_url on cold browsers

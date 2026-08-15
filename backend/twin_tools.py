@@ -697,17 +697,21 @@ def _device_is_awake(dev: dict | None) -> bool:
 
 
 async def _queue_pc_command(user_id: str, kind: str, payload: dict) -> str:
+    from services.pc_security import refuse_companion_command
+
     cmd_id = f"cmd_{uuid.uuid4().hex[:10]}"
-    await db.companion_commands.insert_one({
+    hit = refuse_companion_command(kind, payload or {})
+    doc = {
         "cmd_id": cmd_id,
         "user_id": user_id,
         "kind": kind,
         "payload": payload,
-        "status": "queued",
-        "result": None,
+        "status": "error" if hit else "queued",
+        "result": hit,
         "created_at": _now_iso(),
-        "completed_at": None,
-    })
+        "completed_at": _now_iso() if hit else None,
+    }
+    await db.companion_commands.insert_one(doc)
     return cmd_id
 
 
@@ -757,16 +761,27 @@ async def _queue_fire_and_forget(user_id: str, kind: str, payload: dict, label: 
 
 
 async def exec_open_on_pc(user_id: str, args: dict) -> dict:
+    from services.pc_security import refuse_app, refuse_url
+
     target = (args.get("target") or "").strip()
     if not target:
         return {"summary": "No app or website given.", "ui": {"ok": False}}
     kind_hint = (args.get("kind") or "auto").lower()
-    is_url = target.lower().startswith(("http://", "https://")) or (
+    lower = target.lower()
+    is_url = lower.startswith(("http://", "https://", "windowsdefender:", "ms-settings:")) or (
         kind_hint == "website"
     ) or (kind_hint == "auto" and "." in target and " " not in target and "/" not in target[:1])
     if is_url:
-        url = target if target.lower().startswith(("http://", "https://")) else f"https://{target}"
+        url = target if "://" in target.lower() else (
+            target if lower.startswith(("windowsdefender:", "ms-settings:")) else f"https://{target}"
+        )
+        blocked = refuse_url(url)
+        if blocked:
+            return {"summary": blocked, "ui": {"ok": False, "kind": "open_url", "blocked": True}}
         return await _queue_fire_and_forget(user_id, "open_url", {"url": url}, f"Opening {target}")
+    blocked = refuse_app(target)
+    if blocked:
+        return {"summary": blocked, "ui": {"ok": False, "kind": "open_app", "blocked": True}}
     return await _queue_fire_and_forget(user_id, "open_app", {"name": target}, f"Opening {target}")
 
 
@@ -854,9 +869,14 @@ async def exec_system_status(user_id: str, args: dict) -> dict:
 
 
 async def exec_run_command(user_id: str, args: dict) -> dict:
+    from services.pc_security import refuse_shell
+
     command = (args.get("command") or "").strip()
     if not command:
         return {"summary": "No command given.", "ui": {"ok": False}}
+    blocked = refuse_shell(command)
+    if blocked:
+        return {"summary": blocked, "ui": {"ok": False, "blocked": True, "command": command[:200]}}
     if not bool(args.get("confirmed")):
         return {
             "summary": (
@@ -1745,6 +1765,12 @@ async def exec_edit_video(user_id: str, args: dict) -> dict:
     if err:
         return err
     source = (args.get("source") or args.get("file") or args.get("url") or "").strip()
+    if source.lower().startswith(("http://", "https://")) or "://" in source:
+        from services.pc_security import refuse_url
+
+        blocked = refuse_url(source)
+        if blocked:
+            return {"summary": blocked, "ui": {"kind": "creative", "ok": False, "blocked": True}}
     studio = normalize_studio(args.get("open_in") or args.get("studio") or "", "video")
     if not studio:
         return {
@@ -1816,6 +1842,56 @@ async def exec_open_studio(user_id: str, args: dict) -> dict:
         payload,
         f"Opening {studio['label']}",
         wait=12.0,
+    )
+
+
+async def exec_check_pc_safety(user_id: str, args: dict) -> dict:
+    from services.pc_security import reject_secrets
+
+    secret = reject_secrets(args or {})
+    if secret:
+        return {"summary": secret, "ui": {"kind": "windows_safety", "ok": False}}
+    return await _queue_fire_and_forget(
+        user_id,
+        "security_job",
+        {"kind": "status"},
+        "Checking Windows Security",
+        wait=20.0,
+    )
+
+
+async def exec_open_windows_security(user_id: str, args: dict) -> dict:
+    from services.pc_security import reject_secrets
+
+    secret = reject_secrets(args or {})
+    if secret:
+        return {"summary": secret, "ui": {"kind": "windows_safety", "ok": False}}
+    return await _queue_fire_and_forget(
+        user_id,
+        "security_job",
+        {"kind": "open"},
+        "Opening Windows Security",
+        wait=8.0,
+    )
+
+
+async def exec_scan_pc(user_id: str, args: dict) -> dict:
+    from services.pc_security import confirm_scan, reject_secrets
+
+    secret = reject_secrets(args or {})
+    if secret:
+        return {"summary": secret, "ui": {"kind": "windows_safety", "ok": False}}
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": confirm_scan(),
+            "ui": {"kind": "windows_safety", "needs_confirm": True},
+        }
+    return await _queue_fire_and_forget(
+        user_id,
+        "security_job",
+        {"kind": "scan"},
+        "Starting a Windows Security quick scan",
+        wait=18.0,
     )
 
 
@@ -1895,7 +1971,12 @@ COMPUTER_TOOL_SCHEMAS: list[dict] = [
     }},
     {"type": "function", "function": {
         "name": "run_command",
-        "description": "Run a shell/terminal command on the PC. Powerful and risky: you MUST show the command, explain it, and confirm with the user, then call again with confirmed=true.",
+        "description": (
+            "Run a shell/terminal command on the PC. Powerful and risky: you MUST show the command, explain it, "
+            "and confirm with the user, then call again with confirmed=true. Windows Safety still refuses commands "
+            "that turn protection off, wipe the disk, bypass SmartScreen, or download-and-run a program — even after a yes. "
+            "Never ask for a Windows password."
+        ),
         "parameters": {"type": "object", "properties": {
             "command": {"type": "string"},
             "confirmed": {"type": "boolean", "default": False},
@@ -2218,12 +2299,45 @@ CREATIVE_TOOL_SCHEMAS: list[dict] = [
 ]
 
 
+SECURITY_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "check_pc_safety",
+        "description": (
+            "Read Windows Security on the home PC: virus protection, real-time protection, firewall, and UAC. "
+            "This is an extra pair of eyes on Windows Security, not a replacement. Never ask for a Windows password. "
+            "Never turn protection off."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "open_windows_security",
+        "description": (
+            "Open the Windows Security app that Microsoft already ships (Virus & threat protection). "
+            "No confirm. On a Mac, open Privacy & Security settings instead. Never ask for a Windows password."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "scan_pc",
+        "description": (
+            "Ask Windows Security to run a quick scan on the home PC. First call WITHOUT confirmed. "
+            "After they clearly say yes, call again with confirmed=true. Never ask for a Windows password. "
+            "Never turn protection off."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "confirmed": {"type": "boolean", "default": False},
+        }},
+    }},
+]
+
+
 TOOL_SCHEMAS += COMPUTER_TOOL_SCHEMAS
 TOOL_SCHEMAS += EMAIL_TOOL_SCHEMAS
 TOOL_SCHEMAS += CALENDAR_TOOL_SCHEMAS
 TOOL_SCHEMAS += PEOPLE_TOOL_SCHEMAS
 TOOL_SCHEMAS += BUSINESS_TOOL_SCHEMAS
 TOOL_SCHEMAS += CREATIVE_TOOL_SCHEMAS
+TOOL_SCHEMAS += SECURITY_TOOL_SCHEMAS
 
 
 TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
@@ -2273,6 +2387,9 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
     "edit_video": exec_edit_video,
     "make_music": exec_make_music,
     "open_studio": exec_open_studio,
+    "check_pc_safety": exec_check_pc_safety,
+    "open_windows_security": exec_open_windows_security,
+    "scan_pc": exec_scan_pc,
 }
 
 

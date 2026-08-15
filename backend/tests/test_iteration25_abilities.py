@@ -18,8 +18,8 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 SESSION_TOKEN = "test_session_fork23"
 USER_ID = "test-user-fork23"
 
-ALL_IDS = {"web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative", "terminal"}
-DEFAULT_ENABLED = {"web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative"}
+ALL_IDS = {"web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative", "windows_security", "terminal"}
+DEFAULT_ENABLED = {"web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative", "windows_security"}
 
 
 @pytest.fixture(scope="module")
@@ -52,7 +52,7 @@ class TestAbilitiesCatalog:
 
     def test_terminal_disable_first_then_defaults_hold(self, api):
         # Force fork23 to defaults before checking (in case previous tests left junk)
-        for aid in ["web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative"]:
+        for aid in ["web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative", "windows_security"]:
             perms = _perms_for(api, aid)
             api.post(f"{BASE_URL}/api/abilities/{aid}/enable", json={"granted_permissions": perms})
         api.post(f"{BASE_URL}/api/abilities/terminal/disable")
@@ -119,7 +119,7 @@ class TestToolGating:
         async def _run():
             uid = USER_ID
             # baseline: enable defaults, terminal off
-            for aid in ["web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative"]:
+            for aid in ["web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative", "windows_security"]:
                 perms = [p["id"] for p in ab.ABILITY_BY_ID[aid]["permissions"]]
                 await ab.set_state(uid, aid, True, perms)
             await ab.set_state(uid, "terminal", False, [])
@@ -134,6 +134,8 @@ class TestToolGating:
             assert {"write_google_doc", "write_google_sheet", "research_seo", "post_to_social"}.issubset(tools)
             # creative tools present (default on)
             assert {"create_artwork", "edit_video", "make_music", "open_studio"}.issubset(tools)
+            # windows safety tools present (default on)
+            assert {"check_pc_safety", "open_windows_security", "scan_pc"}.issubset(tools)
             # terminal absent
             assert "run_command" not in tools
             # prompt block only includes enabled abilities
@@ -164,7 +166,7 @@ class TestToolGating:
             assert "run_command" in tools4
 
             # restore defaults + terminal off
-            for aid in ["web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative"]:
+            for aid in ["web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative", "windows_security"]:
                 perms = [p["id"] for p in ab.ABILITY_BY_ID[aid]["permissions"]]
                 await ab.set_state(uid, aid, True, perms)
             await ab.set_state(uid, "terminal", False, [])
@@ -243,6 +245,6 @@ def teardown_module(module):
     })
     catalog = s.get(f"{BASE_URL}/api/abilities").json()
     perms_by_id = {a["id"]: [p["id"] for p in a["permissions"]] for a in catalog["abilities"]}
-    for aid in ["web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative"]:
+    for aid in ["web", "email", "calendar", "people", "music", "smart_home", "pc_control", "screen_vision", "business", "creative", "windows_security"]:
         s.post(f"{BASE_URL}/api/abilities/{aid}/enable", json={"granted_permissions": perms_by_id[aid]})
     s.post(f"{BASE_URL}/api/abilities/terminal/disable")

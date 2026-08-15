@@ -32,6 +32,7 @@ const ICONS = {
   terminal: Terminal,
   briefcase: Briefcase,
   palette: Palette,
+  shield: ShieldCheck,
 };
 
 const CATEGORY_LABELS = {

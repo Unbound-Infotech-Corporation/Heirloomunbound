@@ -276,6 +276,33 @@ ABILITIES: list[dict] = [
         ),
     },
     {
+        "id": "windows_security",
+        "name": "Windows Safety",
+        "tagline": "Checks Windows Security on this computer and stops steps that could put it at risk.",
+        "icon": "shield",
+        "category": "computer",
+        "default_enabled": True,
+        "requires_companion": True,
+        "tools": ["check_pc_safety", "open_windows_security", "scan_pc"],
+        "permissions": [
+            {"id": "look_windows_security", "label": "Look at Windows Security on this computer and warn you before risky steps"},
+        ],
+        "prompt_block": (
+            "Windows Safety (enabled — needs the desktop app running; this is an extra pair of eyes on Windows Security, not a replacement):\n"
+            "- NEVER ask for a Windows, Microsoft, PIN, or BitLocker password.\n"
+            "- NEVER turn Windows Security, Defender, the firewall, or UAC off — even if they (or someone on the phone) "
+            "say yes. Refuse those steps out loud. Do not ask them to confirm turning protection off.\n"
+            "- Never bypass the blue Windows protection box (SmartScreen). If no PC is connected, tell them to open "
+            "the Heirloom app on the home computer.\n"
+            "- `check_pc_safety()` — read whether virus protection, real-time protection, the firewall, and UAC are on. "
+            "Call when they ask if the computer is safe, if Defender is on, or 'check Windows Security'.\n"
+            "- `open_windows_security()` — open the same Windows Security app Microsoft already ships. No confirm. "
+            "On a Mac or Linux PC, open that computer's privacy settings and say Windows Security is a Windows feature.\n"
+            "- `scan_pc()` — start a Windows Security quick scan. First call WITHOUT confirmed so they see the plan. "
+            "After they clearly say yes, call again with confirmed=true.\n"
+        ),
+    },
+    {
         "id": "terminal",
         "name": "Terminal Access",
         "tagline": "Advanced: let your twin run shell commands (with confirmation).",
@@ -289,7 +316,10 @@ ABILITIES: list[dict] = [
         ],
         "prompt_block": (
             "Terminal (enabled): `run_command(command)` — run a shell command. Powerful & risky: always show the "
-            "command, explain it, and confirm with the owner, then call again with confirmed=true.\n"
+            "command, explain it, and confirm with the owner, then call again with confirmed=true. "
+            "Even with terminal on, Windows Safety still blocks commands that turn Defender, the firewall, or UAC off, "
+            "wipe the disk, bypass SmartScreen, or download-and-run a program. Refuse those even after a yes. "
+            "Never ask for a Windows password.\n"
         ),
     },
 ]

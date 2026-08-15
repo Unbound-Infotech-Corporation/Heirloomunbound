@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, BookOpen, Calendar, Clipboard, Cloud, Cpu, Eye, Film, Globe, Keyboard, Link as LinkIcon, Loader2, Mail, Monitor, Music, Palette, Phone, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
+import { ArrowRight, BookOpen, Calendar, Clipboard, Cloud, Cpu, Eye, Film, Globe, Keyboard, Link as LinkIcon, Loader2, Mail, Monitor, Music, Palette, Phone, Power, Save, Search, Search as SearchIcon, ShieldCheck, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api, streamSSE } from "../lib/api";
 import FunctionModelPicker, { modelOverride } from "@/components/FunctionModelPicker";
@@ -41,6 +41,9 @@ const TOOL_META = {
   edit_video: { label: "starting a video edit", icon: Film },
   make_music: { label: "sketching a song", icon: Music },
   open_studio: { label: "opening your studio", icon: Palette },
+  check_pc_safety: { label: "checking Windows Security", icon: ShieldCheck },
+  open_windows_security: { label: "opening Windows Security", icon: ShieldCheck },
+  scan_pc: { label: "starting a Windows scan", icon: ShieldCheck },
 };
 
 function ToolChip({ tool }) {

@@ -448,6 +448,10 @@ def execute(cmd: dict):
     kind = cmd.get("kind")
     payload = cmd.get("payload") or {}
     try:
+        from .safety import refuse_command
+        blocked = refuse_command(kind, payload)
+        if blocked:
+            return "error", blocked
         if kind == "shell":
             r = subprocess.run(payload.get("command", ""), shell=True, capture_output=True, text=True, timeout=60)
             out = (r.stdout or "") + ("\n" + r.stderr if r.stderr else "")
@@ -505,6 +509,9 @@ def execute(cmd: dict):
         if kind == "creative_job":
             from .creative_local import run_creative_job
             return run_creative_job(payload)
+        if kind == "security_job":
+            from .security_local import run_security_job
+            return run_security_job(payload)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)

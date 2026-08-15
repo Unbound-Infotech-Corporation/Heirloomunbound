@@ -82,6 +82,11 @@ class QueueCommandReq(BaseModel):
 
 @router.post("/queue-command")
 async def queue_command(body: QueueCommandReq, user: dict = Depends(get_current_user)):
+    from services.pc_security import refuse_companion_command
+
+    hit = refuse_companion_command(body.kind, body.payload or {})
+    if hit:
+        raise HTTPException(status_code=400, detail=hit)
     cmd_id = f"cmd_{uuid.uuid4().hex[:10]}"
     doc = {
         "cmd_id": cmd_id,
@@ -157,6 +162,7 @@ _KIND_LABELS = {
     "avatar_look": "Opened LivePortrait look-at-you",
     "avatar_setup": "Set up twin tools on this PC",
     "creative_job": "Started creative work on this PC",
+    "security_job": "Windows Safety",
 }
 
 
@@ -195,6 +201,9 @@ def _activity_summary(kind: str, payload: dict) -> str:
     if kind == "creative_job":
         bits = [p.get("kind") or "creative", p.get("studio_label") or p.get("studio")]
         return clip(" · ".join(str(b) for b in bits if b))
+    if kind == "security_job":
+        action = (p.get("kind") or "Windows Security").strip()
+        return clip({"status": "checked protection", "open": "opened Windows Security", "scan": "quick scan"}.get(action, action))
     return ""
 
 
@@ -254,15 +263,28 @@ async def poll(ctx: dict = Depends(get_device_user)):
     cursor = db.companion_commands.find(
         {"user_id": user["user_id"], "status": "queued"}, {"_id": 0}
     ).sort("created_at", 1).limit(10)
-    pending = await cursor.to_list(length=10)
-    if pending:
-        cmd_ids = [c["cmd_id"] for c in pending]
-        await db.companion_commands.update_many(
-            {"cmd_id": {"$in": cmd_ids}}, {"$set": {"status": "dispatched"}}
-        )
+    raw = await cursor.to_list(length=10)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    pending = []
+    if raw:
+        from services.pc_security import refuse_companion_command
+
+        for c in raw:
+            hit = refuse_companion_command(c.get("kind") or "", c.get("payload") or {})
+            if hit:
+                await db.companion_commands.update_one(
+                    {"cmd_id": c["cmd_id"]},
+                    {"$set": {"status": "error", "result": hit, "completed_at": now_iso}},
+                )
+            else:
+                pending.append(c)
+        if pending:
+            await db.companion_commands.update_many(
+                {"cmd_id": {"$in": [c["cmd_id"] for c in pending]}},
+                {"$set": {"status": "dispatched"}},
+            )
 
     # Deliver due reminders as 'say' commands so the companion speaks them aloud once.
-    now_iso = datetime.now(timezone.utc).isoformat()
     due_cursor = db.reminders.find(
         {
             "user_id": user["user_id"],
@@ -325,7 +347,7 @@ async def companion_status(payload: CompanionStatusIn, ctx: dict = Depends(get_d
     return {"ok": True, "models": tags}
 
 
-COMPANION_SCRIPT_VERSION = "2026.08.15.7"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.15.8"  # bump whenever _build_companion_script materially changes
 
 
 class CompanionResult(BaseModel):
@@ -2128,11 +2150,205 @@ def run_creative_job(payload):
     return "ok", " ".join(notes) or "Opened the studio."
 
 
+def refuse_pc_command(kind, payload):
+    """Windows Safety — refuse steps that weaken Windows Security even after a yes."""
+    import re
+    p = payload or {}
+    k = (kind or "").strip().lower()
+    blocks = (
+        r"disablerealtime", r"disableioav", r"disablebehaviormonitoring",
+        r"disableantispyware", r"set-mppreference", r"add-mppreference",
+        r"exclusionpath", r"exclusionextension",
+        r"stop-service\s+windefend", r"sc\s+stop\s+windefend",
+        r"sc\s+config\s+windefend", r"net\s+stop\s+windefend",
+        r"netsh\s+advfirewall\s+set\s+allprofiles\s+state\s+off",
+        r"netsh\s+firewall\s+set\s+opmode\s+disable",
+        r"format\s+[a-z]:", r"del\s+/s\s+/q\s+c:\\windows",
+        r"rmdir\s+/s\s+/q\s+c:\\windows", r"rm\s+-rf\s+/\s*$", r"rm\s+-rf\s+/\*",
+        r"invoke-expression", r"-encodedcommand", r"\s-enc\s", r"\biex\s*\(",
+        r"irm.{0,200}\|", r"iwr.{0,200}\|", r"invoke-webrequest.{0,80}iex", r"downloadstring",
+        r"curl\s+[^\n]{0,200}\|\s*(sh|bash|powershell|pwsh|cmd)",
+        r"wget\s+[^\n]{0,200}\|\s*(sh|bash)",
+        r"executionpolicy\s+(bypass|unrestricted)", r"bcdedit", r"\bdiskpart\b",
+        r"mimikatz", r"\blsass\b", r"ntds\.dit", r"enablelua.{0,40}0",
+        r"net\s+user\s+administrator\s+/active:yes",
+        r"net\s+user\s+guest\s+/active:yes",
+        r"uninstall-windowsfeature", r"disable-windowsoptionalfeature",
+        r"set-itemproperty.{0,80}smartscreen", r"new-itemproperty.{0,80}smartscreen",
+        r"reg\s+add.{0,80}smartscreen", r"reg\s+add.{0,80}enablelua",
+        r"bitsadmin\s+/transfer", r"certutil\s+-urlcache",
+        r"mshta\s+http", r"wscript\s+http", r"cscript\s+http", r"rundll32\s+.*,",
+    )
+    msg = "Blocked by Windows Safety. That step could weaken Windows Security or put this computer at risk. Heirloom never turns protection off."
+    def _norm(t):
+        return re.sub(r"\s+", " ", (t or "").lower()).strip()
+    if k == "shell":
+        blob = _norm(str(p.get("command") or ""))
+        if blob:
+            for raw in blocks:
+                if re.search(raw, blob, flags=re.IGNORECASE):
+                    return msg
+        return None
+    urls = []
+    if k == "open_url":
+        urls = [str(p.get("url") or "")]
+    elif k == "creative_job":
+        urls = [str(p.get(f) or "") for f in ("pinokio_url", "studio_url", "fallback_url", "source")]
+    if urls:
+        bad_schemes = {"javascript", "data", "vbscript", "ms-msdt", "search-ms", "ms-appinstaller", "file", "ftp"}
+        ok_schemes = {"http", "https", "windowsdefender", "ms-settings", ""}
+        safe_hosts = {
+            "api.github.com", "github.com", "objects.githubusercontent.com",
+            "github-releases.githubusercontent.com", "release-assets.githubusercontent.com",
+            "pinokio.co", "www.pinokio.co", "microsoft.com", "www.microsoft.com",
+            "support.microsoft.com", "learn.microsoft.com", "windows.microsoft.com",
+            "aka.ms", "www.aka.ms",
+        }
+        risky = (".exe", ".msi", ".bat", ".cmd", ".ps1", ".scr", ".vbs", ".js", ".jse", ".hta", ".com", ".pif", ".wsf", ".wsh")
+        for raw in urls:
+            raw = (raw or "").strip()
+            if not raw:
+                continue
+            if k == "creative_job" and "://" not in raw and not raw.lower().startswith("http"):
+                continue
+            lower = raw.lower()
+            scheme_guess = lower.split(":", 1)[0] if ":" in lower else ""
+            if scheme_guess in bad_schemes:
+                return msg
+            to_parse = raw if ("://" in raw or scheme_guess in ok_schemes) else ("https://" + raw)
+            parsed = urlparse(to_parse)
+            scheme = (parsed.scheme or scheme_guess or "").lower()
+            if scheme in bad_schemes or (scheme and scheme not in ok_schemes):
+                return msg
+            host = (parsed.hostname or "").lower()
+            path = (parsed.path or "").lower()
+            if any(path.endswith(suf) for suf in risky) and host not in safe_hosts:
+                return msg
+        return None
+    if k == "open_app":
+        base = str(p.get("name") or "").strip().lower()
+        stem = base.split("\\")[-1].split("/")[-1].split(".")[0].strip()
+        if stem in {"mshta", "wscript", "cscript", "diskpart", "bcdedit", "regsvr32", "bitsadmin", "certutil"}:
+            return msg
+        if " " in base and any(tok in base for tok in ("powershell -", "cmd /c", "cmd /k", "mshta ", "wscript ")):
+            return msg
+        return None
+    if k == "security_job":
+        if str(p.get("kind") or "").strip().lower() in ("status", "open", "scan"):
+            return None
+        return "I only check Windows Security, open it, or start a quick scan. I never turn it off."
+    return None
+
+
+def run_security_job(payload):
+    """Read, open, or quick-scan Windows Security on this PC."""
+    kind = (payload.get("kind") or "status").strip().lower()
+    system = platform.system()
+    if kind == "open":
+        if system == "Windows":
+            for target in ("windowsdefender:", "ms-settings:windowsdefender"):
+                try:
+                    webbrowser.open(target)
+                except Exception:
+                    pass
+            return "ok", "Opened Windows Security. Look for Virus & threat protection. I never need your Windows password."
+        if system == "Darwin":
+            subprocess.run(["open", "x-apple.systempreferences:com.apple.preference.security"], check=False)
+            return "ok", "Opened Privacy & Security on this Mac. Windows Security is a Windows feature."
+        return "ok", "On Linux, open your usual security settings. Windows Security is a Windows feature."
+    if kind == "scan":
+        if system != "Windows":
+            return "ok", "A Windows Security quick scan only runs on Windows. On this computer, use the built-in security settings."
+        try:
+            webbrowser.open("windowsdefender:")
+        except Exception:
+            pass
+        try:
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-Command", "Start-MpScan -ScanType QuickScan"],
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return "ok", "Windows Security started a quick scan. I opened that same Windows app so you can watch it. Leave the computer on. I never need your Windows password."
+        except Exception as exc:
+            return "error", "Couldn't start the scan from here. Open Windows Security and tap Scan now. " + str(exc)[:200]
+    if kind != "status":
+        return "error", "I only check Windows Security, open it, or start a quick scan."
+    if system != "Windows":
+        if system == "Darwin":
+            return "ok", "This computer is a Mac. Windows Security is a Windows feature. On a Mac, open System Settings, then Privacy & Security. I still will not run steps that turn protection off, and I never ask for your password."
+        return "ok", "This computer is Linux. Windows Security is a Windows feature. Use your usual updater and firewall settings. I still will not run steps that turn protection off, and I never ask for your password."
+    ps = (
+        "$ErrorActionPreference = 'SilentlyContinue'; Write-Output ('os=Windows'); "
+        "$mp = Get-MpComputerStatus; if ($mp) { "
+        "Write-Output ('antivirus=' + [bool]$mp.AntivirusEnabled); "
+        "Write-Output ('realtime=' + [bool]$mp.RealTimeProtectionEnabled); "
+        "Write-Output ('signatures=' + $mp.AntivirusSignatureLastUpdated) } else { "
+        "Write-Output 'antivirus='; Write-Output 'realtime=' }; "
+        "$fwOn = $true; Get-NetFirewallProfile | ForEach-Object { "
+        "if (-not $_.Enabled) { $fwOn = $false }; "
+        "Write-Output ('firewall_' + $_.Name.ToLower() + '=' + [bool]$_.Enabled) }; "
+        "Write-Output ('firewall=' + [bool]$fwOn); "
+        "$uac = (Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name EnableLUA).EnableLUA; "
+        "Write-Output ('uac=' + [int]$uac)"
+    )
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=45)
+        blob = ((r.stdout or "") + ("\n" + r.stderr if r.stderr else "")).strip()
+        ok = r.returncode == 0
+    except Exception:
+        ok, blob = False, ""
+    if not ok:
+        return "ok", "I couldn't read Windows Security automatically. Say open Windows Security and you can look with your own eyes. I never ask for your Windows password."
+    flags = {}
+    for line in blob.splitlines():
+        if "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip().lower()
+        if key:
+            flags[key] = val.strip()
+    def _on(key):
+        val = (flags.get(key) or "").strip().lower()
+        if val in ("true", "1", "yes", "on"):
+            return True
+        if val in ("false", "0", "no", "off"):
+            return False
+        return None
+    lines = ["Windows Security on this computer:"]
+    off = []
+    unknown = False
+    for key, label in (("antivirus", "Virus & threat protection"), ("realtime", "Real-time protection"), ("firewall", "Firewall"), ("uac", "Ask before big changes (UAC)")):
+        state = _on(key)
+        if state is None:
+            lines.append("• " + label + ": I couldn't read this")
+            unknown = True
+        elif state:
+            lines.append("• " + label + ": on")
+        else:
+            lines.append("• " + label + ": off")
+            off.append(label)
+    sig = (flags.get("signatures") or "").strip()
+    if sig and sig.lower() not in ("none", "null"):
+        lines.append("• Protection updates: " + sig)
+    lines.append("")
+    if off:
+        lines.append("Something important is off. Say open Windows Security and I'll open the same app Windows already has, so you can turn it back on. I will not turn it off for anyone.")
+    elif unknown:
+        lines.append("I couldn't read every switch. Say open Windows Security and look with your own eyes.")
+    else:
+        lines.append("Nothing here looks turned off. If a pop-up ever asks you to turn these off, say no.")
+    lines.append("I never ask for your Windows password.")
+    return "ok", "\n".join(lines)
+
+
 def execute(cmd):
     kind = cmd.get("kind")
     payload = cmd.get("payload") or {}
     print(f"  ▶ {kind} {payload}")
     try:
+        blocked = refuse_pc_command(kind, payload)
+        if blocked:
+            return "error", blocked
         if kind == "shell":
             r = subprocess.run(payload.get("command", ""), shell=True, capture_output=True, text=True, timeout=60)
             out = (r.stdout or "") + ("\n" + r.stderr if r.stderr else "")
@@ -2179,6 +2395,8 @@ def execute(cmd):
             return run_avatar_job(body)
         if kind == "creative_job":
             return run_creative_job(payload)
+        if kind == "security_job":
+            return run_security_job(payload)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)

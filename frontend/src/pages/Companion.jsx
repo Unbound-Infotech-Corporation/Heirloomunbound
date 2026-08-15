@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Ban, Bell, CheckCircle2, Clipboard, Copy, Cpu, Download, Eye, Globe, Keyboard, Loader2, MessageCircle, Monitor, MonitorSpeaker, Palette, Power, Search, Terminal, Trash2, Volume2 } from "lucide-react";
+import { Ban, Bell, CheckCircle2, Clipboard, Copy, Cpu, Download, Eye, Globe, Keyboard, Loader2, MessageCircle, Monitor, MonitorSpeaker, Palette, Power, Search, ShieldCheck, Terminal, Trash2, Volume2 } from "lucide-react";
 import { api, API_BASE } from "../lib/api";
 
 const KIND_ICONS = {
@@ -10,6 +10,7 @@ const KIND_ICONS = {
   pull_model: Download, list_models: Cpu, llm_chat: Cpu,
   avatar_still: Cpu, avatar_talk: Cpu, avatar_look: Eye, avatar_setup: Download,
   creative_job: Palette,
+  security_job: ShieldCheck,
 };
 
 const STATUS_META = {
@@ -37,6 +38,7 @@ export default function Companion() {
   const [activity, setActivity] = useState([]);
   const [cmdDraft, setCmdDraft] = useState({ kind: "shell", text: "" });
   const [busy, setBusy] = useState(false);
+  const [cmdErr, setCmdErr] = useState("");
   const [downloadErr, setDownloadErr] = useState("");
   const [downloadingId, setDownloadingId] = useState(null);
 
@@ -144,6 +146,7 @@ export default function Companion() {
   const queueCommand = async () => {
     if (!cmdDraft.text.trim()) return;
     setBusy(true);
+    setCmdErr("");
     try {
       let payload = {};
       if (cmdDraft.kind === "shell") payload = { command: cmdDraft.text };
@@ -153,6 +156,9 @@ export default function Companion() {
       await api.post("/companion/queue-command", { kind: cmdDraft.kind, payload });
       setCmdDraft({ ...cmdDraft, text: "" });
       loadAll();
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setCmdErr(typeof detail === "string" && detail.trim() ? detail : "Couldn't send that command.");
     } finally {
       setBusy(false);
     }
@@ -178,6 +184,7 @@ export default function Companion() {
         </h1>
         <p className="mt-3 text-base max-w-2xl" style={{ color: "var(--text-secondary)" }}>
           One download. Unzip it, double-click Heirloom.bat, and leave the window until Avatar Studio says this computer is ready.
+          Heirloom never turns Windows Security off, and never asks for your Windows password.
         </p>
       </header>
 
@@ -379,7 +386,13 @@ export default function Companion() {
         </div>
         <p className="text-xs" style={{ color: "var(--text-muted)" }}>
           Commands are queued and picked up by the companion on its next poll (every 3s).
+          Heirloom never turns Windows Security off — dangerous steps are blocked even if you queue them here.
         </p>
+        {cmdErr ? (
+          <p className="text-xs mt-2" style={{ color: "var(--danger)" }} data-testid="cmd-error">
+            {cmdErr}
+          </p>
+        ) : null}
       </section>
 
       {/* Activity log — what your twin did on this machine */}

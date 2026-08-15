@@ -420,6 +420,7 @@ export default function SetupKeys() {
               running on your PC. If you don&apos;t have a local model yet, we recommend Pinokio (a
               friendly launcher) or Ollama (single install + one command per model).
               The same Pinokio tools sketch pictures, short clips, and songs — no Adobe or music-app password.
+              Windows Safety looks at Windows Security on this PC and will not turn it off.
             </p>
             <div className="flex flex-wrap gap-2">
               <a
