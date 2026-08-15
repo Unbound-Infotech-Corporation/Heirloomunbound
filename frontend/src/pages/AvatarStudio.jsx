@@ -343,6 +343,7 @@ export default function AvatarStudio() {
         <p className="text-sm mb-6 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
           {(data.setup?.blurb) || (data.catalog?.setup?.blurb) || "Download Heirloom, add a photo, tap Set up my twin. We install the free tools on your home computer. No extra accounts, no passwords."}
           {" "}Use a photo of <em>you</em> — never someone else.
+          {" "}The same Pinokio install can sketch pictures, short videos, and songs from what you describe, then open Photoshop, CapCut, or your music app so you can finish. We cannot click every button inside those programs.
         </p>
         {data.home && (
           <p className="text-xs mb-8" style={{ color: data.home.online ? "var(--ok, #7da06f)" : "var(--text-muted)" }} data-testid="avatar-home-status">

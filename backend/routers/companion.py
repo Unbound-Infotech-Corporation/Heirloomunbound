@@ -156,6 +156,7 @@ _KIND_LABELS = {
     "avatar_talk": "Rendered a local talking clip",
     "avatar_look": "Opened LivePortrait look-at-you",
     "avatar_setup": "Set up twin tools on this PC",
+    "creative_job": "Started creative work on this PC",
 }
 
 
@@ -191,6 +192,9 @@ def _activity_summary(kind: str, payload: dict) -> str:
         return clip(p.get("model"))
     if kind in ("avatar_still", "avatar_talk", "avatar_look", "avatar_setup"):
         return clip(p.get("recipe_id") or p.get("kind") or p.get("job_id") or "Pinokio")
+    if kind == "creative_job":
+        bits = [p.get("kind") or "creative", p.get("studio_label") or p.get("studio")]
+        return clip(" · ".join(str(b) for b in bits if b))
     return ""
 
 
@@ -321,7 +325,7 @@ async def companion_status(payload: CompanionStatusIn, ctx: dict = Depends(get_d
     return {"ok": True, "models": tags}
 
 
-COMPANION_SCRIPT_VERSION = "2026.08.15.6"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.15.7"  # bump whenever _build_companion_script materially changes
 
 
 class CompanionResult(BaseModel):
@@ -2023,6 +2027,107 @@ def run_avatar_job(payload):
     return "ok", msg
 
 
+def run_creative_job(payload):
+    """Write a creative folder, copy the prompt, open Pinokio + the studio app."""
+    import glob as _glob
+    kind = (payload.get("kind") or "").strip().lower()
+    if kind not in ("art", "video", "music", "open"):
+        return "error", "bad creative job"
+    notes = []
+    folder = None
+    prompt = (payload.get("prompt") or "").strip()
+    if kind != "open":
+        stamp = "".join(ch for ch in (payload.get("title") or "") if ch.isalnum() or ch in "-_")[:24]
+        if not stamp:
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+        folder = os.path.join(os.path.expanduser("~"), "Heirloom", "creative", stamp)
+        os.makedirs(folder, exist_ok=True)
+        try:
+            open(os.path.join(folder, "prompt.txt"), "w", encoding="utf-8").write(prompt)
+            howto = (payload.get("howto") or "Your description is in prompt.txt.\n")
+            open(os.path.join(folder, "HOW_TO.txt"), "w", encoding="utf-8").write(howto)
+            if payload.get("source"):
+                open(os.path.join(folder, "source.txt"), "w", encoding="utf-8").write(str(payload.get("source")))
+        except Exception:
+            pass
+        try:
+            clipboard_set(prompt)
+            notes.append("Copied your description to the clipboard.")
+        except Exception:
+            pass
+        url = (payload.get("pinokio_url") or "").strip()
+        if url:
+            webbrowser.open(url)
+            notes.append("Opened Pinokio so the local model can install or run.")
+        try:
+            if platform.system() == "Windows":
+                os.startfile(folder)  # type: ignore[attr-defined]
+            elif platform.system() == "Darwin":
+                subprocess.run(["open", folder], check=False)
+            else:
+                subprocess.run(["xdg-open", folder], check=False)
+        except Exception:
+            pass
+        notes.append("Folder: " + folder)
+    opened = False
+    studio_url = (payload.get("studio_url") or "").strip()
+    label = payload.get("studio_label") or "the studio"
+    if studio_url:
+        webbrowser.open(studio_url)
+        opened = True
+        notes.append("Opened " + label + ".")
+    else:
+        system = platform.system()
+        if system == "Windows":
+            for pattern in payload.get("windows_globs") or []:
+                matches = [m for m in _glob.glob(os.path.expandvars(pattern)) if os.path.isfile(m)]
+                if matches:
+                    try:
+                        os.startfile(sorted(matches)[-1])  # type: ignore[attr-defined]
+                        opened = True
+                        notes.append("Opened " + label + ".")
+                        break
+                    except Exception:
+                        continue
+            if not opened:
+                for name in payload.get("app_names") or []:
+                    try:
+                        os.startfile(name)  # type: ignore[attr-defined]
+                        opened = True
+                        notes.append("Opened " + label + ".")
+                        break
+                    except Exception:
+                        continue
+        elif system == "Darwin":
+            for name in list(payload.get("darwin_apps") or []) + list(payload.get("app_names") or []):
+                if not name:
+                    continue
+                r = subprocess.run(["open", "-a", name], capture_output=True, text=True)
+                if r.returncode == 0:
+                    opened = True
+                    notes.append("Opened " + label + ".")
+                    break
+        else:
+            for name in list(payload.get("linux_bins") or []) + list(payload.get("app_names") or []):
+                if not name:
+                    continue
+                try:
+                    subprocess.Popen([name])
+                    opened = True
+                    notes.append("Opened " + label + ".")
+                    break
+                except Exception:
+                    continue
+    if not opened:
+        fallback = (payload.get("fallback_url") or "").strip()
+        if fallback:
+            webbrowser.open(fallback)
+            notes.append("Couldn't find " + label + " on this PC, so I opened " + fallback + ".")
+        else:
+            notes.append("Couldn't find " + label + " on this PC.")
+    return "ok", " ".join(notes) or "Opened the studio."
+
+
 def execute(cmd):
     kind = cmd.get("kind")
     payload = cmd.get("payload") or {}
@@ -2072,6 +2177,8 @@ def execute(cmd):
             body = dict(payload)
             body["kind"] = {"avatar_still": "still", "avatar_talk": "talk", "avatar_look": "look"}[kind]
             return run_avatar_job(body)
+        if kind == "creative_job":
+            return run_creative_job(payload)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)

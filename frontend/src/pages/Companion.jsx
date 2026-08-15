@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Ban, Bell, CheckCircle2, Clipboard, Copy, Cpu, Download, Eye, Globe, Keyboard, Loader2, MessageCircle, Monitor, MonitorSpeaker, Power, Search, Terminal, Trash2, Volume2 } from "lucide-react";
+import { Ban, Bell, CheckCircle2, Clipboard, Copy, Cpu, Download, Eye, Globe, Keyboard, Loader2, MessageCircle, Monitor, MonitorSpeaker, Palette, Power, Search, Terminal, Trash2, Volume2 } from "lucide-react";
 import { api, API_BASE } from "../lib/api";
 
 const KIND_ICONS = {
@@ -9,6 +9,7 @@ const KIND_ICONS = {
   find_file: Search, screenshot: Eye, shell: Terminal,
   pull_model: Download, list_models: Cpu, llm_chat: Cpu,
   avatar_still: Cpu, avatar_talk: Cpu, avatar_look: Eye, avatar_setup: Download,
+  creative_job: Palette,
 };
 
 const STATUS_META = {

@@ -47,7 +47,7 @@ def test_companion_page_one_download_and_download_again():
 
 def test_desktop_package_can_be_redownloaded_without_listing_token():
     text = (ROOT / "routers" / "companion.py").read_text(encoding="utf-8")
-    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.6"' in text
+    assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.7"' in text
     assert '@router.get("/devices/{device_id}/desktop-package")' in text
     assert "device_token" in text
     assert '{"_id": 0, "device_token": 0}' in text or '"device_token": 0' in text

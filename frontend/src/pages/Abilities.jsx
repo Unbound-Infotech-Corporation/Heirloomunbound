@@ -9,6 +9,7 @@ import {
   Mail,
   Monitor,
   Music,
+  Palette,
   Phone,
   ShieldCheck,
   Terminal,
@@ -30,6 +31,7 @@ const ICONS = {
   eye: Eye,
   terminal: Terminal,
   briefcase: Briefcase,
+  palette: Palette,
 };
 
 const CATEGORY_LABELS = {
@@ -37,6 +39,7 @@ const CATEGORY_LABELS = {
   companion: "Companion",
   computer: "Your computer",
   work: "Work",
+  create: "Create",
 };
 
 export default function Abilities() {

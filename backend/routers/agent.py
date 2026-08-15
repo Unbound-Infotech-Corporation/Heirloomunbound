@@ -58,6 +58,10 @@ COMPANION_KINDS: dict[str, str] = {
     "clipboard_set": "Set the clipboard. payload={text:str}",
     "find_file": "Search common folders and optionally open. payload={query:str, open:bool}",
     "system_status": "Read CPU/RAM/disk/battery/GPU stats. payload={}",
+    "creative_job": (
+        "Sketch art/video/music on this PC then open a studio. "
+        "payload={kind:'art'|'video'|'music'|'open', prompt:str, pinokio_url:str, studio_label:str}"
+    ),
 }
 
 STEP_TIMEOUT_SEC = 45  # per-step wall clock; long enough for slow open_url on cold browsers

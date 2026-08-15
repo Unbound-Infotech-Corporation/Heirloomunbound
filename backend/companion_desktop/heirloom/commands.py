@@ -502,6 +502,9 @@ def execute(cmd: dict):
                 "avatar_look": "look",
             }[kind]
             return run_avatar_job(body)
+        if kind == "creative_job":
+            from .creative_local import run_creative_job
+            return run_creative_job(payload)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, BookOpen, Calendar, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Mail, Monitor, Phone, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
+import { ArrowRight, BookOpen, Calendar, Clipboard, Cloud, Cpu, Eye, Film, Globe, Keyboard, Link as LinkIcon, Loader2, Mail, Monitor, Music, Palette, Phone, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api, streamSSE } from "../lib/api";
 import FunctionModelPicker, { modelOverride } from "@/components/FunctionModelPicker";
@@ -37,6 +37,10 @@ const TOOL_META = {
   create_event: { label: "adding a calendar date", icon: Calendar },
   find_contact: { label: "looking up a person", icon: Phone },
   call_contact: { label: "placing a call", icon: Phone },
+  create_artwork: { label: "sketching a picture", icon: Palette },
+  edit_video: { label: "starting a video edit", icon: Film },
+  make_music: { label: "sketching a song", icon: Music },
+  open_studio: { label: "opening your studio", icon: Palette },
 };
 
 function ToolChip({ tool }) {

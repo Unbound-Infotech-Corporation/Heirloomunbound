@@ -1696,6 +1696,129 @@ async def exec_send_mailchimp(user_id: str, args: dict) -> dict:
     }
 
 
+def _creative_args_or_error(args: dict, *, need_prompt: bool) -> tuple[str, dict | None]:
+    from services.creative_studio import reject_secrets
+
+    secret = reject_secrets(args or {})
+    if secret:
+        return "", {"summary": secret, "ui": {"kind": "creative", "ok": False}}
+    prompt = (args.get("prompt") or args.get("description") or "").strip()
+    if need_prompt and not prompt:
+        return "", {
+            "summary": "Tell me what you want it to look or sound like, in plain words.",
+            "ui": {"kind": "creative", "ok": False},
+        }
+    return prompt, None
+
+
+async def exec_create_artwork(user_id: str, args: dict) -> dict:
+    from services.creative_studio import confirm_preview, job_payload, normalize_studio
+
+    prompt, err = _creative_args_or_error(args, need_prompt=True)
+    if err:
+        return err
+    studio = normalize_studio(args.get("open_in") or args.get("studio") or "", "art")
+    if not studio:
+        return {
+            "summary": "I don't know that picture app yet. Try Photoshop, Photopea, GIMP, or Krita.",
+            "ui": {"kind": "creative", "ok": False},
+        }
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": confirm_preview("art", prompt, studio["label"]),
+            "ui": {"kind": "creative", "needs_confirm": True, "studio": studio["label"]},
+        }
+    payload = job_payload("art", prompt, studio, title=str(args.get("title") or ""))
+    return await _queue_fire_and_forget(
+        user_id,
+        "creative_job",
+        payload,
+        f"Starting a picture in {studio['label']}",
+        wait=18.0,
+    )
+
+
+async def exec_edit_video(user_id: str, args: dict) -> dict:
+    from services.creative_studio import confirm_preview, job_payload, normalize_studio
+
+    prompt, err = _creative_args_or_error(args, need_prompt=True)
+    if err:
+        return err
+    source = (args.get("source") or args.get("file") or args.get("url") or "").strip()
+    studio = normalize_studio(args.get("open_in") or args.get("studio") or "", "video")
+    if not studio:
+        return {
+            "summary": "I don't know that video app yet. Try CapCut, Premiere, DaVinci, or YouTube Studio.",
+            "ui": {"kind": "creative", "ok": False},
+        }
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": confirm_preview("video", prompt, studio["label"], source=source),
+            "ui": {"kind": "creative", "needs_confirm": True, "studio": studio["label"]},
+        }
+    payload = job_payload("video", prompt, studio, source=source, title=str(args.get("title") or ""))
+    return await _queue_fire_and_forget(
+        user_id,
+        "creative_job",
+        payload,
+        f"Starting a clip for {studio['label']}",
+        wait=18.0,
+    )
+
+
+async def exec_make_music(user_id: str, args: dict) -> dict:
+    from services.creative_studio import confirm_preview, job_payload, normalize_studio
+
+    prompt, err = _creative_args_or_error(args, need_prompt=True)
+    if err:
+        return err
+    studio = normalize_studio(args.get("open_in") or args.get("studio") or "", "music")
+    if not studio:
+        return {
+            "summary": "I don't know that music app yet. Try Ableton, FL Studio, Logic, GarageBand, or REAPER.",
+            "ui": {"kind": "creative", "ok": False},
+        }
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": confirm_preview("music", prompt, studio["label"]),
+            "ui": {"kind": "creative", "needs_confirm": True, "studio": studio["label"]},
+        }
+    payload = job_payload("music", prompt, studio, title=str(args.get("title") or ""))
+    return await _queue_fire_and_forget(
+        user_id,
+        "creative_job",
+        payload,
+        f"Starting a song sketch in {studio['label']}",
+        wait=18.0,
+    )
+
+
+async def exec_open_studio(user_id: str, args: dict) -> dict:
+    from services.creative_studio import job_payload, normalize_studio, reject_secrets
+
+    secret = reject_secrets(args or {})
+    if secret:
+        return {"summary": secret, "ui": {"kind": "creative", "ok": False}}
+    name = (args.get("app") or args.get("studio") or args.get("open_in") or "").strip()
+    studio = normalize_studio(name)
+    if not studio:
+        return {
+            "summary": (
+                "I don't know that studio yet. I can open Photoshop, Photopea, CapCut, Premiere, "
+                "DaVinci, Ableton, FL Studio, Logic, GarageBand, REAPER, and similar."
+            ),
+            "ui": {"kind": "creative", "ok": False},
+        }
+    payload = job_payload("open", "", studio)
+    return await _queue_fire_and_forget(
+        user_id,
+        "creative_job",
+        payload,
+        f"Opening {studio['label']}",
+        wait=12.0,
+    )
+
+
 COMPUTER_TOOL_SCHEMAS: list[dict] = [
     {"type": "function", "function": {
         "name": "open_on_pc",
@@ -2024,7 +2147,73 @@ BUSINESS_TOOL_SCHEMAS: list[dict] = [
             "body": {"type": "string"},
             "from_name": {"type": "string"},
             "confirmed": {"type": "boolean", "default": False},
-        }, "required": ["subject", "body"]},
+        },         "required": ["subject", "body"]},
+    }},
+]
+
+
+CREATIVE_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "create_artwork",
+        "description": (
+            "Sketch a picture on the home PC from a description, then open Photoshop (or Photopea). "
+            "First call WITHOUT confirmed. After they clearly say yes, call again with confirmed=true. "
+            "Never ask for an Adobe password. Cannot click every Photoshop button."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "prompt": {"type": "string", "description": "What the picture should look like, in plain words"},
+            "open_in": {
+                "type": "string",
+                "description": "Studio: Photoshop, Affinity, GIMP, Krita, Paint.NET, Photopea",
+            },
+            "title": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["prompt"]},
+    }},
+    {"type": "function", "function": {
+        "name": "edit_video",
+        "description": (
+            "Sketch a SHORT clip on the home PC, then open CapCut, Premiere, DaVinci, or similar. "
+            "YouTube Studio / TikTok are websites only — cannot edit those timelines. "
+            "First call WITHOUT confirmed. After they say yes, confirmed=true. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "prompt": {"type": "string", "description": "What the clip should show"},
+            "open_in": {
+                "type": "string",
+                "description": "CapCut, Premiere, DaVinci, After Effects, Final Cut, iMovie, YouTube Studio, TikTok",
+            },
+            "source": {"type": "string", "description": "Optional file path or URL they mentioned"},
+            "title": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["prompt"]},
+    }},
+    {"type": "function", "function": {
+        "name": "make_music",
+        "description": (
+            "Sketch a SHORT song on the home PC, then open Ableton, FL Studio, Logic, GarageBand, or REAPER. "
+            "Cannot play every fader in the DAW. First call WITHOUT confirmed. After they say yes, confirmed=true. "
+            "Never ask for a music-app password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "prompt": {"type": "string", "description": "Mood, genre, instruments, lyrics — plain words"},
+            "open_in": {
+                "type": "string",
+                "description": "Ableton, FL Studio, Logic Pro, GarageBand, REAPER, Cubase, Pro Tools, BandLab",
+            },
+            "title": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["prompt"]},
+    }},
+    {"type": "function", "function": {
+        "name": "open_studio",
+        "description": (
+            "Open Photoshop, CapCut, Premiere, Ableton, FL Studio, Logic, or a similar studio already on the PC. "
+            "No confirm. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "app": {"type": "string", "description": "Studio name"},
+        }, "required": ["app"]},
     }},
 ]
 
@@ -2034,6 +2223,7 @@ TOOL_SCHEMAS += EMAIL_TOOL_SCHEMAS
 TOOL_SCHEMAS += CALENDAR_TOOL_SCHEMAS
 TOOL_SCHEMAS += PEOPLE_TOOL_SCHEMAS
 TOOL_SCHEMAS += BUSINESS_TOOL_SCHEMAS
+TOOL_SCHEMAS += CREATIVE_TOOL_SCHEMAS
 
 
 TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
@@ -2079,6 +2269,10 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
     "write_notion_page": exec_write_notion_page,
     "save_to_dropbox": exec_save_to_dropbox,
     "send_mailchimp": exec_send_mailchimp,
+    "create_artwork": exec_create_artwork,
+    "edit_video": exec_edit_video,
+    "make_music": exec_make_music,
+    "open_studio": exec_open_studio,
 }
 
 

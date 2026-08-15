@@ -248,6 +248,34 @@ ABILITIES: list[dict] = [
         ),
     },
     {
+        "id": "creative",
+        "name": "Creative",
+        "tagline": "Describe a picture, clip, or song. We sketch it on your computer, then open Photoshop, CapCut, or your music app.",
+        "icon": "palette",
+        "category": "create",
+        "default_enabled": True,
+        "requires_companion": True,
+        "tools": ["create_artwork", "edit_video", "make_music", "open_studio"],
+        "permissions": [
+            {"id": "make_media", "label": "Make pictures, videos, and songs on your computer after you say yes"},
+        ],
+        "prompt_block": (
+            "Creative (enabled — needs the desktop app running):\n"
+            "- I sketch on the home PC (Pinokio / ComfyUI: Fooocus or Flux for pictures, WAN for short clips, ACE-Step for songs), "
+            "then open the app they already have. I cannot click every Photoshop, CapCut, Premiere, or DAW control. "
+            "I cannot edit a timeline inside YouTube Studio or TikTok — I can only open those websites.\n"
+            "- Pinokio and ComfyUI do not need an account. NEVER ask for a Photoshop, Adobe, CapCut, or music-app password.\n"
+            "- If no PC is connected, tell them to open the Heirloom app on the home computer.\n"
+            "- GPU work needs a yes first: call WITHOUT confirmed so they see the plan, then after they clearly say yes, "
+            "call again with confirmed=true.\n"
+            "- `create_artwork(prompt, open_in)` — pictures. Default studio is Photoshop (Photopea if Photoshop isn't installed).\n"
+            "- `edit_video(prompt, open_in, source)` — short local clip, then CapCut / Premiere / DaVinci. "
+            "open_in=youtube or tiktok only opens the website.\n"
+            "- `make_music(prompt, open_in)` — short sketch, then Ableton / FL Studio / Logic / GarageBand / REAPER.\n"
+            "- `open_studio(app)` — just open the app they named. No confirm.\n"
+        ),
+    },
+    {
         "id": "terminal",
         "name": "Terminal Access",
         "tagline": "Advanced: let your twin run shell commands (with confirmation).",

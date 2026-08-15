@@ -419,6 +419,7 @@ export default function SetupKeys() {
               Configure this from the Heirloom desktop companion — it auto-detects local models
               running on your PC. If you don&apos;t have a local model yet, we recommend Pinokio (a
               friendly launcher) or Ollama (single install + one command per model).
+              The same Pinokio tools sketch pictures, short clips, and songs — no Adobe or music-app password.
             </p>
             <div className="flex flex-wrap gap-2">
               <a

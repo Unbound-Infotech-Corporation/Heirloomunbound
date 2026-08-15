@@ -20,6 +20,7 @@ const ROADMAP = [
       { title: "Windows companion (always-on)", detail: "Wake word, quick capture, on-PC vault." },
       { title: "Photo → Story", detail: "Any photo, spoken into a memory in your voice." },
       { title: "Avatar Studio", detail: "One photo and one permission. We install Pinokio on the home computer. No extra accounts." },
+      { title: "Creative twin", detail: "Describe a picture, clip, or song. We sketch it on the home computer, then open Photoshop, CapCut, or your DAW. No Adobe password. We cannot click every button inside those programs." },
       { title: "Abilities framework", detail: "Turn skills on and off — web search, PC control, smart home, and more." },
     ],
   },
