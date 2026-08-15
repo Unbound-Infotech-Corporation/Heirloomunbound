@@ -26,9 +26,10 @@ from pydantic import BaseModel, Field
 
 from deps import db, get_current_user
 from routers.companion import get_device_user
-from services.avatar_jobs import public_job, queue_job
+from services.avatar_jobs import public_job, queue_job, queue_setup
 from services.avatar_recipes import (
     ENGINES,
+    assert_setup_payload_safe,
     is_known_angle,
     is_known_engine,
     normalize_body,
@@ -211,8 +212,17 @@ async def get_my_avatars(user: dict = Depends(get_current_user)):
     recent = (
         await db.avatar_jobs.find({"user_id": user["user_id"]}, {"_id": 0})
         .sort("created_at", -1)
-        .to_list(length=8)
+        .to_list(length=12)
     )
+    last_setup = await db.avatar_jobs.find_one(
+        {"user_id": user["user_id"], "kind": "setup"},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+    catalog = public_catalog()
+    setup = dict(catalog.get("setup") or {})
+    setup["consent_at"] = user.get("avatar_setup_consent_at") or ""
+    setup["last_job"] = public_job(last_setup) if last_setup else None
     return {
         "active_source_url": user.get("avatar_source_url") or "",
         "front": by_angle.get("front"),
@@ -231,7 +241,8 @@ async def get_my_avatars(user: dict = Depends(get_current_user)):
             "name": (dev or {}).get("name") or "",
         },
         "jobs": [public_job(j) for j in recent],
-        "catalog": public_catalog(),
+        "catalog": catalog,
+        "setup": setup,
     }
 
 
@@ -449,6 +460,22 @@ async def save_engine(payload: EngineIn, user: dict = Depends(get_current_user))
 async def list_recipes(user: dict = Depends(get_current_user)):
     _ = user  # auth-gated so we don't leak install URLs to anonymous scrapers
     return public_catalog()
+
+
+@router.post("/setup")
+async def start_easy_setup(payload: dict, user: dict = Depends(get_current_user)):
+    """One permission checkbox, then the home PC downloads official Pinokio.
+
+    We never collect Pinokio / ComfyUI / Hugging Face logins. Those programs
+    run locally and do not need accounts.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Tick the box so we know you want this on your computer.")
+    try:
+        assert_setup_payload_safe(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return await queue_setup(user, consent=True)
 
 
 class CreateJobIn(BaseModel):

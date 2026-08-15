@@ -231,6 +231,7 @@ def public_catalog() -> dict[str, Any]:
         "engines": list(ENGINES),
         "pinokio": PINOKIO_APPS,
         "recipes": RECIPES,
+        "setup": SIMPLE_SETUP,
         "honest": (
             "These models run on your home computer, not in Heirloom's cloud. "
             "A live full-body photoreal clone still needs a local GPU. "
@@ -238,3 +239,142 @@ def public_catalog() -> dict[str, Any]:
             "are the talking path; InstantID builds the still those animators start from."
         ),
     }
+
+
+# Grandmother path: one permission, then the home PC downloads official installers.
+# Pinokio and ComfyUI are local programs. They do not need an email, password, or
+# cloud account. We never collect login secrets for third-party sites.
+PINOKIO_RELEASES_API = "https://api.github.com/repos/pinokiocomputer/pinokio/releases/latest"
+
+DOWNLOAD_HOSTS: tuple[str, ...] = (
+    "api.github.com",
+    "github.com",
+    "objects.githubusercontent.com",
+    "github-releases.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+)
+
+SIMPLE_SETUP: dict[str, Any] = {
+    "title": "Set up my twin",
+    "blurb": "Three taps. We install the free tools on your home computer. No extra accounts, no passwords.",
+    "consent": (
+        "I want Heirloom to install the free twin tools on my home computer. "
+        "Pinokio and ComfyUI run on this PC and do not need an email or password. "
+        "Heirloom will never ask for my login to those programs."
+    ),
+    "windows_note": (
+        "Windows may show a blue 'Windows protected your PC' box. That is normal for a new download. "
+        "Click More info, then Run anyway."
+    ),
+    "no_accounts": True,
+    "no_passwords": True,
+    "releases_api": PINOKIO_RELEASES_API,
+    "apps": [a["pinokio_url"] for a in PINOKIO_APPS],
+    "steps": [
+        "Add a photo of your face (a clear one, looking at the camera).",
+        "Tick the box so we know you want this on your computer.",
+        "Tap Set up my twin. Leave the Heirloom app open on the home computer.",
+        "If Windows asks, click More info, then Run anyway. Then tap Install in the Pinokio window.",
+        "When that is done, tap Look at me.",
+    ],
+}
+
+
+def host_is_allowed(url: str) -> bool:
+    from urllib.parse import urlparse
+
+    host = (urlparse(url or "").hostname or "").lower()
+    return host in DOWNLOAD_HOSTS
+
+
+def pick_pinokio_asset(assets: list, system: str, machine: str = "") -> Optional[dict[str, Any]]:
+    """Choose the official Pinokio installer for this OS from a GitHub release."""
+    sys_name = (system or "").lower()
+    arch = (machine or "").lower()
+    arm = arch in ("arm64", "aarch64")
+    rows: list[dict[str, Any]] = []
+    for raw in assets or []:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or "")
+        url = str(raw.get("browser_download_url") or "")
+        if not name or not url or "blockmap" in name.lower():
+            continue
+        if not host_is_allowed(url):
+            continue
+        rows.append({"name": name, "url": url})
+    if sys_name.startswith("win"):
+        for row in rows:
+            if row["name"].lower() == "pinokio.exe":
+                return row
+        for row in rows:
+            if row["name"].lower().endswith(".exe"):
+                return row
+    if sys_name in ("darwin", "mac", "macos"):
+        dmg = [r for r in rows if r["name"].lower().endswith(".dmg")]
+        for row in dmg:
+            has_arm = "arm64" in row["name"].lower()
+            if has_arm == arm:
+                return row
+        return dmg[0] if dmg else None
+    # Linux
+    if arm:
+        for row in rows:
+            n = row["name"].lower()
+            if n.endswith(".appimage") and "arm64" in n:
+                return row
+    for row in rows:
+        n = row["name"].lower()
+        if n.endswith(".appimage") and "arm64" not in n:
+            return row
+    for row in rows:
+        if row["name"].lower().endswith(".deb"):
+            return row
+    return None
+
+
+# Keys we will never accept on the easy-setup endpoint. Pinokio and ComfyUI
+# are local programs; they do not need an email or password.
+_SECRET_SETUP_KEYS = frozenset({
+    "password",
+    "passwd",
+    "pass",
+    "email",
+    "username",
+    "login",
+    "secret",
+    "api_key",
+    "token",
+    "pinokio_password",
+    "comfy_password",
+    "huggingface_token",
+})
+
+
+def reject_secret_fields(raw: Optional[dict]) -> None:
+    """Raise ValueError if the payload looks like a third-party login."""
+    src = raw if isinstance(raw, dict) else {}
+    for key in src:
+        k = str(key).strip().lower()
+        if k in _SECRET_SETUP_KEYS or "password" in k:
+            raise ValueError(
+                "Heirloom never asks for a Pinokio or ComfyUI password. "
+                "Those programs run on your computer and do not need an account."
+            )
+
+
+def consent_is_given(raw: Optional[dict]) -> bool:
+    src = raw if isinstance(raw, dict) else {}
+    value = src.get("consent")
+    if value is True:
+        return True
+    if isinstance(value, str) and value.strip().lower() in ("true", "yes", "1", "on"):
+        return True
+    return False
+
+
+def assert_setup_payload_safe(raw: Optional[dict]) -> None:
+    """Grandmother-plain checks before we queue the home-PC installer."""
+    reject_secret_fields(raw)
+    if not consent_is_given(raw):
+        raise ValueError("Tick the box so we know you want this on your computer.")

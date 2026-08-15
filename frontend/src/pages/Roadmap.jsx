@@ -19,7 +19,7 @@ const ROADMAP = [
       { title: "Focus mode", detail: "One goal, many steps — your twin plans, you approve, it runs through your PC." },
       { title: "Windows companion (always-on)", detail: "Wake word, quick capture, on-PC vault." },
       { title: "Photo → Story", detail: "Any photo, spoken into a memory in your voice." },
-      { title: "Avatar Studio", detail: "Pin a face to the twin — talking-head videos, body sheet, and local Pinokio/ComfyUI recipes." },
+      { title: "Avatar Studio", detail: "One photo and one permission. We install Pinokio on the home computer. No extra accounts." },
       { title: "Abilities framework", detail: "Turn skills on and off — web search, PC control, smart home, and more." },
     ],
   },
@@ -37,7 +37,7 @@ const ROADMAP = [
       { title: "Handwriting OCR", detail: "Photograph grandma's letters — they become searchable in her voice." },
       { title: "Old-audio cleanup", detail: "Rescue noisy voice memos into studio-clean recordings." },
       { title: "Emotion-aware TTS", detail: "The twin can whisper, laugh, choke up. Voice memories that feel alive." },
-      { title: "LivePortrait avatars", detail: "Look-at-you on the home PC via Pinokio. EchoMimic / Sonic / WAN for talking clips. D-ID remains the paid fallback." },
+      { title: "LivePortrait avatars", detail: "Look-at-you on the home PC. One checkbox, then we download the official installer. EchoMimic / Sonic / WAN for talking clips. D-ID remains the paid fallback." },
     ],
   },
   {

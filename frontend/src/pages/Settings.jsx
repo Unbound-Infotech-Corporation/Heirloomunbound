@@ -395,7 +395,7 @@ export default function Settings() {
               className="inline-flex items-center gap-1.5 text-xs underline mt-1"
               style={{ color: "var(--accent)" }}
             >
-              ✨ Avatar Studio — photos, body sheet, free Pinokio/ComfyUI twin →
+              ✨ Avatar Studio — one photo, then we set up the twin on your computer →
             </a>
           </div>
         </div>

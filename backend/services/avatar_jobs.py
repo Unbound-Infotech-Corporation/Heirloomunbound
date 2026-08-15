@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from deps import db
 from routers.providers import _load_with_secrets as load_providers
 from services.avatar_recipes import (
+    SIMPLE_SETUP,
     default_recipe_for,
     is_known_kind,
     recipe_for,
@@ -68,17 +69,17 @@ async def queue_job(
     if not images:
         raise HTTPException(
             400,
-            "Upload a few photos of your own face first — front plus a full-body shot if you have one.",
+            "Add a clear photo of your face first — looking at the camera.",
         )
     has_front = any(i.get("angle") == "front" for i in images)
     if not has_front:
-        raise HTTPException(400, "A front-facing photo is required so the twin has a face to drive.")
+        raise HTTPException(400, "Add a photo of your face looking at the camera. That is the one the twin uses.")
 
     dev = await _active_device(user["user_id"])
     if not dev:
         raise HTTPException(
             409,
-            "Open the Heirloom desktop app on your home computer first — LivePortrait and ComfyUI run there, not in the cloud.",
+            "Open the Heirloom app on the computer at home first. The twin lives there, not in the cloud.",
         )
 
     body = body_override if isinstance(body_override, dict) else (
@@ -150,6 +151,69 @@ async def queue_job(
         )
     else:
         doc["hint"] = recipe.get("howto") or ""
+    return doc
+
+
+async def queue_setup(user: dict, *, consent: bool) -> dict:
+    """One permission, then the home PC downloads official Pinokio. No accounts."""
+    if not consent:
+        raise HTTPException(400, "Tick the box so we know you want this on your computer.")
+
+    dev = await _active_device(user["user_id"])
+    if not dev:
+        raise HTTPException(
+            409,
+            "Open the Heirloom app on the computer at home first. We install the free tools there.",
+        )
+
+    images = await current_images(user["user_id"])
+    job_id = f"avt_{uuid.uuid4().hex[:12]}"
+    now = _now()
+    current_engine = (user.get("avatar_engine") or "auto").strip().lower()
+    user_patch: dict = {"avatar_setup_consent_at": now, "updated_at": now}
+    if current_engine in ("", "auto"):
+        user_patch["avatar_engine"] = "local"
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": user_patch})
+
+    payload = {
+        "job_id": job_id,
+        "apps": list(SIMPLE_SETUP.get("apps") or []),
+        "images": images,
+    }
+    cmd_id = await _queue_pc_command(user["user_id"], "avatar_setup", payload)
+    serve_token = secrets.token_urlsafe(24)
+    doc = {
+        "job_id": job_id,
+        "user_id": user["user_id"],
+        "kind": "setup",
+        "recipe_id": "easy-setup",
+        "cmd_id": cmd_id,
+        "status": "queued",
+        "text": "",
+        "prompt": "",
+        "home_online": _device_is_awake(dev),
+        "serve_token": serve_token,
+        "result_path": None,
+        "result_content_type": None,
+        "result_text": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.avatar_jobs.insert_one(dict(doc))
+    doc.pop("_id", None)
+    doc.pop("serve_token", None)
+    doc["poll"] = f"/api/avatar-studio/jobs/{job_id}"
+    doc["howto"] = SIMPLE_SETUP.get("windows_note") or ""
+    doc["recipe_label"] = SIMPLE_SETUP.get("title") or "Set up my twin"
+    if not doc["home_online"]:
+        doc["hint"] = (
+            f"Open {dev.get('name') or 'the Heirloom app'} on the home computer. "
+            "Then we download Pinokio for you."
+        )
+    else:
+        doc["hint"] = (
+            "Leave the Heirloom app open. If Windows shows a blue box, click More info, then Run anyway."
+        )
     return doc
 
 

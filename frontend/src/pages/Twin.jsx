@@ -236,13 +236,14 @@ export default function Twin() {
           return;
         }
         if (poll.status === "error" || poll.status === "rejected") {
-          setVideos((v) => ({ ...v, [idx]: { state: "error", err: poll.error?.description || poll.error || poll.hint || "render failed" } }));
+          setVideos((v) => ({ ...v, [idx]: { state: "error", err: poll.error?.description || poll.error || poll.hint || "That didn't finish. Try Avatar Studio." } }));
           return;
         }
       }
-      setVideos((v) => ({ ...v, [idx]: { state: "error", err: local ? "timed out waiting on your PC" : "timed out after 2 min" } }));
+      setVideos((v) => ({ ...v, [idx]: { state: "error", err: local ? "Still working on your computer. Leave Heirloom open and try again in a minute." : "That took too long. Try again." } }));
     } catch (e) {
-      setVideos((v) => ({ ...v, [idx]: { state: "error", err: e.response?.data?.detail || e.message } }));
+      const detail = typeof e.response?.data?.detail === "string" ? e.response.data.detail : "";
+      setVideos((v) => ({ ...v, [idx]: { state: "error", err: detail || "Couldn't start. Open Avatar Studio — one photo and one button." } }));
     }
   };
 
@@ -252,9 +253,16 @@ export default function Twin() {
     setLookHint("");
     try {
       const { data } = await api.post("/avatar-studio/jobs", { kind: "look" });
-      setLookHint(data.hint || "LivePortrait is opening on your PC. Turn on the webcam.");
+      setLookHint(data.hint || "Look at the computer. When it asks, turn on the webcam.");
     } catch (e) {
-      setLookHint(e.response?.data?.detail || "Couldn't start LivePortrait. Open Avatar Studio.");
+      const detail = typeof e.response?.data?.detail === "string" ? e.response.data.detail : "";
+      if (/photo|face|camera/i.test(detail)) {
+        setLookHint("Add a photo of your face in Avatar Studio first — looking at the camera.");
+      } else if (/home|computer|desktop|Heirloom app/i.test(detail)) {
+        setLookHint("Open the Heirloom app on the computer at home, then try again.");
+      } else {
+        setLookHint(detail || "Couldn't start. Open Avatar Studio — one photo and one button.");
+      }
     } finally {
       setLookBusy(false);
     }

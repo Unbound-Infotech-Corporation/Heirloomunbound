@@ -155,6 +155,7 @@ _KIND_LABELS = {
     "avatar_still": "Built a local twin still",
     "avatar_talk": "Rendered a local talking clip",
     "avatar_look": "Opened LivePortrait look-at-you",
+    "avatar_setup": "Set up twin tools on this PC",
 }
 
 
@@ -188,8 +189,8 @@ def _activity_summary(kind: str, payload: dict) -> str:
         return clip(p.get("model"))
     if kind == "llm_chat":
         return clip(p.get("model"))
-    if kind in ("avatar_still", "avatar_talk", "avatar_look"):
-        return clip(p.get("recipe_id") or p.get("kind") or p.get("job_id"))
+    if kind in ("avatar_still", "avatar_talk", "avatar_look", "avatar_setup"):
+        return clip(p.get("recipe_id") or p.get("kind") or p.get("job_id") or "Pinokio")
     return ""
 
 
@@ -320,7 +321,7 @@ async def companion_status(payload: CompanionStatusIn, ctx: dict = Depends(get_d
     return {"ok": True, "models": tags}
 
 
-COMPANION_SCRIPT_VERSION = "2026.08.15.2"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.15.3"  # bump whenever _build_companion_script materially changes
 
 
 class CompanionResult(BaseModel):
@@ -370,7 +371,7 @@ async def companion_result(payload: CompanionResult, ctx: dict = Depends(get_dev
                 {"device_id": ctx["device"]["device_id"]},
                 {"$addToSet": {"local_models": model}, "$set": {"ollama": True}},
             )
-    if cmd and cmd.get("kind") in ("avatar_still", "avatar_talk", "avatar_look"):
+    if cmd and cmd.get("kind") in ("avatar_still", "avatar_talk", "avatar_look", "avatar_setup"):
         job_id = (cmd.get("payload") or {}).get("job_id")
         if job_id:
             now = datetime.now(timezone.utc).isoformat()
@@ -1362,7 +1363,7 @@ import sys
 import threading
 import time
 import webbrowser
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 DEVICE_TOKEN = "__DEVICE_TOKEN__"
 SCRIPT_VERSION = "__SCRIPT_VERSION__"  # bumped by the server when a new build ships
@@ -1782,6 +1783,146 @@ def report_local_ai():
     safe_post("/companion/status", json={"ollama": st == "ok" or bool(_ollama_bin()), "models": models})
 
 
+def run_avatar_setup(payload):
+    """Download official Pinokio from GitHub. No accounts. No passwords."""
+    import shutil
+    job_id = (payload.get("job_id") or "").strip()
+    notes = []
+    folder = os.path.join(os.path.expanduser("~"), "Heirloom", "avatar")
+    inst_dir = os.path.join(os.path.expanduser("~"), "Heirloom", "installers")
+    os.makedirs(folder, exist_ok=True)
+    os.makedirs(inst_dir, exist_ok=True)
+    allowed = {
+        "api.github.com", "github.com", "objects.githubusercontent.com",
+        "github-releases.githubusercontent.com", "release-assets.githubusercontent.com",
+    }
+    def host_ok(u):
+        return (urlparse(u or "").hostname or "").lower() in allowed
+    found = shutil.which("Pinokio") or shutil.which("pinokio")
+    if not found:
+        for p in (
+            os.path.join(os.path.expanduser("~"), "pinokio", "Pinokio.exe"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Pinokio", "Pinokio.exe"),
+            "/Applications/Pinokio.app",
+        ):
+            if p and os.path.exists(p):
+                found = p
+                break
+    def launch(path):
+        try:
+            if platform.system() == "Windows":
+                os.startfile(path)
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception:
+            webbrowser.open(path)
+    if found:
+        notes.append("Pinokio is already on this computer.")
+        launch(found)
+    else:
+        try:
+            r = requests.get(
+                "https://api.github.com/repos/pinokiocomputer/pinokio/releases/latest",
+                timeout=30, headers={"Accept": "application/vnd.github+json"},
+            )
+            r.raise_for_status()
+            assets = (r.json() or {}).get("assets") or []
+        except Exception as e:
+            return "error", "Couldn't reach GitHub for the Pinokio installer. (%s)" % e
+        sysname = platform.system()
+        machine = (platform.machine() or "").lower()
+        arm = machine in ("arm64", "aarch64")
+        picked = None
+        for a in assets:
+            name = str((a or {}).get("name") or "")
+            url = str((a or {}).get("browser_download_url") or "")
+            if not name or not url or "blockmap" in name.lower() or not host_ok(url):
+                continue
+            nl = name.lower()
+            if sysname == "Windows" and nl == "pinokio.exe":
+                picked = (name, url)
+                break
+            if sysname == "Darwin" and nl.endswith(".dmg") and (("arm64" in nl) == arm):
+                picked = (name, url)
+                break
+            if sysname != "Windows" and sysname != "Darwin" and nl.endswith(".appimage") and (("arm64" in nl) == arm):
+                picked = (name, url)
+                break
+        if not picked:
+            return "error", "Couldn't find the official Pinokio download for this computer."
+        dest = os.path.join(inst_dir, picked[0])
+        try:
+            with requests.get(picked[1], stream=True, timeout=120, allow_redirects=True) as rr:
+                rr.raise_for_status()
+                if not host_ok(rr.url or picked[1]):
+                    return "error", "Blocked an unexpected download address."
+                written = 0
+                with open(dest, "wb") as f:
+                    for chunk in rr.iter_content(chunk_size=262144):
+                        if not chunk:
+                            continue
+                        written += len(chunk)
+                        if written > 250 * 1024 * 1024:
+                            return "error", "Installer was larger than expected."
+                        f.write(chunk)
+        except Exception as e:
+            return "error", "Download failed: %s" % e
+        notes.append("Downloaded " + picked[0])
+        launch(dest)
+        notes.append("If Windows shows a blue box, click More info, then Run anyway.")
+    for url in payload.get("apps") or []:
+        if isinstance(url, str) and url.startswith("https://"):
+            webbrowser.open(url)
+    for i, item in enumerate(payload.get("images") or []):
+        if not isinstance(item, dict):
+            continue
+        image_id = (item.get("image_id") or "").strip()
+        angle = "".join(ch for ch in (item.get("angle") or ("img" + str(i))) if ch.isalnum() or ch == "_")[:24] or ("img" + str(i))
+        data = None
+        ct = "image/jpeg"
+        if image_id:
+            try:
+                rr = requests.get(f"{BACKEND_URL}/api/avatar-studio/companion-file/{image_id}",
+                                  headers={"Authorization": f"Bearer {DEVICE_TOKEN}"}, timeout=45)
+                if rr.status_code == 200:
+                    data, ct = rr.content, rr.headers.get("content-type") or ct
+            except Exception:
+                data = None
+        if not data:
+            continue
+        ext = "png" if "png" in ct else ("webp" if "webp" in ct else "jpg")
+        open(os.path.join(folder, f"{angle}.{ext}"), "wb").write(data)
+        if angle == "front" or i == 0:
+            open(os.path.join(folder, f"front.{ext}"), "wb").write(data)
+    open(os.path.join(folder, "START_HERE.txt"), "w", encoding="utf-8").write(
+        "Your twin tools install on THIS computer. No extra accounts.\\n\\n"
+        "1. Finish the Pinokio installer if it is on screen.\\n"
+        "2. In Pinokio, tap Install on LivePortrait and ComfyUI.\\n"
+        "3. Go back to Heirloom and tap Look at me.\\n"
+        "4. Turn on the webcam when LivePortrait asks.\\n"
+    )
+    try:
+        if platform.system() == "Windows":
+            os.startfile(folder)
+        elif platform.system() == "Darwin":
+            subprocess.run(["open", folder], check=False)
+        else:
+            subprocess.run(["xdg-open", folder], check=False)
+    except Exception:
+        pass
+    msg = " ".join(notes) or "Pinokio installer started."
+    if job_id:
+        try:
+            requests.post(f"{BACKEND_URL}/api/avatar-studio/jobs/{job_id}/note",
+                          headers={"Authorization": f"Bearer {DEVICE_TOKEN}"},
+                          json={"message": msg[:1500]}, timeout=15)
+        except Exception:
+            pass
+    return "ok", msg[:2000]
+
+
 def run_avatar_job(payload):
     """Copy face photos onto this PC, write the body prompt, open Pinokio."""
     kind = (payload.get("kind") or "").strip().lower()
@@ -1906,6 +2047,8 @@ def execute(cmd):
             return list_local_models()
         if kind == "llm_chat":
             return llm_chat_local(payload)
+        if kind == "avatar_setup":
+            return run_avatar_setup(payload)
         if kind in ("avatar_still", "avatar_talk", "avatar_look"):
             body = dict(payload)
             body["kind"] = {"avatar_still": "still", "avatar_talk": "talk", "avatar_look": "look"}[kind]

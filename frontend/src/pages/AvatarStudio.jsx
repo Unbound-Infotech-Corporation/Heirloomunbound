@@ -1,23 +1,46 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Camera, Check, Download, ExternalLink, Eye, Loader2, Monitor, Sparkles, Upload, Video, X } from "lucide-react";
+import { Camera, Check, ChevronDown, Download, ExternalLink, Eye, Heart, Loader2, Monitor, Sparkles, Upload, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePageMeta } from "@/lib/usePageMeta";
 
 const ANGLES = [
-  { key: "front", label: "Front", hint: "Straight on, eyes level. This is the face LivePortrait and D-ID drive." },
-  { key: "three_quarter", label: "Three-quarter", hint: "Face turned ~45°. Helps InstantID lock your bone structure." },
-  { key: "left", label: "Left profile", hint: "Side view of the left half of your face." },
-  { key: "right", label: "Right profile", hint: "Side view of the right half. Symmetry helps." },
-  { key: "full", label: "Full body", hint: "Standing, head to toe, even light. Needed for a body that moves like yours." },
+  { key: "front", label: "Your face", hint: "A clear photo looking at the camera. Glasses on if you wear them every day." },
+  { key: "three_quarter", label: "Three-quarter", hint: "Face turned a little. Optional — helps the twin look like you from the side." },
+  { key: "left", label: "Left profile", hint: "Optional side view." },
+  { key: "right", label: "Right profile", hint: "Optional side view." },
+  { key: "full", label: "Full body", hint: "Optional. Standing, head to toe, if you want a body that moves like yours." },
 ];
+
+const BUILD_LABELS = {
+  slim: "Slender",
+  average: "Average",
+  athletic: "Athletic",
+  heavy: "Solid",
+};
+
+function setupBusy(job) {
+  if (!job) return false;
+  return ["queued", "dispatched", "processing"].includes(job.status) && !job.done;
+}
+
+function setupReady(data) {
+  const last = data?.setup?.last_job;
+  return Boolean(data?.setup?.consent_at) && last && (last.ok || last.status === "done");
+}
+
+function plainErr(e, fallback) {
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  return fallback;
+}
 
 export default function AvatarStudio() {
   const nav = useNavigate();
   usePageMeta({
-    title: "Avatar Studio · Heirloom",
-    description: "Upload your face, give your measurements, and run a local Pinokio/ComfyUI twin that looks back at you.",
+    title: "Your twin · Heirloom",
+    description: "One photo and one tap. We install the free tools on your home computer. No extra accounts.",
   });
 
   const [data, setData] = useState(null);
@@ -27,6 +50,9 @@ export default function AvatarStudio() {
   const [engine, setEngine] = useState("auto");
   const [busy, setBusy] = useState("");
   const [jobHint, setJobHint] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [showExtras, setShowExtras] = useState(false);
+  const [setupJob, setSetupJob] = useState(null);
 
   const load = async () => {
     try {
@@ -48,6 +74,29 @@ export default function AvatarStudio() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    const last = data?.setup?.last_job;
+    if (!last || last.done) {
+      setSetupJob(last || null);
+      return undefined;
+    }
+    setSetupJob(last);
+    const id = last.job_id;
+    const timer = setInterval(async () => {
+      try {
+        const r = await api.get(`/avatar-studio/jobs/${id}`);
+        setSetupJob(r.data);
+        if (r.data.done) {
+          clearInterval(timer);
+          load();
+        }
+      } catch {
+        /* keep waiting — the home PC may still be installing */
+      }
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [data?.setup?.last_job?.job_id, data?.setup?.last_job?.status]);
 
   const handleUpload = async (angle, file) => {
     if (!file) return;
@@ -129,7 +178,7 @@ export default function AvatarStudio() {
         presentation: r.data.body.presentation,
         notes: r.data.body.notes || "",
       });
-      toast.success("Body sheet saved — InstantID will use this.");
+      toast.success("Saved.");
     } catch (e) {
       toast.error(e.response?.data?.detail || "Couldn't save measurements.");
     } finally {
@@ -162,11 +211,11 @@ export default function AvatarStudio() {
           notes: body.notes,
         },
       });
-      setJobHint(r.data.hint || r.data.howto || "Queued on your home PC.");
-      toast.success(kind === "look" ? "Opening LivePortrait on your PC…" : "Queued on your home PC.");
+      setJobHint(r.data.hint || r.data.howto || "Your home computer is working on it.");
+      toast.success(kind === "look" ? "Look at the computer — your twin is opening." : "Your home computer is working on it.");
       load();
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Couldn't start that on your PC.");
+      toast.error(plainErr(e, "Couldn't start that. Is the Heirloom app open on the home computer?"));
     } finally {
       setBusy("");
     }
@@ -177,12 +226,55 @@ export default function AvatarStudio() {
     setBusy(`pinokio:${url}`);
     try {
       await api.post("/companion/queue-command", { kind: "open_url", payload: { url } });
-      toast.success("Opening Pinokio on your home computer.");
+      toast.success("Opening the install page on your home computer.");
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Couldn't reach your PC. Open the Heirloom desktop app.");
+      toast.error(plainErr(e, "Open the Heirloom app on the computer at home first."));
     } finally {
       setBusy("");
     }
+  };
+
+  const runEasySetup = async () => {
+    if (!data?.home?.connected) {
+      toast.error("Open the Heirloom app on the computer at home first.");
+      return;
+    }
+    const already = Boolean(data.setup?.consent_at);
+    if (!already && !consent) {
+      toast.error("Tick the box so we know you want this on your computer.");
+      return;
+    }
+    setBusy("setup");
+    setJobHint("");
+    try {
+      await api.put("/avatar-studio/body", {
+        height_cm: body.height_cm === "" ? null : Number(body.height_cm),
+        weight_kg: body.weight_kg === "" ? null : Number(body.weight_kg),
+        build: body.build,
+        presentation: body.presentation,
+        notes: body.notes,
+      });
+      const r = await api.post("/avatar-studio/setup", { consent: true });
+      setJobHint(r.data.hint || "We're installing the free tools on your computer.");
+      toast.success("Hang tight — your computer is doing the rest.");
+      load();
+    } catch (e) {
+      toast.error(plainErr(e, "Couldn't start. Is the Heirloom app open on the home computer?"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const primaryAction = async () => {
+    if (setupBusy(setupJob)) return;
+    if (setupReady(data) && data.front) {
+      return runJob("look", "liveportrait");
+    }
+    if (setupReady(data) && !data.front) {
+      toast.error("Add a photo of your face first — looking at the camera.");
+      return;
+    }
+    return runEasySetup();
   };
 
   if (!data) {
@@ -196,25 +288,126 @@ export default function AvatarStudio() {
   return (
     <div className="min-h-screen px-6 sm:px-10 py-10" style={{ background: "var(--bg-base)" }} data-testid="avatar-studio">
       <div className="max-w-5xl mx-auto">
-        <div className="overline mb-3">your twin&apos;s body</div>
-        <h1 className="font-serif text-4xl mb-3">Avatar Studio</h1>
+        <div className="overline mb-3">your twin</div>
+        <h1 className="font-serif text-4xl mb-3">Look like you. Talk like you.</h1>
         <p className="text-sm mb-6 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          Upload a few photos of <em>your</em> face, add height and build, then run free local models on the home PC.
-          LivePortrait looks back at you. EchoMimic / Sonic speak in the cloned voice. InstantID builds the full-body still those animators start from.
-          D-ID stays as a paid cloud fallback. This is your likeness, on your machine — don&apos;t upload anyone else.
+          {(data.setup?.blurb) || (data.catalog?.setup?.blurb) || "Three taps. We install the free tools on your home computer. No extra accounts, no passwords."}
+          {" "}Use a photo of <em>you</em> — never someone else.
         </p>
         {data.home && (
           <p className="text-xs mb-8" style={{ color: data.home.online ? "var(--ok, #7da06f)" : "var(--text-muted)" }} data-testid="avatar-home-status">
             <Monitor className="inline h-3.5 w-3.5 mr-1" />
             {data.home.connected
-              ? (data.home.online ? `${data.home.name || "Home PC"} is awake — local jobs run there.` : `${data.home.name || "Home PC"} is paired but asleep. Open the desktop app.`)
-              : "Pair the Heirloom desktop app first. Pinokio and ComfyUI cannot run in the cloud."}
+              ? (data.home.online
+                ? `${data.home.name || "Your computer"} is ready.`
+                : `Open the Heirloom app on ${data.home.name || "the computer at home"}.`)
+              : "First, open the Heirloom app on the computer at home. We install the tools there."}
           </p>
         )}
 
-        {/* upload tiles */}
+        <section className="surface p-6 mb-8" data-testid="avatar-easy-setup">
+          <ol className="text-sm mb-6 space-y-2" style={{ color: "var(--text-secondary)" }}>
+            {((data.setup?.steps) || (data.catalog?.setup?.steps) || []).map((step, i) => (
+              <li key={step}><span className="font-serif mr-2">{i + 1}.</span>{step}</li>
+            ))}
+          </ol>
+          <div className="max-w-md mb-6">
+            <UploadTile
+              angle={ANGLES[0]}
+              img={data.front || data.by_angle?.front}
+              uploading={uploading === "front"}
+              activeUrl={data.active_source_url}
+              onUpload={(file) => handleUpload("front", file)}
+              onUse={setActiveImage}
+              onEnhance={openEnhance}
+              falConfigured={data.fal_configured}
+            />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4 mb-6 max-w-lg">
+            <label className="text-xs" style={{ color: "var(--text-muted)" }}>
+              About how tall are you? (cm, optional)
+              <input
+                type="number"
+                min="90"
+                max="230"
+                value={body.height_cm}
+                onChange={(e) => setBody((b) => ({ ...b, height_cm: e.target.value }))}
+                data-testid="avatar-height"
+                className="mt-1 w-full px-3 py-2 text-sm rounded-sm"
+                style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+              />
+            </label>
+            <label className="text-xs" style={{ color: "var(--text-muted)" }}>
+              How would you describe your build?
+              <select
+                value={body.build}
+                onChange={(e) => setBody((b) => ({ ...b, build: e.target.value }))}
+                data-testid="avatar-build"
+                className="mt-1 w-full px-3 py-2 text-sm rounded-sm"
+                style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+              >
+                {(data.catalog?.builds || ["slim", "average", "athletic", "heavy"]).map((b) => (
+                  <option key={b} value={b}>{BUILD_LABELS[b] || b}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {data.setup?.consent_at ? (
+            <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>
+              You already said yes. We never ask for a Pinokio or ComfyUI password — those programs do not need an account.
+            </p>
+          ) : (
+            <label className="flex items-start gap-3 mb-4 text-sm" style={{ color: "var(--text-secondary)" }} data-testid="avatar-consent">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+                className="mt-1 h-4 w-4"
+                data-testid="avatar-consent-box"
+              />
+              <span>{(data.setup?.consent) || (data.catalog?.setup?.consent)}</span>
+            </label>
+          )}
+          <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>
+            {(data.setup?.windows_note) || (data.catalog?.setup?.windows_note)}
+          </p>
+          <button
+            type="button"
+            onClick={primaryAction}
+            disabled={!!busy || setupBusy(setupJob)}
+            data-testid="avatar-setup-go"
+            className="inline-flex items-center gap-2 px-5 py-3 text-sm rounded-sm"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          >
+            {(busy === "setup" || setupBusy(setupJob)) ? <Loader2 className="h-4 w-4 animate-spin" /> : setupReady(data) ? <Eye className="h-4 w-4" /> : <Heart className="h-4 w-4" />}
+            {setupBusy(setupJob) || busy === "setup"
+              ? "Working on your computer…"
+              : setupReady(data)
+                ? "Look at me"
+                : "Set up my twin"}
+          </button>
+          {(setupJob || jobHint) && (
+            <p className="text-xs mt-4" style={{ color: "var(--accent)" }} data-testid="avatar-setup-progress">
+              {setupJob?.result_text || jobHint || (setupBusy(setupJob) ? "Downloading the free installer…" : "")}
+            </p>
+          )}
+        </section>
+
+        <button
+          type="button"
+          onClick={() => setShowExtras((v) => !v)}
+          data-testid="avatar-show-extras"
+          className="inline-flex items-center gap-2 text-xs mb-8"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <ChevronDown className={`h-4 w-4 transition-transform ${showExtras ? "rotate-180" : ""}`} />
+          I&apos;m comfortable with extra settings
+        </button>
+
+        {showExtras && (
+          <>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-          {ANGLES.map((a) => (
+          {ANGLES.filter((a) => a.key !== "front").map((a) => (
             <UploadTile
               key={a.key}
               angle={a}
@@ -236,20 +429,7 @@ export default function AvatarStudio() {
           <p className="text-xs mb-5" style={{ color: "var(--text-muted)" }}>
             InstantID and WAN read this as a prompt with your photos. Honest numbers look more like you than flattering ones.
           </p>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-            <label className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Height (cm)
-              <input
-                type="number"
-                min="90"
-                max="230"
-                value={body.height_cm}
-                onChange={(e) => setBody((b) => ({ ...b, height_cm: e.target.value }))}
-                data-testid="avatar-height"
-                className="mt-1 w-full px-3 py-2 text-sm rounded-sm"
-                style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
-              />
-            </label>
+          <div className="grid sm:grid-cols-2 gap-4 mb-4">
             <label className="text-xs" style={{ color: "var(--text-muted)" }}>
               Weight (kg, optional)
               <input
@@ -262,20 +442,6 @@ export default function AvatarStudio() {
                 className="mt-1 w-full px-3 py-2 text-sm rounded-sm"
                 style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
               />
-            </label>
-            <label className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Build
-              <select
-                value={body.build}
-                onChange={(e) => setBody((b) => ({ ...b, build: e.target.value }))}
-                data-testid="avatar-build"
-                className="mt-1 w-full px-3 py-2 text-sm rounded-sm"
-                style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
-              >
-                {(data.catalog?.builds || ["slim", "average", "athletic", "heavy"]).map((b) => (
-                  <option key={b} value={b}>{b}</option>
-                ))}
-              </select>
             </label>
             <label className="text-xs" style={{ color: "var(--text-muted)" }}>
               Presentation
@@ -404,6 +570,8 @@ export default function AvatarStudio() {
             <p className="text-xs mt-4" style={{ color: "var(--accent)" }} data-testid="avatar-job-hint">{jobHint}</p>
           )}
         </section>
+          </>
+        )}
 
         {(data.jobs || []).length > 0 && (
           <section className="mb-10" data-testid="avatar-jobs">

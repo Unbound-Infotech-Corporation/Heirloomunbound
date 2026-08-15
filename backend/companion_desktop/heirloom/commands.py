@@ -494,6 +494,9 @@ def execute(cmd: dict):
         if kind == "llm_chat":
             from .local_ai import llm_chat_local
             return llm_chat_local(payload)
+        if kind == "avatar_setup":
+            from .pinokio_setup import run_easy_setup
+            return run_easy_setup(payload)
         if kind in ("avatar_still", "avatar_talk", "avatar_look"):
             from .avatar_local import run_avatar_job
             body = dict(payload)
