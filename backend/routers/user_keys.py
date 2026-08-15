@@ -37,7 +37,9 @@ USER_FIELDS = {
     # resend is the app's transactional sender — not per-user overrideable here
 }
 
-OAUTH_SERVICES = ("spotify", "github", "google", "microsoft")
+OAUTH_SERVICES = (
+    "spotify", "github", "google", "microsoft", "twitter", "linkedin",
+)
 
 
 def _oauth_server_ready(svc: str) -> bool:
@@ -49,6 +51,19 @@ def _oauth_server_ready(svc: str) -> bool:
         return bool(os.environ.get("SPOTIFY_CLIENT_ID") and os.environ.get("SPOTIFY_CLIENT_SECRET"))
     if svc == "github":
         return bool(os.environ.get("GITHUB_CLIENT_ID") and os.environ.get("GITHUB_CLIENT_SECRET"))
+    if svc == "twitter":
+        return bool(
+            (os.environ.get("TWITTER_CLIENT_ID") or os.environ.get("X_CLIENT_ID"))
+            and (os.environ.get("TWITTER_CLIENT_SECRET") or os.environ.get("X_CLIENT_SECRET"))
+        )
+    if svc == "linkedin":
+        return bool(os.environ.get("LINKEDIN_CLIENT_ID") and os.environ.get("LINKEDIN_CLIENT_SECRET"))
+    try:
+        from services.oauth_catalog import EXTRA_OAUTH, extra_ready
+        if svc in EXTRA_OAUTH:
+            return extra_ready(svc)
+    except Exception:  # noqa: BLE001
+        return False
     return False
 
 
@@ -74,12 +89,17 @@ async def get_status(user: dict = Depends(get_current_user)):
         "source": "admin" if ADMIN_KEYS["stripe"] else "none",
     }
     # OAuth lives in oauth_connections — never on the user doc, never sent to the client.
+    try:
+        from services.oauth_catalog import EXTRA_OAUTH
+        oauth_ids = list(OAUTH_SERVICES) + list(EXTRA_OAUTH)
+    except Exception:  # noqa: BLE001
+        oauth_ids = list(OAUTH_SERVICES)
     rows = await db.oauth_connections.find(
-        {"user_id": user["user_id"], "provider": {"$in": list(OAUTH_SERVICES)}},
+        {"user_id": user["user_id"], "provider": {"$in": oauth_ids}},
         {"_id": 0, "provider": 1},
-    ).to_list(length=20)
+    ).to_list(length=50)
     linked = {r.get("provider") for r in rows}
-    for svc in OAUTH_SERVICES:
+    for svc in oauth_ids:
         has_oauth = svc in linked
         out[svc] = {
             "configured": has_oauth,

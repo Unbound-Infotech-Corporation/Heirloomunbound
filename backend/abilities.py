@@ -208,7 +208,7 @@ ABILITIES: list[dict] = [
     {
         "id": "business",
         "name": "Business",
-        "tagline": "Write a plan in Google Docs, make a spreadsheet, draft SEO, post on X or LinkedIn after you say yes.",
+        "tagline": "Write Docs, read Search & YouTube, draft SEO, post on connected apps after you say yes.",
         "icon": "briefcase",
         "category": "work",
         "default_enabled": True,
@@ -216,27 +216,35 @@ ABILITIES: list[dict] = [
         "tools": [
             "write_google_doc", "write_google_sheet", "list_workspace_files",
             "research_seo", "post_to_social",
+            "read_search_console", "list_youtube", "list_tiktok",
+            "write_notion_page", "save_to_dropbox", "send_mailchimp",
         ],
         "permissions": [
-            {"id": "write_docs", "label": "Create a Google Doc only after you say yes"},
-            {"id": "write_sheets", "label": "Create a spreadsheet only after you say yes"},
-            {"id": "research_marketing", "label": "Look up public pages to draft an SEO plan"},
-            {"id": "post_social", "label": "Post on X or LinkedIn only after you say yes"},
+            {"id": "write_docs", "label": "Create a Google Doc or Notion page only after you say yes"},
+            {"id": "write_sheets", "label": "Create a spreadsheet or Dropbox file only after you say yes"},
+            {"id": "research_marketing", "label": "Look up public pages and Search Console to draft an SEO plan"},
+            {"id": "post_social", "label": "Post on connected apps only after you say yes"},
         ],
         "prompt_block": (
             "Business (enabled):\n"
-            "- Docs/Sheets use the same Connect Gmail tap. If a tool says to reconnect, tell them to tap Connect Gmail again "
-            "so Google can share Docs. NEVER ask for a password.\n"
+            "- Docs/Sheets/YouTube/Search Console use the same Connect Gmail tap. If a tool says to reconnect, "
+            "tell them to tap Connect Gmail again so Google can share Docs, Search, and YouTube. NEVER ask for a password.\n"
             "- `write_google_doc(title, body)` — first call WITHOUT confirmed so they see a draft. "
             "Write the full plan in `body` (business plan, letter, campaign). After they say yes, call again with confirmed=true. "
             "Then share the Google link. If the home PC is open, it can open the Doc.\n"
             "- `write_google_sheet(title, headers, rows)` — same confirm pattern. Use for budgets, keyword lists, posting calendars.\n"
             "- `list_workspace_files()` — Docs/Sheets Heirloom already made.\n"
             "- `research_seo(topic, location, audience)` — public-web starter plan (phrases, two-week posts, page outline). "
-            "Do not invent ranking numbers. Offer to drop it in a Doc or Sheet after they say yes.\n"
-            "- `post_to_social(network, text)` — network is `twitter` (X) or `linkedin`. First call WITHOUT confirmed. "
-            "If they haven't connected, tell them to tap Connect X or Connect LinkedIn on Settings. "
-            "Instagram/Facebook are not available yet (Meta review). NEVER ask for a social password.\n"
+            "Do not invent ranking numbers. For real Google numbers, call `read_search_console()`.\n"
+            "- `read_search_console(site, days)` — Google's numbers for sites they already verified. Never invent rankings.\n"
+            "- `list_youtube()` — channel + recent uploads. Cannot upload a video file.\n"
+            "- `list_tiktok()` — recent TikToks after Connect TikTok. New clips need a video file.\n"
+            "- `post_to_social(network, text)` — twitter (X), linkedin, discord, reddit, pinterest, wordpress, slack. "
+            "First call WITHOUT confirmed. Extra args: title, image_url (Pinterest), subreddit, channel. "
+            "If they haven't connected, tell them to tap Connect on Settings. "
+            "Instagram/Facebook/Threads need Meta review. Bluesky/WhatsApp/Telegram are not wired. NEVER ask for a password.\n"
+            "- `write_notion_page(title, body)` / `save_to_dropbox(filename, body)` / `send_mailchimp(subject, body)` — "
+            "draft first, confirmed=true after they say yes. Notion: they must share a page with Heirloom.\n"
         ),
     },
     {

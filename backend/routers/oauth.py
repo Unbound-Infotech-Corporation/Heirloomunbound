@@ -59,7 +59,9 @@ GOOGLE_SCOPES = (
     "https://www.googleapis.com/auth/calendar.events "
     "https://www.googleapis.com/auth/documents "
     "https://www.googleapis.com/auth/spreadsheets "
-    "https://www.googleapis.com/auth/drive.file"
+    "https://www.googleapis.com/auth/drive.file "
+    "https://www.googleapis.com/auth/youtube.readonly "
+    "https://www.googleapis.com/auth/webmasters.readonly"
 )
 
 MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "")
@@ -99,9 +101,11 @@ async def list_connections(user: dict = Depends(get_current_user)):
     """Return one row per provider showing whether THIS user has connected it."""
     docs = await db.oauth_connections.find(
         {"user_id": user["user_id"]}, {"_id": 0, "access_token": 0, "refresh_token": 0}
-    ).to_list(length=20)
+    ).to_list(length=50)
     by_provider = {d["provider"]: d for d in docs}
+    from services.google_insights import scope_has_search_console, scope_has_youtube
     from services.google_workspace import scope_has_docs, scope_has_sheets
+    from services.oauth_catalog import EXTRA_OAUTH, extra_ready
     google_scope = (by_provider.get("google") or {}).get("scope") or ""
 
     providers = [
@@ -126,13 +130,15 @@ async def list_connections(user: dict = Depends(get_current_user)):
         {
             "provider": "google",
             "label": "Gmail",
-            "description": "One tap. Google asks you — we never see your password. Mail, calendar, Docs, and Sheets. Send, add a date, or create a file only after you say yes.",
+            "description": "One tap. Google asks you — we never see your password. Mail, calendar, Docs, Sheets, Search, and YouTube. Send, add a date, or create a file only after you say yes.",
             "configured": bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI.startswith("http")),
             "connected": "google" in by_provider,
             "profile": by_provider.get("google", {}).get("profile") or None,
             "connected_at": by_provider.get("google", {}).get("connected_at"),
             "docs": scope_has_docs(google_scope),
             "sheets": scope_has_sheets(google_scope),
+            "youtube": scope_has_youtube(google_scope),
+            "search_console": scope_has_search_console(google_scope),
         },
         {
             "provider": "microsoft",
@@ -162,6 +168,16 @@ async def list_connections(user: dict = Depends(get_current_user)):
             "connected_at": by_provider.get("linkedin", {}).get("connected_at"),
         },
     ]
+    for pid, spec in EXTRA_OAUTH.items():
+        providers.append({
+            "provider": pid,
+            "label": spec["label"],
+            "description": spec["description"],
+            "configured": extra_ready(pid),
+            "connected": pid in by_provider,
+            "profile": by_provider.get(pid, {}).get("profile") or None,
+            "connected_at": by_provider.get(pid, {}).get("connected_at"),
+        })
     return {"connections": providers}
 
 
@@ -753,7 +769,7 @@ async def _after_mail_connected(user_id: str, label: str, email: str) -> None:
             "title": f"{label} connected",
             "content": (
                 f"I connected {label} as {addr}. My twin may read recent mail, my calendar, "
-                "and Google Docs or Sheets to help me write, "
+                "Google Docs or Sheets, YouTube, and Search Console, "
                 "and may send mail, add a date, or create a file only after I say yes. "
                 "It never stored my password — I signed in on the provider's own page."
             ),
@@ -774,9 +790,11 @@ async def public_mail_status(user_id: str) -> dict:
             {"_id": 0, "profile": 1, "connected_at": 1, "scope": 1},
         )
         if row:
+            from services.google_insights import scope_has_search_console, scope_has_youtube
             from services.google_workspace import scope_has_docs, scope_has_sheets
             profile = row.get("profile") or {}
             scope = row.get("scope") or ""
+            google = provider == "google"
             return {
                 "connected": True,
                 "provider": provider,
@@ -785,8 +803,10 @@ async def public_mail_status(user_id: str) -> dict:
                 "display_name": profile.get("display_name") or "",
                 "connected_at": row.get("connected_at") or "",
                 "calendar": "calendar" in scope.lower(),
-                "docs": scope_has_docs(scope) if provider == "google" else False,
-                "sheets": scope_has_sheets(scope) if provider == "google" else False,
+                "docs": scope_has_docs(scope) if google else False,
+                "sheets": scope_has_sheets(scope) if google else False,
+                "youtube": scope_has_youtube(scope) if google else False,
+                "search_console": scope_has_search_console(scope) if google else False,
             }
     return {
         "connected": False,
@@ -799,6 +819,8 @@ async def public_mail_status(user_id: str) -> dict:
         "microsoft_ready": _microsoft_ready(),
         "docs": False,
         "sheets": False,
+        "youtube": False,
+        "search_console": False,
         "calendar": False,
     }
 
@@ -1284,21 +1306,143 @@ async def get_fresh_linkedin_token(user_id: str) -> tuple[str, dict] | None:
 
 async def public_social_status(user_id: str) -> dict:
     """Safe status for the UI — no tokens."""
+    from services.oauth_catalog import EXTRA_OAUTH, extra_ready
     out = {
         "twitter": False,
         "linkedin": False,
         "twitter_ready": _twitter_ready(),
         "linkedin_ready": _linkedin_ready(),
         "handles": {},
+        "ready": {
+            "twitter": _twitter_ready(),
+            "linkedin": _linkedin_ready(),
+        },
     }
-    for provider, key in (("twitter", "twitter"), ("linkedin", "linkedin")):
+    for provider in list(EXTRA_OAUTH):
+        out[provider] = False
+        out["ready"][provider] = extra_ready(provider)
+    for provider in ("twitter", "linkedin", *EXTRA_OAUTH):
         row = await db.oauth_connections.find_one(
             {"user_id": user_id, "provider": provider},
             {"_id": 0, "profile": 1},
         )
         if row:
-            out[key] = True
+            out[provider] = True
             profile = row.get("profile") or {}
-            out["handles"][key] = profile.get("display_name") or profile.get("username") or ""
+            out["handles"][provider] = profile.get("display_name") or profile.get("username") or ""
     return out
+
+
+async def get_fresh_extra(user_id: str, provider: str) -> tuple[str, dict] | None:
+    """Valid extra-app access token + public profile. Never returns the refresh token."""
+    from services.oauth_catalog import EXTRA_OAUTH, pick_access_token, refresh_extra_token
+    if provider not in EXTRA_OAUTH:
+        return None
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": provider}, {"_id": 0}
+    )
+    if not row:
+        return None
+    profile = row.get("profile") or {}
+    try:
+        exp = datetime.fromisoformat(row["expires_at"])
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) < exp and row.get("access_token"):
+            return row["access_token"], profile
+    except Exception:
+        if row.get("access_token"):
+            return row["access_token"], profile
+    if not row.get("refresh_token"):
+        if row.get("access_token"):
+            return row["access_token"], profile
+        return None
+    status, tk = refresh_extra_token(provider, row["refresh_token"])
+    access = pick_access_token(provider, tk) if isinstance(tk, dict) else ""
+    if status >= 400 or not access:
+        if row.get("access_token"):
+            return row["access_token"], profile
+        return None
+    patch = {
+        "access_token": access,
+        "last_refreshed_at": _now_iso(),
+    }
+    if tk.get("refresh_token"):
+        patch["refresh_token"] = tk["refresh_token"]
+    if tk.get("expires_in"):
+        patch["expires_at"] = (
+            datetime.now(timezone.utc) + timedelta(seconds=int(tk["expires_in"]) - 60)
+        ).isoformat()
+    await db.oauth_connections.update_one(
+        {"user_id": user_id, "provider": provider},
+        {"$set": patch},
+    )
+    return access, profile
+
+
+# ─────────────────────────── Extra apps (Discord, Reddit, …) ───────────
+
+
+@router.get("/{provider}/connect")
+async def extra_connect(provider: str, user: dict = Depends(get_current_user)):
+    from services.oauth_catalog import EXTRA_OAUTH, build_authorize_url, extra_ready
+    spec = EXTRA_OAUTH.get(provider)
+    if not spec:
+        raise HTTPException(status_code=404, detail="Unknown app")
+    if not extra_ready(provider):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{spec['label']} isn't wired on this server yet. "
+                "Ask the person who set up Heirloom. We never ask for your password."
+            ),
+        )
+    state_token = secrets.token_urlsafe(24)
+    await db.oauth_states.insert_one({
+        "state": state_token,
+        "user_id": user["user_id"],
+        "provider": provider,
+        "created_at": _now_iso(),
+    })
+    return {"authorize_url": build_authorize_url(provider, state_token)}
+
+
+@router.get("/{provider}/callback")
+async def extra_callback(
+    provider: str,
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+):
+    from services.oauth_catalog import (
+        EXTRA_OAUTH,
+        exchange_extra_code,
+        fetch_extra_profile,
+        pick_access_token,
+    )
+    spec = EXTRA_OAUTH.get(provider)
+    redirect_back = f"{PUBLIC_FRONTEND}/settings?{provider}="
+    if not spec:
+        return RedirectResponse(f"{PUBLIC_FRONTEND}/settings?oauth=error:unknown", status_code=302)
+    if error:
+        return RedirectResponse(redirect_back + f"error:{error}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(redirect_back + "error:missing_code", status_code=302)
+    state_row = await db.oauth_states.find_one_and_delete({"state": state, "provider": provider})
+    if not state_row:
+        return RedirectResponse(redirect_back + "error:invalid_state", status_code=302)
+    uid = state_row["user_id"]
+    status, tk = exchange_extra_code(provider, code)
+    access = pick_access_token(provider, tk)
+    if status >= 400 or not access or tk.get("ok") is False:
+        return RedirectResponse(redirect_back + f"error:token_{status}", status_code=302)
+    refresh = str(tk.get("refresh_token") or "")
+    expires_in = int(tk.get("expires_in") or 0) or 30 * 24 * 3600
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in - 60)).isoformat()
+    profile = fetch_extra_profile(provider, access, tk)
+    await _store_connection(
+        uid, provider, access, refresh, expires_at, spec.get("scopes") or spec.get("user_scope") or "", profile, keep_refresh=True,
+    )
+    await _after_social_connected(uid, spec["label"], profile.get("display_name") or "")
+    return RedirectResponse(redirect_back + "connected", status_code=302)
 

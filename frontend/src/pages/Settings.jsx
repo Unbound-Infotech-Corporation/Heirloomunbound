@@ -1026,6 +1026,10 @@ function LiveBroadcastSection() {
 
 function ConnectedAccountsSection() {
   const [data, setData] = useState(null);
+  const socialProviders = new Set([
+    "twitter", "linkedin", "discord", "reddit", "pinterest", "tiktok",
+    "wordpress", "slack", "notion", "dropbox", "mailchimp",
+  ]);
   const load = async () => {
     try {
       const r = await api.get("/oauth/connections");
@@ -1037,9 +1041,14 @@ function ConnectedAccountsSection() {
   // Handle callback for any provider
   useEffect(() => {
     const u = new URL(window.location.href);
-    const labels = { spotify: "Spotify", github: "GitHub", google: "Gmail", microsoft: "Outlook", twitter: "X", linkedin: "LinkedIn" };
+    const labels = {
+      spotify: "Spotify", github: "GitHub", google: "Gmail", microsoft: "Outlook",
+      twitter: "X", linkedin: "LinkedIn", discord: "Discord", reddit: "Reddit",
+      pinterest: "Pinterest", tiktok: "TikTok", wordpress: "WordPress", slack: "Slack",
+      notion: "Notion", dropbox: "Dropbox", mailchimp: "Mailchimp",
+    };
     const mail = new Set(["google", "microsoft"]);
-    const social = new Set(["twitter", "linkedin"]);
+    const social = socialProviders;
     for (const provider of Object.keys(labels)) {
       const p = u.searchParams.get(provider);
       if (!p) continue;
@@ -1047,7 +1056,7 @@ function ConnectedAccountsSection() {
       if (p === "connected") {
         toast.success(
           provider === "google"
-            ? "Gmail connected. Your twin can read mail, write Docs, and send only after you say yes."
+            ? "Gmail connected. Your twin can read mail, Search, YouTube, write Docs, and send only after you say yes."
             : mail.has(provider)
               ? `${label} connected. Your twin can read mail and send only after you say yes.`
               : social.has(provider)
@@ -1108,7 +1117,10 @@ function ConnectedAccountsSection() {
                   ? Github
                   : (c.provider === "google" || c.provider === "microsoft"
                     ? Mail
-                    : (c.provider === "twitter" || c.provider === "linkedin" ? Share2 : Music));
+                    : (c.provider === "twitter" || c.provider === "linkedin" || c.provider === "discord"
+                      || c.provider === "reddit" || c.provider === "pinterest" || c.provider === "tiktok"
+                      || c.provider === "wordpress" || c.provider === "slack" || c.provider === "notion"
+                      || c.provider === "dropbox" || c.provider === "mailchimp" ? Share2 : Music));
                 return <Icon className="h-5 w-5" style={{ color: c.connected ? "var(--accent)" : "var(--text-muted)" }} />;
               })()}
             </div>
@@ -1126,13 +1138,13 @@ function ConnectedAccountsSection() {
               </p>
               {!c.configured ? (
                 <div className="text-xs italic" style={{ color: "var(--text-muted)" }}>
-                  {c.provider === "google" || c.provider === "microsoft" || c.provider === "twitter" || c.provider === "linkedin"
+                  {c.provider === "google" || c.provider === "microsoft" || socialProviders.has(c.provider)
                     ? "This isn't wired on this server yet. Ask the person who set up Heirloom. We never ask for your password."
                     : `Not configured on the server. Set the ${c.provider.toUpperCase()}_CLIENT_ID and _CLIENT_SECRET env vars.`}
                 </div>
               ) : c.connected ? (
                 <div className="flex flex-wrap gap-2">
-                  {c.provider === "google" && c.docs !== true && (
+                  {c.provider === "google" && (c.docs !== true || c.youtube !== true || c.search_console !== true) && (
                     <button
                       type="button"
                       onClick={() => connectProvider("google")}
@@ -1140,7 +1152,7 @@ function ConnectedAccountsSection() {
                       className="px-3 py-1.5 text-xs rounded-sm"
                       style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
                     >
-                      Share Docs & Sheets too
+                      Share Docs, Search & YouTube too
                     </button>
                   )}
                   <button

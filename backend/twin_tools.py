@@ -1255,7 +1255,7 @@ async def _google_workspace_token(user_id: str, *, sheets: bool = False):
     if not row:
         return None, (
             "Google isn't connected. Tap Connect Gmail on Settings. Google will ask — "
-            "we never see the password. That same tap also shares Docs and Sheets."
+            "we never see the password. That same tap also shares Docs, Sheets, Search, and YouTube."
         )
     token = await get_fresh_google_token(user_id)
     if not token:
@@ -1264,6 +1264,30 @@ async def _google_workspace_token(user_id: str, *, sheets: bool = False):
     ok = scope_has_sheets(scope) if sheets else scope_has_docs(scope)
     if not ok:
         return None, DOCS_RECONNECT
+    return token, None
+
+
+async def _google_insights_token(user_id: str, *, youtube: bool = False, search_console: bool = False):
+    from routers.oauth import get_fresh_google_token
+    from services.google_insights import GSC_RECONNECT, YT_RECONNECT, scope_has_search_console, scope_has_youtube
+    from services.google_workspace import DOCS_EXPIRED
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "google"},
+        {"_id": 0, "scope": 1},
+    )
+    if not row:
+        return None, (
+            "Google isn't connected. Tap Connect Gmail on Settings. Google will ask — "
+            "we never see the password. That same tap also shares Search Console and YouTube."
+        )
+    token = await get_fresh_google_token(user_id)
+    if not token:
+        return None, DOCS_EXPIRED
+    scope = row.get("scope") or ""
+    if youtube and not scope_has_youtube(scope):
+        return None, YT_RECONNECT
+    if search_console and not scope_has_search_console(scope):
+        return None, GSC_RECONNECT
     return token, None
 
 
@@ -1389,28 +1413,67 @@ async def exec_research_seo(user_id: str, args: dict) -> dict:
 
 
 async def exec_post_to_social(user_id: str, args: dict) -> dict:
-    from routers.oauth import get_fresh_linkedin_token, get_fresh_twitter_token
+    from routers.oauth import get_fresh_extra, get_fresh_linkedin_token, get_fresh_twitter_token
+    from services.extras_publish import (
+        post_discord_webhook,
+        post_pinterest,
+        post_reddit,
+        post_slack,
+        post_wordpress,
+    )
     from services.social_post import (
         SOCIAL_CONNECT,
         clip_post,
+        coming_soon_message,
         normalize_network,
         post_linkedin,
         post_preview,
         post_tweet,
     )
-    network = normalize_network(str(args.get("network") or ""))
+    raw_network = str(args.get("network") or "")
+    soon = coming_soon_message(raw_network)
+    if soon:
+        return {"summary": soon, "ui": {"kind": "social", "coming_soon": True}}
+    if (raw_network or "").strip().lower() in ("tiktok", "tt"):
+        return {
+            "summary": (
+                "Posting a new TikTok needs a video file — I can draft a caption, "
+                "but I can't upload the clip yet. Ask me to list your TikToks instead."
+            ),
+            "ui": {"kind": "social", "network": "tiktok", "needs_video": True},
+        }
+    network = normalize_network(raw_network)
     if not network:
         return {
-            "summary": "Say whether this is for X (twitter) or LinkedIn.",
+            "summary": (
+                "Say which app: X (twitter), LinkedIn, Discord, Reddit, Pinterest, "
+                "WordPress, or Slack."
+            ),
             "ui": {"kind": "social", "error": "bad_network"},
         }
     text, warn = clip_post(str(args.get("text") or ""), network)
     if not text:
         return {"summary": warn or "Need some words to post.", "ui": {"kind": "social", "error": "missing_text"}}
+    title = str(args.get("title") or "").strip()
+    image_url = str(args.get("image_url") or "").strip()
+    link = str(args.get("link") or "").strip()
+    channel = str(args.get("channel") or "").strip()
+    subreddit = str(args.get("subreddit") or "").strip()
+    board_id = str(args.get("board_id") or "").strip()
     draft = text if not warn else f"{text}\n({warn})"
+    extra_bits = []
+    if title:
+        extra_bits.append(f"Title: {title}")
+    if image_url:
+        extra_bits.append(f"Picture: {image_url}")
+    if subreddit:
+        extra_bits.append(f"Subreddit: {subreddit}")
+    if channel:
+        extra_bits.append(f"Channel: {channel}")
+    preview_body = draft if not extra_bits else draft + "\n" + "\n".join(extra_bits)
     if not bool(args.get("confirmed")):
         return {
-            "summary": post_preview(network, draft),
+            "summary": post_preview(network, preview_body),
             "ui": {"kind": "social", "needs_confirm": True, "network": network, "text": text},
         }
     if network == "twitter":
@@ -1425,20 +1488,211 @@ async def exec_post_to_social(user_id: str, args: dict) -> dict:
             "summary": "Posted on X." + (f" Id {posted['id']}." if posted.get("id") else ""),
             "ui": {"kind": "social", "posted": True, "network": "twitter", "id": posted.get("id")},
         }
-    bundle = await get_fresh_linkedin_token(user_id)
-    if not bundle:
-        return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": "linkedin"}}
-    token, profile = bundle
-    urn = (profile or {}).get("urn") or (profile or {}).get("id") or ""
-    if not urn:
-        return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": "linkedin"}}
+    if network == "linkedin":
+        bundle = await get_fresh_linkedin_token(user_id)
+        if not bundle:
+            return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": "linkedin"}}
+        token, profile = bundle
+        urn = (profile or {}).get("urn") or (profile or {}).get("id") or ""
+        if not urn:
+            return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": "linkedin"}}
+        try:
+            posted = await asyncio.to_thread(post_linkedin, token, str(urn), text)
+        except RuntimeError as exc:
+            return {"summary": str(exc), "ui": {"kind": "social", "error": str(exc)}}
+        return {
+            "summary": "Posted on LinkedIn.",
+            "ui": {"kind": "social", "posted": True, "network": "linkedin", "id": posted.get("id")},
+        }
+    extra = await get_fresh_extra(user_id, network)
+    if not extra:
+        return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": network}}
+    token, profile = extra
     try:
-        posted = await asyncio.to_thread(post_linkedin, token, str(urn), text)
+        if network == "discord":
+            posted = await asyncio.to_thread(
+                post_discord_webhook, str((profile or {}).get("webhook_url") or ""), text
+            )
+        elif network == "reddit":
+            posted = await asyncio.to_thread(
+                post_reddit,
+                token,
+                str((profile or {}).get("username") or ""),
+                title,
+                text,
+                subreddit,
+            )
+        elif network == "pinterest":
+            posted = await asyncio.to_thread(
+                post_pinterest, token, title, text, image_url, link, board_id
+            )
+        elif network == "wordpress":
+            posted = await asyncio.to_thread(
+                post_wordpress, token, title, text, str((profile or {}).get("primary_blog") or "")
+            )
+        elif network == "slack":
+            posted = await asyncio.to_thread(post_slack, token, text, channel)
+        else:
+            return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "error": "bad_network"}}
     except RuntimeError as exc:
         return {"summary": str(exc), "ui": {"kind": "social", "error": str(exc)}}
+    url = posted.get("url") or ""
     return {
-        "summary": "Posted on LinkedIn.",
-        "ui": {"kind": "social", "posted": True, "network": "linkedin", "id": posted.get("id")},
+        "summary": f"Posted on {network}." + (f" {url}" if url else ""),
+        "ui": {"kind": "social", "posted": True, "network": network, "id": posted.get("id"), "url": url},
+    }
+
+
+async def exec_read_search_console(user_id: str, args: dict) -> dict:
+    from services.google_insights import search_console_report
+    token, err = await _google_insights_token(user_id, search_console=True)
+    if not token:
+        return {"summary": err, "ui": {"kind": "seo", "connected": False}}
+    site = str(args.get("site") or "").strip()
+    days = int(args.get("days") or 28)
+    try:
+        plan = await asyncio.to_thread(search_console_report, token, site, days)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "seo", "error": str(exc)}}
+    return {
+        "summary": plan.get("summary") or "No Search Console rows.",
+        "ui": {"kind": "seo", "search_console": True, "site": plan.get("site"), "queries": plan.get("queries")},
+    }
+
+
+async def exec_list_youtube(user_id: str, args: dict) -> dict:
+    from services.google_insights import list_youtube_channel
+    token, err = await _google_insights_token(user_id, youtube=True)
+    if not token:
+        return {"summary": err, "ui": {"kind": "youtube", "connected": False}}
+    try:
+        data = await asyncio.to_thread(list_youtube_channel, token)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "youtube", "error": str(exc)}}
+    return {
+        "summary": data.get("summary") or "No YouTube channel.",
+        "ui": {"kind": "youtube", "channel": data.get("channel"), "videos": data.get("videos")},
+    }
+
+
+async def exec_list_tiktok(user_id: str, args: dict) -> dict:
+    from routers.oauth import get_fresh_extra
+    from services.extras_publish import list_tiktok_videos
+    from services.social_post import SOCIAL_CONNECT
+    extra = await get_fresh_extra(user_id, "tiktok")
+    if not extra:
+        return {
+            "summary": "TikTok isn't connected. Tap Connect TikTok on Settings. TikTok asks — we never see the password.",
+            "ui": {"kind": "tiktok", "connected": False},
+        }
+    token, _profile = extra
+    try:
+        data = await asyncio.to_thread(list_tiktok_videos, token)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "tiktok", "error": str(exc)}}
+    return {
+        "summary": data.get("summary") or SOCIAL_CONNECT,
+        "ui": {"kind": "tiktok", "videos": data.get("videos")},
+    }
+
+
+async def exec_write_notion_page(user_id: str, args: dict) -> dict:
+    from routers.oauth import get_fresh_extra
+    from services.extras_publish import write_notion_page
+    from services.social_post import SOCIAL_CONNECT
+    title = str(args.get("title") or "").strip()[:200] or "Untitled"
+    body = str(args.get("body") or "").strip()
+    if not body:
+        return {"summary": "Need the words for the Notion page.", "ui": {"kind": "notion", "error": "missing_body"}}
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": (
+                f"I drafted this Notion page '{title}'. Ask them to confirm, then call "
+                f"write_notion_page again with confirmed=true.\n---\n{body[:1500]}"
+            ),
+            "ui": {"kind": "notion", "needs_confirm": True, "title": title},
+        }
+    extra = await get_fresh_extra(user_id, "notion")
+    if not extra:
+        return {
+            "summary": "Notion isn't connected. Tap Connect Notion on Settings, then share a page with Heirloom. We never ask for a password.",
+            "ui": {"kind": "notion", "connected": False},
+        }
+    token, _profile = extra
+    try:
+        created = await asyncio.to_thread(write_notion_page, token, title, body)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "notion", "error": str(exc)}}
+    opened = await _maybe_open_url(user_id, created.get("url") or "")
+    return {
+        "summary": f"Saved Notion page '{title}'." + (f" {created.get('url')}" if created.get("url") else "") + opened,
+        "ui": {"kind": "notion", "created": True, "url": created.get("url")},
+    }
+
+
+async def exec_save_to_dropbox(user_id: str, args: dict) -> dict:
+    from routers.oauth import get_fresh_extra
+    from services.extras_publish import save_dropbox_file
+    filename = str(args.get("filename") or "heirloom-note.txt").strip()
+    body = str(args.get("body") or "").strip()
+    if not body:
+        return {"summary": "Need the words for the Dropbox file.", "ui": {"kind": "dropbox", "error": "missing_body"}}
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": (
+                f"I drafted this Dropbox file '{filename}'. Ask them to confirm, then call "
+                f"save_to_dropbox again with confirmed=true.\n---\n{body[:1500]}"
+            ),
+            "ui": {"kind": "dropbox", "needs_confirm": True, "filename": filename},
+        }
+    extra = await get_fresh_extra(user_id, "dropbox")
+    if not extra:
+        return {
+            "summary": "Dropbox isn't connected. Tap Connect Dropbox on Settings. We never ask for a password.",
+            "ui": {"kind": "dropbox", "connected": False},
+        }
+    token, _profile = extra
+    try:
+        saved = await asyncio.to_thread(save_dropbox_file, token, filename, body)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "dropbox", "error": str(exc)}}
+    return {
+        "summary": f"Saved to Dropbox as {saved.get('path') or filename}.",
+        "ui": {"kind": "dropbox", "saved": True, "path": saved.get("path")},
+    }
+
+
+async def exec_send_mailchimp(user_id: str, args: dict) -> dict:
+    from routers.oauth import get_fresh_extra
+    from services.extras_publish import send_mailchimp_campaign
+    subject = str(args.get("subject") or "").strip()[:150] or "Hello"
+    body = str(args.get("body") or "").strip()
+    from_name = str(args.get("from_name") or "").strip() or "Heirloom"
+    if not body:
+        return {"summary": "Need the words for the newsletter.", "ui": {"kind": "mailchimp", "error": "missing_body"}}
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": (
+                f"I drafted this Mailchimp letter '{subject}'. Ask them to confirm, then call "
+                f"send_mailchimp again with confirmed=true.\n---\n{body[:1500]}"
+            ),
+            "ui": {"kind": "mailchimp", "needs_confirm": True, "subject": subject},
+        }
+    extra = await get_fresh_extra(user_id, "mailchimp")
+    if not extra:
+        return {
+            "summary": "Mailchimp isn't connected. Tap Connect Mailchimp on Settings. We never ask for a password.",
+            "ui": {"kind": "mailchimp", "connected": False},
+        }
+    token, profile = extra
+    endpoint = str((profile or {}).get("api_endpoint") or "")
+    try:
+        sent = await asyncio.to_thread(send_mailchimp_campaign, token, endpoint, subject, body, from_name)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "mailchimp", "error": str(exc)}}
+    return {
+        "summary": "Sent the Mailchimp newsletter.",
+        "ui": {"kind": "mailchimp", "sent": True, "id": sent.get("id")},
     }
 
 
@@ -1694,14 +1948,83 @@ BUSINESS_TOOL_SCHEMAS: list[dict] = [
     {"type": "function", "function": {
         "name": "post_to_social",
         "description": (
-            "Post as the owner on X (twitter) or LinkedIn. First call WITHOUT confirmed so they see a draft. "
-            "After they clearly say yes, call again with confirmed=true. Never ask for a password."
+            "Post as the owner on X (twitter), LinkedIn, Discord, Reddit, Pinterest, WordPress, or Slack. "
+            "First call WITHOUT confirmed so they see a draft. After they clearly say yes, call again with confirmed=true. "
+            "Never ask for a password. Instagram/Facebook/Threads/Bluesky/WhatsApp/Telegram are not available. "
+            "TikTok posting needs a video file — use list_tiktok instead."
         ),
         "parameters": {"type": "object", "properties": {
-            "network": {"type": "string", "enum": ["twitter", "linkedin", "x"]},
+            "network": {
+                "type": "string",
+                "enum": ["twitter", "linkedin", "x", "discord", "reddit", "pinterest", "wordpress", "slack"],
+            },
             "text": {"type": "string"},
+            "title": {"type": "string", "description": "Reddit / WordPress / Pinterest title"},
+            "image_url": {"type": "string", "description": "Required for Pinterest (https picture)"},
+            "link": {"type": "string", "description": "Optional Pinterest destination link"},
+            "channel": {"type": "string", "description": "Slack channel name, like general"},
+            "subreddit": {"type": "string", "description": "Reddit community, like r/smallbusiness"},
+            "board_id": {"type": "string", "description": "Optional Pinterest board id"},
             "confirmed": {"type": "boolean", "default": False},
         }, "required": ["network", "text"]},
+    }},
+    {"type": "function", "function": {
+        "name": "read_search_console",
+        "description": (
+            "Read real Google Search Console numbers for sites the owner already verified. "
+            "Do not invent rankings. Same Connect Gmail tap. If not shared yet, tell them to tap Connect Gmail again."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "site": {"type": "string", "description": "Optional Search Console site URL"},
+            "days": {"type": "integer", "description": "Window, 7-90, default 28"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "list_youtube",
+        "description": "List the owner's YouTube channel and recent uploads (same Connect Gmail tap). Cannot upload a video file.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "list_tiktok",
+        "description": "List recent TikToks after Connect TikTok. Cannot upload a new video file.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "write_notion_page",
+        "description": (
+            "Create a Notion page. First call WITHOUT confirmed. After they say yes, confirmed=true. "
+            "They must share a page with Heirloom. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"},
+            "body": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["title", "body"]},
+    }},
+    {"type": "function", "function": {
+        "name": "save_to_dropbox",
+        "description": (
+            "Save a text file under /Heirloom/ in Dropbox. First call WITHOUT confirmed. "
+            "After they say yes, confirmed=true. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "filename": {"type": "string"},
+            "body": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["body"]},
+    }},
+    {"type": "function", "function": {
+        "name": "send_mailchimp",
+        "description": (
+            "Send a Mailchimp newsletter to the first audience. First call WITHOUT confirmed. "
+            "After they clearly say yes, confirmed=true. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "subject": {"type": "string"},
+            "body": {"type": "string"},
+            "from_name": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["subject", "body"]},
     }},
 ]
 
@@ -1750,6 +2073,12 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
     "list_workspace_files": exec_list_workspace_files,
     "research_seo": exec_research_seo,
     "post_to_social": exec_post_to_social,
+    "read_search_console": exec_read_search_console,
+    "list_youtube": exec_list_youtube,
+    "list_tiktok": exec_list_tiktok,
+    "write_notion_page": exec_write_notion_page,
+    "save_to_dropbox": exec_save_to_dropbox,
+    "send_mailchimp": exec_send_mailchimp,
 }
 
 

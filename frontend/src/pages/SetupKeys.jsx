@@ -9,11 +9,14 @@ import {
   EyeOff,
   KeyRound,
   Loader2,
+  FileText,
+  Folder,
   Mail,
   Music2,
   Phone,
   Server,
   Share2,
+  Video,
   Shield,
   ShieldCheck,
   Sparkles,
@@ -49,7 +52,7 @@ const OAUTH = [
   {
     id: "google",
     name: "Gmail",
-    tagline: "One tap. Google asks — we never see your password. Mail, calendar, Docs, and Sheets. Writes only after you say yes.",
+    tagline: "One tap. Google asks — we never see your password. Mail, calendar, Docs, Sheets, Search, and YouTube. Writes only after you say yes.",
     connectPath: "/api/oauth/google/connect",
     accent: "#EA4335",
     icon: Mail,
@@ -77,6 +80,81 @@ const OAUTH = [
     connectPath: "/api/oauth/linkedin/connect",
     accent: "#0A66C2",
     icon: Share2,
+  },
+];
+
+const OAUTH_WORK = [
+  {
+    id: "discord",
+    name: "Discord",
+    tagline: "Pick a channel. The twin can post there after you say yes. Discord asks — we never see the password.",
+    connectPath: "/api/oauth/discord/connect",
+    accent: "#5865F2",
+    icon: Share2,
+  },
+  {
+    id: "reddit",
+    name: "Reddit",
+    tagline: "Post to Reddit after you say yes. Reddit asks — we never see the password.",
+    connectPath: "/api/oauth/reddit/connect",
+    accent: "#FF4500",
+    icon: Share2,
+  },
+  {
+    id: "pinterest",
+    name: "Pinterest",
+    tagline: "Pin a picture and a link after you say yes. Pinterest asks — we never see the password.",
+    connectPath: "/api/oauth/pinterest/connect",
+    accent: "#E60023",
+    icon: Share2,
+  },
+  {
+    id: "tiktok",
+    name: "TikTok",
+    tagline: "See your recent TikToks. A new video still needs a file — we draft captions only.",
+    connectPath: "/api/oauth/tiktok/connect",
+    accent: "#111111",
+    icon: Video,
+  },
+  {
+    id: "wordpress",
+    name: "WordPress",
+    tagline: "Draft or publish a WordPress.com post after you say yes.",
+    connectPath: "/api/oauth/wordpress/connect",
+    accent: "#21759B",
+    icon: FileText,
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    tagline: "Post in Slack after you say yes. Slack asks — we never see the password.",
+    connectPath: "/api/oauth/slack/connect",
+    accent: "#4A154B",
+    icon: Share2,
+  },
+  {
+    id: "notion",
+    name: "Notion",
+    tagline: "Save a page in Notion after you say yes. Share a page with Heirloom first.",
+    connectPath: "/api/oauth/notion/connect",
+    accent: "#111111",
+    icon: FileText,
+  },
+  {
+    id: "dropbox",
+    name: "Dropbox",
+    tagline: "Save a file in Dropbox after you say yes. Dropbox asks — we never see the password.",
+    connectPath: "/api/oauth/dropbox/connect",
+    accent: "#0061FF",
+    icon: Folder,
+  },
+  {
+    id: "mailchimp",
+    name: "Mailchimp",
+    tagline: "Draft a newsletter, send only after you say yes. Mailchimp asks — no password here.",
+    connectPath: "/api/oauth/mailchimp/connect",
+    accent: "#241C15",
+    icon: Mail,
   },
 ];
 
@@ -166,9 +244,9 @@ export default function SetupKeys() {
   useEffect(() => { load(); }, []);
 
   const connectedCount = status
-    ? [...OAUTH, ...BYOK].filter((s) => (status[s.id]?.source === "you")).length
+    ? [...OAUTH, ...OAUTH_WORK, ...BYOK].filter((s) => (status[s.id]?.source === "you")).length
     : 0;
-  const totalConnectable = OAUTH.length + BYOK.length;
+  const totalConnectable = OAUTH.length + OAUTH_WORK.length + BYOK.length;
 
   if (!status) {
     return (
@@ -231,9 +309,20 @@ export default function SetupKeys() {
           {OAUTH.map((s) => (
             <OAuthTile key={s.id} svc={s} status={status[s.id]} />
           ))}
+        </div>
+
+        <SectionHeader
+          overline="post and save · after you say yes"
+          title="More apps, same rule"
+          hint="They ask on their page. We never see the password. The twin shows a draft first."
+        />
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-16">
+          {OAUTH_WORK.map((s) => (
+            <OAuthTile key={s.id} svc={s} status={status[s.id]} />
+          ))}
           <ComingSoonTile
             name="Instagram"
-            tagline="Needs extra approval from Meta. Start with X and LinkedIn — we never ask for a password."
+            tagline="Needs extra approval from Meta. Start with X, LinkedIn, or Pinterest — we never ask for a password."
             accent="#E1306C"
           />
           <ComingSoonTile
@@ -242,9 +331,24 @@ export default function SetupKeys() {
             accent="#1877F2"
           />
           <ComingSoonTile
-            name="Discord"
-            tagline="DMs + servers you're active in feed the archive."
-            accent="#5865F2"
+            name="Threads"
+            tagline="Same Meta review. Not wired yet."
+            accent="#111111"
+          />
+          <ComingSoonTile
+            name="Bluesky"
+            tagline="Their login needs extra setup we don't have. We never ask for an app password."
+            accent="#1185FE"
+          />
+          <ComingSoonTile
+            name="WhatsApp"
+            tagline="That's a business number, not a personal login we can tap."
+            accent="#25D366"
+          />
+          <ComingSoonTile
+            name="Telegram"
+            tagline="Uses a bot token, not your login. Try Discord or Slack instead."
+            accent="#229ED9"
           />
         </div>
 

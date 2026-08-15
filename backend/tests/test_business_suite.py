@@ -128,6 +128,9 @@ def test_catalog_and_tools_declare_business():
         "list_workspace_files",
         "research_seo",
         "post_to_social",
+        "read_search_console",
+        "list_youtube",
+        "write_notion_page",
     ):
         assert name in abilities
         assert name in tools
@@ -137,6 +140,8 @@ def test_catalog_and_tools_declare_business():
     assert "auth/documents" in oauth
     assert "auth/spreadsheets" in oauth
     assert "drive.file" in oauth
+    assert "youtube.readonly" in oauth
+    assert "webmasters.readonly" in oauth
     assert '@router.get("/twitter/connect")' in oauth
     assert '@router.get("/linkedin/connect")' in oauth
     assert "password" in oauth.lower()
@@ -150,15 +155,19 @@ def test_ui_copy_is_grandmother_simple():
     setup = (REPO / "frontend" / "src" / "pages" / "SetupKeys.jsx").read_text(encoding="utf-8")
     abilities = (REPO / "frontend" / "src" / "pages" / "Abilities.jsx").read_text(encoding="utf-8")
     avatar = (REPO / "frontend" / "src" / "pages" / "AvatarStudio.jsx").read_text(encoding="utf-8")
-    assert "Docs, and Sheets" in setup or "Docs and Sheets" in setup
+    assert "Docs, Sheets, Search, and YouTube" in setup or "Docs, and Sheets" in setup
     assert 'id: "twitter"' in setup
     assert 'id: "linkedin"' in setup
+    assert 'id: "discord"' in setup
+    assert 'id: "notion"' in setup
     assert "briefcase" in abilities
     assert "work:" in abilities or 'work: "Work"' in abilities
-    assert "write Google Docs and Sheets" in avatar
+    assert "write Docs" in avatar
     assert "twitter: \"X\"" in settings
     assert "linkedin: \"LinkedIn\"" in settings
-    assert "Share Docs & Sheets too" in settings
+    assert "Share Docs, Search & YouTube too" in settings
     assert "Google Drive (Calendar is live" not in settings
     assert "Instagram" in setup
     assert "Facebook" in setup
+    assert "Bluesky" in setup
+    assert "oauth-coming-discord" not in setup

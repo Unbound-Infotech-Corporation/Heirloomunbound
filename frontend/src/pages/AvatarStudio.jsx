@@ -475,16 +475,16 @@ export default function AvatarStudio() {
                     Tap Connect Gmail again so we can also see your calendar. We still never see your password.
                   </p>
                 )}
-                {data.mail.provider === "google" && data.mail.docs === false && (
+                {data.mail.provider === "google" && (data.mail.docs === false || data.mail.youtube === false || data.mail.search_console === false) && (
                   <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
-                    Tap Connect Gmail again so we can write Google Docs and Sheets. We still never see your password.
+                    Tap Connect Gmail again so we can write Docs, read Search, and see YouTube. We still never see your password.
                   </p>
                 )}
               </>
             ) : (
               <>
                 <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
-                  Want me to watch your inbox, calendar, and write Docs? Connect Gmail — Google asks, we never see your password.
+                  Want me to watch your inbox, calendar, Search, YouTube, and write Docs? Connect Gmail — Google asks, we never see your password.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {data.mail?.google_ready !== false && (
