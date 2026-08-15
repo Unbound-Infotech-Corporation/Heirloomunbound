@@ -1245,6 +1245,203 @@ async def exec_call_contact(user_id: str, args: dict) -> dict:
     }
 
 
+async def _google_workspace_token(user_id: str, *, sheets: bool = False):
+    from routers.oauth import get_fresh_google_token
+    from services.google_workspace import DOCS_EXPIRED, DOCS_RECONNECT, scope_has_docs, scope_has_sheets
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "google"},
+        {"_id": 0, "scope": 1},
+    )
+    if not row:
+        return None, (
+            "Google isn't connected. Tap Connect Gmail on Settings. Google will ask — "
+            "we never see the password. That same tap also shares Docs and Sheets."
+        )
+    token = await get_fresh_google_token(user_id)
+    if not token:
+        return None, DOCS_EXPIRED
+    scope = row.get("scope") or ""
+    ok = scope_has_sheets(scope) if sheets else scope_has_docs(scope)
+    if not ok:
+        return None, DOCS_RECONNECT
+    return token, None
+
+
+async def _maybe_open_url(user_id: str, url: str) -> str:
+    if not url:
+        return ""
+    try:
+        dev = await _active_device(user_id)
+        if not dev or not _device_is_awake(dev):
+            return ""
+        await _queue_pc_command(user_id, "open_url", {"url": url})
+        return " I opened it on your computer."
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+async def exec_write_google_doc(user_id: str, args: dict) -> dict:
+    from services.google_workspace import (
+        business_plan_outline,
+        create_google_document,
+        doc_preview,
+    )
+    title = (args.get("title") or "").strip()[:120]
+    body = (args.get("body") or "").strip()
+    kind = (args.get("kind") or "").strip().lower()
+    offering = (args.get("offering") or "").strip()
+    audience = (args.get("audience") or "").strip()
+    if not title:
+        title = "Business plan" if kind in ("business_plan", "plan") else "Untitled"
+    if not body and kind in ("business_plan", "plan"):
+        body = business_plan_outline(title, offering, audience)
+    if not body:
+        return {
+            "summary": "Need the words for the Doc. Write the plan in `body`, then try again.",
+            "ui": {"kind": "docs", "error": "missing_body"},
+        }
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": doc_preview(title, body),
+            "ui": {"kind": "docs", "needs_confirm": True, "title": title},
+        }
+    token, err = await _google_workspace_token(user_id, sheets=False)
+    if not token:
+        return {"summary": err, "ui": {"kind": "docs", "connected": False}}
+    try:
+        created = await asyncio.to_thread(create_google_document, token, title, body)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "docs", "error": str(exc)}}
+    opened = await _maybe_open_url(user_id, created["url"])
+    return {
+        "summary": f"Created Google Doc '{created['title']}': {created['url']}.{opened}",
+        "ui": {"kind": "docs", "created": True, "url": created["url"], "title": created["title"]},
+    }
+
+
+async def exec_write_google_sheet(user_id: str, args: dict) -> dict:
+    from services.google_workspace import (
+        create_google_spreadsheet,
+        normalize_headers,
+        normalize_rows,
+        sheet_preview,
+    )
+    title = (args.get("title") or "").strip()[:120] or "Untitled sheet"
+    headers = normalize_headers(args.get("headers"))
+    rows = normalize_rows(args.get("rows"), column_count=len(headers) or 1)
+    if not headers and not rows:
+        return {
+            "summary": "Need columns or rows for the spreadsheet.",
+            "ui": {"kind": "sheets", "error": "empty"},
+        }
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": sheet_preview(title, headers, rows),
+            "ui": {"kind": "sheets", "needs_confirm": True, "title": title},
+        }
+    token, err = await _google_workspace_token(user_id, sheets=True)
+    if not token:
+        return {"summary": err, "ui": {"kind": "sheets", "connected": False}}
+    try:
+        created = await asyncio.to_thread(create_google_spreadsheet, token, title, headers, rows)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "sheets", "error": str(exc)}}
+    opened = await _maybe_open_url(user_id, created["url"])
+    return {
+        "summary": f"Created spreadsheet '{created['title']}': {created['url']}.{opened}",
+        "ui": {"kind": "sheets", "created": True, "url": created["url"], "title": created["title"]},
+    }
+
+
+async def exec_list_workspace_files(user_id: str, args: dict) -> dict:
+    from services.google_workspace import format_file_list, list_google_workspace_files
+    token, err = await _google_workspace_token(user_id, sheets=False)
+    if not token:
+        return {"summary": err, "ui": {"kind": "docs", "connected": False}}
+    try:
+        files = await asyncio.to_thread(list_google_workspace_files, token)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "docs", "error": str(exc)}}
+    return {
+        "summary": format_file_list(files),
+        "ui": {"kind": "docs", "files": files},
+    }
+
+
+async def exec_research_seo(user_id: str, args: dict) -> dict:
+    from services.seo_campaign import assemble_campaign, format_campaign
+    topic = (args.get("topic") or "").strip()
+    if not topic:
+        return {"summary": "Need a topic — what the business does.", "ui": {"kind": "seo", "error": "missing_topic"}}
+    location = (args.get("location") or "").strip()
+    audience = (args.get("audience") or "").strip()
+    query = topic if not location else f"{topic} {location}"
+    results: list[dict] = []
+    try:
+        results = await asyncio.to_thread(_sync_ddg_search, f"{query} marketing", 6)
+    except Exception:  # noqa: BLE001
+        results = []
+    plan = assemble_campaign(topic, location=location, audience=audience, results=results)
+    return {
+        "summary": format_campaign(plan),
+        "ui": {"kind": "seo", "plan": plan},
+    }
+
+
+async def exec_post_to_social(user_id: str, args: dict) -> dict:
+    from routers.oauth import get_fresh_linkedin_token, get_fresh_twitter_token
+    from services.social_post import (
+        SOCIAL_CONNECT,
+        clip_post,
+        normalize_network,
+        post_linkedin,
+        post_preview,
+        post_tweet,
+    )
+    network = normalize_network(str(args.get("network") or ""))
+    if not network:
+        return {
+            "summary": "Say whether this is for X (twitter) or LinkedIn.",
+            "ui": {"kind": "social", "error": "bad_network"},
+        }
+    text, warn = clip_post(str(args.get("text") or ""), network)
+    if not text:
+        return {"summary": warn or "Need some words to post.", "ui": {"kind": "social", "error": "missing_text"}}
+    draft = text if not warn else f"{text}\n({warn})"
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": post_preview(network, draft),
+            "ui": {"kind": "social", "needs_confirm": True, "network": network, "text": text},
+        }
+    if network == "twitter":
+        token = await get_fresh_twitter_token(user_id)
+        if not token:
+            return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": "twitter"}}
+        try:
+            posted = await asyncio.to_thread(post_tweet, token, text)
+        except RuntimeError as exc:
+            return {"summary": str(exc), "ui": {"kind": "social", "error": str(exc)}}
+        return {
+            "summary": "Posted on X." + (f" Id {posted['id']}." if posted.get("id") else ""),
+            "ui": {"kind": "social", "posted": True, "network": "twitter", "id": posted.get("id")},
+        }
+    bundle = await get_fresh_linkedin_token(user_id)
+    if not bundle:
+        return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": "linkedin"}}
+    token, profile = bundle
+    urn = (profile or {}).get("urn") or (profile or {}).get("id") or ""
+    if not urn:
+        return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": "linkedin"}}
+    try:
+        posted = await asyncio.to_thread(post_linkedin, token, str(urn), text)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "social", "error": str(exc)}}
+    return {
+        "summary": "Posted on LinkedIn.",
+        "ui": {"kind": "social", "posted": True, "network": "linkedin", "id": posted.get("id")},
+    }
+
+
 COMPUTER_TOOL_SCHEMAS: list[dict] = [
     {"type": "function", "function": {
         "name": "open_on_pc",
@@ -1432,14 +1629,88 @@ PEOPLE_TOOL_SCHEMAS: list[dict] = [
             "name": {"type": "string"},
             "opening_line": {"type": "string", "description": "Optional first sentence the twin says"},
             "confirmed": {"type": "boolean", "default": False},
-        }, "required": ["name"]},
+        },         "required": ["name"]},
     }},
 ]
+
+
+BUSINESS_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "write_google_doc",
+        "description": (
+            "Create a Google Doc (business plan, letter, campaign). First call WITHOUT confirmed so they see a draft. "
+            "Write the full text in body. After they clearly say yes, call again with confirmed=true."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"},
+            "body": {"type": "string", "description": "Full document text"},
+            "kind": {
+                "type": "string",
+                "enum": ["business_plan", "letter", "notes", "campaign"],
+                "description": "If business_plan and body is empty, a simple outline is used",
+            },
+            "offering": {"type": "string", "description": "What they sell — used for a plan outline"},
+            "audience": {"type": "string", "description": "Who it's for — used for a plan outline"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["title"]},
+    }},
+    {"type": "function", "function": {
+        "name": "write_google_sheet",
+        "description": (
+            "Create a Google spreadsheet (budget, keyword list, posting calendar). "
+            "First call WITHOUT confirmed. After they say yes, call again with confirmed=true."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"},
+            "headers": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Column names",
+            },
+            "rows": {
+                "type": "array",
+                "description": "Rows as arrays of strings, or CSV lines",
+            },
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["title"]},
+    }},
+    {"type": "function", "function": {
+        "name": "list_workspace_files",
+        "description": "List Google Docs and Sheets Heirloom already created for this owner.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "research_seo",
+        "description": (
+            "Draft an SEO and posting starter plan from public web pages. "
+            "Do not invent ranking numbers. Offer to put it in a Doc or Sheet after they say yes."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "topic": {"type": "string", "description": "What the business does"},
+            "location": {"type": "string", "description": "Town or region, optional"},
+            "audience": {"type": "string", "description": "Who they want to reach, optional"},
+        }, "required": ["topic"]},
+    }},
+    {"type": "function", "function": {
+        "name": "post_to_social",
+        "description": (
+            "Post as the owner on X (twitter) or LinkedIn. First call WITHOUT confirmed so they see a draft. "
+            "After they clearly say yes, call again with confirmed=true. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "network": {"type": "string", "enum": ["twitter", "linkedin", "x"]},
+            "text": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["network", "text"]},
+    }},
+]
+
 
 TOOL_SCHEMAS += COMPUTER_TOOL_SCHEMAS
 TOOL_SCHEMAS += EMAIL_TOOL_SCHEMAS
 TOOL_SCHEMAS += CALENDAR_TOOL_SCHEMAS
 TOOL_SCHEMAS += PEOPLE_TOOL_SCHEMAS
+TOOL_SCHEMAS += BUSINESS_TOOL_SCHEMAS
 
 
 TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
@@ -1474,6 +1745,11 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
     "create_event": exec_create_event,
     "find_contact": exec_find_contact,
     "call_contact": exec_call_contact,
+    "write_google_doc": exec_write_google_doc,
+    "write_google_sheet": exec_write_google_sheet,
+    "list_workspace_files": exec_list_workspace_files,
+    "research_seo": exec_research_seo,
+    "post_to_social": exec_post_to_social,
 }
 
 

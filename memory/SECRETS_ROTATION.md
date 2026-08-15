@@ -58,11 +58,13 @@ Do these in order — if something breaks, you'll know which key.
 - Cloud Console → https://console.cloud.google.com/apis/credentials
 - OAuth client type: Web application.
 - Redirect URI: `{PUBLIC_BACKEND_URL}/api/oauth/google/callback`
-- Scopes: `gmail.readonly` + `gmail.send` + `calendar.events` (plus openid/email/profile). Production
-  needs Google app verification; until then the Connect button is fine in
-  test/internal use.
+- Scopes: `gmail.readonly` + `gmail.send` + `calendar.events` + `documents` + `spreadsheets` + `drive.file`
+  (plus openid/email/profile). Enable the Google Docs, Sheets, and Drive APIs on the project.
+  Production needs Google app verification; until then the Connect button is fine in test/internal
+  use. Existing Gmail users tap Connect Gmail again (or **Share Docs & Sheets too**) to grant Docs.
 - Optional `GOOGLE_REDIRECT_URI` override. Heirloom never stores the user's
-  Gmail password — only OAuth tokens in `oauth_connections`.
+  Gmail password — only OAuth tokens in `oauth_connections`. We only create files (`drive.file`),
+  we do not browse the whole Drive.
 
 ### 9. Microsoft OAuth · Outlook · `MICROSOFT_CLIENT_ID` + `MICROSOFT_CLIENT_SECRET`
 - Azure app registration → https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps
@@ -71,12 +73,24 @@ Do these in order — if something breaks, you'll know which key.
 - Optional `MICROSOFT_TENANT` (default `common`) and `MICROSOFT_REDIRECT_URI`.
 - Same rule: sign-in happens on Microsoft's page. No Outlook password in Heirloom.
 
-### 10. Sentry · `SENTRY_DSN` (low priority)
+### 10. X (Twitter) OAuth · `TWITTER_CLIENT_ID` + `TWITTER_CLIENT_SECRET`
+- Developer portal → https://developer.x.com/en/portal/dashboard
+- Redirect URI: `{PUBLIC_BACKEND_URL}/api/oauth/twitter/callback`
+- Scopes: `tweet.read tweet.write users.read offline.access`. PKCE (S256) is used.
+- Optional `TWITTER_REDIRECT_URI` (alias `X_*`). Sign-in on X's page. No password in Heirloom.
+
+### 11. LinkedIn OAuth · `LINKEDIN_CLIENT_ID` + `LINKEDIN_CLIENT_SECRET`
+- Redirect URI: `{PUBLIC_BACKEND_URL}/api/oauth/linkedin/callback`
+- Product: Sign In with LinkedIn using OpenID Connect + Share on LinkedIn.
+- Scopes: `openid profile email w_member_social`.
+- Optional `LINKEDIN_REDIRECT_URI`. Same rule: their page, never our password field.
+
+### 12. Sentry · `SENTRY_DSN` (low priority)
 - Not really a "secret" — it's a public write endpoint token, but rotating is
   still good hygiene once a year.
 - https://sentry.io → Settings → Client Keys (DSN) → generate new, deprecate old.
 
-### 9. Emergent Universal Key · `EMERGENT_LLM_KEY`
+### 13. Emergent Universal Key · `EMERGENT_LLM_KEY`
 - Managed by Emergent — if you suspect compromise, contact support to rotate.
 - The `.env` value is populated by the deploy pipeline; no manual step needed.
 

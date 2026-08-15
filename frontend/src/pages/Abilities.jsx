@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Briefcase,
   Calendar,
   Check,
   Eye,
@@ -28,12 +29,14 @@ const ICONS = {
   monitor: Monitor,
   eye: Eye,
   terminal: Terminal,
+  briefcase: Briefcase,
 };
 
 const CATEGORY_LABELS = {
   knowledge: "Knowledge",
   companion: "Companion",
   computer: "Your computer",
+  work: "Work",
 };
 
 export default function Abilities() {

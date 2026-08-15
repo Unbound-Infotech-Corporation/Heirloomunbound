@@ -13,6 +13,7 @@ import {
   Music2,
   Phone,
   Server,
+  Share2,
   Shield,
   ShieldCheck,
   Sparkles,
@@ -48,7 +49,7 @@ const OAUTH = [
   {
     id: "google",
     name: "Gmail",
-    tagline: "One tap. Google asks you — we never see your password. Mail, calendar, and send-only-after-yes.",
+    tagline: "One tap. Google asks — we never see your password. Mail, calendar, Docs, and Sheets. Writes only after you say yes.",
     connectPath: "/api/oauth/google/connect",
     accent: "#EA4335",
     icon: Mail,
@@ -60,6 +61,22 @@ const OAUTH = [
     connectPath: "/api/oauth/microsoft/connect",
     accent: "#0078D4",
     icon: Mail,
+  },
+  {
+    id: "twitter",
+    name: "X",
+    tagline: "Post as you. X asks — we never see the password. The twin shows a draft first.",
+    connectPath: "/api/oauth/twitter/connect",
+    accent: "#111111",
+    icon: Share2,
+  },
+  {
+    id: "linkedin",
+    name: "LinkedIn",
+    tagline: "Same idea for LinkedIn. Draft first, then you say yes.",
+    connectPath: "/api/oauth/linkedin/connect",
+    accent: "#0A66C2",
+    icon: Share2,
   },
 ];
 
@@ -214,6 +231,16 @@ export default function SetupKeys() {
           {OAUTH.map((s) => (
             <OAuthTile key={s.id} svc={s} status={status[s.id]} />
           ))}
+          <ComingSoonTile
+            name="Instagram"
+            tagline="Needs extra approval from Meta. Start with X and LinkedIn — we never ask for a password."
+            accent="#E1306C"
+          />
+          <ComingSoonTile
+            name="Facebook"
+            tagline="Same Meta review. X and LinkedIn work today."
+            accent="#1877F2"
+          />
           <ComingSoonTile
             name="Discord"
             tagline="DMs + servers you're active in feed the archive."

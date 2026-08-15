@@ -17,6 +17,8 @@ love.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import os
 import secrets
 import time
@@ -54,7 +56,10 @@ GOOGLE_SCOPES = (
     "openid email profile "
     "https://www.googleapis.com/auth/gmail.readonly "
     "https://www.googleapis.com/auth/gmail.send "
-    "https://www.googleapis.com/auth/calendar.events"
+    "https://www.googleapis.com/auth/calendar.events "
+    "https://www.googleapis.com/auth/documents "
+    "https://www.googleapis.com/auth/spreadsheets "
+    "https://www.googleapis.com/auth/drive.file"
 )
 
 MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "")
@@ -64,6 +69,22 @@ MICROSOFT_REDIRECT_URI = (
 ).rstrip("/")
 MICROSOFT_SCOPES = "offline_access User.Read Mail.Read Mail.Send Calendars.ReadWrite"
 MICROSOFT_TENANT = os.environ.get("MICROSOFT_TENANT", "common")
+
+TWITTER_CLIENT_ID = os.environ.get("TWITTER_CLIENT_ID") or os.environ.get("X_CLIENT_ID", "")
+TWITTER_CLIENT_SECRET = os.environ.get("TWITTER_CLIENT_SECRET") or os.environ.get("X_CLIENT_SECRET", "")
+TWITTER_REDIRECT_URI = (
+    os.environ.get("TWITTER_REDIRECT_URI")
+    or os.environ.get("X_REDIRECT_URI")
+    or f"{PUBLIC_BACKEND}/api/oauth/twitter/callback"
+).rstrip("/")
+TWITTER_SCOPES = "tweet.read tweet.write users.read offline.access"
+
+LINKEDIN_CLIENT_ID = os.environ.get("LINKEDIN_CLIENT_ID", "")
+LINKEDIN_CLIENT_SECRET = os.environ.get("LINKEDIN_CLIENT_SECRET", "")
+LINKEDIN_REDIRECT_URI = (
+    os.environ.get("LINKEDIN_REDIRECT_URI") or f"{PUBLIC_BACKEND}/api/oauth/linkedin/callback"
+).rstrip("/")
+LINKEDIN_SCOPES = "openid profile email w_member_social"
 
 
 def _now_iso() -> str:
@@ -80,6 +101,8 @@ async def list_connections(user: dict = Depends(get_current_user)):
         {"user_id": user["user_id"]}, {"_id": 0, "access_token": 0, "refresh_token": 0}
     ).to_list(length=20)
     by_provider = {d["provider"]: d for d in docs}
+    from services.google_workspace import scope_has_docs, scope_has_sheets
+    google_scope = (by_provider.get("google") or {}).get("scope") or ""
 
     providers = [
         {
@@ -103,11 +126,13 @@ async def list_connections(user: dict = Depends(get_current_user)):
         {
             "provider": "google",
             "label": "Gmail",
-            "description": "One tap. Google asks you — we never see your password. Your twin can read recent mail, see your calendar, and send or add a date only after you say yes.",
+            "description": "One tap. Google asks you — we never see your password. Mail, calendar, Docs, and Sheets. Send, add a date, or create a file only after you say yes.",
             "configured": bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI.startswith("http")),
             "connected": "google" in by_provider,
             "profile": by_provider.get("google", {}).get("profile") or None,
             "connected_at": by_provider.get("google", {}).get("connected_at"),
+            "docs": scope_has_docs(google_scope),
+            "sheets": scope_has_sheets(google_scope),
         },
         {
             "provider": "microsoft",
@@ -117,6 +142,24 @@ async def list_connections(user: dict = Depends(get_current_user)):
             "connected": "microsoft" in by_provider,
             "profile": by_provider.get("microsoft", {}).get("profile") or None,
             "connected_at": by_provider.get("microsoft", {}).get("connected_at"),
+        },
+        {
+            "provider": "twitter",
+            "label": "X",
+            "description": "Post as you on X. X asks — we never see the password. The twin shows a draft first.",
+            "configured": bool(TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET and TWITTER_REDIRECT_URI.startswith("http")),
+            "connected": "twitter" in by_provider,
+            "profile": by_provider.get("twitter", {}).get("profile") or None,
+            "connected_at": by_provider.get("twitter", {}).get("connected_at"),
+        },
+        {
+            "provider": "linkedin",
+            "label": "LinkedIn",
+            "description": "Post as you on LinkedIn. LinkedIn asks — we never see the password. Draft first, then you say yes.",
+            "configured": bool(LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET and LINKEDIN_REDIRECT_URI.startswith("http")),
+            "connected": "linkedin" in by_provider,
+            "profile": by_provider.get("linkedin", {}).get("profile") or None,
+            "connected_at": by_provider.get("linkedin", {}).get("connected_at"),
         },
     ]
     return {"connections": providers}
@@ -554,8 +597,9 @@ async def google_callback(
         "email": me.get("email"),
         "image": me.get("picture"),
     }
+    granted = (tk.get("scope") or GOOGLE_SCOPES).strip()
     await _store_connection(
-        uid, "google", access, refresh, expires_at, GOOGLE_SCOPES, profile, keep_refresh=True,
+        uid, "google", access, refresh, expires_at, granted, profile, keep_refresh=True,
     )
     await _after_mail_connected(uid, "Gmail", profile.get("email") or "")
     return RedirectResponse(redirect_back + "connected", status_code=302)
@@ -694,7 +738,7 @@ async def _store_connection(
 async def _after_mail_connected(user_id: str, label: str, email: str) -> None:
     try:
         import abilities as ab
-        for aid in ("email", "calendar"):
+        for aid in ("email", "calendar", "business"):
             perms = [p["id"] for p in ab.ABILITY_BY_ID[aid]["permissions"]]
             await ab.set_state(user_id, aid, True, perms)
     except Exception as exc:  # noqa: BLE001
@@ -708,9 +752,10 @@ async def _after_mail_connected(user_id: str, label: str, email: str) -> None:
             "type": "memory",
             "title": f"{label} connected",
             "content": (
-                f"I connected {label} as {addr}. My twin may read recent mail and my calendar to help me, "
-                "and may send mail or add a date only after I say yes. It never stored my password — "
-                "I signed in on the provider's own page."
+                f"I connected {label} as {addr}. My twin may read recent mail, my calendar, "
+                "and Google Docs or Sheets to help me write, "
+                "and may send mail, add a date, or create a file only after I say yes. "
+                "It never stored my password — I signed in on the provider's own page."
             ),
             "tags": ["email", label.lower(), "personality"],
             "source": label.lower(),
@@ -729,7 +774,9 @@ async def public_mail_status(user_id: str) -> dict:
             {"_id": 0, "profile": 1, "connected_at": 1, "scope": 1},
         )
         if row:
+            from services.google_workspace import scope_has_docs, scope_has_sheets
             profile = row.get("profile") or {}
+            scope = row.get("scope") or ""
             return {
                 "connected": True,
                 "provider": provider,
@@ -737,7 +784,9 @@ async def public_mail_status(user_id: str) -> dict:
                 "email": profile.get("email") or "",
                 "display_name": profile.get("display_name") or "",
                 "connected_at": row.get("connected_at") or "",
-                "calendar": "calendar" in (row.get("scope") or "").lower(),
+                "calendar": "calendar" in scope.lower(),
+                "docs": scope_has_docs(scope) if provider == "google" else False,
+                "sheets": scope_has_sheets(scope) if provider == "google" else False,
             }
     return {
         "connected": False,
@@ -748,7 +797,226 @@ async def public_mail_status(user_id: str) -> dict:
         "connected_at": "",
         "google_ready": _google_ready(),
         "microsoft_ready": _microsoft_ready(),
+        "docs": False,
+        "sheets": False,
+        "calendar": False,
     }
+
+
+# ─────────────────────────── X (Twitter) ───────────────────────────
+
+
+def _twitter_ready() -> bool:
+    return bool(TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET and TWITTER_REDIRECT_URI.startswith("http"))
+
+
+def _pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(48)
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return verifier, challenge
+
+
+def _twitter_basic() -> str:
+    raw = f"{TWITTER_CLIENT_ID}:{TWITTER_CLIENT_SECRET}".encode("ascii")
+    return base64.b64encode(raw).decode("ascii")
+
+
+@router.get("/twitter/connect")
+async def twitter_connect(user: dict = Depends(get_current_user)):
+    if not _twitter_ready():
+        raise HTTPException(
+            status_code=400,
+            detail="X isn't wired on this server yet. Ask the person who set up Heirloom. We never ask for your X password.",
+        )
+    state_token = secrets.token_urlsafe(24)
+    verifier, challenge = _pkce_pair()
+    await db.oauth_states.insert_one({
+        "state": state_token,
+        "user_id": user["user_id"],
+        "provider": "twitter",
+        "code_verifier": verifier,
+        "created_at": _now_iso(),
+    })
+    params = {
+        "response_type": "code",
+        "client_id": TWITTER_CLIENT_ID,
+        "redirect_uri": TWITTER_REDIRECT_URI,
+        "scope": TWITTER_SCOPES,
+        "state": state_token,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+    }
+    return {"authorize_url": "https://twitter.com/i/oauth2/authorize?" + urlencode(params)}
+
+
+@router.get("/twitter/callback")
+async def twitter_callback(
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+):
+    redirect_back = f"{PUBLIC_FRONTEND}/settings?twitter="
+    if error:
+        return RedirectResponse(redirect_back + f"error:{error}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(redirect_back + "error:missing_code", status_code=302)
+    state_row = await db.oauth_states.find_one_and_delete({"state": state})
+    if not state_row or not state_row.get("code_verifier"):
+        return RedirectResponse(redirect_back + "error:invalid_state", status_code=302)
+    uid = state_row["user_id"]
+    tok = requests.post(
+        "https://api.twitter.com/2/oauth2/token",
+        headers={
+            "Authorization": f"Basic {_twitter_basic()}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": TWITTER_REDIRECT_URI,
+            "code_verifier": state_row["code_verifier"],
+            "client_id": TWITTER_CLIENT_ID,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return RedirectResponse(redirect_back + f"error:token_{tok.status_code}", status_code=302)
+    tk = tok.json()
+    access = tk.get("access_token")
+    if not access:
+        return RedirectResponse(redirect_back + "error:no_token", status_code=302)
+    refresh = tk.get("refresh_token") or ""
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=int(tk.get("expires_in", 7200)) - 60)).isoformat()
+    me = requests.get(
+        "https://api.twitter.com/2/users/me",
+        headers={"Authorization": f"Bearer {access}"},
+        timeout=10,
+    ).json()
+    data = (me or {}).get("data") if isinstance(me, dict) else {}
+    profile = {
+        "id": (data or {}).get("id"),
+        "display_name": (data or {}).get("name") or (data or {}).get("username"),
+        "username": (data or {}).get("username"),
+    }
+    await _store_connection(
+        uid, "twitter", access, refresh, expires_at, tk.get("scope") or TWITTER_SCOPES, profile, keep_refresh=True,
+    )
+    await _after_social_connected(uid, "X", profile.get("display_name") or "")
+    return RedirectResponse(redirect_back + "connected", status_code=302)
+
+
+# ─────────────────────────── LinkedIn ───────────────────────────
+
+
+def _linkedin_ready() -> bool:
+    return bool(LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET and LINKEDIN_REDIRECT_URI.startswith("http"))
+
+
+@router.get("/linkedin/connect")
+async def linkedin_connect(user: dict = Depends(get_current_user)):
+    if not _linkedin_ready():
+        raise HTTPException(
+            status_code=400,
+            detail="LinkedIn isn't wired on this server yet. Ask the person who set up Heirloom. We never ask for your LinkedIn password.",
+        )
+    state_token = secrets.token_urlsafe(24)
+    await db.oauth_states.insert_one({
+        "state": state_token,
+        "user_id": user["user_id"],
+        "provider": "linkedin",
+        "created_at": _now_iso(),
+    })
+    params = {
+        "response_type": "code",
+        "client_id": LINKEDIN_CLIENT_ID,
+        "redirect_uri": LINKEDIN_REDIRECT_URI,
+        "scope": LINKEDIN_SCOPES,
+        "state": state_token,
+    }
+    return {"authorize_url": "https://www.linkedin.com/oauth/v2/authorization?" + urlencode(params)}
+
+
+@router.get("/linkedin/callback")
+async def linkedin_callback(
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+):
+    redirect_back = f"{PUBLIC_FRONTEND}/settings?linkedin="
+    if error:
+        return RedirectResponse(redirect_back + f"error:{error}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(redirect_back + "error:missing_code", status_code=302)
+    state_row = await db.oauth_states.find_one_and_delete({"state": state})
+    if not state_row:
+        return RedirectResponse(redirect_back + "error:invalid_state", status_code=302)
+    uid = state_row["user_id"]
+    tok = requests.post(
+        "https://www.linkedin.com/oauth/v2/accessToken",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": LINKEDIN_REDIRECT_URI,
+            "client_id": LINKEDIN_CLIENT_ID,
+            "client_secret": LINKEDIN_CLIENT_SECRET,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return RedirectResponse(redirect_back + f"error:token_{tok.status_code}", status_code=302)
+    tk = tok.json()
+    access = tk.get("access_token")
+    if not access:
+        return RedirectResponse(redirect_back + "error:no_token", status_code=302)
+    refresh = tk.get("refresh_token") or ""
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=int(tk.get("expires_in", 5184000)) - 60)).isoformat()
+    me = requests.get(
+        "https://api.linkedin.com/v2/userinfo",
+        headers={"Authorization": f"Bearer {access}"},
+        timeout=10,
+    ).json()
+    sub = (me or {}).get("sub") or ""
+    profile = {
+        "id": sub,
+        "display_name": (me or {}).get("name") or (me or {}).get("given_name"),
+        "email": (me or {}).get("email"),
+        "urn": f"urn:li:person:{sub}" if sub else "",
+    }
+    await _store_connection(
+        uid, "linkedin", access, refresh, expires_at, LINKEDIN_SCOPES, profile, keep_refresh=True,
+    )
+    await _after_social_connected(uid, "LinkedIn", profile.get("display_name") or "")
+    return RedirectResponse(redirect_back + "connected", status_code=302)
+
+
+async def _after_social_connected(user_id: str, label: str, name: str) -> None:
+    try:
+        import abilities as ab
+        perms = [p["id"] for p in ab.ABILITY_BY_ID["business"]["permissions"]]
+        await ab.set_state(user_id, "business", True, perms)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[oauth] enable business ability failed: {exc}")
+    try:
+        import uuid
+        await db.entries.insert_one({
+            "entry_id": f"ent_{uuid.uuid4().hex[:12]}",
+            "user_id": user_id,
+            "type": "memory",
+            "title": f"{label} connected",
+            "content": (
+                f"I connected {label}"
+                + (f" as {name}" if name else "")
+                + ". My twin may draft posts and publish only after I say yes. "
+                "It never stored my password — I signed in on their page."
+            ),
+            "tags": ["social", label.lower(), "personality"],
+            "source": label.lower(),
+            "created_at": _now_iso(),
+            "updated_at": _now_iso(),
+        })
+    except Exception as exc:  # noqa: BLE001
+        print(f"[oauth] social seed failed: {exc}")
 
 
 # ─────────────────────────── Refresh helper (used by music.py later) ──────
@@ -915,3 +1183,122 @@ async def get_fresh_mail_token(user_id: str) -> tuple[str, str, dict] | None:
             return None
         return ("microsoft", token, ms_row.get("profile") or {})
     return None
+
+
+async def get_fresh_twitter_token(user_id: str) -> str | None:
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "twitter"}, {"_id": 0}
+    )
+    if not row:
+        return None
+    try:
+        exp = datetime.fromisoformat(row["expires_at"])
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) < exp:
+            return row["access_token"]
+    except Exception:
+        pass
+    if not row.get("refresh_token") or not TWITTER_CLIENT_ID:
+        return None
+    tok = requests.post(
+        "https://api.twitter.com/2/oauth2/token",
+        headers={
+            "Authorization": f"Basic {_twitter_basic()}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": row["refresh_token"],
+            "client_id": TWITTER_CLIENT_ID,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return None
+    tk = tok.json()
+    patch = {
+        "access_token": tk["access_token"],
+        "last_refreshed_at": _now_iso(),
+    }
+    if tk.get("refresh_token"):
+        patch["refresh_token"] = tk["refresh_token"]
+    if tk.get("expires_in"):
+        patch["expires_at"] = (
+            datetime.now(timezone.utc) + timedelta(seconds=int(tk["expires_in"]) - 60)
+        ).isoformat()
+    await db.oauth_connections.update_one(
+        {"user_id": user_id, "provider": "twitter"},
+        {"$set": patch},
+    )
+    return tk["access_token"]
+
+
+async def get_fresh_linkedin_token(user_id: str) -> tuple[str, dict] | None:
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "linkedin"}, {"_id": 0}
+    )
+    if not row:
+        return None
+    try:
+        exp = datetime.fromisoformat(row["expires_at"])
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) < exp:
+            return row["access_token"], row.get("profile") or {}
+    except Exception:
+        pass
+    if not row.get("refresh_token") or not LINKEDIN_CLIENT_ID:
+        if row.get("access_token"):
+            return row["access_token"], row.get("profile") or {}
+        return None
+    tok = requests.post(
+        "https://www.linkedin.com/oauth/v2/accessToken",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": row["refresh_token"],
+            "client_id": LINKEDIN_CLIENT_ID,
+            "client_secret": LINKEDIN_CLIENT_SECRET,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return None
+    tk = tok.json()
+    patch = {
+        "access_token": tk["access_token"],
+        "last_refreshed_at": _now_iso(),
+    }
+    if tk.get("expires_in"):
+        patch["expires_at"] = (
+            datetime.now(timezone.utc) + timedelta(seconds=int(tk["expires_in"]) - 60)
+        ).isoformat()
+    if tk.get("refresh_token"):
+        patch["refresh_token"] = tk["refresh_token"]
+    await db.oauth_connections.update_one(
+        {"user_id": user_id, "provider": "linkedin"},
+        {"$set": patch},
+    )
+    return tk["access_token"], row.get("profile") or {}
+
+
+async def public_social_status(user_id: str) -> dict:
+    """Safe status for the UI — no tokens."""
+    out = {
+        "twitter": False,
+        "linkedin": False,
+        "twitter_ready": _twitter_ready(),
+        "linkedin_ready": _linkedin_ready(),
+        "handles": {},
+    }
+    for provider, key in (("twitter", "twitter"), ("linkedin", "linkedin")):
+        row = await db.oauth_connections.find_one(
+            {"user_id": user_id, "provider": provider},
+            {"_id": 0, "profile": 1},
+        )
+        if row:
+            out[key] = True
+            profile = row.get("profile") or {}
+            out["handles"][key] = profile.get("display_name") or profile.get("username") or ""
+    return out
+

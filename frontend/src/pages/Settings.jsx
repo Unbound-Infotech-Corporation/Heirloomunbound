@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { CheckCircle2, Github, Languages, Loader2, Mail, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { CheckCircle2, Github, Languages, Loader2, Mail, Music, Palette, Share2, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -830,7 +830,6 @@ export default function Settings() {
         <div className="overline mb-4">on the roadmap</div>
         <ul className="space-y-3 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
           <li>· Wake-word (&ldquo;Hey Twin&rdquo;) on the companion.</li>
-          <li>· Google Drive (Calendar is live with Connect Gmail / Outlook).</li>
           <li>· Sealed letters auto-delivered to heirs on a date you set.</li>
           <li>· Heir release workflow.</li>
         </ul>
@@ -1038,17 +1037,22 @@ function ConnectedAccountsSection() {
   // Handle callback for any provider
   useEffect(() => {
     const u = new URL(window.location.href);
-    const labels = { spotify: "Spotify", github: "GitHub", google: "Gmail", microsoft: "Outlook" };
+    const labels = { spotify: "Spotify", github: "GitHub", google: "Gmail", microsoft: "Outlook", twitter: "X", linkedin: "LinkedIn" };
     const mail = new Set(["google", "microsoft"]);
+    const social = new Set(["twitter", "linkedin"]);
     for (const provider of Object.keys(labels)) {
       const p = u.searchParams.get(provider);
       if (!p) continue;
       const label = labels[provider];
       if (p === "connected") {
         toast.success(
-          mail.has(provider)
-            ? `${label} connected. Your twin can read recent mail and send only after you say yes.`
-            : `${label} connected. Personality signals imported into your archive.`
+          provider === "google"
+            ? "Gmail connected. Your twin can read mail, write Docs, and send only after you say yes."
+            : mail.has(provider)
+              ? `${label} connected. Your twin can read mail and send only after you say yes.`
+              : social.has(provider)
+                ? `${label} connected. Your twin will show a draft before posting.`
+                : `${label} connected. Personality signals imported into your archive.`
         );
       } else {
         toast.error(`${label} connection failed (${p.replace("error:", "")})`);
@@ -1100,7 +1104,11 @@ function ConnectedAccountsSection() {
               }}
             >
               {(() => {
-                const Icon = c.provider === "github" ? Github : (c.provider === "google" || c.provider === "microsoft" ? Mail : Music);
+                const Icon = c.provider === "github"
+                  ? Github
+                  : (c.provider === "google" || c.provider === "microsoft"
+                    ? Mail
+                    : (c.provider === "twitter" || c.provider === "linkedin" ? Share2 : Music));
                 return <Icon className="h-5 w-5" style={{ color: c.connected ? "var(--accent)" : "var(--text-muted)" }} />;
               })()}
             </div>
@@ -1118,19 +1126,32 @@ function ConnectedAccountsSection() {
               </p>
               {!c.configured ? (
                 <div className="text-xs italic" style={{ color: "var(--text-muted)" }}>
-                  {c.provider === "google" || c.provider === "microsoft"
-                    ? "This isn't wired on this server yet. Ask the person who set up Heirloom. We never ask for your email password."
+                  {c.provider === "google" || c.provider === "microsoft" || c.provider === "twitter" || c.provider === "linkedin"
+                    ? "This isn't wired on this server yet. Ask the person who set up Heirloom. We never ask for your password."
                     : `Not configured on the server. Set the ${c.provider.toUpperCase()}_CLIENT_ID and _CLIENT_SECRET env vars.`}
                 </div>
               ) : c.connected ? (
-                <button
-                  onClick={() => disconnect(c.provider)}
-                  data-testid={`oauth-disconnect-${c.provider}`}
-                  className="px-3 py-1.5 text-xs rounded-sm"
-                  style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
-                >
-                  Disconnect
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  {c.provider === "google" && c.docs !== true && (
+                    <button
+                      type="button"
+                      onClick={() => connectProvider("google")}
+                      data-testid="oauth-reconnect-google-docs"
+                      className="px-3 py-1.5 text-xs rounded-sm"
+                      style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+                    >
+                      Share Docs & Sheets too
+                    </button>
+                  )}
+                  <button
+                    onClick={() => disconnect(c.provider)}
+                    data-testid={`oauth-disconnect-${c.provider}`}
+                    className="px-3 py-1.5 text-xs rounded-sm"
+                    style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+                  >
+                    Disconnect
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={() => connectProvider(c.provider)}
