@@ -5,9 +5,24 @@ A professional Windows desktop app for your AI Twin.
 
 QUICK START
 -----------
-1. Double-click `Heirloom.bat`.
-2. First run installs Python deps in %LOCALAPPDATA%\Heirloom — takes ~60 seconds.
-3. The app opens. Your device token is already baked in — no sign-in needed.
+1. Double-click `Heirloom.bat` (Windows) or `run.sh` (Mac).
+2. First run sets Heirloom up — about a minute. Leave the window open.
+   If Python is missing, Heirloom installs it (via winget on Windows). If a
+   Python installer window appears instead, tick "Add python.exe to PATH",
+   finish it, then run the starter again.
+3. The app opens already signed in. Then go to Twin → Avatar Studio in
+   your browser: add a photo, tick the box, tap Set up my twin.
+
+Unzip the folder first. Don't run the starter from inside the zip — copy
+the folder to your Desktop, then double-click.
+
+If Windows shows a blue "Windows protected your PC" box: More info, then
+Run anyway. That is the one click we cannot skip for you.
+
+Lost the zip? Open Local PC in your account and tap Download again on this
+computer. You do not need a new pairing.
+
+Logs: %LOCALAPPDATA%\Heirloom\setup.log
 
 WHAT'S INSIDE
 -------------
@@ -19,18 +34,50 @@ WHAT'S INSIDE
 - A recent-memories sidebar on the left.
 - Push-to-talk: hold Ctrl+Space anywhere in the app to speak; release to send.
 - System tray icon: closing the window minimises to tray; right-click for
-  Quit / Pop-out / Push-to-talk.
+  Quit / Talk in a small window / Pop-out / Push-to-talk.
+
+SMALL TALK WINDOW
+-----------------
+Click "Talk in a small window" on the twin's face, in the tray, or in the
+command palette (Ctrl+K). The big Heirloom window hides. A small always-on-top
+card stays on your screen with the twin's face, a short chat, and hold-to-speak.
+Ask it to do tasks the same way as in the full window. Click "Full window" to
+bring Heirloom back, or close the small card — Heirloom stays in the tray.
+
+UNBOUND KEYBOARD
+----------------
+Tray → Unbound Keyboard, or press Ctrl+Shift+U. Type or paste in that card.
+We catch spelling, little grammar slips, and words you lean on. Then
+"Put this where I was typing" pastes the cleaned words back.
+
+A try-it copy (no house pairing) still does spelling and grammar on this
+computer. Sign in with Google in the big window so this computer can talk
+to your twin. We never ask for a Google or Windows password. We never
+read password boxes.
+
+Double-click Heirloom.bat for the whole app. Try-Unbound-Keyboard.bat
+still opens the writing card on launch.
+
+LOOK AT MY SCREEN
+-----------------
+Click "Look at my screen" (or say it out loud). The twin takes a picture of
+this computer, helps with whatever is on it — a game, a sentence, a movie —
+then deletes the picture. It does not keep what it saw. The Heirloom app must
+be open. Fullscreen games work best with this look; if a game is exclusive
+fullscreen and the picture is black, switch that game to borderless window.
 
 OBS / STREAMING
 ---------------
 Click "Pop out for OBS ↗" on the avatar panel to detach the twin into its own
-borderless, transparent, always-on-top window. In OBS, add a Window Capture
-source and pick "Heirloom Twin — Broadcast".
+borderless, transparent, always-on-top window (face only, no chat). In OBS, add
+a Window Capture source and pick "Heirloom Twin — Broadcast".
 
 REQUIREMENTS
 ------------
-- Windows 10 or 11
-- Python 3.10+ (if missing, the launcher will open the install page for you)
+- Windows 10 or 11 (double-click Heirloom.bat)
+- Mac: double-click run.sh
+- Python 3.10+ (Heirloom.bat installs it if missing on Windows; if a download
+  page opens, tick "Add python.exe to PATH")
 - A working microphone (for push-to-talk)
 - Internet — the twin runs in the cloud
 
@@ -39,7 +86,8 @@ TROUBLESHOOTING
 - No sound when twin speaks? Check default playback device. The D-ID render
   bundles audio inside the MP4 — Windows volume mixer should show Heirloom.
 - Mic not working? Settings → Privacy → Microphone → allow desktop apps.
-- App didn't open? Check %LOCALAPPDATA%\Heirloom for error logs.
+- App didn't open? Open %LOCALAPPDATA%\Heirloom\setup.log. Then Local PC →
+  Download again. Unzip over the old folder and double-click Heirloom.bat.
 
 VOICE CLONING
 -------------

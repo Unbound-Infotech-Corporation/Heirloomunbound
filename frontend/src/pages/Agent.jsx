@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePageMeta } from "@/lib/usePageMeta";
+import FunctionModelPicker, { modelOverride } from "@/components/FunctionModelPicker";
 
 // Focus Mode — the user states a goal, the twin plans steps, they approve,
 // the companion executes. This is the front door for autonomous multi-step
@@ -216,6 +217,7 @@ export default function Agent() {
   const [activeRun, setActiveRun] = useState(null);
   const [runs, setRuns] = useState([]);
   const [companionInfo, setCompanionInfo] = useState({ companion_connected: false });
+  const [modelChoice, setModelChoice] = useState(null);
   const pollRef = useRef(null);
 
   const loadRuns = useCallback(async () => {
@@ -265,7 +267,7 @@ export default function Agent() {
     }
     setPlanning(true);
     try {
-      const { data } = await api.post("/agent/runs", { goal: g });
+      const { data } = await api.post("/agent/runs", { goal: g, ...modelOverride(modelChoice) });
       setActiveRun(data);
       setGoal("");
       loadRuns();
@@ -322,8 +324,11 @@ export default function Agent() {
   return (
     <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl" data-testid="agent-root">
       <header className="mb-10">
-        <div className="overline mb-3 flex items-center gap-2">
-          <Sparkles className="h-3 w-3" /> focus mode
+        <div className="overline mb-3 flex items-center justify-between gap-3 flex-wrap">
+          <span className="inline-flex items-center gap-2">
+            <Sparkles className="h-3 w-3" /> focus mode
+          </span>
+          <FunctionModelPicker functionId="tools" compact onChange={setModelChoice} />
         </div>
         <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">
           One goal, many steps.

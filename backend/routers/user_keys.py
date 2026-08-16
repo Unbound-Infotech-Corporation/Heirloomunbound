@@ -37,7 +37,34 @@ USER_FIELDS = {
     # resend is the app's transactional sender — not per-user overrideable here
 }
 
-OAUTH_SERVICES = ("spotify", "github")
+OAUTH_SERVICES = (
+    "spotify", "github", "google", "microsoft", "twitter", "linkedin",
+)
+
+
+def _oauth_server_ready(svc: str) -> bool:
+    if svc == "google":
+        return bool(os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get("GOOGLE_CLIENT_SECRET"))
+    if svc == "microsoft":
+        return bool(os.environ.get("MICROSOFT_CLIENT_ID") and os.environ.get("MICROSOFT_CLIENT_SECRET"))
+    if svc == "spotify":
+        return bool(os.environ.get("SPOTIFY_CLIENT_ID") and os.environ.get("SPOTIFY_CLIENT_SECRET"))
+    if svc == "github":
+        return bool(os.environ.get("GITHUB_CLIENT_ID") and os.environ.get("GITHUB_CLIENT_SECRET"))
+    if svc == "twitter":
+        return bool(
+            (os.environ.get("TWITTER_CLIENT_ID") or os.environ.get("X_CLIENT_ID"))
+            and (os.environ.get("TWITTER_CLIENT_SECRET") or os.environ.get("X_CLIENT_SECRET"))
+        )
+    if svc == "linkedin":
+        return bool(os.environ.get("LINKEDIN_CLIENT_ID") and os.environ.get("LINKEDIN_CLIENT_SECRET"))
+    try:
+        from services.oauth_catalog import EXTRA_OAUTH, extra_ready
+        if svc in EXTRA_OAUTH:
+            return extra_ready(svc)
+    except Exception:  # noqa: BLE001
+        return False
+    return False
 
 
 @router.get("/status")
@@ -61,14 +88,24 @@ async def get_status(user: dict = Depends(get_current_user)):
         "configured": bool(ADMIN_KEYS["stripe"]),
         "source": "admin" if ADMIN_KEYS["stripe"] else "none",
     }
-    # OAuth links — check user doc for stored tokens
-    for svc in OAUTH_SERVICES:
-        token_field = f"{svc}_oauth"
-        has_oauth = bool((user.get(token_field) or {}).get("access_token"))
+    # OAuth lives in oauth_connections — never on the user doc, never sent to the client.
+    try:
+        from services.oauth_catalog import EXTRA_OAUTH
+        oauth_ids = list(OAUTH_SERVICES) + list(EXTRA_OAUTH)
+    except Exception:  # noqa: BLE001
+        oauth_ids = list(OAUTH_SERVICES)
+    rows = await db.oauth_connections.find(
+        {"user_id": user["user_id"], "provider": {"$in": oauth_ids}},
+        {"_id": 0, "provider": 1},
+    ).to_list(length=50)
+    linked = {r.get("provider") for r in rows}
+    for svc in oauth_ids:
+        has_oauth = svc in linked
         out[svc] = {
             "configured": has_oauth,
             "source": "you" if has_oauth else "none",
             "oauth": True,
+            "server_ready": _oauth_server_ready(svc),
         }
     return out
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Camera, Image as ImageIcon, Loader2, Phone, PhoneIncoming, PhoneOutgoing } from "lucide-react";
+import { useOutletContext } from "react-router-dom";
 import { api } from "@/lib/api";
 
 /**
@@ -8,6 +9,7 @@ import { api } from "@/lib/api";
  * timeline layout.
  */
 export default function MobileHistory() {
+  const { home } = useOutletContext() || {};
   const [calls, setCalls] = useState([]);
   const [entries, setEntries] = useState([]);
   const [photos, setPhotos] = useState([]);
@@ -41,6 +43,12 @@ export default function MobileHistory() {
       <div className="pt-2">
         <div className="overline mb-2">Timeline</div>
         <h1 className="font-serif text-4xl" style={{ color: "var(--text-primary)" }}>Recent</h1>
+        {home?.archive && (
+          <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }} data-testid="history-archive-counts">
+            {home.archive.entries} memories · {home.archive.photos} photos · {home.archive.calls} calls
+            {home.home?.online ? " · home PC online" : " · last synced archive"}
+          </p>
+        )}
       </div>
 
       {/* Calls */}
@@ -81,7 +89,11 @@ export default function MobileHistory() {
         )}
       </section>
 
-      {/* Voice / text entries */}
+      {entries.length === 0 && photos.length === 0 && calls.length === 0 && (
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Nothing yet. Capture a memory or call the twin — it lands in the same archive as your home computer.
+        </p>
+      )}
       {entries.length > 0 && (
         <section data-testid="history-entries">
           <div className="text-xs uppercase tracking-wide mb-2" style={{ color: "var(--text-muted)" }}>

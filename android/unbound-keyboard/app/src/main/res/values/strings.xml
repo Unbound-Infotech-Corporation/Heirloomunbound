@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Unbound Keyboard</string>
+    <string name="ime_name">Unbound Keyboard</string>
+    <string name="subtype_en">English</string>
+    <string name="settings_title">Unbound Keyboard</string>
+    <string name="settings_blurb">Tap Sign in with Google first. A Google page opens. We never see that password. Paste a house slip only if you want Unbound Keyboard to polish wording in your voice. A house slip is not a Google, Microsoft, or phone password. Spelling still works before you paste.</string>
+    <string name="sign_in_google">Sign in with Google</string>
+    <string name="sign_in_google_note">Sign in there. Then this phone can use Heirloom. We never ask you to type a Google password here.</string>
+    <string name="house_blob_hint">Paste the whole house slip here</string>
+    <string name="save">Save</string>
+    <string name="password_note">Unbound Keyboard never reads password, PIN, or card-number boxes. We do not keep other people\'s documents. On iPhone, use Write inside the Heirloom app — Apple does not let us install this keyboard.</string>
+</resources>

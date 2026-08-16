@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { AlarmClock, ArrowRight, BookmarkPlus, Calendar, CheckCircle2, Circle, Clock, Feather, Flame, MessageCircle, Sparkles, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { ToyDesk, ToyKnob, ToyPorthole } from "@/components/ToyPlayset";
+
+const LOOK_AT_SCREEN = "Look at my screen and help me with whatever is on it.";
 
 const GREETINGS = ["Good morning", "Good afternoon", "Good evening"];
 const REFLECTIONS = [
@@ -29,6 +32,8 @@ function pickReflection() {
 
 export default function Today() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [portrait, setPortrait] = useState("");
   const [data, setData] = useState({ overdue: [], today: [], no_date: [] });
   const [stats, setStats] = useState(null);
   const [onthisday, setOnThisDay] = useState(null);
@@ -58,6 +63,9 @@ export default function Today() {
   useEffect(() => {
     load();
     api.get("/nudges/today").then(({ data }) => setNudge(data)).catch(() => {});
+    api.get("/avatar/me")
+      .then(({ data }) => setPortrait(data.avatar_source_url || data.default_url || ""))
+      .catch(() => {});
   }, []);
 
   const dismissNudge = async () => {
@@ -101,6 +109,59 @@ export default function Today() {
           {pickGreeting()}, {user?.name?.split(" ")[0] || "friend"}.
         </h1>
       </header>
+
+      <ToyDesk className="mb-12" testid="today-playset">
+        <div className="toy-playset-row">
+          <ToyPorthole src={portrait} status="ready" />
+          <div className="min-w-0 flex-1">
+            <div className="toy-kicker">the play desk</div>
+            <h2 className="toy-title text-4xl sm:text-5xl mb-3">Press a button.</h2>
+            <p className="toy-copy">
+              That&apos;s the whole trick. A face in a round window — not another inbox to live in.
+            </p>
+            <div className="toy-knob-grid">
+              <ToyKnob color="tomato" to="/twin" testid="playset-knob-talk">
+                Talk
+              </ToyKnob>
+              <ToyKnob
+                color="sunflower"
+                testid="playset-knob-look"
+                onClick={() => navigate("/twin", { state: { starter: LOOK_AT_SCREEN } })}
+                title="The twin looks at the home computer. The picture is deleted after."
+              >
+                Look
+              </ToyKnob>
+              <ToyKnob
+                color="sky"
+                testid="playset-knob-mail"
+                onClick={() => navigate("/twin", { state: { starter: "What's on my plate today?" } })}
+              >
+                Mail
+              </ToyKnob>
+              <ToyKnob color="grass" to="/safety" testid="playset-knob-safety">
+                Safety
+              </ToyKnob>
+              <ToyKnob color="sky" to="/writing" testid="playset-knob-write">
+                Write
+              </ToyKnob>
+              <ToyKnob
+                color="grape"
+                testid="playset-knob-make"
+                onClick={() =>
+                  navigate("/twin", {
+                    state: { starter: "Sketch a picture of a sunny kitchen, then open Photoshop." },
+                  })
+                }
+              >
+                Make
+              </ToyKnob>
+              <ToyKnob color="cream" to="/companion" testid="playset-knob-pc">
+                PC
+              </ToyKnob>
+            </div>
+          </div>
+        </div>
+      </ToyDesk>
 
       {/* Always-on stat strip */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#F4E8C8">
+    <HorizontalScrollView
+        android:id="@+id/candidates"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+        <LinearLayout
+            android:id="@+id/candidate_row"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+    <android.inputmethodservice.KeyboardView
+        android:id="@+id/keyboard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:keyBackground="@android:color/transparent"
+        android:keyTextColor="#3A2418"
+        android:shadowRadius="0" />
+</LinearLayout>

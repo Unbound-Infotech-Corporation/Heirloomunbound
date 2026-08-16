@@ -9,9 +9,12 @@ The panel exposes:
 - `set_level(level)` — drive the waveform while user is recording / twin is talking
 - `pop_out()` — detach the avatar to a borderless, transparent, always-on-top
   window so OBS can window-capture just the twin's face for streaming.
+- `talk_requested` — grandmother-simple compact window (face + chat). Owned by
+  MainWindow; this panel only mirrors the live face into it.
 
 Pop-out mode keeps an `_BroadcastWindow` instance and mirrors playback into
 it (the same QMediaPlayer drives a second QVideoWidget by reparenting).
+The compact talk window uses the same single video sink when it is visible.
 """
 from __future__ import annotations
 
@@ -23,7 +26,7 @@ from typing import Optional
 import requests
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QFrame,
@@ -38,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import api, config
+from ..windows_volume import set_app_session_volume
 from . import PALETTE
 from .aura import Aura
 
@@ -87,6 +91,8 @@ class _Waveform(QWidget):
 class _PortraitVideo(QStackedWidget):
     """Either the user's portrait JPG, or a QVideoWidget playing D-ID output."""
 
+    portrait_loaded = Signal()
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._portrait_url: Optional[str] = None
@@ -130,6 +136,7 @@ class _PortraitVideo(QStackedWidget):
             )
             self._portrait.setPixmap(scaled)
             self._portrait._raw = pm  # keep for re-scale on resize
+            self.portrait_loaded.emit()
 
     def show_portrait(self) -> None:
         self.setCurrentIndex(0)
@@ -202,36 +209,40 @@ class AvatarPanel(QFrame):
     """Center-stage avatar with controls."""
 
     status_changed = Signal(str)  # "idle" | "thinking" | "speaking"
+    talk_requested = Signal()  # open the compact "just the twin" window
 
     def __init__(self, settings: dict, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("avatar_panel")
         self._settings = settings
         self._broadcast: Optional[_BroadcastWindow] = None
+        self._talk = None
         self._tmp_video: Optional[str] = None
 
         # Media
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
-        # -----------------------------------------------------------------
-        # Windows-Mixer fix: QAudioOutput on Windows registers its session
-        # at whatever tiny default the OS picks unless we ALWAYS set volume
-        # explicitly. Without this call the app appears pinned at ~1% in the
-        # Volume Mixer and the slider can't be raised. Also read from config
-        # so a user who lowered it in-app doesn't have their setting stomped.
         try:
             _twin_vol = float(config.load_settings().get("twin_playback_volume", 1.0))
         except Exception:  # noqa: BLE001
             _twin_vol = 1.0
-        # Clamp: 0.0-1.0 per Qt docs. Anything < 0.05 causes the "stuck at 1"
-        # Windows Mixer symptom — floor it so users can't accidentally lock
-        # themselves out via a slider mishap.
-        _twin_vol = max(0.05, min(1.0, _twin_vol))
-        self.audio.setVolume(_twin_vol)
-        # -----------------------------------------------------------------
+        # Keep a copy so we can push again when WASAPI finally creates the
+        # Windows Mixer session (that happens on first play, not at startup).
+        self._desired_volume = max(0.05, min(1.0, _twin_vol))
+        try:
+            self.audio.setMuted(False)
+        except Exception:  # noqa: BLE001
+            pass
         self.player.setAudioOutput(self.audio)
         self.player.mediaStatusChanged.connect(self._on_media_status)
         self.player.errorOccurred.connect(self._on_media_error)
+        self.player.playbackStateChanged.connect(self._on_playback_state)
+        try:
+            self.apply_output_device(
+                str(config.load_settings().get("speaker_device") or "")
+            )
+        except Exception:  # noqa: BLE001
+            self._push_playback_volume()
 
         # Layout
         root = QVBoxLayout(self)
@@ -252,6 +263,12 @@ class AvatarPanel(QFrame):
         self.btn_mode.clicked.connect(self._toggle_mode)
         header.addWidget(self.btn_mode)
 
+        self.btn_talk = QPushButton("Talk in a small window")
+        self.btn_talk.setObjectName("ghost")
+        self.btn_talk.setToolTip("Just you and your twin — the big window hides")
+        self.btn_talk.clicked.connect(self.talk_requested.emit)
+        header.addWidget(self.btn_talk)
+
         self.btn_popout = QPushButton("Pop out for OBS ↗")
         self.btn_popout.setObjectName("ghost")
         self.btn_popout.clicked.connect(self.pop_out)
@@ -269,6 +286,7 @@ class AvatarPanel(QFrame):
         # Add aura FIRST so it's beneath (StackAll draws in insertion order)
         stack.addWidget(self.aura)
         stack.addWidget(self.portrait_video)
+        self.portrait_video.portrait_loaded.connect(self._mirror_faces)
         root.addWidget(stage, 1)
 
         self.waveform = _Waveform(self)
@@ -287,8 +305,7 @@ class AvatarPanel(QFrame):
     # ---- public ----
     def set_portrait_url(self, url: Optional[str]) -> None:
         self.portrait_video.set_portrait_url(url)
-        if self._broadcast is not None:
-            self.portrait_video.set_portrait_url(url)
+        self._mirror_faces()
 
     def set_level(self, level: float) -> None:
         self.waveform.set_level(level)
@@ -391,6 +408,7 @@ class AvatarPanel(QFrame):
         self.player.setVideoOutput(None)  # type: ignore[arg-type]
         self.player.setSource(QUrl.fromLocalFile(path))
         self._start_tts_pulse()
+        self._push_playback_volume()
         self.player.play()
 
     def _on_tts_err(self, msg: str) -> None:
@@ -439,6 +457,54 @@ class AvatarPanel(QFrame):
                 )
             )
         self._broadcast.show()
+        self._mirror_faces()
+        self._route_video_output()
+
+    def attach_talk_window(self, window) -> None:
+        """MainWindow owns the compact talk window; we only mirror the face."""
+        self._talk = window
+        self._mirror_faces()
+        self._route_video_output()
+
+    def _talk_visible(self) -> bool:
+        return self._talk is not None and self._talk.isVisible()
+
+    def _broadcast_visible(self) -> bool:
+        return self._broadcast is not None and self._broadcast.isVisible()
+
+    def _portrait_raw(self):
+        return getattr(self.portrait_video._portrait, "_raw", None)
+
+    def _mirror_faces(self) -> None:
+        raw = self._portrait_raw()
+        if raw is None:
+            return
+        if self._broadcast is not None:
+            self._broadcast.portrait.setPixmap(
+                raw.scaled(
+                    self._broadcast.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+            )
+        if self._talk is not None:
+            self._talk.set_portrait(raw)
+
+    def _route_video_output(self) -> None:
+        """Qt allows one video sink per player. Prefer the window the user is looking at."""
+        playing = self.player.playbackState() == QMediaPlayer.PlayingState
+        if self._talk_visible():
+            self.player.setVideoOutput(self._talk.video)
+            if playing:
+                self._talk.show_video_surface()
+            return
+        if self._broadcast_visible():
+            self.player.setVideoOutput(self._broadcast.video)
+            if playing:
+                self._broadcast.video.show()
+                self._broadcast.portrait.hide()
+            return
+        if playing:
+            video = self.portrait_video.show_video()
+            self.player.setVideoOutput(video)
 
     # ---- internal ----
     def _toggle_mode(self) -> None:
@@ -515,40 +581,76 @@ class AvatarPanel(QFrame):
         self._tmp_video = path
         video = self.portrait_video.show_video()
         self.player.setVideoOutput(video)
-        # Mirror into broadcast window if visible
-        if self._broadcast is not None and self._broadcast.isVisible():
-            # Qt only supports one video sink per player — swap on every pop
+        # One sink: compact talk window first, then OBS broadcast, then this panel.
+        if self._talk_visible():
+            self.player.setVideoOutput(self._talk.video)
+            self._talk.show_video_surface()
+        elif self._broadcast_visible():
             self.player.setVideoOutput(self._broadcast.video)
             self._broadcast.video.show()
             self._broadcast.portrait.hide()
         self.player.setSource(QUrl.fromLocalFile(path))
+        self._push_playback_volume()
         self.player.play()
 
     def _on_media_status(self, status: QMediaPlayer.MediaStatus) -> None:
         if status == QMediaPlayer.EndOfMedia:
             self.set_status("idle")
             self.portrait_video.show_portrait()
-            if self._broadcast is not None and self._broadcast.isVisible():
+            if self._broadcast_visible():
                 self._broadcast.video.hide()
                 self._broadcast.portrait.show()
+            if self._talk_visible():
+                self._talk.show_portrait_surface()
 
     def _on_media_error(self, _err, _msg: str = "") -> None:
         self.set_status("idle")
         self.portrait_video.show_portrait()
+        if self._talk_visible():
+            self._talk.show_portrait_surface()
+
+    def _on_playback_state(self, state: object) -> None:
+        # The Windows Mixer session is created when playback actually starts.
+        # Pushing volume only at construction leaves the slider stuck at 1.
+        if state == QMediaPlayer.PlayingState:
+            self._push_playback_volume()
+            QTimer.singleShot(80, self._push_playback_volume)
+            QTimer.singleShot(250, self._push_playback_volume)
+            QTimer.singleShot(700, self._push_playback_volume)
+
+    def _push_playback_volume(self) -> None:
+        """Apply loudness to Qt and to this app's Windows Mixer session."""
+        try:
+            v = max(0.05, min(1.0, float(self._desired_volume)))
+        except (TypeError, ValueError):
+            v = 1.0
+        self._desired_volume = v
+        try:
+            self.audio.setMuted(False)
+            # Nudge WASAPI: some Qt builds ignore the first setVolume after
+            # setDevice / first play and keep the Mixer at 1%.
+            self.audio.setVolume(1.0)
+            self.audio.setVolume(v)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            set_app_session_volume(v)
+        except Exception:  # noqa: BLE001
+            pass
 
     # --- Public: volume control ---------------------------------------
     def set_playback_volume(self, volume: float) -> None:
         """Set the twin's voice playback volume (0.0-1.0). Persists to config.
 
-        Enforces a 0.05 floor because a QAudioOutput session created at ~0 on
-        Windows sticks in the Volume Mixer at 1% and the OS won't let it be
-        raised without restarting the app.
+        Also writes this process's Windows Mixer session so sndvol.exe is not
+        stuck at 1% with a slider that will not move.
         """
         try:
             v = max(0.05, min(1.0, float(volume)))
         except (TypeError, ValueError):
             return
-        self.audio.setVolume(v)
+        self._desired_volume = v
+        self._push_playback_volume()
         try:
             s = config.load_settings()
             s["twin_playback_volume"] = v
@@ -562,6 +664,33 @@ class AvatarPanel(QFrame):
             return float(self.audio.volume())
         except Exception:  # noqa: BLE001
             return 1.0
+
+    def apply_output_device(self, name: str = "") -> None:
+        """Send the twin's voice to a named speaker, or the usual one if blank."""
+        wanted = (name or "").strip()
+        try:
+            chosen = QMediaDevices.defaultAudioOutput()
+            if wanted:
+                for device in QMediaDevices.audioOutputs():
+                    if device.description() == wanted:
+                        chosen = device
+                        break
+            self.audio.setDevice(chosen)
+        except Exception:  # noqa: BLE001
+            pass
+        # setDevice rebuilds the WASAPI client and drops volume back to 1%.
+        self._push_playback_volume()
+
+    def apply_sound_settings(self, settings: Optional[dict] = None) -> None:
+        """Re-read volume + speaker after Settings → Sound is saved."""
+        data = settings if isinstance(settings, dict) else config.load_settings()
+        try:
+            vol = float(data.get("twin_playback_volume", 1.0))
+        except (TypeError, ValueError):
+            vol = 1.0
+        # Device first — changing it resets Qt volume — then loudness.
+        self.apply_output_device(str(data.get("speaker_device") or ""))
+        self.set_playback_volume(vol)
 
     def _on_broadcast_closed(self) -> None:
         if self._broadcast is not None:

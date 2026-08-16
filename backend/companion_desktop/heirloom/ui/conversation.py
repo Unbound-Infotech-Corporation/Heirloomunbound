@@ -8,10 +8,9 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
-    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -24,6 +23,13 @@ from PySide6.QtWidgets import (
 
 from .. import api, config
 from . import PALETTE
+
+# Solid cards on the glass window. Pale cream letters on Mica wallpaper
+# were unreadable — same contrast language as Unbound Keyboard.
+_INK = "#3a2418"
+_CREAM = "#f4e8c8"
+_TOMATO = "#c45c38"
+_CREAM_TEXT = "#fff8e4"
 
 
 class _Message(QFrame):
@@ -43,22 +49,41 @@ class _Message(QFrame):
         inner.setContentsMargins(14, 10, 14, 12)
         inner.setSpacing(4)
 
-        role_lbl = QLabel("YOU" if role == "user" else "TWIN")
+        you = role == "user"
+        role_lbl = QLabel("YOU SAID" if you else "TWIN")
         role_lbl.setObjectName("role")
+        role_lbl.setStyleSheet(
+            f"color: {_CREAM_TEXT if you else _TOMATO}; background: transparent;"
+            " font-size: 10px; letter-spacing: 2px; font-weight: 800;"
+        )
         inner.addWidget(role_lbl)
 
         body = QLabel(text)
         body.setWordWrap(True)
         body.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        body.setStyleSheet(f"color: {PALETTE['text_primary']}; font-size: 14px; line-height: 1.5;")
+        body.setStyleSheet(
+            f"color: {_CREAM_TEXT if you else _INK}; background: transparent;"
+            " font-size: 16px; font-weight: 600; line-height: 1.45;"
+        )
         inner.addWidget(body)
 
         # Wrap inner in a max-width container so bubbles don't span the whole panel
         wrap = QFrame()
         wrap.setObjectName(self.objectName())
+        wrap.setAttribute(Qt.WA_StyledBackground, True)
         wrap.setLayout(inner)
         wrap.setMaximumWidth(620)
         wrap.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        if you:
+            wrap.setStyleSheet(
+                f"QFrame {{ background: {_TOMATO}; border: 2px solid {_INK};"
+                " border-radius: 16px; }"
+            )
+        else:
+            wrap.setStyleSheet(
+                f"QFrame {{ background: {_CREAM}; border: 2px solid {_INK};"
+                " border-radius: 16px; }"
+            )
 
         if bubbles and role == "user":
             outer.addStretch(1)
@@ -76,6 +101,7 @@ class ConversationPanel(QWidget):
 
     message_sent = Signal(str)   # raw user text right after submit
     reply_received = Signal(str)  # assistant text after API returns
+    messages_changed = Signal()  # transcript updated (chat, voice, history)
 
     def __init__(self, settings: dict, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -97,6 +123,14 @@ class ConversationPanel(QWidget):
         )
         header.addWidget(title)
         header.addStretch(1)
+
+        self.btn_look = QPushButton("Look at my screen")
+        self.btn_look.setObjectName("ghost")
+        self.btn_look.setToolTip(
+            "The twin looks at this computer and helps — games, writing, movies. The picture is deleted after."
+        )
+        self.btn_look.clicked.connect(self._on_look_at_screen)
+        header.addWidget(self.btn_look)
 
         self.btn_style = QPushButton(
             "Bubbles" if settings.get("bubble_style", True) else "Flat"
@@ -148,6 +182,52 @@ class ConversationPanel(QWidget):
         msg = {"role": role, "content": text}
         self._messages.append(msg)
         self._add_widget(msg)
+        self.messages_changed.emit()
+
+    def recent_messages(self, limit: int = 8) -> List[dict]:
+        if limit < 1:
+            return []
+        return list(self._messages[-limit:])
+
+    @property
+    def is_busy(self) -> bool:
+        return bool(self._busy)
+
+    def send_text(self, text: str) -> None:
+        """Send a user turn from the composer or the small talk window."""
+        if self._busy:
+            return
+        text = (text or "").strip()
+        if not text:
+            return
+        self.input.clear()
+        self._busy = True
+        self.append("user", text)
+        self.message_sent.emit(text)
+        # Screen looks need the cloud twin (screenshot + tools). Local Ollama
+        # cannot see this computer.
+        if self._local_chat_active() and not self._needs_screen_look(text):
+            self._send_via_local_chat(text)
+            return
+        api.post_async(
+            "/desktop/chat",
+            {"text": text},
+            on_ok=self._on_reply,
+            on_err=self._on_error,
+        )
+
+    @staticmethod
+    def _needs_screen_look(text: str) -> bool:
+        lower = (text or "").lower()
+        return any(
+            needle in lower
+            for needle in (
+                "look at my screen",
+                "look at the screen",
+                "on my screen",
+                "look at this",
+            )
+        )
 
     # ---- internal ----
     def _on_history(self, data: dict) -> None:
@@ -162,6 +242,7 @@ class ConversationPanel(QWidget):
                 w.deleteLater()
         for m in self._messages:
             self._add_widget(m)
+        self.messages_changed.emit()
 
     def _add_widget(self, msg: dict) -> None:
         bubbles = bool(self._settings.get("bubble_style", True))
@@ -169,17 +250,8 @@ class ConversationPanel(QWidget):
         widget = _Message(role, msg.get("content", ""), bubbles)
         # Insert before the trailing stretch
         self._thread_layout.insertWidget(self._thread_layout.count() - 1, widget)
-        # Fade-in reveal — 240ms opacity ease-out
-        eff = QGraphicsOpacityEffect(widget)
-        widget.setGraphicsEffect(eff)
-        eff.setOpacity(0.0)
-        anim = QPropertyAnimation(eff, b"opacity", widget)
-        anim.setDuration(240)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-        anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim.start()
-        widget._reveal_anim = anim  # keep reference
+        # Do not leave an opacity fade on the bubble — on a
+        # translucent Windows window it washes the letters to gray.
         # Scroll to bottom on next tick
         bar = self.scroll.verticalScrollBar()
         from PySide6.QtCore import QTimer
@@ -195,26 +267,10 @@ class ConversationPanel(QWidget):
         self._on_history({"messages": self._messages})
 
     def _on_send(self) -> None:
-        if self._busy:
-            return
-        text = self.input.toPlainText().strip()
-        if not text:
-            return
-        self.input.clear()
-        self.append("user", text)
-        self.message_sent.emit(text)
-        self._busy = True
-        # If the user has a local chat provider enabled, route directly to it
-        # from the desktop — nothing leaves the machine.
-        if self._local_chat_active():
-            self._send_via_local_chat(text)
-            return
-        api.post_async(
-            "/desktop/chat",
-            {"text": text},
-            on_ok=self._on_reply,
-            on_err=self._on_error,
-        )
+        self.send_text(self.input.toPlainText())
+
+    def _on_look_at_screen(self) -> None:
+        self.send_text("Look at my screen and help me with whatever is on it.")
 
     # -------- Local chat (Ollama / LM Studio / OpenAI-compat) --------
     def _local_chat_active(self) -> bool:
@@ -275,6 +331,8 @@ class ConversationPanel(QWidget):
         if reply:
             self.append("assistant", reply)
             self.reply_received.emit(reply)
+        else:
+            self.messages_changed.emit()
 
     def _on_error(self, msg: str) -> None:
         self._busy = False

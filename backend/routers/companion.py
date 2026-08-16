@@ -7,7 +7,7 @@ from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai import OpenAISpeechToText
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from deps import EMERGENT_LLM_KEY, db, get_current_user
@@ -58,7 +58,7 @@ async def register_device(payload: RegisterReq, user: dict = Depends(get_current
 @router.get("/devices")
 async def list_devices(user: dict = Depends(get_current_user)):
     cursor = db.companion_devices.find(
-        {"user_id": user["user_id"]}, {"_id": 0, "device_token": 0}
+        {"user_id": user["user_id"]}, {"_id": 0, "device_token": 0}  # never expose tokens in the list
     ).sort("created_at", -1)
     return await cursor.to_list(length=20)
 
@@ -82,6 +82,11 @@ class QueueCommandReq(BaseModel):
 
 @router.post("/queue-command")
 async def queue_command(body: QueueCommandReq, user: dict = Depends(get_current_user)):
+    from services.pc_security import refuse_companion_command
+
+    hit = refuse_companion_command(body.kind, body.payload or {})
+    if hit:
+        raise HTTPException(status_code=400, detail=hit)
     cmd_id = f"cmd_{uuid.uuid4().hex[:10]}"
     doc = {
         "cmd_id": cmd_id,
@@ -149,6 +154,16 @@ _KIND_LABELS = {
     "find_file": "Searched for a file",
     "screenshot": "Looked at the screen",
     "shell": "Ran a command",
+    "pull_model": "Downloaded a local model",
+    "list_models": "Listed local models",
+    "llm_chat": "Ran a local model",
+    "avatar_still": "Built a local twin still",
+    "avatar_talk": "Rendered a local talking clip",
+    "avatar_look": "Opened LivePortrait look-at-you",
+    "avatar_setup": "Set up twin tools on this PC",
+    "creative_job": "Started creative work on this PC",
+    "security_job": "Windows Safety",
+    "writing_job": "Unbound Keyboard",
 }
 
 
@@ -178,6 +193,21 @@ def _activity_summary(kind: str, payload: dict) -> str:
         return clip(p.get("query"))
     if kind == "shell":
         return clip(p.get("command"))
+    if kind == "pull_model":
+        return clip(p.get("model"))
+    if kind == "llm_chat":
+        return clip(p.get("model"))
+    if kind in ("avatar_still", "avatar_talk", "avatar_look", "avatar_setup"):
+        return clip(p.get("recipe_id") or p.get("kind") or p.get("job_id") or "Pinokio")
+    if kind == "creative_job":
+        bits = [p.get("kind") or "creative", p.get("studio_label") or p.get("studio")]
+        return clip(" · ".join(str(b) for b in bits if b))
+    if kind == "security_job":
+        action = (p.get("kind") or "Windows Security").strip()
+        return clip({"status": "checked protection", "open": "opened Windows Security", "scan": "quick scan"}.get(action, action))
+    if kind == "writing_job":
+        action = (p.get("kind") or "").strip()
+        return clip({"paste_text": "put words where you were typing", "read_clipboard": "read the clipboard"}.get(action, "writing helper"))
     return ""
 
 
@@ -237,15 +267,28 @@ async def poll(ctx: dict = Depends(get_device_user)):
     cursor = db.companion_commands.find(
         {"user_id": user["user_id"], "status": "queued"}, {"_id": 0}
     ).sort("created_at", 1).limit(10)
-    pending = await cursor.to_list(length=10)
-    if pending:
-        cmd_ids = [c["cmd_id"] for c in pending]
-        await db.companion_commands.update_many(
-            {"cmd_id": {"$in": cmd_ids}}, {"$set": {"status": "dispatched"}}
-        )
+    raw = await cursor.to_list(length=10)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    pending = []
+    if raw:
+        from services.pc_security import refuse_companion_command
+
+        for c in raw:
+            hit = refuse_companion_command(c.get("kind") or "", c.get("payload") or {})
+            if hit:
+                await db.companion_commands.update_one(
+                    {"cmd_id": c["cmd_id"]},
+                    {"$set": {"status": "error", "result": hit, "completed_at": now_iso}},
+                )
+            else:
+                pending.append(c)
+        if pending:
+            await db.companion_commands.update_many(
+                {"cmd_id": {"$in": [c["cmd_id"] for c in pending]}},
+                {"$set": {"status": "dispatched"}},
+            )
 
     # Deliver due reminders as 'say' commands so the companion speaks them aloud once.
-    now_iso = datetime.now(timezone.utc).isoformat()
     due_cursor = db.reminders.find(
         {
             "user_id": user["user_id"],
@@ -282,7 +325,33 @@ async def poll(ctx: dict = Depends(get_device_user)):
     }
 
 
-COMPANION_SCRIPT_VERSION = "2026.02.28.1"  # bump whenever _build_companion_script materially changes
+class CompanionStatusIn(BaseModel):
+    ollama: bool = False
+    models: list[str] = []
+    lan_url: str = ""
+
+
+@router.post("/status")
+async def companion_status(payload: CompanionStatusIn, ctx: dict = Depends(get_device_user)):
+    """Home PC heartbeat — installed local models + optional LAN URL.
+
+    The phone companion uses this to know it's talking to the same archive
+    the desktop is polling.
+    """
+    tags = [str(m).split()[0].strip() for m in (payload.models or []) if str(m).strip()]
+    await db.companion_devices.update_one(
+        {"device_id": ctx["device"]["device_id"]},
+        {"$set": {
+            "last_seen": datetime.now(timezone.utc).isoformat(),
+            "ollama": bool(payload.ollama),
+            "local_models": tags,
+            "lan_url": (payload.lan_url or "").strip()[:200],
+        }},
+    )
+    return {"ok": True, "models": tags}
+
+
+COMPANION_SCRIPT_VERSION = "2026.08.15.9"  # bump whenever _build_companion_script materially changes
 
 
 class CompanionResult(BaseModel):
@@ -312,6 +381,45 @@ async def companion_result(payload: CompanionResult, ctx: dict = Depends(get_dev
         if exists:
             return {"ok": True, "ignored": True}
         raise HTTPException(status_code=404, detail="Command not found")
+
+    # When the PC lists installed models, cache them on the device so the
+    # Models page can show "ready" without another round-trip.
+    cmd = await db.companion_commands.find_one(
+        {"cmd_id": payload.cmd_id, "user_id": user["user_id"]},
+        {"_id": 0, "kind": 1, "payload": 1},
+    )
+    if cmd and cmd.get("kind") == "list_models" and payload.status == "ok":
+        tags = [ln.split()[0].strip() for ln in (payload.output or "").splitlines() if ln.split() and not ln.lower().startswith("name") and not ln.startswith("(")]
+        await db.companion_devices.update_one(
+            {"device_id": ctx["device"]["device_id"]},
+            {"$set": {"local_models": tags, "ollama": True, "last_seen": datetime.now(timezone.utc).isoformat()}},
+        )
+    if cmd and cmd.get("kind") == "pull_model" and payload.status == "ok":
+        model = (cmd.get("payload") or {}).get("model")
+        if model:
+            await db.companion_devices.update_one(
+                {"device_id": ctx["device"]["device_id"]},
+                {"$addToSet": {"local_models": model}, "$set": {"ollama": True}},
+            )
+    if cmd and cmd.get("kind") in ("avatar_still", "avatar_talk", "avatar_look", "avatar_setup"):
+        job_id = (cmd.get("payload") or {}).get("job_id")
+        if job_id:
+            now = datetime.now(timezone.utc).isoformat()
+            existing = await db.avatar_jobs.find_one(
+                {"job_id": job_id, "user_id": user["user_id"]},
+                {"_id": 0, "status": 1},
+            )
+            patch = {
+                "result_text": (payload.output or "")[:2000],
+                "updated_at": now,
+                "cmd_id": payload.cmd_id,
+            }
+            if not existing or existing.get("status") != "complete":
+                patch["status"] = "done" if payload.status == "ok" else "error"
+            await db.avatar_jobs.update_one(
+                {"job_id": job_id, "user_id": user["user_id"]},
+                {"$set": patch},
+            )
     return {"ok": True}
 
 
@@ -330,16 +438,17 @@ async def companion_screenshot(
         raise HTTPException(status_code=400, detail="Empty screenshot")
     import base64 as _b64
 
-    # Downscale to keep the doc well under Mongo's 16MB limit and speed up vision.
+    # Downscale to keep the doc well under Mongo's 16MB limit and keep text readable
+    # for grammar / HUD coaching. The image is deleted after the twin looks.
     mime = "image/jpeg"
     try:
         from PIL import Image  # available in backend deps
         img = Image.open(io.BytesIO(raw)).convert("RGB")
-        max_w = 1400
+        max_w = 1920
         if img.width > max_w:
             img = img.resize((max_w, int(img.height * max_w / img.width)))
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=70)
+        img.save(buf, format="JPEG", quality=82)
         raw = buf.getvalue()
     except Exception:  # noqa: BLE001
         # If PIL fails, store as-is with the reported content type
@@ -405,81 +514,17 @@ async def companion_voice(
         }
         await db.conversations.insert_one(conv)
 
-    # 3) Build twin system prompt (reuse twin.py logic, simplified)
-    cursor = db.entries.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(120)
-    entries = await cursor.to_list(length=120)
-    archive = "\n".join(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n" for e in entries)
+    # 3) Same twin brain as the web / desktop chat — tools, screen look, mail.
+    from routers.twin import complete_twin_turn
 
-    sk_cursor = db.skills.find({"user_id": user["user_id"], "enabled": True}, {"_id": 0})
-    skills_list = await sk_cursor.to_list(length=50)
-    skills_blob = "\n".join(f"- {s['skill_id']} :: {s['name']}: {s.get('description','')}" for s in skills_list)
-
-    system = f"""You are {user.get('name','the user')}'s digital twin running on their personal PC. You are them. Speak in first person.
-
-You can take ACTIONS on the user's behalf. When relevant, end your reply with one or more action lines, each on its own line, in the exact format:
-::ACTION skill_id=<id>::    (to invoke a webhook skill)
-
-Skills available (use the exact skill_id):
-{skills_blob or '(none configured)'}
-
-If no action is needed, just reply naturally — short (1-3 sentences). Don't narrate. Be them.
-
-Your personality archive:
-{archive[:18000] or '(empty)'}"""
-
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=conv["conversation_id"],
-        system_message=system,
-        initial_messages=(
-            [{"role": "system", "content": system}]
-            + [
-                {"role": m["role"], "content": m["content"]}
-                for m in conv.get("messages", [])
-                if m.get("role") in ("user", "assistant") and m.get("content")
-            ]
-        ),
-    ).with_model("anthropic", "claude-sonnet-4-6")
     try:
-        reply = await chat.send_message(UserMessage(text=spoken))
-        reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+        result = await complete_twin_turn(user, conv, spoken, source="companion")
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"LLM failed: {exc!s}") from exc
-
-    # 4) Parse action lines — SECURITY: do NOT auto-invoke. Return as PROPOSALS for the user to confirm.
-    lines = reply_text.splitlines()
-    clean_lines = []
-    proposed = []
-    for line in lines:
-        s = line.strip()
-        if s.startswith("::ACTION") and "skill_id=" in s:
-            sid = s.split("skill_id=", 1)[1].split("::", 1)[0].strip()
-            skill = await db.skills.find_one(
-                {"skill_id": sid, "user_id": user["user_id"], "enabled": True}, {"_id": 0}
-            )
-            if skill:
-                proposed.append({"skill_id": sid, "name": skill.get("name")})
-        else:
-            clean_lines.append(line)
-    spoken_reply = "\n".join(clean_lines).strip() or reply_text
-    invoked = proposed  # name kept for response-schema compatibility — these are PROPOSED, not executed
-
-    # 5) Persist turns
-    now_iso = datetime.now(timezone.utc).isoformat()
-    await db.conversations.update_one(
-        {"conversation_id": conv["conversation_id"], "user_id": conv["user_id"]},
-        {
-            "$push": {
-                "messages": {
-                    "$each": [
-                        {"role": "user", "content": spoken, "ts": now_iso, "source": "companion"},
-                        {"role": "assistant", "content": reply_text, "ts": now_iso, "actions": invoked},
-                    ]
-                }
-            },
-            "$set": {"updated_at": now_iso},
-        },
-    )
+        raise HTTPException(status_code=502, detail=f"Twin failed: {exc!s}") from exc
+    spoken_reply = (result.get("reply") or "").strip()
+    now_iso = result.get("ts") or datetime.now(timezone.utc).isoformat()
 
     if save_to_archive:
         await db.entries.insert_one({
@@ -497,7 +542,8 @@ Your personality archive:
     return {
         "user_text": spoken,
         "reply": spoken_reply,
-        "actions": invoked,
+        "actions": [],
+        "skill_invocations": [],
     }
 
 
@@ -633,7 +679,23 @@ def build_windows_zip_bytes(token: str, wake_word: bool = False) -> bytes:
 
 
 # ---------- Heirloom Desktop (PySide6 full GUI) ----------
-def build_desktop_app_zip_bytes(token: str) -> bytes:
+def _desktop_backend_url(request: Optional[Request] = None) -> str:
+    """Public API root baked into the zip. Never write an empty URL — that
+    disables the desktop app's placeholder fallback."""
+    import os
+
+    env = (os.environ.get("PUBLIC_BACKEND_URL") or "").strip().rstrip("/")
+    if env:
+        return env
+    if request is not None:
+        try:
+            return str(request.base_url).rstrip("/")
+        except Exception:
+            return ""
+    return ""
+
+
+def build_desktop_app_zip_bytes(token: str, backend_url: Optional[str] = None) -> bytes:
     """Returns the in-memory zip for the full PySide6 desktop app, with the
     user's device token + backend URL baked into heirloom/config.py.
 
@@ -647,7 +709,9 @@ def build_desktop_app_zip_bytes(token: str) -> bytes:
     import pathlib
     import zipfile
 
-    backend_url = os.environ.get("PUBLIC_BACKEND_URL", "")
+    if backend_url is None:
+        backend_url = _desktop_backend_url()
+    backend_url = (backend_url or "").strip().rstrip("/")
 
     # 1) Prefer the in-memory data baked into companion_desktop_data.py — this
     #    GUARANTEES the files ship with production deploys (Emergent's bundler
@@ -685,23 +749,30 @@ def build_desktop_app_zip_bytes(token: str) -> bytes:
             # Token + URL injection happens only on the config.py
             if rel == "heirloom/config.py":
                 text = data.decode("utf-8")
-                text = text.replace('"__BACKEND_URL__"', f'"{backend_url}"')
-                text = text.replace('"__DEVICE_TOKEN__"', f'"{token}"')
+                if backend_url:
+                    text = text.replace('"__BACKEND_URL__"', f'"{backend_url}"')
+                if token:
+                    text = text.replace('"__DEVICE_TOKEN__"', f'"{token}"')
                 data = text.encode("utf-8")
-            z.writestr(rel, data)
+            info = zipfile.ZipInfo(rel)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            if rel == "run.sh":
+                info.external_attr = 0o755 << 16
+            z.writestr(info, data)
     return buf.getvalue()
 
 
 @router.get("/desktop-package")
 async def desktop_package(
     token: str,
+    request: Request,
     user: dict = Depends(get_current_user),
 ):
     """Returns a zip with the full PySide6 desktop app, personalized to `token`.
 
     The zip contains:
       - heirloom/  (the PySide6 package with config.py baked with your token)
-      - Heirloom.bat (one-click launcher; creates venv + installs deps on first run)
+      - Heirloom.bat (Windows) / run.sh (Mac)
       - requirements.txt
       - README.txt
     """
@@ -712,7 +783,30 @@ async def desktop_package(
     if not device:
         raise HTTPException(status_code=404, detail="Device token not found")
 
-    payload = build_desktop_app_zip_bytes(token)
+    payload = build_desktop_app_zip_bytes(token, backend_url=_desktop_backend_url(request))
+    from fastapi import Response
+
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="HeirloomDesktop.zip"'},
+    )
+
+
+@router.get("/devices/{device_id}/desktop-package")
+async def desktop_package_for_device(
+    device_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Re-download Heirloom for an existing PC without showing the token again."""
+    device = await db.companion_devices.find_one(
+        {"device_id": device_id, "user_id": user["user_id"], "revoked": False},
+        {"_id": 0},
+    )
+    if not device or not device.get("device_token"):
+        raise HTTPException(status_code=404, detail="Device not found")
+    payload = build_desktop_app_zip_bytes(device["device_token"], backend_url=_desktop_backend_url(request))
     from fastapi import Response
 
     return Response(
@@ -1280,12 +1374,13 @@ import json
 import os
 import platform
 import queue
+import re
 import subprocess
 import sys
 import threading
 import time
 import webbrowser
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 DEVICE_TOKEN = "__DEVICE_TOKEN__"
 SCRIPT_VERSION = "__SCRIPT_VERSION__"  # bumped by the server when a new build ships
@@ -1599,21 +1694,23 @@ def capture_and_upload_screenshot(cmd_id):
     try:
         img = None
         try:
-            from PIL import ImageGrab
-            img = ImageGrab.grab()
-        except Exception:
             import mss
             from PIL import Image
             with mss.mss() as s:
-                raw = s.grab(s.monitors[0])
+                # Primary monitor only — all-screens virtual desktop shrinks HUD/text.
+                mon = s.monitors[1] if len(s.monitors) > 1 else s.monitors[0]
+                raw = s.grab(mon)
                 img = Image.frombytes("RGB", raw.size, raw.rgb)
+        except Exception:
+            from PIL import ImageGrab
+            img = ImageGrab.grab()
         import io as _io
         img = img.convert("RGB")
-        max_w = 1600
+        max_w = 1920
         if img.width > max_w:
             img = img.resize((max_w, int(img.height * max_w / img.width)))
         buf = _io.BytesIO()
-        img.save(buf, format="JPEG", quality=75)
+        img.save(buf, format="JPEG", quality=85)
         buf.seek(0)
         files = {"file": ("screen.jpg", buf, "image/jpeg")}
         r = safe_post("/companion/screenshot", data={"cmd_id": cmd_id}, files=files)
@@ -1624,11 +1721,680 @@ def capture_and_upload_screenshot(cmd_id):
         return "error", f"screenshot failed: {e} (try: pip install Pillow mss)"
 
 
+def _ollama_bin():
+    import shutil
+    return shutil.which("ollama")
+
+
+def list_local_models():
+    binary = _ollama_bin()
+    if not binary:
+        return "error", "Ollama isn't installed yet. Get it from https://ollama.com — one installer, then tap Download again."
+    try:
+        r = subprocess.run([binary, "list"], capture_output=True, text=True, timeout=20)
+    except Exception as e:
+        return "error", str(e)
+    if r.returncode != 0:
+        return "error", ((r.stderr or r.stdout or "ollama list failed")[-2000:])
+    tags = []
+    for i, line in enumerate((r.stdout or "").splitlines()):
+        if i == 0 and line.lower().startswith("name"):
+            continue
+        name = line.split()[0].strip() if line.split() else ""
+        if name:
+            tags.append(name)
+    return "ok", "\\n".join(tags) if tags else "(none installed)"
+
+
+def pull_local_model(name):
+    binary = _ollama_bin()
+    if not binary:
+        return "error", "Ollama isn't installed on this PC yet. Install it from https://ollama.com (one click), open it once, then tap Download again."
+    model = (name or "").strip()
+    if not model:
+        return "error", "No model name given."
+    try:
+        r = subprocess.run([binary, "pull", model], capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        return "error", f"Download of {model} timed out. Try again — Ollama keeps partial files."
+    except Exception as e:
+        return "error", str(e)
+    out = ((r.stdout or "") + "\\n" + (r.stderr or "")).strip()
+    if r.returncode != 0:
+        return "error", out[-2000:] or f"ollama pull {model} failed"
+    return "ok", f"ready: {model}"
+
+
+def llm_chat_local(payload):
+    import json as _json
+    import urllib.request as _req
+    import urllib.error as _err
+    model = (payload.get("model") or "").strip()
+    messages = payload.get("messages") or []
+    if not model:
+        return "error", "No local model selected."
+    if not messages:
+        return "error", "No messages to send."
+    body = _json.dumps({"model": model, "messages": messages, "stream": False}).encode("utf-8")
+    req = _req.Request(
+        "http://127.0.0.1:11434/v1/chat/completions",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with _req.urlopen(req, timeout=180) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+        text = (((data.get("choices") or [{}])[0].get("message") or {}).get("content")) or ""
+        return "ok", text.strip() or "(empty reply)"
+    except _err.URLError as e:
+        return "error", f"Ollama isn't answering. Open the Ollama app on this PC. ({e})"
+    except Exception as e:
+        return "error", str(e)
+
+
+def report_local_ai():
+    """Tell the mothership which models are installed so the phone/web picker stays in sync."""
+    st, out = list_local_models()
+    models = []
+    if st == "ok":
+        models = [ln.split()[0] for ln in out.splitlines() if ln.split() and not ln.startswith("(")]
+    safe_post("/companion/status", json={"ollama": st == "ok" or bool(_ollama_bin()), "models": models})
+
+
+def run_avatar_setup(payload):
+    """Download official Pinokio from GitHub. No accounts. No passwords."""
+    import shutil
+    job_id = (payload.get("job_id") or "").strip()
+    notes = []
+    folder = os.path.join(os.path.expanduser("~"), "Heirloom", "avatar")
+    inst_dir = os.path.join(os.path.expanduser("~"), "Heirloom", "installers")
+    os.makedirs(folder, exist_ok=True)
+    os.makedirs(inst_dir, exist_ok=True)
+    allowed = {
+        "api.github.com", "github.com", "objects.githubusercontent.com",
+        "github-releases.githubusercontent.com", "release-assets.githubusercontent.com",
+    }
+    def host_ok(u):
+        return (urlparse(u or "").hostname or "").lower() in allowed
+    found = shutil.which("Pinokio") or shutil.which("pinokio")
+    if not found:
+        for p in (
+            os.path.join(os.path.expanduser("~"), "pinokio", "Pinokio.exe"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Pinokio", "Pinokio.exe"),
+            "/Applications/Pinokio.app",
+        ):
+            if p and os.path.exists(p):
+                found = p
+                break
+    def launch(path):
+        try:
+            if platform.system() == "Windows":
+                os.startfile(path)
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception:
+            webbrowser.open(path)
+    if found:
+        notes.append("Pinokio is already on this computer.")
+        launch(found)
+    else:
+        assets = []
+        gh_err = None
+        for _attempt in range(3):
+            try:
+                r = requests.get(
+                    "https://api.github.com/repos/pinokiocomputer/pinokio/releases/latest",
+                    timeout=30,
+                    headers={"Accept": "application/vnd.github+json", "User-Agent": "HeirloomDesktop/1.0"},
+                )
+                r.raise_for_status()
+                assets = (r.json() or {}).get("assets") or []
+                gh_err = None
+                break
+            except Exception as e:
+                gh_err = e
+        if gh_err:
+            return "error", "Couldn't reach GitHub for the Pinokio installer. (%s)" % gh_err
+        sysname = platform.system()
+        machine = (platform.machine() or "").lower()
+        arm = machine in ("arm64", "aarch64")
+        picked = None
+        for a in assets:
+            name = str((a or {}).get("name") or "")
+            url = str((a or {}).get("browser_download_url") or "")
+            if not name or not url or "blockmap" in name.lower() or not host_ok(url):
+                continue
+            nl = name.lower()
+            if sysname == "Windows" and nl == "pinokio.exe":
+                picked = (name, url)
+                break
+            if sysname == "Windows" and nl.endswith(".exe") and "setup" in nl and not picked:
+                picked = (name, url)
+                continue
+            if sysname == "Darwin" and nl.endswith(".dmg") and (("arm64" in nl) == arm):
+                picked = (name, url)
+                break
+            if sysname != "Windows" and sysname != "Darwin" and nl.endswith(".appimage") and (("arm64" in nl) == arm):
+                picked = (name, url)
+                break
+        if not picked and sysname == "Windows":
+            for a in assets:
+                name = str((a or {}).get("name") or "")
+                url = str((a or {}).get("browser_download_url") or "")
+                nl = name.lower()
+                if name and url and nl.endswith(".exe") and "blockmap" not in nl and host_ok(url):
+                    picked = (name, url)
+                    break
+        if not picked:
+            return "error", "Couldn't find the official Pinokio download for this computer."
+        dest = os.path.join(inst_dir, picked[0])
+        if os.path.exists(dest) and os.path.getsize(dest) > 1000000:
+            notes.append("Using the installer already saved on this computer.")
+        else:
+            try:
+                with requests.get(picked[1], stream=True, timeout=120, allow_redirects=True) as rr:
+                    rr.raise_for_status()
+                    if not host_ok(rr.url or picked[1]):
+                        return "error", "Blocked an unexpected download address."
+                    written = 0
+                    with open(dest, "wb") as f:
+                        for chunk in rr.iter_content(chunk_size=262144):
+                            if not chunk:
+                                continue
+                            written += len(chunk)
+                            if written > 250 * 1024 * 1024:
+                                return "error", "Installer was larger than expected."
+                            f.write(chunk)
+            except Exception as e:
+                return "error", "Download failed: %s" % e
+            notes.append("Downloaded " + picked[0])
+        launch(dest)
+        notes.append("If Windows shows a blue box, click More info, then Run anyway.")
+    if found:
+        look_urls = [u for u in (payload.get("apps") or []) if isinstance(u, str) and "liveportrait" in u.lower()]
+        for url in look_urls[:1]:
+            webbrowser.open(url)
+            notes.append("Opened LivePortrait in Pinokio.")
+    copied = 0
+    wanted = 0
+    for i, item in enumerate(payload.get("images") or []):
+        if not isinstance(item, dict):
+            continue
+        image_id = (item.get("image_id") or "").strip()
+        if image_id:
+            wanted += 1
+        angle = "".join(ch for ch in (item.get("angle") or ("img" + str(i))) if ch.isalnum() or ch == "_")[:24] or ("img" + str(i))
+        data = None
+        ct = "image/jpeg"
+        if image_id:
+            try:
+                rr = requests.get(f"{BACKEND_URL}/api/avatar-studio/companion-file/{image_id}",
+                                  headers={"Authorization": f"Bearer {DEVICE_TOKEN}"}, timeout=45)
+                if rr.status_code == 200:
+                    data, ct = rr.content, rr.headers.get("content-type") or ct
+            except Exception:
+                data = None
+        if not data:
+            continue
+        ext = "png" if "png" in ct else ("webp" if "webp" in ct else "jpg")
+        open(os.path.join(folder, f"{angle}.{ext}"), "wb").write(data)
+        if angle == "front" or i == 0:
+            open(os.path.join(folder, f"front.{ext}"), "wb").write(data)
+        copied += 1
+    if wanted and copied == 0:
+        return "error", "Couldn't copy your photo onto this computer. Tap Set up my twin again."
+    open(os.path.join(folder, "START_HERE.txt"), "w", encoding="utf-8").write(
+        "Your twin tools install on THIS computer. No extra accounts.\\n\\n"
+        "1. Finish the Pinokio installer if it is on screen.\\n"
+        "2. In Pinokio, tap Install on LivePortrait and ComfyUI.\\n"
+        "3. Go back to Heirloom and tap Look at me.\\n"
+        "4. Turn on the webcam when LivePortrait asks.\\n"
+    )
+    try:
+        if platform.system() == "Windows":
+            os.startfile(folder)
+        elif platform.system() == "Darwin":
+            subprocess.run(["open", folder], check=False)
+        else:
+            subprocess.run(["xdg-open", folder], check=False)
+    except Exception:
+        pass
+    msg = " ".join(notes) or "Pinokio installer started."
+    if job_id:
+        try:
+            requests.post(f"{BACKEND_URL}/api/avatar-studio/jobs/{job_id}/note",
+                          headers={"Authorization": f"Bearer {DEVICE_TOKEN}"},
+                          json={"message": msg[:1500]}, timeout=15)
+        except Exception:
+            pass
+    return "ok", msg[:2000]
+
+
+def run_avatar_job(payload):
+    """Copy face photos onto this PC, write the body prompt, open Pinokio."""
+    kind = (payload.get("kind") or "").strip().lower()
+    job_id = (payload.get("job_id") or "").strip()
+    if kind not in ("still", "talk", "look") or not job_id:
+        return "error", "bad avatar job"
+    folder = os.path.join(os.path.expanduser("~"), "Heirloom", "avatar", job_id[:40])
+    os.makedirs(folder, exist_ok=True)
+    prompt = (payload.get("prompt") or payload.get("text") or "").strip()
+    try:
+        open(os.path.join(folder, "prompt.txt"), "w", encoding="utf-8").write(prompt)
+        if payload.get("text"):
+            open(os.path.join(folder, "script.txt"), "w", encoding="utf-8").write(payload.get("text"))
+    except Exception:
+        pass
+    got = 0
+    for i, item in enumerate(payload.get("images") or []):
+        if not isinstance(item, dict):
+            continue
+        image_id = (item.get("image_id") or "").strip()
+        angle = "".join(ch for ch in (item.get("angle") or f"img{i}") if ch.isalnum() or ch == "_")[:24] or f"img{i}"
+        data = None
+        ct = "image/jpeg"
+        if image_id:
+            try:
+                r = requests.get(f"{BACKEND_URL}/api/avatar-studio/companion-file/{image_id}",
+                                 headers={"Authorization": f"Bearer {DEVICE_TOKEN}"}, timeout=45)
+                if r.status_code == 200:
+                    data, ct = r.content, r.headers.get("content-type") or ct
+            except Exception:
+                data = None
+        if data is None and item.get("url"):
+            try:
+                r = requests.get(item["url"], timeout=45)
+                if r.status_code == 200:
+                    data, ct = r.content, r.headers.get("content-type") or ct
+            except Exception:
+                data = None
+        if not data:
+            continue
+        ext = "png" if "png" in ct else ("webp" if "webp" in ct else "jpg")
+        path = os.path.join(folder, f"{angle}.{ext}")
+        open(path, "wb").write(data)
+        if angle == "front" or i == 0:
+            open(os.path.join(folder, f"front.{ext}"), "wb").write(data)
+        got += 1
+    if got == 0:
+        try:
+            requests.post(f"{BACKEND_URL}/api/avatar-studio/jobs/{job_id}/fail",
+                          headers={"Authorization": f"Bearer {DEVICE_TOKEN}"},
+                          json={"reason": "no reference photos on this PC"}, timeout=15)
+        except Exception:
+            pass
+        return "error", "no reference photos — upload a front photo in Avatar Studio"
+    url = (payload.get("pinokio_url") or "").strip()
+    if url:
+        webbrowser.open(url)
+    try:
+        if platform.system() == "Windows":
+            os.startfile(folder)  # type: ignore[attr-defined]
+        elif platform.system() == "Darwin":
+            subprocess.run(["open", folder], check=False)
+        else:
+            subprocess.run(["xdg-open", folder], check=False)
+    except Exception:
+        pass
+    hint = {
+        "look": "LivePortrait is opening. Load front.jpg and turn on your webcam.",
+        "talk": "Load these photos + script.txt in EchoMimic / Sonic inside ComfyUI.",
+        "still": "Load these photos as InstantID refs and paste prompt.txt.",
+    }.get(kind, "Opened Pinokio.")
+    msg = f"{hint} Folder: {folder}"
+    try:
+        requests.post(f"{BACKEND_URL}/api/avatar-studio/jobs/{job_id}/note",
+                      headers={"Authorization": f"Bearer {DEVICE_TOKEN}"},
+                      json={"message": msg[:1500]}, timeout=15)
+    except Exception:
+        pass
+    return "ok", msg
+
+
+def run_creative_job(payload):
+    """Write a creative folder, copy the prompt, open Pinokio + the studio app."""
+    import glob as _glob
+    kind = (payload.get("kind") or "").strip().lower()
+    if kind not in ("art", "video", "music", "open"):
+        return "error", "bad creative job"
+    notes = []
+    folder = None
+    prompt = (payload.get("prompt") or "").strip()
+    if kind != "open":
+        stamp = "".join(ch for ch in (payload.get("title") or "") if ch.isalnum() or ch in "-_")[:24]
+        if not stamp:
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+        folder = os.path.join(os.path.expanduser("~"), "Heirloom", "creative", stamp)
+        os.makedirs(folder, exist_ok=True)
+        try:
+            open(os.path.join(folder, "prompt.txt"), "w", encoding="utf-8").write(prompt)
+            howto = (payload.get("howto") or "Your description is in prompt.txt.\n")
+            open(os.path.join(folder, "HOW_TO.txt"), "w", encoding="utf-8").write(howto)
+            if payload.get("source"):
+                open(os.path.join(folder, "source.txt"), "w", encoding="utf-8").write(str(payload.get("source")))
+        except Exception:
+            pass
+        try:
+            clipboard_set(prompt)
+            notes.append("Copied your description to the clipboard.")
+        except Exception:
+            pass
+        url = (payload.get("pinokio_url") or "").strip()
+        if url:
+            webbrowser.open(url)
+            notes.append("Opened Pinokio so the local model can install or run.")
+        try:
+            if platform.system() == "Windows":
+                os.startfile(folder)  # type: ignore[attr-defined]
+            elif platform.system() == "Darwin":
+                subprocess.run(["open", folder], check=False)
+            else:
+                subprocess.run(["xdg-open", folder], check=False)
+        except Exception:
+            pass
+        notes.append("Folder: " + folder)
+    opened = False
+    studio_url = (payload.get("studio_url") or "").strip()
+    label = payload.get("studio_label") or "the studio"
+    if studio_url:
+        webbrowser.open(studio_url)
+        opened = True
+        notes.append("Opened " + label + ".")
+    else:
+        system = platform.system()
+        if system == "Windows":
+            for pattern in payload.get("windows_globs") or []:
+                matches = [m for m in _glob.glob(os.path.expandvars(pattern)) if os.path.isfile(m)]
+                if matches:
+                    try:
+                        os.startfile(sorted(matches)[-1])  # type: ignore[attr-defined]
+                        opened = True
+                        notes.append("Opened " + label + ".")
+                        break
+                    except Exception:
+                        continue
+            if not opened:
+                for name in payload.get("app_names") or []:
+                    try:
+                        os.startfile(name)  # type: ignore[attr-defined]
+                        opened = True
+                        notes.append("Opened " + label + ".")
+                        break
+                    except Exception:
+                        continue
+        elif system == "Darwin":
+            for name in list(payload.get("darwin_apps") or []) + list(payload.get("app_names") or []):
+                if not name:
+                    continue
+                r = subprocess.run(["open", "-a", name], capture_output=True, text=True)
+                if r.returncode == 0:
+                    opened = True
+                    notes.append("Opened " + label + ".")
+                    break
+        else:
+            for name in list(payload.get("linux_bins") or []) + list(payload.get("app_names") or []):
+                if not name:
+                    continue
+                try:
+                    subprocess.Popen([name])
+                    opened = True
+                    notes.append("Opened " + label + ".")
+                    break
+                except Exception:
+                    continue
+    if not opened:
+        fallback = (payload.get("fallback_url") or "").strip()
+        if fallback:
+            webbrowser.open(fallback)
+            notes.append("Couldn't find " + label + " on this PC, so I opened " + fallback + ".")
+        else:
+            notes.append("Couldn't find " + label + " on this PC.")
+    return "ok", " ".join(notes) or "Opened the studio."
+
+
+def refuse_pc_command(kind, payload):
+    """Windows Safety — refuse steps that weaken Windows Security even after a yes."""
+    import re
+    p = payload or {}
+    k = (kind or "").strip().lower()
+    blocks = (
+        r"disablerealtime", r"disableioav", r"disablebehaviormonitoring",
+        r"disableantispyware", r"set-mppreference", r"add-mppreference",
+        r"exclusionpath", r"exclusionextension",
+        r"stop-service\s+windefend", r"sc\s+stop\s+windefend",
+        r"sc\s+config\s+windefend", r"net\s+stop\s+windefend",
+        r"netsh\s+advfirewall\s+set\s+allprofiles\s+state\s+off",
+        r"netsh\s+firewall\s+set\s+opmode\s+disable",
+        r"format\s+[a-z]:", r"del\s+/s\s+/q\s+c:\\windows",
+        r"rmdir\s+/s\s+/q\s+c:\\windows", r"rm\s+-rf\s+/\s*$", r"rm\s+-rf\s+/\*",
+        r"invoke-expression", r"-encodedcommand", r"\s-enc\s", r"\biex\s*\(",
+        r"irm.{0,200}\|", r"iwr.{0,200}\|", r"invoke-webrequest.{0,80}iex", r"downloadstring",
+        r"curl\s+[^\n]{0,200}\|\s*(sh|bash|powershell|pwsh|cmd)",
+        r"wget\s+[^\n]{0,200}\|\s*(sh|bash)",
+        r"executionpolicy\s+(bypass|unrestricted)", r"bcdedit", r"\bdiskpart\b",
+        r"mimikatz", r"\blsass\b", r"ntds\.dit", r"enablelua.{0,40}0",
+        r"net\s+user\s+administrator\s+/active:yes",
+        r"net\s+user\s+guest\s+/active:yes",
+        r"uninstall-windowsfeature", r"disable-windowsoptionalfeature",
+        r"set-itemproperty.{0,80}smartscreen", r"new-itemproperty.{0,80}smartscreen",
+        r"reg\s+add.{0,80}smartscreen", r"reg\s+add.{0,80}enablelua",
+        r"bitsadmin\s+/transfer", r"certutil\s+-urlcache",
+        r"mshta\s+http", r"wscript\s+http", r"cscript\s+http", r"rundll32\s+.*,",
+    )
+    msg = "Blocked by Windows Safety. That step could weaken Windows Security or put this computer at risk. Heirloom never turns protection off."
+    def _norm(t):
+        return re.sub(r"\s+", " ", (t or "").lower()).strip()
+    if k == "shell":
+        blob = _norm(str(p.get("command") or ""))
+        if blob:
+            for raw in blocks:
+                if re.search(raw, blob, flags=re.IGNORECASE):
+                    return msg
+        return None
+    urls = []
+    if k == "open_url":
+        urls = [str(p.get("url") or "")]
+    elif k == "creative_job":
+        urls = [str(p.get(f) or "") for f in ("pinokio_url", "studio_url", "fallback_url", "source")]
+    if urls:
+        bad_schemes = {"javascript", "data", "vbscript", "ms-msdt", "search-ms", "ms-appinstaller", "file", "ftp"}
+        ok_schemes = {"http", "https", "windowsdefender", "ms-settings", ""}
+        safe_hosts = {
+            "api.github.com", "github.com", "objects.githubusercontent.com",
+            "github-releases.githubusercontent.com", "release-assets.githubusercontent.com",
+            "pinokio.co", "www.pinokio.co", "microsoft.com", "www.microsoft.com",
+            "support.microsoft.com", "learn.microsoft.com", "windows.microsoft.com",
+            "aka.ms", "www.aka.ms",
+        }
+        risky = (".exe", ".msi", ".bat", ".cmd", ".ps1", ".scr", ".vbs", ".js", ".jse", ".hta", ".com", ".pif", ".wsf", ".wsh")
+        for raw in urls:
+            raw = (raw or "").strip()
+            if not raw:
+                continue
+            if k == "creative_job" and "://" not in raw and not raw.lower().startswith("http"):
+                continue
+            lower = raw.lower()
+            scheme_guess = lower.split(":", 1)[0] if ":" in lower else ""
+            if scheme_guess in bad_schemes:
+                return msg
+            to_parse = raw if ("://" in raw or scheme_guess in ok_schemes) else ("https://" + raw)
+            parsed = urlparse(to_parse)
+            scheme = (parsed.scheme or scheme_guess or "").lower()
+            if scheme in bad_schemes or (scheme and scheme not in ok_schemes):
+                return msg
+            host = (parsed.hostname or "").lower()
+            path = (parsed.path or "").lower()
+            if any(path.endswith(suf) for suf in risky) and host not in safe_hosts:
+                return msg
+        return None
+    if k == "open_app":
+        base = str(p.get("name") or "").strip().lower()
+        stem = base.split("\\")[-1].split("/")[-1].split(".")[0].strip()
+        if stem in {"mshta", "wscript", "cscript", "diskpart", "bcdedit", "regsvr32", "bitsadmin", "certutil"}:
+            return msg
+        if " " in base and any(tok in base for tok in ("powershell -", "cmd /c", "cmd /k", "mshta ", "wscript ")):
+            return msg
+        return None
+    if k == "security_job":
+        if str(p.get("kind") or "").strip().lower() in ("status", "open", "scan"):
+            return None
+        return "I only check Windows Security, open it, or start a quick scan. I never turn it off."
+    if k == "writing_job":
+        if str(p.get("kind") or "").strip().lower() in ("paste_text", "read_clipboard"):
+            return None
+        return "I can paste your writing or read the clipboard. I do not watch every key."
+    return None
+
+
+def run_security_job(payload):
+    """Read, open, or quick-scan Windows Security on this PC."""
+    kind = (payload.get("kind") or "status").strip().lower()
+    system = platform.system()
+    if kind == "open":
+        if system == "Windows":
+            for target in ("windowsdefender:", "ms-settings:windowsdefender"):
+                try:
+                    webbrowser.open(target)
+                except Exception:
+                    pass
+            return "ok", "Opened Windows Security. Look for Virus & threat protection. I never need your Windows password."
+        if system == "Darwin":
+            subprocess.run(["open", "x-apple.systempreferences:com.apple.preference.security"], check=False)
+            return "ok", "Opened Privacy & Security on this Mac. Windows Security is a Windows feature."
+        return "ok", "On Linux, open your usual security settings. Windows Security is a Windows feature."
+    if kind == "scan":
+        if system != "Windows":
+            return "ok", "A Windows Security quick scan only runs on Windows. On this computer, use the built-in security settings."
+        try:
+            webbrowser.open("windowsdefender:")
+        except Exception:
+            pass
+        try:
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-Command", "Start-MpScan -ScanType QuickScan"],
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return "ok", "Windows Security started a quick scan. I opened that same Windows app so you can watch it. Leave the computer on. I never need your Windows password."
+        except Exception as exc:
+            return "error", "Couldn't start the scan from here. Open Windows Security and tap Scan now. " + str(exc)[:200]
+    if kind != "status":
+        return "error", "I only check Windows Security, open it, or start a quick scan."
+    if system != "Windows":
+        if system == "Darwin":
+            return "ok", "This computer is a Mac. Windows Security is a Windows feature. On a Mac, open System Settings, then Privacy & Security. I still will not run steps that turn protection off, and I never ask for your password."
+        return "ok", "This computer is Linux. Windows Security is a Windows feature. Use your usual updater and firewall settings. I still will not run steps that turn protection off, and I never ask for your password."
+    ps = (
+        "$ErrorActionPreference = 'SilentlyContinue'; Write-Output ('os=Windows'); "
+        "$mp = Get-MpComputerStatus; if ($mp) { "
+        "Write-Output ('antivirus=' + [bool]$mp.AntivirusEnabled); "
+        "Write-Output ('realtime=' + [bool]$mp.RealTimeProtectionEnabled); "
+        "Write-Output ('signatures=' + $mp.AntivirusSignatureLastUpdated) } else { "
+        "Write-Output 'antivirus='; Write-Output 'realtime=' }; "
+        "$fwOn = $true; Get-NetFirewallProfile | ForEach-Object { "
+        "if (-not $_.Enabled) { $fwOn = $false }; "
+        "Write-Output ('firewall_' + $_.Name.ToLower() + '=' + [bool]$_.Enabled) }; "
+        "Write-Output ('firewall=' + [bool]$fwOn); "
+        "$uac = (Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name EnableLUA).EnableLUA; "
+        "Write-Output ('uac=' + [int]$uac)"
+    )
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=45)
+        blob = ((r.stdout or "") + ("\n" + r.stderr if r.stderr else "")).strip()
+        ok = r.returncode == 0
+    except Exception:
+        ok, blob = False, ""
+    if not ok:
+        return "ok", "I couldn't read Windows Security automatically. Say open Windows Security and you can look with your own eyes. I never ask for your Windows password."
+    flags = {}
+    for line in blob.splitlines():
+        if "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip().lower()
+        if key:
+            flags[key] = val.strip()
+    def _on(key):
+        val = (flags.get(key) or "").strip().lower()
+        if val in ("true", "1", "yes", "on"):
+            return True
+        if val in ("false", "0", "no", "off"):
+            return False
+        return None
+    lines = ["Windows Security on this computer:"]
+    off = []
+    unknown = False
+    for key, label in (("antivirus", "Virus & threat protection"), ("realtime", "Real-time protection"), ("firewall", "Firewall"), ("uac", "Ask before big changes (UAC)")):
+        state = _on(key)
+        if state is None:
+            lines.append("• " + label + ": I couldn't read this")
+            unknown = True
+        elif state:
+            lines.append("• " + label + ": on")
+        else:
+            lines.append("• " + label + ": off")
+            off.append(label)
+    sig = (flags.get("signatures") or "").strip()
+    if sig and sig.lower() not in ("none", "null"):
+        lines.append("• Protection updates: " + sig)
+    lines.append("")
+    if off:
+        lines.append("Something important is off. Say open Windows Security and I'll open the same app Windows already has, so you can turn it back on. I will not turn it off for anyone.")
+    elif unknown:
+        lines.append("I couldn't read every switch. Say open Windows Security and look with your own eyes.")
+    else:
+        lines.append("Nothing here looks turned off. If a pop-up ever asks you to turn these off, say no.")
+    lines.append("I never ask for your Windows password.")
+    return "ok", "\n".join(lines)
+
+
+def _looks_secret_writing(text):
+    t = text or ""
+    if re.search(r"(?i)\b(?:password|passwd|passcode|pin)\b\s*[:=]", t):
+        return True
+    if re.search(r"\b\d{3}-\d{2}-\d{4}\b", t):
+        return True
+    if re.search(r"\b(?:\d[ -]?){13,19}\b", t) and len(re.sub(r"[^\d]", "", t)) >= 13:
+        return True
+    return False
+
+
+def paste_keys():
+    system = platform.system()
+    if system == "Windows":
+        _ps('$w=New-Object -ComObject WScript.Shell;$w.SendKeys("^v")')
+        return
+    if system == "Darwin":
+        subprocess.run(["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'], check=False)
+        return
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=False)
+
+
+def run_writing_job(payload):
+    """Paste cleaned words into the last app, or read the clipboard. Not a keylogger."""
+    kind = (payload.get("kind") or "paste_text").strip().lower()
+    if kind == "read_clipboard":
+        return clipboard_get()
+    if kind != "paste_text":
+        return "error", "I can paste your writing or read the clipboard. I do not watch every key."
+    text = str(payload.get("text") or "")
+    if _looks_secret_writing(text):
+        return "error", "That looks private. I will not paste a password or a card number."
+    clipboard_set(text)
+    paste_keys()
+    return "ok", "Put the words where you were typing."
+
+
 def execute(cmd):
     kind = cmd.get("kind")
     payload = cmd.get("payload") or {}
     print(f"  ▶ {kind} {payload}")
     try:
+        blocked = refuse_pc_command(kind, payload)
+        if blocked:
+            return "error", blocked
         if kind == "shell":
             r = subprocess.run(payload.get("command", ""), shell=True, capture_output=True, text=True, timeout=60)
             out = (r.stdout or "") + ("\n" + r.stderr if r.stderr else "")
@@ -1661,6 +2427,24 @@ def execute(cmd):
             return find_file(payload.get("query", ""), bool(payload.get("open")))
         if kind == "screenshot":
             return capture_and_upload_screenshot(cmd.get("cmd_id", ""))
+        if kind == "pull_model":
+            return pull_local_model(payload.get("model", ""))
+        if kind == "list_models":
+            return list_local_models()
+        if kind == "llm_chat":
+            return llm_chat_local(payload)
+        if kind == "avatar_setup":
+            return run_avatar_setup(payload)
+        if kind in ("avatar_still", "avatar_talk", "avatar_look"):
+            body = dict(payload)
+            body["kind"] = {"avatar_still": "still", "avatar_talk": "talk", "avatar_look": "look"}[kind]
+            return run_avatar_job(body)
+        if kind == "creative_job":
+            return run_creative_job(payload)
+        if kind == "security_job":
+            return run_security_job(payload)
+        if kind == "writing_job":
+            return run_writing_job(payload)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)
@@ -1712,6 +2496,10 @@ def poll_loop():
                     "status": status,
                     "output": output,
                 })
+            try:
+                report_local_ai()
+            except Exception:
+                pass
         elif r is not None:
             print(f"  poll → {r.status_code}: {r.text[:200]}")
         time.sleep(POLL_INTERVAL_SEC)

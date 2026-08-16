@@ -31,10 +31,11 @@ def _pool() -> QThreadPool:
 
 
 def _headers() -> dict:
-    return {
-        "Authorization": f"Bearer {config.DEVICE_TOKEN}",
-        "Accept": "application/json",
-    }
+    token = (config.DEVICE_TOKEN or "").strip()
+    headers = {"Accept": "application/json"}
+    if token and not token.startswith("__"):
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
 class _Signals(QObject):
@@ -91,6 +92,15 @@ def _check(r: requests.Response) -> dict:
 
 
 # ---- public helpers ----
+def run_async(
+    fn: Callable,
+    on_ok: Optional[Callable] = None,
+    on_err: Optional[Callable] = None,
+) -> None:
+    """Run any callable off the GUI thread."""
+    _submit(fn, on_ok, on_err)
+
+
 def get_async(
     path: str,
     on_ok: Optional[Callable] = None,

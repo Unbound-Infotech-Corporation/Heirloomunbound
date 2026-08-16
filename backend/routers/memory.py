@@ -107,6 +107,7 @@ async def _extract_facts(user_id: str) -> list[dict]:
             "fact_id": f"fact_{uuid.uuid4().hex[:10]}",
             "fact": str(raw["fact"])[:280],
             "kind": str(raw.get("kind", "other"))[:32],
+            "source": "archive",
             "source_entry_id": raw.get("source_entry_id") if isinstance(raw.get("source_entry_id"), str) else None,
             "created_at": _now_iso(),
         })
@@ -128,7 +129,11 @@ async def get_or_refresh_facts(user_id: str) -> list[dict]:
 
     if stale and entry_count > 0:
         facts = await _extract_facts(user_id)
-        await db.memory_facts.delete_many({"user_id": user_id})
+        # Keep phrases/beliefs the Quick-replies brain learned from twin chats.
+        await db.memory_facts.delete_many({
+            "user_id": user_id,
+            "source": {"$nin": ["voice_council"]},
+        })
         if facts:
             await db.memory_facts.insert_many(
                 [{**f, "user_id": user_id} for f in facts]
@@ -261,7 +266,10 @@ class RebuildReq(BaseModel):
 async def rebuild_facts(user: dict = Depends(get_current_user)):
     """Force-regenerate identity facts from the current archive."""
     facts = await _extract_facts(user["user_id"])
-    await db.memory_facts.delete_many({"user_id": user["user_id"]})
+    await db.memory_facts.delete_many({
+        "user_id": user["user_id"],
+        "source": {"$nin": ["voice_council"]},
+    })
     if facts:
         await db.memory_facts.insert_many(
             [{**f, "user_id": user["user_id"]} for f in facts]

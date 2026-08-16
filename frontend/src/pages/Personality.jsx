@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { RefreshCw, Sparkles, Heart, Users, BookOpen, Brain, MessageSquareQuote, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../lib/api";
@@ -77,7 +78,11 @@ export default function Personality() {
             This is who the twin thinks you are.
           </h1>
           <p className="mt-3 text-base max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-            A live portrait drawn from your archive. It updates as you write more. If something feels off, refresh — or write more honestly.
+            This portrait is what the twin uses when it talks as you. Fill it with the{" "}
+            <Link to="/interviewer" className="underline">Interviewer</Link>, talk on{" "}
+            <Link to="/twin" className="underline">Twin</Link>, or pick a second brain on{" "}
+            <Link to="/models" className="underline">Models</Link> to keep the voice honest.
+            If something feels off, refresh — or write more honestly.
           </p>
         </div>
         <button

@@ -23,6 +23,8 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 
 from deps import db, get_current_user
+from services.avatar_jobs import job_file_url, queue_job
+from services.avatar_recipes import ENGINES
 
 router = APIRouter(prefix="/avatar", tags=["avatar"])
 
@@ -81,16 +83,49 @@ def _now_iso() -> str:
 class TalkReq(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000)
     voice: Optional[str] = None  # ElevenLabs voice id (overrides user pref)
+    engine: Optional[str] = None  # auto | local | did
 
 
 class SourceUrlReq(BaseModel):
     url: str
 
 
+def _has_d_id(user: dict) -> bool:
+    return bool((user.get("d_id_api_key") or "").strip() or D_ID_API_KEY)
+
+
+def _resolve_talk_engine(user: dict, requested: Optional[str]) -> str:
+    pref = (requested or user.get("avatar_engine") or "auto").strip().lower()
+    if pref not in ENGINES:
+        pref = "auto"
+    has_did = _has_d_id(user)
+    if pref == "did":
+        if not has_did:
+            raise HTTPException(
+                status_code=400,
+                detail="D-ID isn't connected. Add a key in Settings, or use the local Pinokio path in Avatar Studio.",
+            )
+        return "did"
+    if pref == "local":
+        return "local"
+    return "did" if has_did else "local"
+
+
 @router.post("/talk")
 async def create_talk(payload: TalkReq, user: dict = Depends(get_current_user)):
-    """Kicks off a D-ID talking-head render. Returns immediately with a
-    talk_id; client polls GET /avatar/talks/{talk_id}."""
+    """Kick off a talking-head render. Local Pinokio/ComfyUI when that's the
+    engine; otherwise D-ID. Returns immediately with a talk_id to poll."""
+    engine = _resolve_talk_engine(user, payload.engine)
+    if engine == "local":
+        job = await queue_job(user, kind="talk", text=payload.text)
+        return {
+            "talk_id": job["job_id"],
+            "status": job.get("status") or "queued",
+            "engine": "local",
+            "poll": job.get("poll") or f"/api/avatar-studio/jobs/{job['job_id']}",
+            "hint": job.get("hint") or "",
+        }
+
     source_url = user.get("avatar_source_url") or DEFAULT_SOURCE_URL
 
     # Voice — prefer the user's cloned ElevenLabs voice; fall back to Microsoft.
@@ -143,12 +178,39 @@ async def create_talk(payload: TalkReq, user: dict = Depends(get_current_user)):
     return {
         "talk_id": talk_id,
         "status": data.get("status", "created"),
+        "engine": "did",
         "poll": f"/api/avatar/talks/{talk_id}",
     }
 
 
 @router.get("/talks/{talk_id}")
 async def poll_talk(talk_id: str, user: dict = Depends(get_current_user)):
+    if talk_id.startswith("avt_"):
+        rec = await db.avatar_jobs.find_one(
+            {"job_id": talk_id, "user_id": user["user_id"]}, {"_id": 0}
+        )
+        if not rec:
+            raise HTTPException(status_code=404, detail="Talk not found")
+        status = rec.get("status") or "queued"
+        result_url = job_file_url(rec) if rec.get("result_path") else None
+        mapped = {
+            "complete": "done",
+            "done": "done",
+            "error": "error",
+            "failed": "error",
+            "queued": "created",
+            "dispatched": "created",
+            "processing": "created",
+        }.get(status, status)
+        return {
+            "talk_id": talk_id,
+            "status": mapped,
+            "engine": "local",
+            "result_url": result_url,
+            "hint": rec.get("result_text") or rec.get("hint") or "",
+            "error": rec.get("result_text") if mapped == "error" else None,
+        }
+
     rec = await db.avatar_talks.find_one(
         {"talk_id": talk_id, "user_id": user["user_id"]}, {"_id": 0}
     )
@@ -179,6 +241,7 @@ async def poll_talk(talk_id: str, user: dict = Depends(get_current_user)):
     return {
         "talk_id": talk_id,
         "status": status,
+        "engine": "did",
         "result_url": result_url,
         "duration": data.get("duration"),
         "error": data.get("error"),
@@ -221,12 +284,16 @@ async def upload_source(
 @router.get("/me")
 async def my_avatar(user: dict = Depends(get_current_user)):
     personal_key = (user.get("d_id_api_key") or "").strip()
+    engine = (user.get("avatar_engine") or "auto").strip().lower()
+    if engine not in ENGINES:
+        engine = "auto"
     return {
         "avatar_source_url": user.get("avatar_source_url") or "",
         "default_url": DEFAULT_SOURCE_URL,
         "configured": bool(personal_key or D_ID_API_KEY),
         "has_personal_key": bool(personal_key),
         "masked_key": (personal_key[:6] + "…" + personal_key[-4:]) if personal_key else "",
+        "engine": engine,
     }
 
 

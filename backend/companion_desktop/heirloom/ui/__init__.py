@@ -129,6 +129,21 @@ QPushButton#primary:hover {{
     border-color: {PALETTE['accent_hover']};
 }}
 
+QPushButton#googlesignin {{
+    background: #c45c38;
+    color: #fff8e4;
+    border: 2px solid #fff3c4;
+    border-radius: 8px;
+    padding: 4px 12px;
+    font-weight: 800;
+    font-size: 12px;
+}}
+QPushButton#googlesignin:hover {{
+    background: #a94c2e;
+    color: #fff8e4;
+    border-color: #fff8e4;
+}}
+
 QPushButton#ghost {{
     border: none;
     color: {PALETTE['text_muted']};
@@ -232,30 +247,35 @@ QSplitter::handle:hover {{ background: {PALETTE['accent']}; }}
 QSplitter::handle:horizontal {{ width: 1px; }}
 QSplitter::handle:vertical {{ height: 1px; }}
 
-/* Conversation bubbles / flat rows */
+/* Conversation bubbles — solid cards. Pale glass over Mica made the
+   twin's words and voice-to-text disappear. Cream + dark brown, always. */
 QFrame#bubble_user {{
-    background: rgba(212, 163, 115, 0.18);
-    border: 1px solid rgba(212, 163, 115, 0.32);
-    border-radius: 14px;
+    background: #c45c38;
+    border: 2px solid #3a2418;
+    border-radius: 16px;
 }}
 QFrame#bubble_assistant {{
-    background: rgba(255, 245, 230, 0.04);
-    border: 1px solid {PALETTE['border_soft']};
-    border-radius: 14px;
+    background: #f4e8c8;
+    border: 2px solid #3a2418;
+    border-radius: 16px;
 }}
 QFrame#flat_user, QFrame#flat_assistant {{
-    background: transparent;
-    border: none;
-    border-left: 2px solid {PALETTE['border']};
-    border-radius: 0;
+    background: #f4e8c8;
+    border: 2px solid #3a2418;
+    border-left: 6px solid #c45c38;
+    border-radius: 8px;
 }}
-QFrame#flat_user {{ border-left-color: {PALETTE['accent']}; }}
+QFrame#flat_user {{
+    background: #c45c38;
+    border-left-color: #3a2418;
+}}
 
 QLabel#role {{
-    color: {PALETTE['text_muted']};
+    color: #3a2418;
     font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
-    font-size: 9px;
+    font-size: 10px;
     letter-spacing: 2px;
+    font-weight: 800;
     text-transform: uppercase;
 }}
 

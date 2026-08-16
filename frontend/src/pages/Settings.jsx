@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import { CheckCircle2, Github, Languages, Loader2, Mail, Music, Palette, Share2, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -263,9 +264,42 @@ export default function Settings() {
         </div>
       </section>
 
+      <Link
+        to="/models"
+        data-testid="settings-models-link"
+        className="surface p-5 mb-6 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
+        style={{ border: "1px solid var(--accent)" }}
+      >
+        <div>
+          <div className="overline mb-1" style={{ color: "var(--accent)" }}>Models</div>
+          <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+            Connect a cloud API or download a model to your home computer, then pick which one each function uses.
+          </p>
+          <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+            Click the one you want — it connects or downloads and is ready.
+          </p>
+        </div>
+        <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
+      </Link>
+
+      <Link
+        to="/m/call"
+        data-testid="settings-mobile-link"
+        className="surface p-5 mb-6 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
+        style={{ border: "1px solid var(--border-default)" }}
+      >
+        <div>
+          <div className="overline mb-1">Phone companion</div>
+          <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+            The handset app talks to the same archive as your home computer. Add only the desktop packs you still want — phone calls stay available.
+          </p>
+        </div>
+        <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
+      </Link>
+
       {/* BYO keys quick-link — full setup wizard */}
-      <a
-        href="/setup/keys"
+      <Link
+        to="/setup/keys"
         data-testid="settings-setup-keys-link"
         className="surface p-5 mb-6 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
         style={{ border: "1px solid var(--accent)" }}
@@ -280,7 +314,7 @@ export default function Settings() {
           </p>
         </div>
         <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
-      </a>
+      </Link>
 
       {/* Dashboard widget toggles */}
       <section className="surface p-7 mb-6" data-testid="widgets-section">
@@ -317,7 +351,7 @@ export default function Settings() {
         </div>
         <h2 className="font-serif text-2xl mb-2">Your face, speaking.</h2>
         <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          Paste a public URL to a photo of you (imgur, your social, etc.). When you click <i>Play as video</i> on a twin reply, D-ID renders a short clip of your face speaking the text in your cloned voice.
+          Paste a public URL to a photo of you (imgur, your social, etc.). When you click <i>Play as video</i> on a twin reply, we render a clip of your face speaking — locally via Pinokio/ComfyUI when that&apos;s set, or D-ID if you have a key.
           {!avatarConfigured && (
             <span className="block mt-2 text-xs" style={{ color: "#c95a5a" }}>
               D-ID API not configured — contact the operator.
@@ -361,7 +395,7 @@ export default function Settings() {
               className="inline-flex items-center gap-1.5 text-xs underline mt-1"
               style={{ color: "var(--accent)" }}
             >
-              ✨ Or open Avatar Studio — upload 3 angles, optional subtle enhance →
+              ✨ Avatar Studio — one photo, then we set up the twin on your computer →
             </a>
           </div>
         </div>
@@ -796,7 +830,6 @@ export default function Settings() {
         <div className="overline mb-4">on the roadmap</div>
         <ul className="space-y-3 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
           <li>· Wake-word (&ldquo;Hey Twin&rdquo;) on the companion.</li>
-          <li>· OAuth Gmail + Drive (post Google verification).</li>
           <li>· Sealed letters auto-delivered to heirs on a date you set.</li>
           <li>· Heir release workflow.</li>
         </ul>
@@ -993,6 +1026,10 @@ function LiveBroadcastSection() {
 
 function ConnectedAccountsSection() {
   const [data, setData] = useState(null);
+  const socialProviders = new Set([
+    "twitter", "linkedin", "discord", "reddit", "pinterest", "tiktok",
+    "wordpress", "slack", "notion", "dropbox", "mailchimp",
+  ]);
   const load = async () => {
     try {
       const r = await api.get("/oauth/connections");
@@ -1001,15 +1038,34 @@ function ConnectedAccountsSection() {
   };
   useEffect(() => { load(); }, []);
 
-  // Handle callback for any provider — currently spotify + github
+  // Handle callback for any provider
   useEffect(() => {
     const u = new URL(window.location.href);
-    for (const provider of ["spotify", "github"]) {
+    const labels = {
+      spotify: "Spotify", github: "GitHub", google: "Gmail", microsoft: "Outlook",
+      twitter: "X", linkedin: "LinkedIn", discord: "Discord", reddit: "Reddit",
+      pinterest: "Pinterest", tiktok: "TikTok", wordpress: "WordPress", slack: "Slack",
+      notion: "Notion", dropbox: "Dropbox", mailchimp: "Mailchimp",
+    };
+    const mail = new Set(["google", "microsoft"]);
+    const social = socialProviders;
+    for (const provider of Object.keys(labels)) {
       const p = u.searchParams.get(provider);
       if (!p) continue;
-      const label = provider.charAt(0).toUpperCase() + provider.slice(1);
-      if (p === "connected") toast.success(`${label} connected. Personality signals imported into your archive.`);
-      else toast.error(`${label} connection failed (${p.replace("error:", "")})`);
+      const label = labels[provider];
+      if (p === "connected") {
+        toast.success(
+          provider === "google"
+            ? "Gmail connected. Your twin can read mail, Search, YouTube, write Docs, and send only after you say yes."
+            : mail.has(provider)
+              ? `${label} connected. Your twin can read mail and send only after you say yes.`
+              : social.has(provider)
+                ? `${label} connected. Your twin will show a draft before posting.`
+                : `${label} connected. Personality signals imported into your archive.`
+        );
+      } else {
+        toast.error(`${label} connection failed (${p.replace("error:", "")})`);
+      }
       u.searchParams.delete(provider);
       window.history.replaceState({}, "", u.toString());
       load();
@@ -1056,7 +1112,17 @@ function ConnectedAccountsSection() {
                 border: `1px solid ${c.connected ? "var(--accent)" : "var(--border-default)"}`,
               }}
             >
-              <Music className="h-5 w-5" style={{ color: c.connected ? "var(--accent)" : "var(--text-muted)" }} />
+              {(() => {
+                const Icon = c.provider === "github"
+                  ? Github
+                  : (c.provider === "google" || c.provider === "microsoft"
+                    ? Mail
+                    : (c.provider === "twitter" || c.provider === "linkedin" || c.provider === "discord"
+                      || c.provider === "reddit" || c.provider === "pinterest" || c.provider === "tiktok"
+                      || c.provider === "wordpress" || c.provider === "slack" || c.provider === "notion"
+                      || c.provider === "dropbox" || c.provider === "mailchimp" ? Share2 : Music));
+                return <Icon className="h-5 w-5" style={{ color: c.connected ? "var(--accent)" : "var(--text-muted)" }} />;
+              })()}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline justify-between gap-3">
@@ -1072,17 +1138,32 @@ function ConnectedAccountsSection() {
               </p>
               {!c.configured ? (
                 <div className="text-xs italic" style={{ color: "var(--text-muted)" }}>
-                  Not configured on the server. Set the {c.provider.toUpperCase()}_CLIENT_ID and _CLIENT_SECRET env vars.
+                  {c.provider === "google" || c.provider === "microsoft" || socialProviders.has(c.provider)
+                    ? "This isn't wired on this server yet. Ask the person who set up Heirloom. We never ask for your password."
+                    : `Not configured on the server. Set the ${c.provider.toUpperCase()}_CLIENT_ID and _CLIENT_SECRET env vars.`}
                 </div>
               ) : c.connected ? (
-                <button
-                  onClick={() => disconnect(c.provider)}
-                  data-testid={`oauth-disconnect-${c.provider}`}
-                  className="px-3 py-1.5 text-xs rounded-sm"
-                  style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
-                >
-                  Disconnect
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  {c.provider === "google" && (c.docs !== true || c.youtube !== true || c.search_console !== true) && (
+                    <button
+                      type="button"
+                      onClick={() => connectProvider("google")}
+                      data-testid="oauth-reconnect-google-docs"
+                      className="px-3 py-1.5 text-xs rounded-sm"
+                      style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+                    >
+                      Share Docs, Search & YouTube too
+                    </button>
+                  )}
+                  <button
+                    onClick={() => disconnect(c.provider)}
+                    data-testid={`oauth-disconnect-${c.provider}`}
+                    className="px-3 py-1.5 text-xs rounded-sm"
+                    style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+                  >
+                    Disconnect
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={() => connectProvider(c.provider)}

@@ -9,7 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from deps import EMERGENT_LLM_KEY, db, get_current_user
+from services.model_runtime import build_llm_chat, resolve_runtime, run_local_chat
+from services.voice_council import (
+    format_portrait_for_prompt,
+    maybe_run_voice_council,
+    render_twin_voice_section,
+)
+from deps import db, get_current_user
 from routers.memory import (
     build_memory_pack,
     format_memory_pack_for_prompt,
@@ -22,6 +28,11 @@ from routers.skills import invoke_skill_internal, match_skill_trigger
 from twin_tools import TOOL_SCHEMAS, execute_tool
 from utils import rate_limit
 import abilities as ab
+from services.screen_coach import (
+    coach_question_for,
+    format_screen_context,
+    should_look_at_screen,
+)
 
 router = APIRouter(prefix="/twin", tags=["twin"])
 
@@ -35,6 +46,7 @@ def _build_twin_system(
     persona: dict | None = None,
     brand: dict | None = None,
     abilities_block: str = "",
+    voice_blob: str = "",
 ) -> str:
     fence = ""
     if safe_topics:
@@ -77,11 +89,14 @@ Voice rules:
 - When asked about specific memories, quote the archive faithfully. When asked your opinion on something, reason from the values in the archive.
 - Be warm with family. Be honest about not remembering when you don't.
 - Keep replies to 2-6 sentences unless asked for a longer story.
-
+{render_twin_voice_section(voice_blob)}
 Your memory tools (always available — call them silently, the UI shows a chip when a tool fires):
 - `search_archive(query)` — the owner's factual record. Call it ONLY when the user asks about the owner's past, life, or specific facts (a person, place, date, job, event, or story — e.g. "where did you grow up", "what was your first job"). ONE focused call is enough. Do NOT call it for greetings, small talk, or opinion/feeling questions ("what do you think…", "how are you", "what's your take on life") — for those, answer directly from the archive excerpts and long-term memory already included below.
 - `save_memory(content, type, title)` — when the user shares something worth remembering long-term (a story, belief, value), quietly capture it so the archive grows.
 - `set_reminder(what, when)` — when the user says "remind me…". `when` can be ISO or natural ("tomorrow 9am").
+- `list_reminders()` — what's still open on their plate.
+- `complete_reminder(reminder_id)` — mark one done after they say it's done. Use the id from list_reminders.
+- `whats_on_my_plate()` — today's briefing (calendar, reminders, a peek at mail, on-this-day memories). Use for "good morning", "what's on today", "catch me up".
 - `list_recent_memories(days, limit)` — for "what have I been thinking about?" style questions.
 {abilities_block}
 Use tools sparingly: most conversational turns need NO tool at all. One call is usually enough when you do. Don't announce that you're calling a tool — just do it and weave the result into your natural reply.
@@ -101,6 +116,8 @@ class StartTwinReq(BaseModel):
 class TwinMsgReq(BaseModel):
     conversation_id: str
     message: str
+    provider: Optional[str] = None
+    model: Optional[str] = None
 
 
 @router.post("/start")
@@ -189,6 +206,158 @@ async def _skills_blob(user_id: str) -> str:
     for s in skills:
         lines.append(f"- {s['name']}: {s.get('description', '')}")
     return "\n".join(lines)
+
+
+async def _voice_blob(user_id: str) -> str:
+    """Cached portrait only — never regenerate on a twin turn."""
+    doc = await db.personality_profiles.find_one({"user_id": user_id}, {"_id": 0})
+    return format_portrait_for_prompt(doc)
+
+
+async def _after_twin_turn(user_id: str, conversation_id: str) -> None:
+    try:
+        await maybe_summarise_episode(user_id, conversation_id)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        await maybe_run_voice_council(user_id, conversation_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def _maybe_screen_prelook(user_id: str, message: str, enabled_ids: set[str]) -> dict | None:
+    """Look at the home PC when the owner is clearly asking about what's in front of them."""
+    if "screen_vision" not in enabled_ids:
+        return None
+    if not should_look_at_screen(message):
+        return None
+    return await execute_tool("see_screen", user_id, {"question": coach_question_for(message)})
+
+
+def _prelook_trace(look: dict) -> dict:
+    return {
+        "id": "see_screen_prelook",
+        "name": "see_screen",
+        "args": {"question": "look at the screen"},
+        "ui": (look or {}).get("ui") or {},
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def complete_twin_turn(
+    user: dict,
+    conv: dict,
+    message: str,
+    *,
+    source: str = "desktop",
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> dict:
+    """Non-streaming twin turn with the same tools as the web Twin.
+
+    Used by the desktop app (including the small talk window) so asking the
+    twin to look at the screen, send mail, or run PC tasks actually works.
+    """
+    user_id = user["user_id"]
+    conversation_id = conv["conversation_id"]
+    enabled_ids = await ab.enabled_ability_ids(user_id)
+    enabled_tools = await ab.enabled_tool_names(user_id)
+    await rate_limit(user_id, "twin", max_calls=20, per_seconds=60)
+
+    archive = await _archive_blob(user_id, query_hint=message)
+    skills = await _skills_blob(user_id)
+    memory_pack = await build_memory_pack(user_id, query_hint=message)
+    memory_blob = format_memory_pack_for_prompt(memory_pack)
+    persona = await get_active_persona(user_id, user)
+    merged_safe = list({*(user.get("safe_topics") or []), *((persona or {}).get("extra_safe_topics") or [])})
+    brand = {
+        "brand_name": user.get("brand_name") or "",
+        "brand_tagline": user.get("brand_tagline") or "",
+        "brand_signoff": user.get("brand_signoff") or "",
+    }
+    if not any(brand.values()):
+        brand = None
+    abilities_block = ab.build_abilities_prompt(enabled_ids)
+    voice_blob = await _voice_blob(user_id)
+    system = _build_twin_system(
+        user.get("name", ""), memory_blob, archive, skills, merged_safe,
+        persona=persona, brand=brand, abilities_block=abilities_block,
+        voice_blob=voice_blob,
+    )
+    initial_messages = [{"role": "system", "content": system}]
+    for m in conv.get("messages", []):
+        if m.get("role") in ("user", "assistant") and m.get("content"):
+            initial_messages.append({"role": m["role"], "content": m["content"]})
+    active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
+    resolved = await resolve_runtime(
+        user_id, "chat", provider_override=provider, model_override=model,
+    )
+
+    tool_trace: list[dict] = []
+    llm_message = message
+    look = await _maybe_screen_prelook(user_id, message, enabled_ids)
+    if look:
+        llm_message = format_screen_context(message, look)
+        tool_trace.append(_prelook_trace(look))
+
+    full = ""
+    if resolved["kind"] == "local":
+        msgs = list(initial_messages) + [{"role": "user", "content": llm_message}]
+        full = await run_local_chat(user_id, resolved["model"], msgs)
+    elif resolved["kind"] == "compat" or not resolved.get("tools_ok"):
+        from services.llm_router import chat_once
+        result = await chat_once(
+            user_id, "chat",
+            initial_messages + [{"role": "user", "content": llm_message}],
+            model_override=resolved["model"],
+            provider_override=resolved["provider"],
+        )
+        full = (result.get("text") or "").strip()
+    else:
+        chat = build_llm_chat(
+            resolved,
+            session_id=conversation_id,
+            system_message=system,
+            initial_messages=initial_messages,
+        ).with_tools(active_schemas)
+        resp = await chat.send_message_with_tools(UserMessage(text=llm_message))
+        for _iteration in range(6):
+            if resp.finish_reason != "tool_calls" or not resp.tool_calls:
+                break
+            for tc in resp.tool_calls:
+                result = await execute_tool(tc.name, user_id, tc.arguments or {})
+                chat.add_tool_result(tc.id, result.get("summary", ""))
+                tool_trace.append({
+                    "id": tc.id,
+                    "name": tc.name,
+                    "args": tc.arguments,
+                    "ui": result.get("ui") or {},
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                })
+            resp = await chat.send_message_with_tools()
+        full = (resp.content or "").strip()
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    assistant_turn = {"role": "assistant", "content": full, "ts": now_iso, "source": source}
+    if tool_trace:
+        assistant_turn["tool_trace"] = tool_trace
+    await db.conversations.update_one(
+        {"conversation_id": conversation_id, "user_id": user_id},
+        {
+            "$push": {"messages": {"$each": [
+                {"role": "user", "content": message, "ts": now_iso, "source": source},
+                assistant_turn,
+            ]}},
+            "$set": {"updated_at": now_iso},
+        },
+    )
+    await _after_twin_turn(user_id, conversation_id)
+    try:
+        await live_publish_turn(user_id, "user", message, source=source)
+        await live_publish_turn(user_id, "assistant", full, source=source)
+    except Exception:  # noqa: BLE001
+        pass
+    return {"reply": full, "ts": now_iso, "tool_trace": tool_trace}
 
 
 @router.post("/message")
@@ -322,9 +491,11 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     if not any(brand.values()):
         brand = None
     abilities_block = ab.build_abilities_prompt(enabled_ids)
+    voice_blob = await _voice_blob(user["user_id"])
     system = _build_twin_system(
         user.get("name", ""), memory_blob, archive, skills, merged_safe,
         persona=persona, brand=brand, abilities_block=abilities_block,
+        voice_blob=voice_blob,
     )
 
     # Replay prior turns so the twin remembers what was just said.
@@ -336,66 +507,88 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     # Only expose the tools from abilities the owner has enabled (+ core memory).
     active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
 
-    chat = (
-        LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=payload.conversation_id,
-            system_message=system,
-            initial_messages=initial_messages,
-        )
-        .with_model("anthropic", "claude-sonnet-4-6")
-        .with_tools(active_schemas)
+    resolved = await resolve_runtime(
+        user["user_id"], "chat",
+        provider_override=payload.provider, model_override=payload.model,
     )
 
     user_turn = {"role": "user", "content": payload.message, "ts": datetime.now(timezone.utc).isoformat()}
 
     async def gen():
-        """Streams a tool-use aware conversation.
-
-        Loop:
-          1. Send the user message → get ChatResponse
-          2. If tool_calls, emit `event: tool` for each, execute, feed results back
-          3. Loop until finish_reason != "tool_calls" (max 6 iterations)
-          4. Stream the final text as one JSON `data:` event (frontend already
-             handles this cleanly — same shape as single-shot deltas)
-        """
+        """Streams a tool-use aware conversation, honouring the Models picker."""
         full = ""
         tool_trace: list[dict] = []
+        llm_message = payload.message
         try:
-            # First call — carries the user message
-            resp = await chat.send_message_with_tools(UserMessage(text=payload.message))
-            for _iteration in range(6):
-                if resp.finish_reason != "tool_calls" or not resp.tool_calls:
-                    break
-                # Emit tool_start for each call, execute, add result
-                for tc in resp.tool_calls:
-                    yield "event: tool\ndata: " + json.dumps({
-                        "phase": "start",
-                        "id": tc.id,
-                        "name": tc.name,
-                        "args": tc.arguments,
-                    }) + "\n\n"
-                    result = await execute_tool(tc.name, user["user_id"], tc.arguments or {})
-                    chat.add_tool_result(tc.id, result.get("summary", ""))
-                    tool_trace.append({
-                        "id": tc.id,
-                        "name": tc.name,
-                        "args": tc.arguments,
-                        "ui": result.get("ui") or {},
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                    })
-                    yield "event: tool\ndata: " + json.dumps({
-                        "phase": "result",
-                        "id": tc.id,
-                        "name": tc.name,
-                        "ui": result.get("ui") or {},
-                    }) + "\n\n"
-                # Continue the conversation — no new user message
-                resp = await chat.send_message_with_tools()
-            full = (resp.content or "").strip()
-            if full:
-                # One-shot delta so the frontend renders it in the same pipeline
-                yield "data: " + json.dumps({"text": full}) + "\n\n"
+            look = await _maybe_screen_prelook(user["user_id"], payload.message, enabled_ids)
+            if look:
+                llm_message = format_screen_context(payload.message, look)
+                tool_trace.append(_prelook_trace(look))
+                yield "event: tool\ndata: " + json.dumps({
+                    "phase": "start",
+                    "id": "see_screen_prelook",
+                    "name": "see_screen",
+                    "args": {"question": "look at the screen"},
+                }) + "\n\n"
+                yield "event: tool\ndata: " + json.dumps({
+                    "phase": "result",
+                    "id": "see_screen_prelook",
+                    "name": "see_screen",
+                    "ui": look.get("ui") or {},
+                }) + "\n\n"
+            if resolved["kind"] == "local":
+                msgs = list(initial_messages) + [{"role": "user", "content": llm_message}]
+                full = await run_local_chat(user["user_id"], resolved["model"], msgs)
+                if full:
+                    yield "data: " + json.dumps({"text": full}) + "\n\n"
+            elif resolved["kind"] == "compat" or not resolved.get("tools_ok"):
+                from services.llm_router import chat_once
+                result = await chat_once(
+                    user["user_id"], "chat",
+                    initial_messages + [{"role": "user", "content": llm_message}],
+                    model_override=resolved["model"],
+                    provider_override=resolved["provider"],
+                )
+                full = (result.get("text") or "").strip()
+                if full:
+                    yield "data: " + json.dumps({"text": full}) + "\n\n"
+            else:
+                chat = build_llm_chat(
+                    resolved,
+                    session_id=payload.conversation_id,
+                    system_message=system,
+                    initial_messages=initial_messages,
+                ).with_tools(active_schemas)
+                resp = await chat.send_message_with_tools(UserMessage(text=llm_message))
+                for _iteration in range(6):
+                    if resp.finish_reason != "tool_calls" or not resp.tool_calls:
+                        break
+                    for tc in resp.tool_calls:
+                        yield "event: tool\ndata: " + json.dumps({
+                            "phase": "start",
+                            "id": tc.id,
+                            "name": tc.name,
+                            "args": tc.arguments,
+                        }) + "\n\n"
+                        result = await execute_tool(tc.name, user["user_id"], tc.arguments or {})
+                        chat.add_tool_result(tc.id, result.get("summary", ""))
+                        tool_trace.append({
+                            "id": tc.id,
+                            "name": tc.name,
+                            "args": tc.arguments,
+                            "ui": result.get("ui") or {},
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                        })
+                        yield "event: tool\ndata: " + json.dumps({
+                            "phase": "result",
+                            "id": tc.id,
+                            "name": tc.name,
+                            "ui": result.get("ui") or {},
+                        }) + "\n\n"
+                    resp = await chat.send_message_with_tools()
+                full = (resp.content or "").strip()
+                if full:
+                    yield "data: " + json.dumps({"text": full}) + "\n\n"
         except Exception as exc:  # noqa: BLE001
             yield "event: error\ndata: " + json.dumps({"error": str(exc)}) + "\n\n"
             return
@@ -415,11 +608,8 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
             },
         )
-        # Fire-and-forget episodic summary (won't block the SSE close)
-        try:
-            await maybe_summarise_episode(user["user_id"], payload.conversation_id)
-        except Exception:  # noqa: BLE001
-            pass
+        # Episodic summary + quiet voice check (won't raise into the SSE)
+        await _after_twin_turn(user["user_id"], payload.conversation_id)
         # Fan out to live-stream viewers (no-op if broadcast is off)
         try:
             await live_publish_turn(user["user_id"], "user", payload.message, source="web")

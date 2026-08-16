@@ -85,6 +85,8 @@ class RoutingConfigIn(BaseModel):
     providers: dict[str, ProviderCfgIn]
     task_routes: dict[str, str]
     fallback_order: list[str]
+    task_models: Optional[dict[str, str]] = None
+    local_task_routes: Optional[dict[str, str]] = None
 
 
 def _redact_keys(cfg: dict) -> dict:
@@ -128,6 +130,8 @@ async def put_routing_config(payload: RoutingConfigIn, user: dict = Depends(get_
         "providers": merged_providers,
         "task_routes": task_routes,
         "fallback_order": fallback,
+        "task_models": payload.task_models if payload.task_models is not None else existing.get("task_models") or {},
+        "local_task_routes": payload.local_task_routes if payload.local_task_routes is not None else existing.get("local_task_routes") or {},
     })
     return _redact_keys(saved)
 
@@ -327,6 +331,8 @@ async def apply_template(payload: ApplyTemplateIn, user: dict = Depends(get_curr
     new_cfg = {
         "providers": existing["providers"],
         "task_routes": {**existing["task_routes"], **target_routes},
+        "task_models": existing.get("task_models") or {},
+        "local_task_routes": existing.get("local_task_routes") or {},
         "fallback_order": existing["fallback_order"],
     }
     saved = await save_config(user["user_id"], new_cfg)

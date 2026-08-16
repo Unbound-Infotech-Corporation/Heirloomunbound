@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import os
 import platform
+import re
 import subprocess
 import time
 import webbrowser
@@ -206,6 +207,46 @@ def clipboard_set(text):
     return "ok", "copied"
 
 
+def _looks_secret_writing(text: str) -> bool:
+    blob = text or ""
+    if re.search(r"(?i)\b(?:password|passwd|passcode|pin)\b\s*[:=]", blob):
+        return True
+    if re.search(r"\b\d{3}-\d{2}-\d{4}\b", blob):
+        return True
+    if re.search(r"\b(?:\d[ -]?){13,19}\b", blob) and len(re.sub(r"[^\d]", "", blob)) >= 13:
+        return True
+    return False
+
+
+def paste_keys() -> None:
+    system = platform.system()
+    if system == "Windows":
+        _ps('$w=New-Object -ComObject WScript.Shell;$w.SendKeys("^v")')
+        return
+    if system == "Darwin":
+        subprocess.run(
+            ["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'],
+            check=False,
+        )
+        return
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=False)
+
+
+def run_writing_job(payload: dict):
+    """Paste cleaned words, or read the clipboard. Never a keylogger."""
+    kind = str((payload or {}).get("kind") or "paste_text").strip().lower()
+    if kind == "read_clipboard":
+        return clipboard_get()
+    if kind != "paste_text":
+        return "error", "I can paste your writing or read the clipboard. I do not watch every key."
+    text = str((payload or {}).get("text") or "")
+    if _looks_secret_writing(text):
+        return "error", "That looks private. I will not paste a password or a card number."
+    clipboard_set(text)
+    paste_keys()
+    return "ok", "Put the words where you were typing."
+
+
 def system_status():
     lines = [f"OS: {platform.platform()}", f"Machine: {platform.node()} ({platform.machine()})"]
     try:
@@ -278,26 +319,22 @@ def find_file(query, open_it):
 
 
 def capture_and_upload_screenshot(cmd_id):
-    img = None
+    from .screen import grab_screen_jpeg
+
     try:
-        from PIL import ImageGrab
-        img = ImageGrab.grab()
-    except Exception:
-        import mss
-        from PIL import Image
-        with mss.mss() as s:
-            raw = s.grab(s.monitors[0])
-            img = Image.frombytes("RGB", raw.size, raw.rgb)
-    img = img.convert("RGB")
-    max_w = 1600
-    if img.width > max_w:
-        img = img.resize((max_w, int(img.height * max_w / img.width)))
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=75)
+        jpeg = grab_screen_jpeg(max_width=1920, quality=85)
+    except Exception as exc:  # noqa: BLE001
+        return "error", f"screenshot failed: {exc} (try: pip install Pillow mss)"
+    buf = io.BytesIO(jpeg)
     buf.seek(0)
     files = {"file": ("screen.jpg", buf, "image/jpeg")}
-    r = requests.post(_api("/companion/screenshot"), headers=_headers(),
-                      data={"cmd_id": cmd_id}, files=files, timeout=30)
+    r = requests.post(
+        _api("/companion/screenshot"),
+        headers=_headers(),
+        data={"cmd_id": cmd_id},
+        files=files,
+        timeout=30,
+    )
     if r.status_code == 200:
         return "ok", "captured"
     return "error", f"upload failed ({r.status_code})"
@@ -413,62 +450,21 @@ def _run_comfyui(base_url: str, api_key: str, workflow_str: str, image_bytes: by
     (which is one-click via Pinokio). If a node is missing ComfyUI returns a
     clear error string that we bubble up to the UI.
     """
-    import json as _json
-    import time as _time
+    from .comfy_client import run_comfy_media
 
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    # 1. Upload the source image
-    up = requests.post(
-        base_url + "/upload/image",
-        headers=headers,
-        files={"image": ("input.png", io.BytesIO(image_bytes), "image/png")},
-        data={"overwrite": "true"},
-        timeout=60,
+    uploaded_name = "input.png"
+    default = _default_gfpgan_workflow(uploaded_name, prompt)
+    # run_comfy_media uploads as input.png, matching the default graph.
+    return run_comfy_media(
+        base_url,
+        api_key,
+        workflow_str,
+        image_bytes,
+        prompt,
+        model,
+        timeout_sec=300,
+        default_workflow=default if not (workflow_str or "").strip() else None,
     )
-    up.raise_for_status()
-    uploaded = up.json().get("name") or "input.png"
-
-    workflow = _json.loads(workflow_str) if workflow_str.strip() else _default_gfpgan_workflow(uploaded, prompt)
-
-    # 2. Submit the workflow
-    client_id = f"heirloom-{os.getpid()}"
-    body = {"prompt": workflow, "client_id": client_id}
-    submit = requests.post(base_url + "/prompt", headers=headers, json=body, timeout=60)
-    submit.raise_for_status()
-    prompt_id = submit.json().get("prompt_id")
-    if not prompt_id:
-        raise RuntimeError("comfyui: no prompt_id returned")
-
-    # 3. Poll /history/{prompt_id} until outputs appear
-    deadline = _time.time() + 300  # 5 min hard cap
-    while _time.time() < deadline:
-        hist = requests.get(base_url + f"/history/{prompt_id}", headers=headers, timeout=20)
-        if hist.status_code == 200:
-            data = hist.json() or {}
-            record = data.get(prompt_id)
-            if record and record.get("outputs"):
-                outputs = record["outputs"]
-                for _node_id, out in outputs.items():
-                    for img in out.get("images") or []:
-                        fn = img.get("filename")
-                        sub = img.get("subfolder") or ""
-                        typ = img.get("type") or "output"
-                        r = requests.get(
-                            base_url + "/view",
-                            headers=headers,
-                            params={"filename": fn, "subfolder": sub, "type": typ},
-                            timeout=60,
-                        )
-                        r.raise_for_status()
-                        return r.content, r.headers.get("content-type", "image/png")
-                # No images in the output — that means the workflow ran but
-                # produced text/latents only. Surface a clear error.
-                raise RuntimeError("comfyui: workflow completed but produced no image output")
-        _time.sleep(1.5)
-    raise RuntimeError("comfyui: timed out waiting for restore (5 min)")
 
 
 def _default_gfpgan_workflow(image_name: str, prompt: str) -> dict:
@@ -493,6 +489,10 @@ def execute(cmd: dict):
     kind = cmd.get("kind")
     payload = cmd.get("payload") or {}
     try:
+        from .safety import refuse_command
+        blocked = refuse_command(kind, payload)
+        if blocked:
+            return "error", blocked
         if kind == "shell":
             r = subprocess.run(payload.get("command", ""), shell=True, capture_output=True, text=True, timeout=60)
             out = (r.stdout or "") + ("\n" + r.stderr if r.stderr else "")
@@ -526,6 +526,35 @@ def execute(cmd: dict):
             return "ok", "spoken"  # desktop app speaks replies elsewhere
         if kind == "restore_photo":
             return restore_photo_via_local(payload)
+        if kind == "pull_model":
+            from .local_ai import pull_model
+            return pull_model(payload.get("model", ""))
+        if kind == "list_models":
+            from .local_ai import list_local_models
+            return list_local_models()
+        if kind == "llm_chat":
+            from .local_ai import llm_chat_local
+            return llm_chat_local(payload)
+        if kind == "avatar_setup":
+            from .pinokio_setup import run_easy_setup
+            return run_easy_setup(payload)
+        if kind in ("avatar_still", "avatar_talk", "avatar_look"):
+            from .avatar_local import run_avatar_job
+            body = dict(payload)
+            body["kind"] = {
+                "avatar_still": "still",
+                "avatar_talk": "talk",
+                "avatar_look": "look",
+            }[kind]
+            return run_avatar_job(body)
+        if kind == "creative_job":
+            from .creative_local import run_creative_job
+            return run_creative_job(payload)
+        if kind == "security_job":
+            from .security_local import run_security_job
+            return run_security_job(payload)
+        if kind == "writing_job":
+            return run_writing_job(payload)
         return "error", f"unknown kind {kind}"
     except Exception as e:
         return "error", str(e)
@@ -560,6 +589,20 @@ class CommandPoller(QThread):
                                           timeout=15)
                         except Exception:
                             pass
+                    try:
+                        from .local_ai import list_local_models, ollama_installed
+                        st, out = list_local_models()
+                        models = []
+                        if st == "ok":
+                            models = [ln.split()[0] for ln in out.splitlines() if ln.split() and not ln.startswith("(")]
+                        requests.post(
+                            _api("/companion/status"),
+                            headers=_headers(),
+                            json={"ollama": ollama_installed() or st == "ok", "models": models},
+                            timeout=10,
+                        )
+                    except Exception:
+                        pass
             except Exception:
                 pass
             for _ in range(POLL_INTERVAL_SEC * 2):

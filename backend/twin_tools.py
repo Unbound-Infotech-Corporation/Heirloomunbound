@@ -113,6 +113,49 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "list_reminders",
+            "description": "List the owner's open reminders and to-dos. Use for 'what's on my list', 'what did I ask you to remind me'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "default": 12},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_reminder",
+            "description": "Mark a reminder done after the owner says it is finished. Use the reminder_id from list_reminders.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reminder_id": {"type": "string"},
+                },
+                "required": ["reminder_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "whats_on_my_plate",
+            "description": (
+                "Daily briefing: today's calendar, open reminders, a peek at recent mail, and on-this-day memories. "
+                "Use for 'good morning', 'what's on today', 'catch me up', 'what's on my plate'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {"type": "integer", "description": "How many days ahead (1-7)", "default": 1},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_weather",
             "description": "Get the current weather for a city or location (uses Open-Meteo, no API key).",
             "parameters": {
@@ -342,6 +385,131 @@ async def exec_list_recent_memories(user_id: str, args: dict) -> dict:
     return {"summary": "\n".join(lines), "ui": {"count": len(rows), "days": days}}
 
 
+async def exec_list_reminders(user_id: str, args: dict) -> dict:
+    limit = min(20, max(1, int(args.get("limit") or 12)))
+    rows = await db.reminders.find(
+        {"user_id": user_id, "status": "open"},
+        {"_id": 0, "reminder_id": 1, "text": 1, "due_at": 1, "status": 1},
+    ).sort([("due_at", 1), ("created_at", -1)]).to_list(length=limit)
+    if not rows:
+        return {"summary": "No open reminders.", "ui": {"kind": "reminders", "items": []}}
+    lines = ["Open reminders:"]
+    for r in rows:
+        due = (r.get("due_at") or "no date")[:16]
+        lines.append(f"- {r.get('reminder_id')}: {r.get('text')} (due {due})")
+    return {"summary": "\n".join(lines), "ui": {"kind": "reminders", "items": rows}}
+
+
+async def exec_complete_reminder(user_id: str, args: dict) -> dict:
+    rid = (args.get("reminder_id") or "").strip()
+    if not rid:
+        return {"summary": "Need a reminder_id from list_reminders.", "ui": {"ok": False}}
+    res = await db.reminders.update_one(
+        {"reminder_id": rid, "user_id": user_id, "status": "open"},
+        {"$set": {"status": "done", "completed_at": _now_iso()}},
+    )
+    if res.matched_count == 0:
+        return {"summary": "I couldn't find that open reminder.", "ui": {"ok": False}}
+    return {"summary": f"Marked {rid} done.", "ui": {"ok": True, "reminder_id": rid}}
+
+
+def _parse_when(when_str: str) -> datetime | None:
+    raw = (when_str or "").strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        pass
+    try:
+        import dateparser
+        dt = dateparser.parse(raw, settings={"PREFER_DATES_FROM": "future", "RETURN_AS_TIMEZONE_AWARE": True})
+        if not dt:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+async def exec_whats_on_my_plate(user_id: str, args: dict) -> dict:
+    days = max(1, min(int(args.get("days") or 1), 7))
+    now = datetime.now(timezone.utc)
+    end = now + timedelta(days=days)
+    sections: list[str] = []
+    ui: dict[str, Any] = {"kind": "briefing", "days": days}
+
+    rem_rows = await db.reminders.find(
+        {
+            "user_id": user_id,
+            "status": "open",
+            "$or": [{"due_at": None}, {"due_at": {"$lte": end.isoformat()}}],
+        },
+        {"_id": 0, "reminder_id": 1, "text": 1, "due_at": 1},
+    ).sort("due_at", 1).to_list(length=12)
+    ui["reminders"] = rem_rows
+    if rem_rows:
+        lines = [f"- {r.get('text')} (due {(r.get('due_at') or 'sometime')[:16]})" for r in rem_rows]
+        sections.append("Reminders:\n" + "\n".join(lines))
+    else:
+        sections.append("Reminders: none open for this window.")
+
+    cal_lines = "Calendar isn't connected. Tap Connect Gmail if they want the twin to see the day."
+    bundle, status = await _mail_bundle(user_id)
+    if bundle:
+        provider, token, _profile = bundle
+        from services.day_assist import (
+            CALENDAR_RECONNECT,
+            format_events,
+            list_google_events,
+            list_graph_events,
+            scope_has_calendar,
+        )
+        conn = await db.oauth_connections.find_one(
+            {"user_id": user_id, "provider": provider},
+            {"_id": 0, "scope": 1},
+        )
+        if not scope_has_calendar((conn or {}).get("scope") or ""):
+            cal_lines = CALENDAR_RECONNECT
+        else:
+            try:
+                events = list_google_events(token, days=days) if provider == "google" else list_graph_events(token, days=days)
+                ui["events"] = events
+                cal_lines = "Calendar:\n" + (format_events(events) or "(nothing on the calendar)")
+            except RuntimeError as exc:
+                cal_lines = str(exc)
+    elif (status or {}).get("connected"):
+        cal_lines = "Calendar sign-in expired. Tap Connect Gmail again."
+    sections.append(cal_lines)
+
+    if bundle:
+        from services import mail_inbox as mail
+        try:
+            rows = _list_owner_mail(bundle[0], bundle[1])
+            ui["mail"] = [mail.public_row(r) for r in rows[:5]]
+            if rows:
+                sections.append("Recent mail:\n" + _mail_summary(rows[:5]))
+        except RuntimeError:
+            pass
+
+    mm, dd = f"{now.month:02d}", f"{now.day:02d}"
+    memory_rows = await db.entries.find(
+        {"user_id": user_id, "created_at": {"$regex": f"-{mm}-{dd}T"}},
+        {"_id": 0, "title": 1, "created_at": 1, "type": 1},
+    ).sort("created_at", -1).to_list(length=3)
+    ui["on_this_day"] = memory_rows
+    if memory_rows:
+        bits = [f"- {r.get('created_at', '')[:10]} {r.get('title') or r.get('type')}" for r in memory_rows]
+        sections.append("On this day in the archive:\n" + "\n".join(bits))
+
+    header = f"What's on their plate ({days} day{'s' if days != 1 else ''}):"
+    return {"summary": header + "\n\n" + "\n\n".join(sections), "ui": ui}
+
+
 def _sync_weather(location: str) -> dict:
     """Runs in a thread — Open-Meteo geocoding + current weather."""
     loc = location.strip()
@@ -529,17 +697,21 @@ def _device_is_awake(dev: dict | None) -> bool:
 
 
 async def _queue_pc_command(user_id: str, kind: str, payload: dict) -> str:
+    from services.pc_security import refuse_companion_command
+
     cmd_id = f"cmd_{uuid.uuid4().hex[:10]}"
-    await db.companion_commands.insert_one({
+    hit = refuse_companion_command(kind, payload or {})
+    doc = {
         "cmd_id": cmd_id,
         "user_id": user_id,
         "kind": kind,
         "payload": payload,
-        "status": "queued",
-        "result": None,
+        "status": "error" if hit else "queued",
+        "result": hit,
         "created_at": _now_iso(),
-        "completed_at": None,
-    })
+        "completed_at": _now_iso() if hit else None,
+    }
+    await db.companion_commands.insert_one(doc)
     return cmd_id
 
 
@@ -589,16 +761,27 @@ async def _queue_fire_and_forget(user_id: str, kind: str, payload: dict, label: 
 
 
 async def exec_open_on_pc(user_id: str, args: dict) -> dict:
+    from services.pc_security import refuse_app, refuse_url
+
     target = (args.get("target") or "").strip()
     if not target:
         return {"summary": "No app or website given.", "ui": {"ok": False}}
     kind_hint = (args.get("kind") or "auto").lower()
-    is_url = target.lower().startswith(("http://", "https://")) or (
+    lower = target.lower()
+    is_url = lower.startswith(("http://", "https://", "windowsdefender:", "ms-settings:")) or (
         kind_hint == "website"
     ) or (kind_hint == "auto" and "." in target and " " not in target and "/" not in target[:1])
     if is_url:
-        url = target if target.lower().startswith(("http://", "https://")) else f"https://{target}"
+        url = target if "://" in target.lower() else (
+            target if lower.startswith(("windowsdefender:", "ms-settings:")) else f"https://{target}"
+        )
+        blocked = refuse_url(url)
+        if blocked:
+            return {"summary": blocked, "ui": {"ok": False, "kind": "open_url", "blocked": True}}
         return await _queue_fire_and_forget(user_id, "open_url", {"url": url}, f"Opening {target}")
+    blocked = refuse_app(target)
+    if blocked:
+        return {"summary": blocked, "ui": {"ok": False, "kind": "open_app", "blocked": True}}
     return await _queue_fire_and_forget(user_id, "open_app", {"name": target}, f"Opening {target}")
 
 
@@ -686,9 +869,14 @@ async def exec_system_status(user_id: str, args: dict) -> dict:
 
 
 async def exec_run_command(user_id: str, args: dict) -> dict:
+    from services.pc_security import refuse_shell
+
     command = (args.get("command") or "").strip()
     if not command:
         return {"summary": "No command given.", "ui": {"ok": False}}
+    blocked = refuse_shell(command)
+    if blocked:
+        return {"summary": blocked, "ui": {"ok": False, "blocked": True, "command": command[:200]}}
     if not bool(args.get("confirmed")):
         return {
             "summary": (
@@ -728,13 +916,16 @@ async def exec_find_file(user_id: str, args: dict) -> dict:
 
 
 async def exec_see_screen(user_id: str, args: dict) -> dict:
-    question = (args.get("question") or "Describe what is currently on the screen in a clear, concise way.").strip()
+    from services.screen_coach import VISION_SYSTEM, coach_question_for
+
+    raw_q = (args.get("question") or "").strip()
+    question = raw_q or coach_question_for("")
     dev, err = await _pc_precheck(user_id)
     if err:
         return err
     cmd_id = await _queue_pc_command(user_id, "screenshot", {})
     # Wait for the companion to upload the capture (stored in companion_screens by cmd_id).
-    deadline = time.monotonic() + 22.0
+    deadline = time.monotonic() + 30.0
     shot: dict | None = None
     while time.monotonic() < deadline:
         shot = await db.companion_screens.find_one({"cmd_id": cmd_id, "user_id": user_id}, {"_id": 0})
@@ -745,14 +936,17 @@ async def exec_see_screen(user_id: str, args: dict) -> dict:
             return {"summary": f"Couldn't capture the screen: {cmd.get('result')}", "ui": {"ok": False}}
         await asyncio.sleep(0.8)
     if not shot or not shot.get("image_b64"):
-        return {"summary": "The PC didn't send a screenshot in time.", "ui": {"ok": False}}
+        return {
+            "summary": "The PC didn't send a screenshot in time. Open the Heirloom app on the home computer and try again.",
+            "ui": {"ok": False},
+        }
     try:
         from emergentintegrations.llm.chat import ImageContent, LlmChat, StreamDone, TextDelta, UserMessage
 
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"see_{cmd_id}",
-            system_message="You are looking at a screenshot of the user's computer screen. Answer their question about it directly and briefly.",
+            system_message=VISION_SYSTEM,
         ).with_model("anthropic", "claude-sonnet-4-6")
         text = ""
         async for ev in chat.stream_message(
@@ -772,6 +966,933 @@ async def exec_see_screen(user_id: str, args: dict) -> dict:
         except Exception:  # noqa: BLE001
             pass
     return {"summary": f"Looking at your screen: {text}", "ui": {"ok": True}}
+
+
+MAIL_CONNECT_HINT = (
+    "Email isn't connected. Tell them: tap Connect my email (Gmail or Outlook) on Settings or Avatar Studio. "
+    "Google or Microsoft will ask — Heirloom never sees the password. "
+    "Do not ask them to type an email password here."
+)
+MAIL_EXPIRED_HINT = (
+    "Email sign-in expired. Tell them to tap Connect my email again. Never ask for their password."
+)
+
+
+async def _mail_bundle(user_id: str):
+    from routers.oauth import get_fresh_mail_token, public_mail_status
+    bundle = await get_fresh_mail_token(user_id)
+    if bundle:
+        return bundle, None
+    status = await public_mail_status(user_id)
+    return None, status
+
+
+def _list_owner_mail(provider: str, token: str, *, query: str = "", setup_only: bool = False):
+    from services import mail_inbox as mail
+    if provider == "google":
+        return mail.list_gmail(token, query=query, setup_only=setup_only)
+    return mail.list_graph(token, query=query, setup_only=setup_only)
+
+
+def _mail_summary(rows: list, *, setup: bool = False) -> str:
+    from services import mail_inbox as mail
+    if not rows:
+        return ""
+    lines = []
+    for raw in rows:
+        row = mail.public_row(raw, setup=setup)
+        line = f"{row['from']} — {row['subject']}: {row['snippet']}"
+        if setup and row.get("links"):
+            line += "\n  Links: " + " · ".join(row["links"])
+        lines.append(line)
+    return "\n".join(lines)
+
+
+async def exec_read_inbox(user_id: str, args: dict) -> dict:
+    bundle, status = await _mail_bundle(user_id)
+    if not bundle:
+        hint = MAIL_EXPIRED_HINT if (status or {}).get("connected") else MAIL_CONNECT_HINT
+        return {"summary": hint, "ui": {"kind": "mail", "connected": False}}
+    provider, token, _profile = bundle
+    from services import mail_inbox as mail
+    try:
+        rows = _list_owner_mail(provider, token, query=str(args.get("query") or ""))
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "mail", "error": str(exc)}}
+    public = [mail.public_row(r) for r in rows]
+    if not public:
+        return {"summary": "No recent mail matched.", "ui": {"kind": "mail", "messages": []}}
+    return {"summary": "Recent mail:\n" + _mail_summary(rows), "ui": {"kind": "mail", "messages": public}}
+
+
+async def exec_search_mail(user_id: str, args: dict) -> dict:
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"summary": "Need a search phrase.", "ui": {"kind": "mail", "error": "missing_query"}}
+    return await exec_read_inbox(user_id, {"query": query})
+
+
+async def exec_find_setup_mail(user_id: str, args: dict) -> dict:
+    bundle, status = await _mail_bundle(user_id)
+    if not bundle:
+        hint = MAIL_EXPIRED_HINT if (status or {}).get("connected") else MAIL_CONNECT_HINT
+        return {"summary": hint, "ui": {"kind": "mail", "connected": False, "setup": True}}
+    provider, token, _profile = bundle
+    from services import mail_inbox as mail
+    try:
+        rows = _list_owner_mail(provider, token, setup_only=True)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "mail", "error": str(exc), "setup": True}}
+    public = [mail.public_row(r, setup=True) for r in rows]
+    if not public:
+        return {
+            "summary": (
+                "No setup or confirmation emails in the last few weeks. "
+                "Pinokio and ComfyUI usually don't send mail — they install on the home computer without accounts."
+            ),
+            "ui": {"kind": "mail", "messages": [], "setup": True},
+        }
+    return {
+        "summary": (
+            "Setup / confirmation mail (show the links; they tap them — do not create accounts for them):\n"
+            + _mail_summary(rows, setup=True)
+        ),
+        "ui": {"kind": "mail", "messages": public, "setup": True},
+    }
+
+
+async def exec_send_email(user_id: str, args: dict) -> dict:
+    from services import mail_inbox as mail
+    to = (args.get("to") or "").strip()
+    subject = (args.get("subject") or "").strip()
+    body = (args.get("body") or "").strip()
+    if not mail.valid_recipient(to):
+        return {"summary": "That doesn't look like an email address.", "ui": {"kind": "mail", "error": "bad_to"}}
+    if not subject or not body:
+        return {"summary": "Need a subject and a message.", "ui": {"kind": "mail", "error": "missing_fields"}}
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": mail.draft_preview(to, subject, body),
+            "ui": {"kind": "mail", "needs_confirm": True, "to": to, "subject": subject},
+        }
+    bundle, status = await _mail_bundle(user_id)
+    if not bundle:
+        hint = MAIL_EXPIRED_HINT if (status or {}).get("connected") else MAIL_CONNECT_HINT
+        return {"summary": hint, "ui": {"kind": "mail", "connected": False}}
+    provider, token, _profile = bundle
+    try:
+        if provider == "google":
+            mail.send_gmail(token, to, subject, body)
+        else:
+            mail.send_graph(token, to, subject, body)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "mail", "error": str(exc)}}
+    return {
+        "summary": f"Sent to {to} with subject '{subject}'.",
+        "ui": {"kind": "mail", "sent": True, "to": to},
+    }
+
+
+async def exec_find_follow_ups(user_id: str, args: dict) -> dict:
+    bundle, status = await _mail_bundle(user_id)
+    if not bundle:
+        hint = MAIL_EXPIRED_HINT if (status or {}).get("connected") else MAIL_CONNECT_HINT
+        return {"summary": hint, "ui": {"kind": "mail", "connected": False, "follow_ups": True}}
+    provider, token, _profile = bundle
+    from services import mail_inbox as mail
+    try:
+        rows = _list_owner_mail(provider, token)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "mail", "error": str(exc)}}
+    hits = [r for r in rows if mail.looks_like_follow_up(r.get("subject") or "", r.get("snippet") or "", r.get("from") or "")]
+    public = [mail.public_row(r) for r in hits]
+    if not public:
+        return {
+            "summary": "Nothing in recent mail looks like it is waiting on them.",
+            "ui": {"kind": "mail", "messages": [], "follow_ups": True},
+        }
+    return {
+        "summary": (
+            "Mail that may need a reply (draft with send_email — do not send until they say yes):\n"
+            + _mail_summary(hits)
+        ),
+        "ui": {"kind": "mail", "messages": public, "follow_ups": True},
+    }
+
+
+async def _calendar_session(user_id: str):
+    from services.day_assist import CALENDAR_RECONNECT, scope_has_calendar
+    bundle, status = await _mail_bundle(user_id)
+    if not bundle:
+        hint = MAIL_EXPIRED_HINT if (status or {}).get("connected") else MAIL_CONNECT_HINT
+        return None, hint
+    provider, token, _profile = bundle
+    conn = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": provider},
+        {"_id": 0, "scope": 1},
+    )
+    if not scope_has_calendar((conn or {}).get("scope") or ""):
+        return None, CALENDAR_RECONNECT
+    return (provider, token), None
+
+
+async def exec_list_events(user_id: str, args: dict) -> dict:
+    from services.day_assist import format_events, list_google_events, list_graph_events, public_event
+    days = max(1, min(int(args.get("days") or 1), 14))
+    session, err = await _calendar_session(user_id)
+    if not session:
+        return {"summary": err or MAIL_CONNECT_HINT, "ui": {"kind": "calendar", "connected": False}}
+    provider, token = session
+    try:
+        rows = list_google_events(token, days=days) if provider == "google" else list_graph_events(token, days=days)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "calendar", "error": str(exc)}}
+    public = [public_event(r) for r in rows]
+    if not public:
+        return {"summary": "Nothing on the calendar in that window.", "ui": {"kind": "calendar", "events": []}}
+    return {"summary": "Upcoming:\n" + format_events(rows), "ui": {"kind": "calendar", "events": public}}
+
+
+async def exec_create_event(user_id: str, args: dict) -> dict:
+    from services.day_assist import create_google_event, create_graph_event, event_preview
+    title = (args.get("title") or "").strip()
+    when_str = (args.get("when") or "").strip()
+    where = (args.get("where") or "").strip()
+    notes = (args.get("notes") or "").strip()
+    try:
+        minutes = int(args.get("duration_minutes") or 60)
+    except (TypeError, ValueError):
+        minutes = 60
+    minutes = max(15, min(minutes, 480))
+    if not title:
+        return {"summary": "Need a title for the event.", "ui": {"kind": "calendar", "error": "missing_title"}}
+    start = _parse_when(when_str)
+    if not start:
+        return {"summary": "I couldn't tell when that is. Ask for a day and time.", "ui": {"kind": "calendar", "error": "bad_when"}}
+    end = start + timedelta(minutes=minutes)
+    start_iso, end_iso = start.isoformat(), end.isoformat()
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": event_preview(title, start_iso, end_iso, where, notes),
+            "ui": {"kind": "calendar", "needs_confirm": True, "title": title, "start": start_iso},
+        }
+    session, err = await _calendar_session(user_id)
+    if not session:
+        return {"summary": err or MAIL_CONNECT_HINT, "ui": {"kind": "calendar", "connected": False}}
+    provider, token = session
+    try:
+        if provider == "google":
+            create_google_event(token, title, start_iso, end_iso, where=where, notes=notes)
+        else:
+            create_graph_event(token, title, start_iso, end_iso, where=where, notes=notes)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "calendar", "error": str(exc)}}
+    return {
+        "summary": f"Added '{title}' to the calendar at {start_iso[:16]}.",
+        "ui": {"kind": "calendar", "created": True, "title": title},
+    }
+
+
+async def exec_find_contact(user_id: str, args: dict) -> dict:
+    name = (args.get("name") or "").strip()
+    if not name:
+        return {"summary": "Need a name to look up.", "ui": {"kind": "people", "error": "missing_name"}}
+    rows = await db.contacts.find(
+        {"user_id": user_id},
+        {"_id": 0, "contact_id": 1, "name": 1, "phone": 1, "note": 1},
+    ).sort("name", 1).to_list(length=200)
+    needle = name.lower()
+    hits = [c for c in rows if needle in (c.get("name") or "").lower()]
+    if not hits:
+        return {
+            "summary": f"No one named '{name}' in the Heirloom address book. They can add people on the Phone page.",
+            "ui": {"kind": "people", "contacts": []},
+        }
+    lines = [f"- {c.get('name')} ({c.get('phone')})" + (f" — {c.get('note')}" if c.get("note") else "") for c in hits[:8]]
+    return {"summary": "Address book:\n" + "\n".join(lines), "ui": {"kind": "people", "contacts": hits[:8]}}
+
+
+async def exec_call_contact(user_id: str, args: dict) -> dict:
+    name = (args.get("name") or "").strip()
+    if not name:
+        return {"summary": "Need a name to call.", "ui": {"kind": "people", "error": "missing_name"}}
+    rows = await db.contacts.find(
+        {"user_id": user_id},
+        {"_id": 0, "contact_id": 1, "name": 1, "phone": 1},
+    ).to_list(length=200)
+    needle = name.lower()
+    hits = [c for c in rows if needle in (c.get("name") or "").lower()]
+    if not hits:
+        return {
+            "summary": f"I don't have '{name}' in the address book. Add them on the Phone page first. Never invent a number.",
+            "ui": {"kind": "people", "contacts": []},
+        }
+    if len(hits) > 1 and not args.get("contact_id"):
+        names = ", ".join(c.get("name") or "" for c in hits[:6])
+        return {
+            "summary": f"A few people match '{name}': {names}. Ask which one, then call that exact name.",
+            "ui": {"kind": "people", "contacts": hits[:6], "needs_pick": True},
+        }
+    chosen = hits[0]
+    if args.get("contact_id"):
+        chosen = next((c for c in hits if c.get("contact_id") == args.get("contact_id")), chosen)
+    opening = (args.get("opening_line") or "").strip() or f"Hi {chosen['name'].split()[0]}, this is a call from the digital twin."
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": (
+                f"I'm about to call {chosen['name']} at the number in the address book. "
+                "Ask them to confirm, then call call_contact again with confirmed=true."
+            ),
+            "ui": {"kind": "people", "needs_confirm": True, "name": chosen["name"], "contact_id": chosen.get("contact_id")},
+        }
+    from fastapi import HTTPException
+    from routers.twilio_voice import OutboundReq, outbound_call
+    try:
+        result = await outbound_call(
+            OutboundReq(to_number=chosen["phone"], opening_line=opening[:400]),
+            user={"user_id": user_id},
+        )
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "Couldn't place the call."
+        if "Twilio" in detail or "Outbound" in detail:
+            detail = "Phone isn't ready. Tell them to open Connect → Phone and turn on outbound calls."
+        return {"summary": detail, "ui": {"kind": "people", "error": detail}}
+    except Exception as exc:  # noqa: BLE001
+        return {"summary": f"Couldn't place the call: {exc!s}"[:200], "ui": {"kind": "people", "ok": False}}
+    return {
+        "summary": f"Calling {chosen['name']} now.",
+        "ui": {"kind": "people", "calling": True, "name": chosen["name"], "call_sid": (result or {}).get("call_sid")},
+    }
+
+
+async def _google_workspace_token(user_id: str, *, sheets: bool = False):
+    from routers.oauth import get_fresh_google_token
+    from services.google_workspace import DOCS_EXPIRED, DOCS_RECONNECT, scope_has_docs, scope_has_sheets
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "google"},
+        {"_id": 0, "scope": 1},
+    )
+    if not row:
+        return None, (
+            "Google isn't connected. Tap Connect Gmail on Settings. Google will ask — "
+            "we never see the password. That same tap also shares Docs, Sheets, Search, and YouTube."
+        )
+    token = await get_fresh_google_token(user_id)
+    if not token:
+        return None, DOCS_EXPIRED
+    scope = row.get("scope") or ""
+    ok = scope_has_sheets(scope) if sheets else scope_has_docs(scope)
+    if not ok:
+        return None, DOCS_RECONNECT
+    return token, None
+
+
+async def _google_insights_token(user_id: str, *, youtube: bool = False, search_console: bool = False):
+    from routers.oauth import get_fresh_google_token
+    from services.google_insights import GSC_RECONNECT, YT_RECONNECT, scope_has_search_console, scope_has_youtube
+    from services.google_workspace import DOCS_EXPIRED
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "google"},
+        {"_id": 0, "scope": 1},
+    )
+    if not row:
+        return None, (
+            "Google isn't connected. Tap Connect Gmail on Settings. Google will ask — "
+            "we never see the password. That same tap also shares Search Console and YouTube."
+        )
+    token = await get_fresh_google_token(user_id)
+    if not token:
+        return None, DOCS_EXPIRED
+    scope = row.get("scope") or ""
+    if youtube and not scope_has_youtube(scope):
+        return None, YT_RECONNECT
+    if search_console and not scope_has_search_console(scope):
+        return None, GSC_RECONNECT
+    return token, None
+
+
+async def _maybe_open_url(user_id: str, url: str) -> str:
+    if not url:
+        return ""
+    try:
+        dev = await _active_device(user_id)
+        if not dev or not _device_is_awake(dev):
+            return ""
+        await _queue_pc_command(user_id, "open_url", {"url": url})
+        return " I opened it on your computer."
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+async def exec_write_google_doc(user_id: str, args: dict) -> dict:
+    from services.google_workspace import (
+        business_plan_outline,
+        create_google_document,
+        doc_preview,
+    )
+    title = (args.get("title") or "").strip()[:120]
+    body = (args.get("body") or "").strip()
+    kind = (args.get("kind") or "").strip().lower()
+    offering = (args.get("offering") or "").strip()
+    audience = (args.get("audience") or "").strip()
+    if not title:
+        title = "Business plan" if kind in ("business_plan", "plan") else "Untitled"
+    if not body and kind in ("business_plan", "plan"):
+        body = business_plan_outline(title, offering, audience)
+    if not body:
+        return {
+            "summary": "Need the words for the Doc. Write the plan in `body`, then try again.",
+            "ui": {"kind": "docs", "error": "missing_body"},
+        }
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": doc_preview(title, body),
+            "ui": {"kind": "docs", "needs_confirm": True, "title": title},
+        }
+    token, err = await _google_workspace_token(user_id, sheets=False)
+    if not token:
+        return {"summary": err, "ui": {"kind": "docs", "connected": False}}
+    try:
+        created = await asyncio.to_thread(create_google_document, token, title, body)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "docs", "error": str(exc)}}
+    opened = await _maybe_open_url(user_id, created["url"])
+    return {
+        "summary": f"Created Google Doc '{created['title']}': {created['url']}.{opened}",
+        "ui": {"kind": "docs", "created": True, "url": created["url"], "title": created["title"]},
+    }
+
+
+async def exec_write_google_sheet(user_id: str, args: dict) -> dict:
+    from services.google_workspace import (
+        create_google_spreadsheet,
+        normalize_headers,
+        normalize_rows,
+        sheet_preview,
+    )
+    title = (args.get("title") or "").strip()[:120] or "Untitled sheet"
+    headers = normalize_headers(args.get("headers"))
+    rows = normalize_rows(args.get("rows"), column_count=len(headers) or 1)
+    if not headers and not rows:
+        return {
+            "summary": "Need columns or rows for the spreadsheet.",
+            "ui": {"kind": "sheets", "error": "empty"},
+        }
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": sheet_preview(title, headers, rows),
+            "ui": {"kind": "sheets", "needs_confirm": True, "title": title},
+        }
+    token, err = await _google_workspace_token(user_id, sheets=True)
+    if not token:
+        return {"summary": err, "ui": {"kind": "sheets", "connected": False}}
+    try:
+        created = await asyncio.to_thread(create_google_spreadsheet, token, title, headers, rows)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "sheets", "error": str(exc)}}
+    opened = await _maybe_open_url(user_id, created["url"])
+    return {
+        "summary": f"Created spreadsheet '{created['title']}': {created['url']}.{opened}",
+        "ui": {"kind": "sheets", "created": True, "url": created["url"], "title": created["title"]},
+    }
+
+
+async def exec_list_workspace_files(user_id: str, args: dict) -> dict:
+    from services.google_workspace import format_file_list, list_google_workspace_files
+    token, err = await _google_workspace_token(user_id, sheets=False)
+    if not token:
+        return {"summary": err, "ui": {"kind": "docs", "connected": False}}
+    try:
+        files = await asyncio.to_thread(list_google_workspace_files, token)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "docs", "error": str(exc)}}
+    return {
+        "summary": format_file_list(files),
+        "ui": {"kind": "docs", "files": files},
+    }
+
+
+async def exec_research_seo(user_id: str, args: dict) -> dict:
+    from services.seo_campaign import assemble_campaign, format_campaign
+    topic = (args.get("topic") or "").strip()
+    if not topic:
+        return {"summary": "Need a topic — what the business does.", "ui": {"kind": "seo", "error": "missing_topic"}}
+    location = (args.get("location") or "").strip()
+    audience = (args.get("audience") or "").strip()
+    query = topic if not location else f"{topic} {location}"
+    results: list[dict] = []
+    try:
+        results = await asyncio.to_thread(_sync_ddg_search, f"{query} marketing", 6)
+    except Exception:  # noqa: BLE001
+        results = []
+    plan = assemble_campaign(topic, location=location, audience=audience, results=results)
+    return {
+        "summary": format_campaign(plan),
+        "ui": {"kind": "seo", "plan": plan},
+    }
+
+
+async def exec_post_to_social(user_id: str, args: dict) -> dict:
+    from routers.oauth import get_fresh_extra, get_fresh_linkedin_token, get_fresh_twitter_token
+    from services.extras_publish import (
+        post_discord_webhook,
+        post_pinterest,
+        post_reddit,
+        post_slack,
+        post_wordpress,
+    )
+    from services.social_post import (
+        SOCIAL_CONNECT,
+        clip_post,
+        coming_soon_message,
+        normalize_network,
+        post_linkedin,
+        post_preview,
+        post_tweet,
+    )
+    raw_network = str(args.get("network") or "")
+    soon = coming_soon_message(raw_network)
+    if soon:
+        return {"summary": soon, "ui": {"kind": "social", "coming_soon": True}}
+    if (raw_network or "").strip().lower() in ("tiktok", "tt"):
+        return {
+            "summary": (
+                "Posting a new TikTok needs a video file — I can draft a caption, "
+                "but I can't upload the clip yet. Ask me to list your TikToks instead."
+            ),
+            "ui": {"kind": "social", "network": "tiktok", "needs_video": True},
+        }
+    network = normalize_network(raw_network)
+    if not network:
+        return {
+            "summary": (
+                "Say which app: X (twitter), LinkedIn, Discord, Reddit, Pinterest, "
+                "WordPress, or Slack."
+            ),
+            "ui": {"kind": "social", "error": "bad_network"},
+        }
+    text, warn = clip_post(str(args.get("text") or ""), network)
+    if not text:
+        return {"summary": warn or "Need some words to post.", "ui": {"kind": "social", "error": "missing_text"}}
+    title = str(args.get("title") or "").strip()
+    image_url = str(args.get("image_url") or "").strip()
+    link = str(args.get("link") or "").strip()
+    channel = str(args.get("channel") or "").strip()
+    subreddit = str(args.get("subreddit") or "").strip()
+    board_id = str(args.get("board_id") or "").strip()
+    draft = text if not warn else f"{text}\n({warn})"
+    extra_bits = []
+    if title:
+        extra_bits.append(f"Title: {title}")
+    if image_url:
+        extra_bits.append(f"Picture: {image_url}")
+    if subreddit:
+        extra_bits.append(f"Subreddit: {subreddit}")
+    if channel:
+        extra_bits.append(f"Channel: {channel}")
+    preview_body = draft if not extra_bits else draft + "\n" + "\n".join(extra_bits)
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": post_preview(network, preview_body),
+            "ui": {"kind": "social", "needs_confirm": True, "network": network, "text": text},
+        }
+    if network == "twitter":
+        token = await get_fresh_twitter_token(user_id)
+        if not token:
+            return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": "twitter"}}
+        try:
+            posted = await asyncio.to_thread(post_tweet, token, text)
+        except RuntimeError as exc:
+            return {"summary": str(exc), "ui": {"kind": "social", "error": str(exc)}}
+        return {
+            "summary": "Posted on X." + (f" Id {posted['id']}." if posted.get("id") else ""),
+            "ui": {"kind": "social", "posted": True, "network": "twitter", "id": posted.get("id")},
+        }
+    if network == "linkedin":
+        bundle = await get_fresh_linkedin_token(user_id)
+        if not bundle:
+            return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": "linkedin"}}
+        token, profile = bundle
+        urn = (profile or {}).get("urn") or (profile or {}).get("id") or ""
+        if not urn:
+            return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": "linkedin"}}
+        try:
+            posted = await asyncio.to_thread(post_linkedin, token, str(urn), text)
+        except RuntimeError as exc:
+            return {"summary": str(exc), "ui": {"kind": "social", "error": str(exc)}}
+        return {
+            "summary": "Posted on LinkedIn.",
+            "ui": {"kind": "social", "posted": True, "network": "linkedin", "id": posted.get("id")},
+        }
+    extra = await get_fresh_extra(user_id, network)
+    if not extra:
+        return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "connected": False, "network": network}}
+    token, profile = extra
+    try:
+        if network == "discord":
+            posted = await asyncio.to_thread(
+                post_discord_webhook, str((profile or {}).get("webhook_url") or ""), text
+            )
+        elif network == "reddit":
+            posted = await asyncio.to_thread(
+                post_reddit,
+                token,
+                str((profile or {}).get("username") or ""),
+                title,
+                text,
+                subreddit,
+            )
+        elif network == "pinterest":
+            posted = await asyncio.to_thread(
+                post_pinterest, token, title, text, image_url, link, board_id
+            )
+        elif network == "wordpress":
+            posted = await asyncio.to_thread(
+                post_wordpress, token, title, text, str((profile or {}).get("primary_blog") or "")
+            )
+        elif network == "slack":
+            posted = await asyncio.to_thread(post_slack, token, text, channel)
+        else:
+            return {"summary": SOCIAL_CONNECT, "ui": {"kind": "social", "error": "bad_network"}}
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "social", "error": str(exc)}}
+    url = posted.get("url") or ""
+    return {
+        "summary": f"Posted on {network}." + (f" {url}" if url else ""),
+        "ui": {"kind": "social", "posted": True, "network": network, "id": posted.get("id"), "url": url},
+    }
+
+
+async def exec_read_search_console(user_id: str, args: dict) -> dict:
+    from services.google_insights import search_console_report
+    token, err = await _google_insights_token(user_id, search_console=True)
+    if not token:
+        return {"summary": err, "ui": {"kind": "seo", "connected": False}}
+    site = str(args.get("site") or "").strip()
+    days = int(args.get("days") or 28)
+    try:
+        plan = await asyncio.to_thread(search_console_report, token, site, days)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "seo", "error": str(exc)}}
+    return {
+        "summary": plan.get("summary") or "No Search Console rows.",
+        "ui": {"kind": "seo", "search_console": True, "site": plan.get("site"), "queries": plan.get("queries")},
+    }
+
+
+async def exec_list_youtube(user_id: str, args: dict) -> dict:
+    from services.google_insights import list_youtube_channel
+    token, err = await _google_insights_token(user_id, youtube=True)
+    if not token:
+        return {"summary": err, "ui": {"kind": "youtube", "connected": False}}
+    try:
+        data = await asyncio.to_thread(list_youtube_channel, token)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "youtube", "error": str(exc)}}
+    return {
+        "summary": data.get("summary") or "No YouTube channel.",
+        "ui": {"kind": "youtube", "channel": data.get("channel"), "videos": data.get("videos")},
+    }
+
+
+async def exec_list_tiktok(user_id: str, args: dict) -> dict:
+    from routers.oauth import get_fresh_extra
+    from services.extras_publish import list_tiktok_videos
+    from services.social_post import SOCIAL_CONNECT
+    extra = await get_fresh_extra(user_id, "tiktok")
+    if not extra:
+        return {
+            "summary": "TikTok isn't connected. Tap Connect TikTok on Settings. TikTok asks — we never see the password.",
+            "ui": {"kind": "tiktok", "connected": False},
+        }
+    token, _profile = extra
+    try:
+        data = await asyncio.to_thread(list_tiktok_videos, token)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "tiktok", "error": str(exc)}}
+    return {
+        "summary": data.get("summary") or SOCIAL_CONNECT,
+        "ui": {"kind": "tiktok", "videos": data.get("videos")},
+    }
+
+
+async def exec_write_notion_page(user_id: str, args: dict) -> dict:
+    from routers.oauth import get_fresh_extra
+    from services.extras_publish import write_notion_page
+    from services.social_post import SOCIAL_CONNECT
+    title = str(args.get("title") or "").strip()[:200] or "Untitled"
+    body = str(args.get("body") or "").strip()
+    if not body:
+        return {"summary": "Need the words for the Notion page.", "ui": {"kind": "notion", "error": "missing_body"}}
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": (
+                f"I drafted this Notion page '{title}'. Ask them to confirm, then call "
+                f"write_notion_page again with confirmed=true.\n---\n{body[:1500]}"
+            ),
+            "ui": {"kind": "notion", "needs_confirm": True, "title": title},
+        }
+    extra = await get_fresh_extra(user_id, "notion")
+    if not extra:
+        return {
+            "summary": "Notion isn't connected. Tap Connect Notion on Settings, then share a page with Heirloom. We never ask for a password.",
+            "ui": {"kind": "notion", "connected": False},
+        }
+    token, _profile = extra
+    try:
+        created = await asyncio.to_thread(write_notion_page, token, title, body)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "notion", "error": str(exc)}}
+    opened = await _maybe_open_url(user_id, created.get("url") or "")
+    return {
+        "summary": f"Saved Notion page '{title}'." + (f" {created.get('url')}" if created.get("url") else "") + opened,
+        "ui": {"kind": "notion", "created": True, "url": created.get("url")},
+    }
+
+
+async def exec_save_to_dropbox(user_id: str, args: dict) -> dict:
+    from routers.oauth import get_fresh_extra
+    from services.extras_publish import save_dropbox_file
+    filename = str(args.get("filename") or "heirloom-note.txt").strip()
+    body = str(args.get("body") or "").strip()
+    if not body:
+        return {"summary": "Need the words for the Dropbox file.", "ui": {"kind": "dropbox", "error": "missing_body"}}
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": (
+                f"I drafted this Dropbox file '{filename}'. Ask them to confirm, then call "
+                f"save_to_dropbox again with confirmed=true.\n---\n{body[:1500]}"
+            ),
+            "ui": {"kind": "dropbox", "needs_confirm": True, "filename": filename},
+        }
+    extra = await get_fresh_extra(user_id, "dropbox")
+    if not extra:
+        return {
+            "summary": "Dropbox isn't connected. Tap Connect Dropbox on Settings. We never ask for a password.",
+            "ui": {"kind": "dropbox", "connected": False},
+        }
+    token, _profile = extra
+    try:
+        saved = await asyncio.to_thread(save_dropbox_file, token, filename, body)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "dropbox", "error": str(exc)}}
+    return {
+        "summary": f"Saved to Dropbox as {saved.get('path') or filename}.",
+        "ui": {"kind": "dropbox", "saved": True, "path": saved.get("path")},
+    }
+
+
+async def exec_send_mailchimp(user_id: str, args: dict) -> dict:
+    from routers.oauth import get_fresh_extra
+    from services.extras_publish import send_mailchimp_campaign
+    subject = str(args.get("subject") or "").strip()[:150] or "Hello"
+    body = str(args.get("body") or "").strip()
+    from_name = str(args.get("from_name") or "").strip() or "Heirloom"
+    if not body:
+        return {"summary": "Need the words for the newsletter.", "ui": {"kind": "mailchimp", "error": "missing_body"}}
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": (
+                f"I drafted this Mailchimp letter '{subject}'. Ask them to confirm, then call "
+                f"send_mailchimp again with confirmed=true.\n---\n{body[:1500]}"
+            ),
+            "ui": {"kind": "mailchimp", "needs_confirm": True, "subject": subject},
+        }
+    extra = await get_fresh_extra(user_id, "mailchimp")
+    if not extra:
+        return {
+            "summary": "Mailchimp isn't connected. Tap Connect Mailchimp on Settings. We never ask for a password.",
+            "ui": {"kind": "mailchimp", "connected": False},
+        }
+    token, profile = extra
+    endpoint = str((profile or {}).get("api_endpoint") or "")
+    try:
+        sent = await asyncio.to_thread(send_mailchimp_campaign, token, endpoint, subject, body, from_name)
+    except RuntimeError as exc:
+        return {"summary": str(exc), "ui": {"kind": "mailchimp", "error": str(exc)}}
+    return {
+        "summary": "Sent the Mailchimp newsletter.",
+        "ui": {"kind": "mailchimp", "sent": True, "id": sent.get("id")},
+    }
+
+
+def _creative_args_or_error(args: dict, *, need_prompt: bool) -> tuple[str, dict | None]:
+    from services.creative_studio import reject_secrets
+
+    secret = reject_secrets(args or {})
+    if secret:
+        return "", {"summary": secret, "ui": {"kind": "creative", "ok": False}}
+    prompt = (args.get("prompt") or args.get("description") or "").strip()
+    if need_prompt and not prompt:
+        return "", {
+            "summary": "Tell me what you want it to look or sound like, in plain words.",
+            "ui": {"kind": "creative", "ok": False},
+        }
+    return prompt, None
+
+
+async def exec_create_artwork(user_id: str, args: dict) -> dict:
+    from services.creative_studio import confirm_preview, job_payload, normalize_studio
+
+    prompt, err = _creative_args_or_error(args, need_prompt=True)
+    if err:
+        return err
+    studio = normalize_studio(args.get("open_in") or args.get("studio") or "", "art")
+    if not studio:
+        return {
+            "summary": "I don't know that picture app yet. Try Photoshop, Photopea, GIMP, or Krita.",
+            "ui": {"kind": "creative", "ok": False},
+        }
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": confirm_preview("art", prompt, studio["label"]),
+            "ui": {"kind": "creative", "needs_confirm": True, "studio": studio["label"]},
+        }
+    payload = job_payload("art", prompt, studio, title=str(args.get("title") or ""))
+    return await _queue_fire_and_forget(
+        user_id,
+        "creative_job",
+        payload,
+        f"Starting a picture in {studio['label']}",
+        wait=18.0,
+    )
+
+
+async def exec_edit_video(user_id: str, args: dict) -> dict:
+    from services.creative_studio import confirm_preview, job_payload, normalize_studio
+
+    prompt, err = _creative_args_or_error(args, need_prompt=True)
+    if err:
+        return err
+    source = (args.get("source") or args.get("file") or args.get("url") or "").strip()
+    if source.lower().startswith(("http://", "https://")) or "://" in source:
+        from services.pc_security import refuse_url
+
+        blocked = refuse_url(source)
+        if blocked:
+            return {"summary": blocked, "ui": {"kind": "creative", "ok": False, "blocked": True}}
+    studio = normalize_studio(args.get("open_in") or args.get("studio") or "", "video")
+    if not studio:
+        return {
+            "summary": "I don't know that video app yet. Try CapCut, Premiere, DaVinci, or YouTube Studio.",
+            "ui": {"kind": "creative", "ok": False},
+        }
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": confirm_preview("video", prompt, studio["label"], source=source),
+            "ui": {"kind": "creative", "needs_confirm": True, "studio": studio["label"]},
+        }
+    payload = job_payload("video", prompt, studio, source=source, title=str(args.get("title") or ""))
+    return await _queue_fire_and_forget(
+        user_id,
+        "creative_job",
+        payload,
+        f"Starting a clip for {studio['label']}",
+        wait=18.0,
+    )
+
+
+async def exec_make_music(user_id: str, args: dict) -> dict:
+    from services.creative_studio import confirm_preview, job_payload, normalize_studio
+
+    prompt, err = _creative_args_or_error(args, need_prompt=True)
+    if err:
+        return err
+    studio = normalize_studio(args.get("open_in") or args.get("studio") or "", "music")
+    if not studio:
+        return {
+            "summary": "I don't know that music app yet. Try Ableton, FL Studio, Logic, GarageBand, or REAPER.",
+            "ui": {"kind": "creative", "ok": False},
+        }
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": confirm_preview("music", prompt, studio["label"]),
+            "ui": {"kind": "creative", "needs_confirm": True, "studio": studio["label"]},
+        }
+    payload = job_payload("music", prompt, studio, title=str(args.get("title") or ""))
+    return await _queue_fire_and_forget(
+        user_id,
+        "creative_job",
+        payload,
+        f"Starting a song sketch in {studio['label']}",
+        wait=18.0,
+    )
+
+
+async def exec_open_studio(user_id: str, args: dict) -> dict:
+    from services.creative_studio import job_payload, normalize_studio, reject_secrets
+
+    secret = reject_secrets(args or {})
+    if secret:
+        return {"summary": secret, "ui": {"kind": "creative", "ok": False}}
+    name = (args.get("app") or args.get("studio") or args.get("open_in") or "").strip()
+    studio = normalize_studio(name)
+    if not studio:
+        return {
+            "summary": (
+                "I don't know that studio yet. I can open Photoshop, Photopea, CapCut, Premiere, "
+                "DaVinci, Ableton, FL Studio, Logic, GarageBand, REAPER, and similar."
+            ),
+            "ui": {"kind": "creative", "ok": False},
+        }
+    payload = job_payload("open", "", studio)
+    return await _queue_fire_and_forget(
+        user_id,
+        "creative_job",
+        payload,
+        f"Opening {studio['label']}",
+        wait=12.0,
+    )
+
+
+async def exec_check_pc_safety(user_id: str, args: dict) -> dict:
+    from services.pc_security import reject_secrets
+
+    secret = reject_secrets(args or {})
+    if secret:
+        return {"summary": secret, "ui": {"kind": "windows_safety", "ok": False}}
+    return await _queue_fire_and_forget(
+        user_id,
+        "security_job",
+        {"kind": "status"},
+        "Checking Windows Security",
+        wait=20.0,
+    )
+
+
+async def exec_open_windows_security(user_id: str, args: dict) -> dict:
+    from services.pc_security import reject_secrets
+
+    secret = reject_secrets(args or {})
+    if secret:
+        return {"summary": secret, "ui": {"kind": "windows_safety", "ok": False}}
+    return await _queue_fire_and_forget(
+        user_id,
+        "security_job",
+        {"kind": "open"},
+        "Opening Windows Security",
+        wait=8.0,
+    )
+
+
+async def exec_scan_pc(user_id: str, args: dict) -> dict:
+    from services.pc_security import confirm_scan, reject_secrets
+
+    secret = reject_secrets(args or {})
+    if secret:
+        return {"summary": secret, "ui": {"kind": "windows_safety", "ok": False}}
+    if not bool(args.get("confirmed")):
+        return {
+            "summary": confirm_scan(),
+            "ui": {"kind": "windows_safety", "needs_confirm": True},
+        }
+    return await _queue_fire_and_forget(
+        user_id,
+        "security_job",
+        {"kind": "scan"},
+        "Starting a Windows Security quick scan",
+        wait=18.0,
+    )
 
 
 COMPUTER_TOOL_SCHEMAS: list[dict] = [
@@ -830,9 +1951,17 @@ COMPUTER_TOOL_SCHEMAS: list[dict] = [
     }},
     {"type": "function", "function": {
         "name": "see_screen",
-        "description": "Take a screenshot of the user's PC and analyse it with vision to answer a question about what's on screen. Use for 'what's on my screen?', 'read this error for me', 'what tab am I on?'.",
+        "description": (
+            "Look at the owner's computer screen (screenshot on the home PC, then deleted) and coach them. "
+            "Use whenever they ask you to look at the screen, help with a video game, check grammar or writing "
+            "that's on screen, identify a movie or show, read an error, or say 'look at this'. "
+            "Pass a question that says what kind of help they want."
+        ),
         "parameters": {"type": "object", "properties": {
-            "question": {"type": "string", "description": "What to look for / answer about the screen"},
+            "question": {
+                "type": "string",
+                "description": "What to look for — e.g. game advice, grammar edits, what movie this is, read this error",
+            },
         }},
     }},
     {"type": "function", "function": {
@@ -842,7 +1971,12 @@ COMPUTER_TOOL_SCHEMAS: list[dict] = [
     }},
     {"type": "function", "function": {
         "name": "run_command",
-        "description": "Run a shell/terminal command on the PC. Powerful and risky: you MUST show the command, explain it, and confirm with the user, then call again with confirmed=true.",
+        "description": (
+            "Run a shell/terminal command on the PC. Powerful and risky: you MUST show the command, explain it, "
+            "and confirm with the user, then call again with confirmed=true. Windows Safety still refuses commands "
+            "that turn protection off, wipe the disk, bypass SmartScreen, or download-and-run a program — even after a yes. "
+            "Never ask for a Windows password."
+        ),
         "parameters": {"type": "object", "properties": {
             "command": {"type": "string"},
             "confirmed": {"type": "boolean", "default": False},
@@ -854,11 +1988,442 @@ COMPUTER_TOOL_SCHEMAS: list[dict] = [
         "parameters": {"type": "object", "properties": {
             "query": {"type": "string", "description": "Name or partial name to search for"},
             "open_it": {"type": "boolean", "default": False, "description": "Open the top match after finding it"},
-        }, "required": ["query"]},
+        },         "required": ["query"]},
     }},
 ]
 
+
+EMAIL_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "read_inbox",
+        "description": (
+            "Read the owner's recent inbox (who it's from, subject, a short snippet). "
+            "Use when they ask what's in their email. Never dump full bodies."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "Optional Gmail-style search (from:, subject:, a phrase)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "search_mail",
+        "description": "Search the owner's inbox for a phrase, sender, or subject.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "What to look for"},
+        }, "required": ["query"]},
+    }},
+    {"type": "function", "function": {
+        "name": "find_setup_mail",
+        "description": (
+            "Find recent setup / verification / magic-link mail (Pinokio, Ollama, Heirloom, confirm your email). "
+            "Show the links so they can tap them. Do not create accounts for them."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "send_email",
+        "description": (
+            "Send email from the owner's connected inbox. First call WITHOUT confirmed so they see a draft. "
+            "Only after they clearly say yes, call again with confirmed=true."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "to": {"type": "string", "description": "Recipient email address"},
+            "subject": {"type": "string"},
+            "body": {"type": "string", "description": "Plain-text body"},
+            "confirmed": {"type": "boolean", "default": False, "description": "Set true ONLY after the owner explicitly confirms the draft"},
+        }, "required": ["to", "subject", "body"]},
+    }},
+    {"type": "function", "function": {
+        "name": "find_follow_ups",
+        "description": (
+            "Find recent inbox mail that looks like it is waiting on the owner (questions, RSVPs, please confirm). "
+            "Skip newsletters. Offer to draft a reply with send_email."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    }},
+]
+
+
+CALENDAR_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "list_events",
+        "description": "List upcoming calendar events (same Gmail/Outlook connection). Default is today.",
+        "parameters": {"type": "object", "properties": {
+            "days": {"type": "integer", "description": "How many days ahead (1-14)", "default": 1},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "create_event",
+        "description": (
+            "Add an event to the owner's calendar. First call WITHOUT confirmed so they see a draft. "
+            "Only after they clearly say yes, call again with confirmed=true."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"},
+            "when": {"type": "string", "description": "ISO datetime or natural language like 'tomorrow 3pm'"},
+            "duration_minutes": {"type": "integer", "default": 60},
+            "where": {"type": "string"},
+            "notes": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["title", "when"]},
+    }},
+]
+
+
+PEOPLE_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "find_contact",
+        "description": "Look up a person in the owner's Heirloom address book (name, phone). Not their phone SIM.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"},
+        }, "required": ["name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "call_contact",
+        "description": (
+            "Place a phone call to someone in the address book, in the twin's voice. "
+            "First call WITHOUT confirmed. Only after they clearly say yes, call again with confirmed=true."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"},
+            "opening_line": {"type": "string", "description": "Optional first sentence the twin says"},
+            "confirmed": {"type": "boolean", "default": False},
+        },         "required": ["name"]},
+    }},
+]
+
+
+BUSINESS_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "write_google_doc",
+        "description": (
+            "Create a Google Doc (business plan, letter, campaign). First call WITHOUT confirmed so they see a draft. "
+            "Write the full text in body. After they clearly say yes, call again with confirmed=true."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"},
+            "body": {"type": "string", "description": "Full document text"},
+            "kind": {
+                "type": "string",
+                "enum": ["business_plan", "letter", "notes", "campaign"],
+                "description": "If business_plan and body is empty, a simple outline is used",
+            },
+            "offering": {"type": "string", "description": "What they sell — used for a plan outline"},
+            "audience": {"type": "string", "description": "Who it's for — used for a plan outline"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["title"]},
+    }},
+    {"type": "function", "function": {
+        "name": "write_google_sheet",
+        "description": (
+            "Create a Google spreadsheet (budget, keyword list, posting calendar). "
+            "First call WITHOUT confirmed. After they say yes, call again with confirmed=true."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"},
+            "headers": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Column names",
+            },
+            "rows": {
+                "type": "array",
+                "description": "Rows as arrays of strings, or CSV lines",
+            },
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["title"]},
+    }},
+    {"type": "function", "function": {
+        "name": "list_workspace_files",
+        "description": "List Google Docs and Sheets Heirloom already created for this owner.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "research_seo",
+        "description": (
+            "Draft an SEO and posting starter plan from public web pages. "
+            "Do not invent ranking numbers. Offer to put it in a Doc or Sheet after they say yes."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "topic": {"type": "string", "description": "What the business does"},
+            "location": {"type": "string", "description": "Town or region, optional"},
+            "audience": {"type": "string", "description": "Who they want to reach, optional"},
+        }, "required": ["topic"]},
+    }},
+    {"type": "function", "function": {
+        "name": "post_to_social",
+        "description": (
+            "Post as the owner on X (twitter), LinkedIn, Discord, Reddit, Pinterest, WordPress, or Slack. "
+            "First call WITHOUT confirmed so they see a draft. After they clearly say yes, call again with confirmed=true. "
+            "Never ask for a password. Instagram/Facebook/Threads/Bluesky/WhatsApp/Telegram are not available. "
+            "TikTok posting needs a video file — use list_tiktok instead."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "network": {
+                "type": "string",
+                "enum": ["twitter", "linkedin", "x", "discord", "reddit", "pinterest", "wordpress", "slack"],
+            },
+            "text": {"type": "string"},
+            "title": {"type": "string", "description": "Reddit / WordPress / Pinterest title"},
+            "image_url": {"type": "string", "description": "Required for Pinterest (https picture)"},
+            "link": {"type": "string", "description": "Optional Pinterest destination link"},
+            "channel": {"type": "string", "description": "Slack channel name, like general"},
+            "subreddit": {"type": "string", "description": "Reddit community, like r/smallbusiness"},
+            "board_id": {"type": "string", "description": "Optional Pinterest board id"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["network", "text"]},
+    }},
+    {"type": "function", "function": {
+        "name": "read_search_console",
+        "description": (
+            "Read real Google Search Console numbers for sites the owner already verified. "
+            "Do not invent rankings. Same Connect Gmail tap. If not shared yet, tell them to tap Connect Gmail again."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "site": {"type": "string", "description": "Optional Search Console site URL"},
+            "days": {"type": "integer", "description": "Window, 7-90, default 28"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "list_youtube",
+        "description": "List the owner's YouTube channel and recent uploads (same Connect Gmail tap). Cannot upload a video file.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "list_tiktok",
+        "description": "List recent TikToks after Connect TikTok. Cannot upload a new video file.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "write_notion_page",
+        "description": (
+            "Create a Notion page. First call WITHOUT confirmed. After they say yes, confirmed=true. "
+            "They must share a page with Heirloom. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"},
+            "body": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["title", "body"]},
+    }},
+    {"type": "function", "function": {
+        "name": "save_to_dropbox",
+        "description": (
+            "Save a text file under /Heirloom/ in Dropbox. First call WITHOUT confirmed. "
+            "After they say yes, confirmed=true. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "filename": {"type": "string"},
+            "body": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["body"]},
+    }},
+    {"type": "function", "function": {
+        "name": "send_mailchimp",
+        "description": (
+            "Send a Mailchimp newsletter to the first audience. First call WITHOUT confirmed. "
+            "After they clearly say yes, confirmed=true. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "subject": {"type": "string"},
+            "body": {"type": "string"},
+            "from_name": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        },         "required": ["subject", "body"]},
+    }},
+]
+
+
+CREATIVE_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "create_artwork",
+        "description": (
+            "Sketch a picture on the home PC from a description, then open Photoshop (or Photopea). "
+            "First call WITHOUT confirmed. After they clearly say yes, call again with confirmed=true. "
+            "Never ask for an Adobe password. Cannot click every Photoshop button."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "prompt": {"type": "string", "description": "What the picture should look like, in plain words"},
+            "open_in": {
+                "type": "string",
+                "description": "Studio: Photoshop, Affinity, GIMP, Krita, Paint.NET, Photopea",
+            },
+            "title": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["prompt"]},
+    }},
+    {"type": "function", "function": {
+        "name": "edit_video",
+        "description": (
+            "Sketch a SHORT clip on the home PC, then open CapCut, Premiere, DaVinci, or similar. "
+            "YouTube Studio / TikTok are websites only — cannot edit those timelines. "
+            "First call WITHOUT confirmed. After they say yes, confirmed=true. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "prompt": {"type": "string", "description": "What the clip should show"},
+            "open_in": {
+                "type": "string",
+                "description": "CapCut, Premiere, DaVinci, After Effects, Final Cut, iMovie, YouTube Studio, TikTok",
+            },
+            "source": {"type": "string", "description": "Optional file path or URL they mentioned"},
+            "title": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["prompt"]},
+    }},
+    {"type": "function", "function": {
+        "name": "make_music",
+        "description": (
+            "Sketch a SHORT song on the home PC, then open Ableton, FL Studio, Logic, GarageBand, or REAPER. "
+            "Cannot play every fader in the DAW. First call WITHOUT confirmed. After they say yes, confirmed=true. "
+            "Never ask for a music-app password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "prompt": {"type": "string", "description": "Mood, genre, instruments, lyrics — plain words"},
+            "open_in": {
+                "type": "string",
+                "description": "Ableton, FL Studio, Logic Pro, GarageBand, REAPER, Cubase, Pro Tools, BandLab",
+            },
+            "title": {"type": "string"},
+            "confirmed": {"type": "boolean", "default": False},
+        }, "required": ["prompt"]},
+    }},
+    {"type": "function", "function": {
+        "name": "open_studio",
+        "description": (
+            "Open Photoshop, CapCut, Premiere, Ableton, FL Studio, Logic, or a similar studio already on the PC. "
+            "No confirm. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "app": {"type": "string", "description": "Studio name"},
+        }, "required": ["app"]},
+    }},
+]
+
+
+async def exec_proofread_text(user_id: str, args: dict) -> dict:
+    from services.writing_coach import proofread_for_user
+
+    text = str(args.get("text") or "")
+    if not text.strip():
+        return {"summary": "Need some words to look at.", "ui": {"kind": "writing", "error": "empty"}}
+    result = await proofread_for_user(user_id, text)
+    if result.get("secret"):
+        return {
+            "summary": result.get("style_note") or "That looks private. I will not read it.",
+            "ui": {"kind": "writing", "secret": True},
+        }
+    issues = result.get("issues") or []
+    bits = [str(result.get("style_note") or "").strip()]
+    for item in issues[:8]:
+        note = str(item.get("note") or "").strip()
+        if note:
+            bits.append(f"- {item.get('text')}: {note}")
+    corrected = str(result.get("corrected") or text)
+    if corrected != text:
+        bits.append("Cleaned version:\n" + corrected[:1500])
+    return {
+        "summary": "\n".join(b for b in bits if b) or "Looks clean.",
+        "ui": {"kind": "writing", "ok": True, "issues": issues, "corrected": corrected},
+    }
+
+
+async def exec_polish_wording(user_id: str, args: dict) -> dict:
+    from services.writing_coach import polish_for_user
+
+    text = str(args.get("text") or "")
+    if not text.strip():
+        return {"summary": "Need some words to polish.", "ui": {"kind": "writing", "error": "empty"}}
+    result = await polish_for_user(user_id, text, str(args.get("instruction") or ""))
+    if result.get("secret"):
+        return {
+            "summary": result.get("note") or "That looks private. I will not rewrite it.",
+            "ui": {"kind": "writing", "secret": True},
+        }
+    polished = str(result.get("polished") or text)
+    note = str(result.get("note") or "")
+    return {
+        "summary": f"{note}\n\n{polished}".strip(),
+        "ui": {"kind": "writing", "ok": True, "polished": polished},
+    }
+
+
+async def exec_word_habits(user_id: str, args: dict) -> dict:
+    del args
+    from services.writing_coach import style_for_user
+
+    result = await style_for_user(user_id)
+    return {"summary": str(result.get("summary") or ""), "ui": {"kind": "writing", **result}}
+
+
+WRITING_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "proofread_text",
+        "description": (
+            "Check spelling, little grammar slips, and words they overuse. "
+            "Pass the draft they shared. Never send password-box text. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "The words to look at"},
+        }, "required": ["text"]},
+    }},
+    {"type": "function", "function": {
+        "name": "polish_wording",
+        "description": (
+            "Rewrite so it still sounds like them — fix grammar, ease overused words. "
+            "Keep their meaning. Never ask for a password."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "The words to polish"},
+            "instruction": {"type": "string", "description": "Optional extra ask, e.g. shorter, warmer"},
+        }, "required": ["text"]},
+    }},
+    {"type": "function", "function": {
+        "name": "word_habits",
+        "description": "Words they reach for too often in their archive, with gentler swaps in their voice.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+]
+
+
+SECURITY_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "check_pc_safety",
+        "description": (
+            "Read Windows Security on the home PC: virus protection, real-time protection, firewall, and UAC. "
+            "This is an extra pair of eyes on Windows Security, not a replacement. Never ask for a Windows password. "
+            "Never turn protection off."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "open_windows_security",
+        "description": (
+            "Open the Windows Security app that Microsoft already ships (Virus & threat protection). "
+            "No confirm. On a Mac, open Privacy & Security settings instead. Never ask for a Windows password."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "scan_pc",
+        "description": (
+            "Ask Windows Security to run a quick scan on the home PC. First call WITHOUT confirmed. "
+            "After they clearly say yes, call again with confirmed=true. Never ask for a Windows password. "
+            "Never turn protection off."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "confirmed": {"type": "boolean", "default": False},
+        }},
+    }},
+]
+
+
 TOOL_SCHEMAS += COMPUTER_TOOL_SCHEMAS
+TOOL_SCHEMAS += EMAIL_TOOL_SCHEMAS
+TOOL_SCHEMAS += CALENDAR_TOOL_SCHEMAS
+TOOL_SCHEMAS += PEOPLE_TOOL_SCHEMAS
+TOOL_SCHEMAS += BUSINESS_TOOL_SCHEMAS
+TOOL_SCHEMAS += CREATIVE_TOOL_SCHEMAS
+TOOL_SCHEMAS += SECURITY_TOOL_SCHEMAS
+TOOL_SCHEMAS += WRITING_TOOL_SCHEMAS
 
 
 TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
@@ -866,6 +2431,9 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
     "save_memory": exec_save_memory,
     "set_reminder": exec_set_reminder,
     "list_recent_memories": exec_list_recent_memories,
+    "list_reminders": exec_list_reminders,
+    "complete_reminder": exec_complete_reminder,
+    "whats_on_my_plate": exec_whats_on_my_plate,
     "get_weather": exec_get_weather,
     "web_search": exec_web_search,
     "web_fetch": exec_web_fetch,
@@ -881,6 +2449,36 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
     "system_status": exec_system_status,
     "run_command": exec_run_command,
     "find_file": exec_find_file,
+    "read_inbox": exec_read_inbox,
+    "search_mail": exec_search_mail,
+    "find_setup_mail": exec_find_setup_mail,
+    "send_email": exec_send_email,
+    "find_follow_ups": exec_find_follow_ups,
+    "list_events": exec_list_events,
+    "create_event": exec_create_event,
+    "find_contact": exec_find_contact,
+    "call_contact": exec_call_contact,
+    "write_google_doc": exec_write_google_doc,
+    "write_google_sheet": exec_write_google_sheet,
+    "list_workspace_files": exec_list_workspace_files,
+    "research_seo": exec_research_seo,
+    "post_to_social": exec_post_to_social,
+    "read_search_console": exec_read_search_console,
+    "list_youtube": exec_list_youtube,
+    "list_tiktok": exec_list_tiktok,
+    "write_notion_page": exec_write_notion_page,
+    "save_to_dropbox": exec_save_to_dropbox,
+    "send_mailchimp": exec_send_mailchimp,
+    "create_artwork": exec_create_artwork,
+    "edit_video": exec_edit_video,
+    "make_music": exec_make_music,
+    "open_studio": exec_open_studio,
+    "check_pc_safety": exec_check_pc_safety,
+    "open_windows_security": exec_open_windows_security,
+    "scan_pc": exec_scan_pc,
+    "proofread_text": exec_proofread_text,
+    "polish_wording": exec_polish_wording,
+    "word_habits": exec_word_habits,
 }
 
 

@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { Link } from "react-router-dom";
 import { ArrowRight, Gift } from "lucide-react";
 import { setTester } from "@/lib/tester";
 import { usePageMeta } from "@/lib/usePageMeta";
@@ -15,6 +14,11 @@ export default function TesterEntry() {
   useEffect(() => {
     setTester(true);
   }, []);
+
+  const handleGoogle = () => {
+    const redirectUrl = window.location.origin + "/today";
+    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+  };
 
   return (
     <div
@@ -37,14 +41,15 @@ export default function TesterEntry() {
           You've been invited to try the full experience. Everything's unlocked and
           completely free while you test — no payment, no card, nothing to buy.
         </p>
-        <Link
-          to="/login"
+        <button
+          type="button"
+          onClick={handleGoogle}
           data-testid="tester-continue"
           className="w-full inline-flex items-center justify-center gap-2 px-6 py-4 rounded-sm text-base font-medium tracking-wide transition-opacity hover:opacity-95"
           style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
         >
-          Continue with Google <ArrowRight className="h-4 w-4" />
-        </Link>
+          Sign in with Google <ArrowRight className="h-4 w-4" />
+        </button>
         <p className="text-xs mt-5" style={{ color: "var(--text-muted)" }}>
           Sign in creates your private archive. Your data is never used to train external models.
         </p>

@@ -29,6 +29,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException
@@ -36,6 +37,7 @@ from pydantic import BaseModel, Field
 
 import abilities as ab
 from deps import EMERGENT_LLM_KEY, db, get_current_user
+from services.model_runtime import complete_text
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 log = logging.getLogger("agent")
@@ -56,6 +58,14 @@ COMPANION_KINDS: dict[str, str] = {
     "clipboard_set": "Set the clipboard. payload={text:str}",
     "find_file": "Search common folders and optionally open. payload={query:str, open:bool}",
     "system_status": "Read CPU/RAM/disk/battery/GPU stats. payload={}",
+    "creative_job": (
+        "Sketch art/video/music on this PC then open a studio. "
+        "payload={kind:'art'|'video'|'music'|'open', prompt:str, pinokio_url:str, studio_label:str}"
+    ),
+    "security_job": (
+        "Check or open Windows Security, or start a quick scan. "
+        "payload={kind:'status'|'open'|'scan'}. Never disable protection."
+    ),
 }
 
 STEP_TIMEOUT_SEC = 45  # per-step wall clock; long enough for slow open_url on cold browsers
@@ -88,7 +98,14 @@ async def _companion_connected(user_id: str) -> bool:
     return dev is not None
 
 
-async def _plan_with_llm(user: dict, goal: str, enabled_ability_ids: set[str], has_companion: bool) -> list[dict]:
+async def _plan_with_llm(
+    user: dict,
+    goal: str,
+    enabled_ability_ids: set[str],
+    has_companion: bool,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> list[dict]:
     """Ask Claude to produce a stepwise plan. Returns list of step dicts
     (missing step_ids/status — the caller fills those in)."""
     # Which kinds are usable? All if companion is connected, none otherwise.
@@ -116,15 +133,14 @@ async def _plan_with_llm(user: dict, goal: str, enabled_ability_ids: set[str], h
         '"message": "<used only when kind=notify: what to tell the owner>"}]}'
     )
 
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
+    text, _resolved = await complete_text(
+        user["user_id"], "tools",
         session_id=f"plan_{uuid.uuid4().hex[:8]}",
         system_message=system,
-    ).with_model("anthropic", "claude-sonnet-4-6")
-
-    reply = await chat.send_message(UserMessage(text=f"Goal from {user.get('name') or 'the owner'}: {goal}"))
-    text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
-    text = text.strip()
+        user_text=f"Goal from {user.get('name') or 'the owner'}: {goal}",
+        provider_override=provider,
+        model_override=model,
+    )
     if text.startswith("```"):
         text = text.strip("`")
         text = text[text.find("{"): text.rfind("}") + 1]
@@ -310,6 +326,8 @@ def _schedule(run_id: str, user_id: str) -> None:
 class CreateRunReq(BaseModel):
     goal: str = Field(min_length=3, max_length=500)
     auto_approve: bool = False
+    provider: Optional[str] = None
+    model: Optional[str] = None
 
 
 @router.post("/runs")
@@ -319,7 +337,10 @@ async def create_run(payload: CreateRunReq, user: dict = Depends(get_current_use
         raise HTTPException(status_code=400, detail="Goal is empty")
     enabled = await ab.enabled_ability_ids(user["user_id"])
     has_pc = await _companion_connected(user["user_id"])
-    steps = await _plan_with_llm(user, goal, enabled, has_pc)
+    steps = await _plan_with_llm(
+        user, goal, enabled, has_pc,
+        provider=payload.provider, model=payload.model,
+    )
     if payload.auto_approve:
         for s in steps:
             s["status"] = "approved"

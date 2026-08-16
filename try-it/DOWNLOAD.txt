@@ -1,0 +1,37 @@
+Heirloom for Windows — the file you want
+========================================
+
+This zip is the whole Heirloom app (twin, look at the screen, mail,
+Unbound Keyboard), not only the writing card.
+
+Download:
+
+  Unbound-Keyboard-for-Windows.zip
+
+On the GitHub page, click the download icon (arrow pointing down)
+at the top right. The zip goes to your Downloads folder.
+
+Then:
+1. Right-click the zip → Extract All → choose Desktop → Extract
+2. Open the new folder
+3. Double-click  Heirloom.bat
+4. Tap Sign in with Google. A browser opens. Sign in there.
+   We never ask for a Google or Windows password.
+
+Tray → Unbound Keyboard, or Ctrl+Shift+U, opens the writing card.
+Try-Unbound-Keyboard.bat also opens that card after the big window.
+
+Drag the top bar of the writing card (“drag here”) to move it.
+Tap Stay in front only if you want that.
+
+Spelling still works without signing in. If you see Send a sign-in
+note, that email slip only works when the live website can send it.
+Use Sign in with Google instead. The website box is the Heirloom
+page in your browser (https://… — not a street address).
+
+Suggestion chips are yellow with dark brown letters so you can read
+them. Buttons are dark letters on cream, or cream letters on tomato.
+
+If Windows shows a blue box: More info → Run anyway.
+
+The .apk file is only for an Android phone.

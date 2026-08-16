@@ -1,7 +1,12 @@
-"""Settings dialog — Vault + Local AI tabs.
+"""Settings dialog — Sound + Vault + Local AI tabs.
 
 Opened from the titlebar gear button. Uses a QTabWidget so the vault settings
-stay put and new areas (Local AI, and later Themes) get their own tabs.
+stay put and new areas (Sound, Local AI, and later Themes) get their own tabs.
+
+Sound tab:
+    * Which microphone (PortAudio / sounddevice names)
+    * Where the twin's voice comes out (Qt audio outputs)
+    * How loud the twin talks
 
 Local AI tab:
     * Five subsystems: chat / tts / stt / image / embeddings
@@ -42,6 +47,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import api, config
+from ..audio import list_input_devices, list_output_devices
 from ..maintenance import Maintenance
 from ..vault import Vault, vault_root
 from . import PALETTE, QSS
@@ -63,6 +69,172 @@ def _label(text: str) -> QLabel:
         " font-size: 10px; text-transform: uppercase;"
     )
     return lbl
+
+
+def list_speaker_names() -> list[str]:
+    """Speakers/headphones Qt can actually play through."""
+    return list_output_devices()
+
+
+def _fill_device_combo(combo: QComboBox, names: list[str], saved: str, usual: str) -> None:
+    combo.clear()
+    combo.addItem(usual, "")
+    seen = {""}
+    for name in names:
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        combo.addItem(name, name)
+    wanted = (saved or "").strip()
+    if wanted and wanted not in seen:
+        combo.addItem(wanted, wanted)
+    idx = 0
+    if wanted:
+        for i in range(combo.count()):
+            if combo.itemData(i) == wanted:
+                idx = i
+                break
+    combo.setCurrentIndex(idx)
+
+
+# ------------------------------------------------------------------
+# Sound — microphone, speakers, how loud the twin talks
+# ------------------------------------------------------------------
+class SoundTab(QWidget):
+    """Pick the microphone and where the twin's voice comes out."""
+
+    changed = Signal()
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._settings = config.load_settings()
+        self._build()
+        self._refresh_devices()
+
+    def _build(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 20, 20, 20)
+        root.setSpacing(14)
+
+        overline = QLabel("SOUND")
+        overline.setStyleSheet(
+            f"color: {PALETTE['text_muted']}; letter-spacing: 2px; font-size: 10px;"
+        )
+        title = QLabel("Hear and be heard")
+        title.setStyleSheet(
+            f"color: {PALETTE['text_primary']};"
+            " font-family: 'Cormorant Garamond', serif; font-size: 22px;"
+        )
+        sub = QLabel(
+            "Pick the microphone you talk into, and the speakers or headphones "
+            "where the twin should talk back. Leave them on “the usual one” if "
+            "you only have one of each."
+        )
+        sub.setWordWrap(True)
+        sub.setStyleSheet(f"color: {PALETTE['text_secondary']}; font-size: 12px;")
+        root.addWidget(overline)
+        root.addWidget(title)
+        root.addWidget(sub)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignLeft)
+
+        self.mic_combo = QComboBox()
+        self.mic_combo.setMinimumHeight(36)
+        form.addRow(_label("Which microphone"), self.mic_combo)
+
+        self.speaker_combo = QComboBox()
+        self.speaker_combo.setMinimumHeight(36)
+        form.addRow(_label("Where the twin's voice comes out"), self.speaker_combo)
+
+        # Twin playback volume — matters on Windows where a QAudioOutput
+        # session gets stuck at ~1% in the Mixer unless we set it explicitly.
+        # Slider is 5-100 (never 0) because 0 causes the stuck-slider bug.
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(5, 100)
+        try:
+            _cur_vol = int(round(float(self._settings.get("twin_playback_volume", 1.0)) * 100))
+        except (TypeError, ValueError):
+            _cur_vol = 100
+        self.volume_slider.setValue(max(5, min(100, _cur_vol)))
+        self.volume_label = QLabel(f"{self.volume_slider.value()}%")
+        self.volume_label.setStyleSheet(
+            f"color: {PALETTE['text_muted']}; font-size: 11px; min-width: 36px;"
+        )
+        self.volume_slider.valueChanged.connect(
+            lambda v: self.volume_label.setText(f"{v}%")
+        )
+        vol_row = QWidget()
+        vol_layout = QHBoxLayout(vol_row)
+        vol_layout.setContentsMargins(0, 0, 0, 0)
+        vol_layout.setSpacing(8)
+        vol_layout.addWidget(self.volume_slider, 1)
+        vol_layout.addWidget(self.volume_label)
+        form.addRow(_label("How loud the twin talks"), vol_row)
+
+        root.addLayout(form)
+
+        hint = QLabel(
+            "If you plug in headphones or a USB microphone, click Look again. "
+            "Windows Mixer often shows this app at 1 and will not let you drag "
+            "it — we push it up when the twin talks, then you can move it."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {PALETTE['text_muted']}; font-size: 12px;")
+        root.addWidget(hint)
+
+        actions = QHBoxLayout()
+        look = QPushButton("Look again")
+        look.setToolTip("Refresh the list of microphones and speakers")
+        look.clicked.connect(self._refresh_devices)
+        actions.addWidget(look)
+
+        save_btn = QPushButton("Save sound settings")
+        save_btn.setObjectName("primary")
+        save_btn.clicked.connect(self._save_changes)
+        actions.addWidget(save_btn)
+        actions.addStretch(1)
+        root.addLayout(actions)
+
+        self.status_lbl = QLabel(" ")
+        self.status_lbl.setStyleSheet(f"color: {PALETTE['text_muted']}; font-size: 11px;")
+        root.addWidget(self.status_lbl)
+        root.addStretch(1)
+
+    def _refresh_devices(self) -> None:
+        s = config.load_settings()
+        self._settings = s
+        _fill_device_combo(
+            self.mic_combo,
+            list_input_devices(),
+            str(s.get("mic_device") or ""),
+            "The usual microphone",
+        )
+        _fill_device_combo(
+            self.speaker_combo,
+            list_speaker_names(),
+            str(s.get("speaker_device") or ""),
+            "The usual speakers",
+        )
+        n_mics = max(0, self.mic_combo.count() - 1)
+        n_out = max(0, self.speaker_combo.count() - 1)
+        if n_mics == 0 and n_out == 0:
+            self.status_lbl.setText("Couldn't see any sound devices yet. Try Look again.")
+        else:
+            self.status_lbl.setText(" ")
+
+    def _save_changes(self) -> None:
+        s = config.load_settings()
+        mic = self.mic_combo.currentData()
+        speaker = self.speaker_combo.currentData()
+        s["mic_device"] = mic if isinstance(mic, str) else ""
+        s["speaker_device"] = speaker if isinstance(speaker, str) else ""
+        s["twin_playback_volume"] = max(0.05, self.volume_slider.value() / 100.0)
+        config.save_settings(s)
+        self._settings = s
+        self.status_lbl.setText("saved ✓")
+        self.changed.emit()
 
 
 # ------------------------------------------------------------------
@@ -501,28 +673,6 @@ class VaultTab(QWidget):
                 break
         form.addRow(_label("Maintenance schedule"), self.schedule)
 
-        # Twin playback volume — matters on Windows where a QAudioOutput
-        # session gets stuck at ~1% in the Mixer unless we set it explicitly.
-        # Slider is 5-100 (never 0) because 0 causes the stuck-slider bug.
-        self.volume_slider = QSlider(Qt.Horizontal)
-        self.volume_slider.setRange(5, 100)
-        _cur_vol = int(round(float(self._settings.get("twin_playback_volume", 1.0)) * 100))
-        self.volume_slider.setValue(max(5, min(100, _cur_vol)))
-        self.volume_label = QLabel(f"{self.volume_slider.value()}%")
-        self.volume_label.setStyleSheet(
-            f"color: {PALETTE['text_muted']}; font-size: 11px; min-width: 36px;"
-        )
-        self.volume_slider.valueChanged.connect(
-            lambda v: self.volume_label.setText(f"{v}%")
-        )
-        vol_row = QWidget()
-        vol_layout = QHBoxLayout(vol_row)
-        vol_layout.setContentsMargins(0, 0, 0, 0)
-        vol_layout.setSpacing(8)
-        vol_layout.addWidget(self.volume_slider, 1)
-        vol_layout.addWidget(self.volume_label)
-        form.addRow(_label("Twin voice volume"), vol_row)
-
         root.addLayout(form)
 
         usage_box = QFrame()
@@ -587,7 +737,6 @@ class VaultTab(QWidget):
         s["vault_folder"] = self.folder_input.text().strip() or None
         s["storage_tier"] = self.tier.currentData()
         s["maintenance_schedule"] = self.schedule.currentData()
-        s["twin_playback_volume"] = max(0.05, self.volume_slider.value() / 100.0)
         config.save_settings(s)
         self._settings = s
         self.log.appendPlainText("Settings saved.")
@@ -690,6 +839,10 @@ class SettingsDialog(QDialog):
             f"}}"
             f"QTabBar::tab:hover:!selected {{ color: {PALETTE['text_primary']}; }}"
         )
+
+        self.sound_tab = SoundTab()
+        self.sound_tab.changed.connect(self.changed.emit)
+        tabs.addTab(self.sound_tab, "Sound")
 
         self.vault_tab = VaultTab()
         self.vault_tab.changed.connect(self.changed.emit)

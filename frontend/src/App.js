@@ -13,6 +13,7 @@ import Library from "@/pages/Library";
 import Photos from "@/pages/Photos";
 import Import from "@/pages/Import";
 import Twin from "@/pages/Twin";
+import TwinMini from "@/pages/TwinMini";
 import TwinLive from "@/pages/TwinLive";
 import AvatarStudio from "@/pages/AvatarStudio";
 import SetupKeys from "@/pages/SetupKeys";
@@ -23,10 +24,15 @@ import PhonePage from "@/pages/Phone";
 import PhotoStory from "@/pages/PhotoStory";
 import Roadmap from "@/pages/Roadmap";
 import Routing from "@/pages/Routing";
+import Models from "@/pages/Models";
 import MobileShell from "@/pages/mobile/MobileShell";
 import MobileCall from "@/pages/mobile/MobileCall";
 import MobileCapture from "@/pages/mobile/MobileCapture";
 import MobileHistory from "@/pages/mobile/MobileHistory";
+import MobileTwin from "@/pages/mobile/MobileTwin";
+import MobilePacks from "@/pages/mobile/MobilePacks";
+import MobileKeyboard from "@/pages/mobile/MobileKeyboard";
+import MobileLogin from "@/pages/mobile/MobileLogin";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import HeirPortal from "@/pages/HeirPortal";
@@ -36,6 +42,8 @@ import Personality from "@/pages/Personality";
 import Buy from "@/pages/Buy";
 import BuySuccess from "@/pages/BuySuccess";
 import Today from "@/pages/Today";
+import Safety from "@/pages/Safety";
+import Writing from "@/pages/Writing";
 import Reminders from "@/pages/Reminders";
 import Onboarding from "@/pages/Onboarding";
 import Sources from "@/pages/Sources";
@@ -67,6 +75,14 @@ function AppRouter() {
       <Route path="/heir/:token" element={<HeirPortal />} />
       <Route path="/twin/live/:handle" element={<TwinLive />} />
       <Route
+        path="/twin/mini"
+        element={
+          <ProtectedRoute>
+            <TwinMini />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/onboarding"
         element={
           <ProtectedRoute>
@@ -83,6 +99,8 @@ function AppRouter() {
       >
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/today" element={<Today />} />
+        <Route path="/safety" element={<Safety />} />
+        <Route path="/writing" element={<Writing />} />
         <Route path="/reminders" element={<Reminders />} />
         <Route path="/sources" element={<Sources />} />
         <Route path="/interviewer" element={<Interviewer />} />
@@ -102,9 +120,12 @@ function AppRouter() {
         <Route path="/personality" element={<Personality />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/routing" element={<Routing />} />
+        <Route path="/models" element={<Models />} />
         <Route path="/avatar-studio" element={<AvatarStudio />} />
         <Route path="/setup/keys" element={<SetupKeys />} />
       </Route>
+      {/* Phone sign-in sits outside the protected shell so Google can open. */}
+      <Route path="/m/login" element={<MobileLogin />} />
       {/* Mobile PWA shell — protected but no AppLayout (its own bottom-tab UI). */}
       <Route
         path="/m"
@@ -116,8 +137,11 @@ function AppRouter() {
       >
         <Route index element={<Navigate to="/m/call" replace />} />
         <Route path="call" element={<MobileCall />} />
+        <Route path="twin" element={<MobileTwin />} />
         <Route path="capture" element={<MobileCapture />} />
         <Route path="history" element={<MobileHistory />} />
+        <Route path="packs" element={<MobilePacks />} />
+        <Route path="keyboard" element={<MobileKeyboard />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

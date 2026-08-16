@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   Check,
@@ -9,9 +9,14 @@ import {
   EyeOff,
   KeyRound,
   Loader2,
+  FileText,
+  Folder,
+  Mail,
   Music2,
   Phone,
   Server,
+  Share2,
+  Video,
   Shield,
   ShieldCheck,
   Sparkles,
@@ -44,6 +49,113 @@ const OAUTH = [
     accent: "#8b949e",
     icon: Server,
   },
+  {
+    id: "google",
+    name: "Gmail",
+    tagline: "One tap. Google asks — we never see your password. Mail, calendar, Docs, Sheets, Search, and YouTube. Writes only after you say yes.",
+    connectPath: "/api/oauth/google/connect",
+    accent: "#EA4335",
+    icon: Mail,
+  },
+  {
+    id: "microsoft",
+    name: "Outlook",
+    tagline: "Same idea for Outlook / Hotmail / Microsoft 365 — mail and calendar. Sign in on Microsoft's page.",
+    connectPath: "/api/oauth/microsoft/connect",
+    accent: "#0078D4",
+    icon: Mail,
+  },
+  {
+    id: "twitter",
+    name: "X",
+    tagline: "Post as you. X asks — we never see the password. The twin shows a draft first.",
+    connectPath: "/api/oauth/twitter/connect",
+    accent: "#111111",
+    icon: Share2,
+  },
+  {
+    id: "linkedin",
+    name: "LinkedIn",
+    tagline: "Same idea for LinkedIn. Draft first, then you say yes.",
+    connectPath: "/api/oauth/linkedin/connect",
+    accent: "#0A66C2",
+    icon: Share2,
+  },
+];
+
+const OAUTH_WORK = [
+  {
+    id: "discord",
+    name: "Discord",
+    tagline: "Pick a channel. The twin can post there after you say yes. Discord asks — we never see the password.",
+    connectPath: "/api/oauth/discord/connect",
+    accent: "#5865F2",
+    icon: Share2,
+  },
+  {
+    id: "reddit",
+    name: "Reddit",
+    tagline: "Post to Reddit after you say yes. Reddit asks — we never see the password.",
+    connectPath: "/api/oauth/reddit/connect",
+    accent: "#FF4500",
+    icon: Share2,
+  },
+  {
+    id: "pinterest",
+    name: "Pinterest",
+    tagline: "Pin a picture and a link after you say yes. Pinterest asks — we never see the password.",
+    connectPath: "/api/oauth/pinterest/connect",
+    accent: "#E60023",
+    icon: Share2,
+  },
+  {
+    id: "tiktok",
+    name: "TikTok",
+    tagline: "See your recent TikToks. A new video still needs a file — we draft captions only.",
+    connectPath: "/api/oauth/tiktok/connect",
+    accent: "#111111",
+    icon: Video,
+  },
+  {
+    id: "wordpress",
+    name: "WordPress",
+    tagline: "Draft or publish a WordPress.com post after you say yes.",
+    connectPath: "/api/oauth/wordpress/connect",
+    accent: "#21759B",
+    icon: FileText,
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    tagline: "Post in Slack after you say yes. Slack asks — we never see the password.",
+    connectPath: "/api/oauth/slack/connect",
+    accent: "#4A154B",
+    icon: Share2,
+  },
+  {
+    id: "notion",
+    name: "Notion",
+    tagline: "Save a page in Notion after you say yes. Share a page with Heirloom first.",
+    connectPath: "/api/oauth/notion/connect",
+    accent: "#111111",
+    icon: FileText,
+  },
+  {
+    id: "dropbox",
+    name: "Dropbox",
+    tagline: "Save a file in Dropbox after you say yes. Dropbox asks — we never see the password.",
+    connectPath: "/api/oauth/dropbox/connect",
+    accent: "#0061FF",
+    icon: Folder,
+  },
+  {
+    id: "mailchimp",
+    name: "Mailchimp",
+    tagline: "Draft a newsletter, send only after you say yes. Mailchimp asks — no password here.",
+    connectPath: "/api/oauth/mailchimp/connect",
+    accent: "#241C15",
+    icon: Mail,
+  },
 ];
 
 const BYOK = [
@@ -67,7 +179,7 @@ const BYOK = [
   {
     id: "did",
     name: "D-ID",
-    tagline: "Talking-head video — your face speaks the twin's replies.",
+    tagline: "Paid cloud talking-head. Skip this if you use the free Pinokio/ComfyUI path in Avatar Studio.",
     accent: "#c084fc",
     keyEndpoint: "/avatar/api-key",
     placeholder: "email:secret",
@@ -132,9 +244,9 @@ export default function SetupKeys() {
   useEffect(() => { load(); }, []);
 
   const connectedCount = status
-    ? [...OAUTH, ...BYOK].filter((s) => (status[s.id]?.source === "you")).length
+    ? [...OAUTH, ...OAUTH_WORK, ...BYOK].filter((s) => (status[s.id]?.source === "you")).length
     : 0;
-  const totalConnectable = OAUTH.length + BYOK.length;
+  const totalConnectable = OAUTH.length + OAUTH_WORK.length + BYOK.length;
 
   if (!status) {
     return (
@@ -165,10 +277,27 @@ export default function SetupKeys() {
             {connectedCount} of {totalConnectable} connected
           </div>
         </div>
-        <p className="text-base mb-14 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
+        <p className="text-base mb-8 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
           Every connection makes your twin more like you — its voice, its knowledge, its face.
           Skip any of these for now and come back later. Nothing here is required to start.
         </p>
+        <Link
+          to="/models"
+          data-testid="setup-models-link"
+          className="surface p-5 mb-14 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
+          style={{ border: "1px solid var(--accent)" }}
+        >
+          <div>
+            <div className="overline mb-1" style={{ color: "var(--accent)" }}>click the brain you want</div>
+            <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+              Connect OpenAI, Claude, Gemini, Groq… or download a model onto your home PC. Then pick which one Twin, Interviewer, and Focus use.
+            </p>
+            <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              One key paste or one tap to download. No extra setup screens.
+            </p>
+          </div>
+          <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
+        </Link>
 
         {/* SECTION: OAuth 1-clicks */}
         <SectionHeader
@@ -180,15 +309,46 @@ export default function SetupKeys() {
           {OAUTH.map((s) => (
             <OAuthTile key={s.id} svc={s} status={status[s.id]} />
           ))}
+        </div>
+
+        <SectionHeader
+          overline="post and save · after you say yes"
+          title="More apps, same rule"
+          hint="They ask on their page. We never see the password. The twin shows a draft first."
+        />
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-16">
+          {OAUTH_WORK.map((s) => (
+            <OAuthTile key={s.id} svc={s} status={status[s.id]} />
+          ))}
           <ComingSoonTile
-            name="Google"
-            tagline="Calendar, Photos, Gmail — coming next session."
-            accent="#4285F4"
+            name="Instagram"
+            tagline="Needs extra approval from Meta. Start with X, LinkedIn, or Pinterest — we never ask for a password."
+            accent="#E1306C"
           />
           <ComingSoonTile
-            name="Discord"
-            tagline="DMs + servers you're active in feed the archive."
-            accent="#5865F2"
+            name="Facebook"
+            tagline="Same Meta review. X and LinkedIn work today."
+            accent="#1877F2"
+          />
+          <ComingSoonTile
+            name="Threads"
+            tagline="Same Meta review. Not wired yet."
+            accent="#111111"
+          />
+          <ComingSoonTile
+            name="Bluesky"
+            tagline="Their login needs extra setup we don't have. We never ask for an app password."
+            accent="#1185FE"
+          />
+          <ComingSoonTile
+            name="WhatsApp"
+            tagline="That's a business number, not a personal login we can tap."
+            accent="#25D366"
+          />
+          <ComingSoonTile
+            name="Telegram"
+            tagline="Uses a bot token, not your login. Try Discord or Slack instead."
+            accent="#229ED9"
           />
         </div>
 
@@ -259,6 +419,8 @@ export default function SetupKeys() {
               Configure this from the Heirloom desktop companion — it auto-detects local models
               running on your PC. If you don&apos;t have a local model yet, we recommend Pinokio (a
               friendly launcher) or Ollama (single install + one command per model).
+              The same Pinokio tools sketch pictures, short clips, and songs — no Adobe or music-app password.
+              Windows Safety looks at Windows Security on this PC and will not turn it off.
             </p>
             <div className="flex flex-wrap gap-2">
               <a
@@ -366,7 +528,26 @@ function SectionHeader({ overline, title, hint }) {
 // ---------- OAuth tile ----------
 function OAuthTile({ svc, status }) {
   const connected = status?.source === "you";
+  const serverReady = status?.server_ready !== false;
+  const [busy, setBusy] = useState(false);
   const Icon = svc.icon;
+
+  const connect = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.get(`/oauth/${svc.id}/connect`);
+      if (data?.authorize_url) {
+        window.location.href = data.authorize_url;
+        return;
+      }
+      toast.error("Couldn't start sign-in.");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Couldn't start sign-in.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div
       className="rounded-sm p-6 flex flex-col justify-between transition-all"
@@ -390,19 +571,28 @@ function OAuthTile({ svc, status }) {
         </div>
         <p className="text-sm mb-6" style={{ color: "var(--text-secondary)" }}>{svc.tagline}</p>
       </div>
-      <a
-        href={svc.connectPath}
-        data-testid={`oauth-tile-btn-${svc.id}`}
-        className="inline-flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-sm text-sm font-medium"
-        style={{
-          background: connected ? "transparent" : svc.accent,
-          color: connected ? svc.accent : "#ffffff",
-          border: `1px solid ${svc.accent}`,
-        }}
-      >
-        {connected ? "Reconnect" : `Connect ${svc.name}`}
-        <ChevronRight className="h-4 w-4" />
-      </a>
+      {!serverReady ? (
+        <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>
+          Ask the person who set up Heirloom to add {svc.name}. We never ask for your password.
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={connect}
+          disabled={busy}
+          data-testid={`oauth-tile-btn-${svc.id}`}
+          className="inline-flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-sm text-sm font-medium disabled:opacity-60"
+          style={{
+            background: connected ? "transparent" : svc.accent,
+            color: connected ? svc.accent : "#ffffff",
+            border: `1px solid ${svc.accent}`,
+          }}
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {connected ? "Reconnect" : `Connect ${svc.name}`}
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 }

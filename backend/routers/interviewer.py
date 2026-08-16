@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from deps import EMERGENT_LLM_KEY, db, get_current_user
+from services.model_runtime import build_llm_chat, complete_text, resolve_runtime
+from deps import db, get_current_user
 from utils import rate_limit
 
 router = APIRouter(prefix="/interviewer", tags=["interviewer"])
@@ -55,6 +56,8 @@ class MessageRequest(BaseModel):
     conversation_id: str
     message: str
     save_as_memory: bool = Field(default=False)
+    provider: Optional[str] = None
+    model: Optional[str] = None
 
 
 @router.get("/seed-questions")
@@ -123,26 +126,46 @@ async def send_message(payload: MessageRequest, user: dict = Depends(get_current
         if m.get("role") in ("user", "assistant") and m.get("content"):
             initial_messages.append({"role": m["role"], "content": m["content"]})
 
-    # Session ID = conversation_id so emergentintegrations preserves context across turns
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=payload.conversation_id,
-        system_message=system_message,
-        initial_messages=initial_messages,
-    ).with_model("anthropic", "claude-sonnet-4-6")
-
     user_turn = {"role": "user", "content": payload.message, "ts": datetime.now(timezone.utc).isoformat()}
+
+    history = [
+        {"role": m["role"], "content": m["content"]}
+        for m in conv.get("messages", [])
+        if m.get("role") in ("user", "assistant") and m.get("content")
+    ]
+    resolved = await resolve_runtime(
+        user["user_id"], "interview",
+        provider_override=payload.provider, model_override=payload.model,
+    )
 
     async def event_generator():
         full = ""
         try:
-            async for ev in chat.stream_message(UserMessage(text=payload.message)):
-                if isinstance(ev, TextDelta):
-                    full += ev.content
-                    # JSON-encode so embedded newlines don't break SSE framing
-                    yield "data: " + json.dumps({"text": ev.content}) + "\n\n"
-                elif isinstance(ev, StreamDone):
-                    break
+            if resolved["kind"] == "cloud":
+                chat = build_llm_chat(
+                    resolved,
+                    session_id=payload.conversation_id,
+                    system_message=system_message,
+                    initial_messages=initial_messages,
+                )
+                async for ev in chat.stream_message(UserMessage(text=payload.message)):
+                    if isinstance(ev, TextDelta):
+                        full += ev.content
+                        yield "data: " + json.dumps({"text": ev.content}) + "\n\n"
+                    elif isinstance(ev, StreamDone):
+                        break
+            else:
+                full, _ = await complete_text(
+                    user["user_id"], "interview",
+                    session_id=payload.conversation_id,
+                    system_message=system_message,
+                    user_text=payload.message,
+                    history=history,
+                    provider_override=payload.provider,
+                    model_override=payload.model,
+                )
+                if full:
+                    yield "data: " + json.dumps({"text": full}) + "\n\n"
         except Exception as exc:  # noqa: BLE001
             yield "event: error\ndata: " + json.dumps({"error": str(exc)}) + "\n\n"
             return

@@ -11,13 +11,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QIcon, QKeySequence, QShortcut
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
-    QLabel,
     QMainWindow,
-    QPushButton,
     QSizeGrip,
     QSplitter,
     QVBoxLayout,
@@ -35,6 +33,10 @@ from .conversation import ConversationPanel
 from .mica import apply as apply_mica
 from .panels import QuickCapture, RecentMemories
 from .settings_dialog import SettingsDialog
+from .setup_wizard import SetupWizard, TipsWindow
+from .talk_window import MiniTalkWindow
+from .signin_dialog import SignInDialog
+from .writing_window import WritingWindow
 from .titlebar import TitleBar
 
 
@@ -47,6 +49,12 @@ class MainWindow(QMainWindow):
         self._user: dict = {}
         self._palette: Optional[CommandPalette] = None
         self._mica_applied = False
+        self._talk: Optional[MiniTalkWindow] = None
+        self._writing: Optional[WritingWindow] = None
+        self._signin = None
+        self._wizard = None
+        self._tips = None
+        self._cmd_poller = None
 
         self.setWindowTitle("Heirloom")
         self.resize(1280, 800)
@@ -93,6 +101,8 @@ class MainWindow(QMainWindow):
         self.titlebar.ptt_released.connect(self._ptt_stop)
         self.titlebar.settings_clicked.connect(self._open_settings)
         self.titlebar.palette_clicked.connect(self._open_palette)
+        self.titlebar.signin_clicked.connect(self.start_google_signin)
+        self.titlebar.set_google_visible(not config.is_paired())
         card_layout.addWidget(self.titlebar)
 
         # ---- 3-pane splitter ----
@@ -148,11 +158,13 @@ class MainWindow(QMainWindow):
         self.quickcap.saved.connect(lambda _d: self.memories.refresh())
         # Twin reply triggers avatar speak
         self.conversation.reply_received.connect(self._on_twin_reply)
+        self.conversation.messages_changed.connect(self._sync_mini_talk)
         # Vault capture — every text turn (user + assistant)
         self.conversation.message_sent.connect(lambda t: self._vault_capture("user", t, "chat"))
         self.conversation.reply_received.connect(lambda t: self._vault_capture("assistant", t, "chat"))
         # Avatar status → titlebar pill + aura
         self.avatar.status_changed.connect(self._update_status)
+        self.avatar.talk_requested.connect(self.open_mini_talk)
         # Recorder
         self.recorder.level.connect(self.avatar.set_level)
         self.recorder.wav_bytes.connect(self._upload_voice)
@@ -166,6 +178,9 @@ class MainWindow(QMainWindow):
         sc_ptt = QShortcut(QKeySequence("Ctrl+Space"), self)
         sc_ptt.setContext(Qt.ApplicationShortcut)
         sc_ptt.activated.connect(self._ptt_toggle)
+        sc_write = QShortcut(QKeySequence("Ctrl+Shift+U"), self)
+        sc_write.setContext(Qt.ApplicationShortcut)
+        sc_write.activated.connect(self.open_writing_helper)
 
     def _restore_geometry(self) -> None:
         geo = self._settings.get("window_geometry")
@@ -229,11 +244,16 @@ class MainWindow(QMainWindow):
 
     # ----- data load -----
     def _load_initial_data(self) -> None:
+        if not config.is_paired():
+            return
         api.get_async("/desktop/me", on_ok=self._on_me, on_err=self._on_me_err)
         self.conversation.load_history()
         self.memories.refresh()
         # Start listening for OS commands the Twin queues (open apps, volume,
         # screen vision, etc.). Runs in its own thread; UI never blocks.
+        poller = getattr(self, "_cmd_poller", None)
+        if poller is not None and poller.isRunning():
+            return
         self._cmd_poller = CommandPoller(self)
         self._cmd_poller.ran.connect(lambda label: self._update_status(f"twin: {label}"))
         self._cmd_poller.start()
@@ -242,6 +262,7 @@ class MainWindow(QMainWindow):
         self._user = data or {}
         name = data.get("name") or data.get("email") or "your archive"
         self.titlebar.set_user_name(f"{name}'s twin")
+        self.titlebar.set_google_visible(False)
         self.avatar.set_portrait_url(data.get("avatar_source_url"))
         api.get_async(
             "/desktop/conversation?limit=1",
@@ -250,8 +271,11 @@ class MainWindow(QMainWindow):
         )
 
     def _on_me_err(self, msg: str) -> None:
-        self.titlebar.set_user_name("sign-in required")
-        self._update_status("not authed")
+        self.titlebar.set_user_name("this copy isn’t signed in")
+        self._update_status("Sign in with Google — or Download again from Local PC")
+        if self._wizard is not None and self._wizard.isVisible():
+            return
+        self.open_sign_in()
 
     # ----- twin → avatar -----
     def _on_twin_reply(self, text: str) -> None:
@@ -272,7 +296,12 @@ class MainWindow(QMainWindow):
         if self.recorder.is_recording():
             return
         self._update_status("listening…")
-        self.recorder.start()
+        mic = ""
+        try:
+            mic = str(config.load_settings().get("mic_device") or "")
+        except Exception:  # noqa: BLE001
+            mic = ""
+        self.recorder.start(device=mic)
 
     def _ptt_stop(self) -> None:
         if not self.recorder.is_recording():
@@ -328,7 +357,20 @@ class MainWindow(QMainWindow):
     # ----- settings dialog -----
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self)
+        dlg.changed.connect(self._apply_sound_settings)
         dlg.exec()
+        self._apply_sound_settings()
+
+    def _apply_sound_settings(self) -> None:
+        """Pick up microphone / speaker / volume after Settings → Sound."""
+        try:
+            self._settings = config.load_settings()
+        except Exception:  # noqa: BLE001
+            return
+        try:
+            self.avatar.apply_sound_settings(self._settings)
+        except Exception:  # noqa: BLE001
+            pass
 
     # ----- command palette -----
     def _open_palette(self) -> None:
@@ -344,16 +386,7 @@ class MainWindow(QMainWindow):
         def speak_query(q: str):
             if not q:
                 return
-            self.conversation.input.setPlainText("")
-            self.conversation.append("user", q)
-            self.conversation.message_sent.emit(q)
-            self.conversation._busy = True  # type: ignore[attr-defined]
-            api.post_async(
-                "/desktop/chat",
-                {"text": q},
-                on_ok=lambda d: self.conversation._on_reply(d),  # type: ignore[attr-defined]
-                on_err=lambda m: self.conversation._on_error(m),  # type: ignore[attr-defined]
-            )
+            self.conversation.send_text(q)
 
         def capture_query(q: str):
             if not q:
@@ -387,6 +420,45 @@ class MainWindow(QMainWindow):
                 hint="Start listening from your microphone",
                 shortcut="ctrl · space",
                 action=self._ptt_toggle,
+            ),
+            Command(
+                id="minitalk",
+                label="Talk in a small window",
+                hint="Just you and your twin — hide the big window",
+                action=self.open_mini_talk,
+            ),
+            Command(
+                id="setup",
+                label="Show first-run setup",
+                hint="Five steps: Google, your face, your voice, speakers, how to talk",
+                action=self.open_setup_wizard,
+            ),
+            Command(
+                id="tips",
+                label="Show tips",
+                hint="A short card of how to talk to your twin",
+                action=self.open_tips,
+            ),
+            Command(
+                id="signin",
+                label="Sign in with Google",
+                hint="Opens Google in your browser. No Google or Windows password here.",
+                action=self.start_google_signin,
+            ),
+            Command(
+                id="unboundkb",
+                label="Unbound Keyboard",
+                hint="Fix spelling and overused words — not a spy on every key",
+                shortcut="ctrl · shift · U",
+                action=self.open_writing_helper,
+            ),
+            Command(
+                id="lookscreen",
+                label="Look at my screen",
+                hint="The twin looks at this computer and helps — games, writing, movies",
+                action=lambda: self.conversation.send_text(
+                    "Look at my screen and help me with whatever is on it."
+                ),
             ),
             Command(
                 id="popout",
@@ -427,6 +499,174 @@ class MainWindow(QMainWindow):
             ),
         ]
 
+    def open_first_run(self) -> None:
+        """After the splash: wizard once, else sign-in if needed, else tips."""
+        settings = config.load_settings()
+        if bool(settings.get("show_setup_wizard", True)):
+            self.open_setup_wizard()
+            return
+        if not config.is_paired():
+            self.open_sign_in()
+            return
+        if bool(settings.get("show_tips_on_start", True)):
+            self.open_tips()
+
+    def open_setup_wizard(self) -> None:
+        """Five-step cream card. First launch, or any time from the menu."""
+        if self._signin is not None:
+            self._signin.hide()
+        if self._wizard is None:
+            self._wizard = SetupWizard()
+            self._wizard.signed_in.connect(self._on_desktop_signed_in)
+            self._wizard.sound_changed.connect(self._apply_sound_settings)
+            self._wizard.setup_done.connect(self._on_setup_done)
+            self._wizard.face_ready.connect(self.avatar.set_portrait_url)
+        self._place_card(self._wizard)
+        self._wizard.show()
+        self._wizard.raise_()
+        self._wizard.activateWindow()
+
+    def open_tips(self) -> None:
+        """Short how-to. Uncheck it, or Don't show this next time, and it stays gone."""
+        if self._tips is None:
+            self._tips = TipsWindow()
+        self._place_card(self._tips)
+        self._tips.show()
+        self._tips.raise_()
+        self._tips.activateWindow()
+
+    def _on_setup_done(self) -> None:
+        self._apply_sound_settings()
+        if not config.is_paired():
+            self.open_sign_in()
+
+    def open_sign_in(self) -> None:
+        """Cream Sign in with Google card. One click opens Google in the browser."""
+        self.titlebar.set_google_visible(not config.is_paired())
+        if self._wizard is not None and self._wizard.isVisible():
+            return
+        if config.is_paired():
+            if self._signin is not None:
+                self._signin.hide()
+            return
+        if self._signin is None:
+            self._signin = SignInDialog()
+            self._signin.signed_in.connect(self._on_desktop_signed_in)
+            self._signin.want_keyboard.connect(self.open_writing_helper)
+        self._place_sign_in()
+        self._signin.show()
+        self._signin.raise_()
+        self._signin.activateWindow()
+
+    def start_google_signin(self) -> None:
+        """Click Sign in with Google → Google opens. We never see that password."""
+        self.open_sign_in()
+        if self._signin is not None and not config.is_paired():
+            self._signin.start_google()
+
+    def _place_sign_in(self) -> None:
+        self._place_card(self._signin)
+
+    def _place_card(self, widget) -> None:
+        if widget is None:
+            return
+        geo = self.frameGeometry()
+        card = widget.rect()
+        if geo.width() > 40 and geo.height() > 40:
+            widget.move(geo.center() - card.center())
+        widget.raise_()
+
+    def resizeEvent(self, ev):  # noqa: N802
+        super().resizeEvent(ev)
+        self._place_sign_in()
+        if self._wizard is not None and self._wizard.isVisible():
+            self._place_card(self._wizard)
+
+    def _on_desktop_signed_in(self) -> None:
+        if self._signin is not None:
+            self._signin.hide()
+        self.titlebar.set_google_visible(False)
+        self._settings = config.load_settings()
+        self._update_status("this computer is signed in")
+        self._load_initial_data()
+
+    def open_writing_helper(self) -> None:
+        """Unbound Keyboard card. Draggable; not stuck in front of every window."""
+        if self._writing is None:
+            self._writing = WritingWindow()
+            self._writing.closed.connect(self._persist_writing_geo)
+            self._writing.signed_in.connect(self._on_desktop_signed_in)
+        geo = self._settings.get("writing_geometry")
+        if isinstance(geo, list) and len(geo) == 4:
+            self._writing.setGeometry(*geo)
+        self._writing.show()
+        self._writing.raise_()
+        self._writing.activateWindow()
+
+    def _persist_writing_geo(self) -> None:
+        if self._writing is None:
+            return
+        self._settings["writing_geometry"] = [
+            self._writing.x(),
+            self._writing.y(),
+            self._writing.width(),
+            self._writing.height(),
+        ]
+        config.save_settings(self._settings)
+
+    def open_mini_talk(self) -> None:
+        """Hide the full window and talk to the twin in a small always-on-top card."""
+        if self._talk is None:
+            self._talk = MiniTalkWindow()
+            self._talk.send_requested.connect(self.conversation.send_text)
+            self._talk.ptt_pressed.connect(self._ptt_start)
+            self._talk.ptt_released.connect(self._ptt_stop)
+            self._talk.restore_full.connect(self.restore_from_mini_talk)
+            self._talk.closed.connect(self._on_mini_talk_closed)
+            self.avatar.attach_talk_window(self._talk)
+            self.avatar.status_changed.connect(self._talk.set_status)
+        geo = self._settings.get("mini_talk_geometry")
+        if isinstance(geo, list) and len(geo) == 4:
+            self._talk.setGeometry(*geo)
+        self._sync_mini_talk()
+        self._talk.set_status(self.titlebar.pill_label.text() or "idle")
+        self._talk.show()
+        self._talk.raise_()
+        self._talk.activateWindow()
+        self.avatar.attach_talk_window(self._talk)
+        self.hide()
+
+    def restore_from_mini_talk(self) -> None:
+        """Bring the full Heirloom window back; hide the compact talk card."""
+        self._persist_mini_talk_geo()
+        if self._talk is not None:
+            self._talk.hide()
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self.avatar._route_video_output()  # type: ignore[attr-defined]
+
+    def _on_mini_talk_closed(self) -> None:
+        self._persist_mini_talk_geo()
+        self.avatar._route_video_output()  # type: ignore[attr-defined]
+
+    def _persist_mini_talk_geo(self) -> None:
+        if self._talk is None:
+            return
+        self._settings["mini_talk_geometry"] = [
+            self._talk.x(),
+            self._talk.y(),
+            self._talk.width(),
+            self._talk.height(),
+        ]
+        config.save_settings(self._settings)
+
+    def _sync_mini_talk(self) -> None:
+        if self._talk is None:
+            return
+        self._talk.set_messages(self.conversation.recent_messages(8))
+        self._talk.set_busy(self.conversation.is_busy)
+
 
 class TrayProxy:
     """Wraps QSystemTrayIcon so MainWindow can show/hide via tray actions."""
@@ -450,6 +690,16 @@ class TrayProxy:
         palette.triggered.connect(window._open_palette)
         ptt = QAction("Push-to-talk", menu)
         ptt.triggered.connect(window._ptt_toggle)
+        minitalk = QAction("Talk in a small window", menu)
+        minitalk.triggered.connect(window.open_mini_talk)
+        write = QAction("Unbound Keyboard", menu)
+        write.triggered.connect(window.open_writing_helper)
+        setup = QAction("Show first-run setup", menu)
+        setup.triggered.connect(window.open_setup_wizard)
+        tips = QAction("Show tips", menu)
+        tips.triggered.connect(window.open_tips)
+        signin = QAction("Sign in with Google", menu)
+        signin.triggered.connect(window.start_google_signin)
         popout = QAction("Pop out avatar for OBS", menu)
         popout.triggered.connect(window.avatar.pop_out)
         quit_act = QAction("Quit Heirloom", menu)
@@ -458,6 +708,11 @@ class TrayProxy:
         menu.addAction(palette)
         menu.addSeparator()
         menu.addAction(ptt)
+        menu.addAction(minitalk)
+        menu.addAction(write)
+        menu.addAction(setup)
+        menu.addAction(tips)
+        menu.addAction(signin)
         menu.addAction(popout)
         menu.addSeparator()
         menu.addAction(quit_act)
@@ -467,6 +722,9 @@ class TrayProxy:
         self.tray.show()
 
     def _show(self) -> None:
+        if self.window._talk is not None and self.window._talk.isVisible():
+            self.window.restore_from_mini_talk()
+            return
         self.window.showNormal()
         self.window.raise_()
         self.window.activateWindow()
@@ -475,7 +733,9 @@ class TrayProxy:
         from PySide6.QtWidgets import QSystemTrayIcon
 
         if reason == QSystemTrayIcon.Trigger:
-            if self.window.isVisible():
+            if self.window._talk is not None and self.window._talk.isVisible():
+                self.window.restore_from_mini_talk()
+            elif self.window.isVisible():
                 self.window.hide()
             else:
                 self._show()

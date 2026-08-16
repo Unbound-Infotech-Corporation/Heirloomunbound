@@ -81,8 +81,8 @@ async def download(download_token: str):
 
 
 # ---------------- Magic-link login ----------------
-@router.post("/auth/magic/{magic_token}")
-async def consume_magic_link(magic_token: str, response: Response):
+async def redeem_magic_link(magic_token: str) -> tuple[dict, str]:
+    """Consume ml_… and mint a session. Used by the website and the desktop app."""
     if not magic_token or not magic_token.startswith("ml_"):
         raise HTTPException(status_code=400, detail="Invalid magic-link")
     rec = await db.magic_links.find_one({"magic_token": magic_token}, {"_id": 0})
@@ -103,7 +103,6 @@ async def consume_magic_link(magic_token: str, response: Response):
     if not user:
         raise HTTPException(status_code=404, detail="User no longer exists")
 
-    # Mint a real session token (same shape as Emergent Google auth path)
     session_token = f"sess_{uuid.uuid4().hex}{secrets.token_urlsafe(16)}"
     await db.user_sessions.insert_one({
         "user_id": user["user_id"],
@@ -112,12 +111,16 @@ async def consume_magic_link(magic_token: str, response: Response):
         "issued_via": "magic_link",
         "created_at": _now_iso(),
     })
-
-    # Burn the magic-link so it can't be reused
     await db.magic_links.update_one(
         {"magic_token": magic_token},
         {"$set": {"consumed": True, "consumed_at": _now_iso()}},
     )
+    return user, session_token
+
+
+@router.post("/auth/magic/{magic_token}")
+async def consume_magic_link(magic_token: str, response: Response):
+    user, session_token = await redeem_magic_link(magic_token)
 
     # Cookie for the SPA's auth state (same as auth.py)
     response.set_cookie(

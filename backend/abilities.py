@@ -20,7 +20,10 @@ from datetime import datetime, timezone
 from deps import db
 
 # Tools that are ALWAYS available — the twin's memory. Not part of any ability.
-CORE_TOOLS: set[str] = {"search_archive", "save_memory", "set_reminder", "list_recent_memories"}
+CORE_TOOLS: set[str] = {
+    "search_archive", "save_memory", "set_reminder", "list_recent_memories",
+    "list_reminders", "complete_reminder", "whats_on_my_plate",
+}
 
 
 ABILITIES: list[dict] = [
@@ -41,6 +44,75 @@ ABILITIES: list[dict] = [
             "- `web_search(query)` — ONLY for outside-world facts (news, prices, releases). Never for questions about the owner.\n"
             "- `web_fetch(url)` — read the readable text of a specific URL.\n"
             "- `get_weather(location)` — current conditions.\n"
+        ),
+    },
+    {
+        "id": "email",
+        "name": "Email",
+        "tagline": "Connect Gmail or Outlook once. Your twin can read recent mail and send only after you say yes.",
+        "icon": "mail",
+        "category": "knowledge",
+        "default_enabled": True,
+        "requires_companion": False,
+        "tools": ["read_inbox", "search_mail", "find_setup_mail", "send_email", "find_follow_ups"],
+        "permissions": [
+            {"id": "read_mail", "label": "Read recent mail (who it's from, the subject, a short snippet)"},
+            {"id": "send_mail", "label": "Send mail only after you say yes"},
+        ],
+        "prompt_block": (
+            "Email (enabled):\n"
+            "- If they haven't connected, tell them to tap Connect my email. Google or Microsoft will ask — "
+            "NEVER ask them to type an email password here.\n"
+            "- `read_inbox()` — recent subjects + short snippets. Do not dump full bodies.\n"
+            "- `search_mail(query)` — find mail matching a phrase.\n"
+            "- `find_setup_mail()` — look for Pinokio / Ollama / Heirloom verification or magic-link mail and show the links. "
+            "Help them tap the link. Do not create third-party accounts for them. Pinokio and ComfyUI usually don't need accounts.\n"
+            "- `send_email(to, subject, body)` — first call WITHOUT confirmed so they see a draft. "
+            "Only after they clearly say yes, call again with confirmed=true.\n"
+            "- `find_follow_ups()` — mail that looks like it is waiting on them (questions, RSVPs, 'please confirm'). "
+            "Offer to draft a reply with send_email; never send until they say yes.\n"
+        ),
+    },
+    {
+        "id": "calendar",
+        "name": "Calendar",
+        "tagline": "See what's on today and add a date — same Gmail or Outlook tap, never a password.",
+        "icon": "calendar",
+        "category": "companion",
+        "default_enabled": True,
+        "requires_companion": False,
+        "tools": ["list_events", "create_event"],
+        "permissions": [
+            {"id": "read_calendar", "label": "See upcoming events on your calendar"},
+            {"id": "write_calendar", "label": "Add an event only after you say yes"},
+        ],
+        "prompt_block": (
+            "Calendar (enabled):\n"
+            "- Uses the same Connect Gmail / Outlook tap as email. If a tool says to reconnect, tell them to tap it again "
+            "so Google/Microsoft can share the calendar. NEVER ask for a password.\n"
+            "- `list_events(days)` — what's coming up (default today).\n"
+            "- `create_event(title, when)` — first call without confirmed so they see a draft. "
+            "Only after they clearly say yes, call again with confirmed=true.\n"
+        ),
+    },
+    {
+        "id": "people",
+        "name": "People & Calls",
+        "tagline": "Look up family in your address book. Place a call only after you say yes.",
+        "icon": "phone",
+        "category": "companion",
+        "default_enabled": True,
+        "requires_companion": False,
+        "tools": ["find_contact", "call_contact"],
+        "permissions": [
+            {"id": "read_contacts", "label": "Look up names in your Heirloom address book"},
+            {"id": "place_call", "label": "Place a phone call only after you say yes"},
+        ],
+        "prompt_block": (
+            "People & calls (enabled):\n"
+            "- `find_contact(name)` — search the Heirloom address book (not their phone SIM).\n"
+            "- `call_contact(name)` — first call WITHOUT confirmed. Only after they clearly say yes, call again with confirmed=true. "
+            "If phone isn't set up, tell them to open Connect → Phone. Never invent a number.\n"
         ),
     },
     {
@@ -111,18 +183,147 @@ ABILITIES: list[dict] = [
     {
         "id": "screen_vision",
         "name": "Screen Vision",
-        "tagline": "“What's on my screen?” — your twin takes a look and helps.",
+        "tagline": "Your twin can look at your screen and help — games, grammar, movies, errors.",
         "icon": "eye",
         "category": "computer",
         "default_enabled": True,
         "requires_companion": True,
         "tools": ["see_screen"],
         "permissions": [
-            {"id": "capture_screen", "label": "Capture and analyse your screen (image is deleted after)"},
+            {"id": "capture_screen", "label": "Look at your screen to help (the picture is deleted after)"},
         ],
         "prompt_block": (
-            "Screen vision (enabled): `see_screen(question)` — screenshot + look at what's on their screen "
-            "('what's on my screen?', 'read this error').\n"
+            "Screen vision (enabled) — you can SEE their computer when they ask for help with what's in front of them:\n"
+            "- `see_screen(question)` — take a screenshot on the home PC, look at it, then coach.\n"
+            "- ALWAYS call this when they ask you to look at the screen, help with a game, check grammar "
+            "or writing on screen, identify a movie/show, read an error, or say 'look at this'.\n"
+            "- Games: name the game if you can, say what's happening, give a clear next step. No spoilers unless asked.\n"
+            "- Grammar/writing: quote the text you can read, then give specific edits.\n"
+            "- Movies/TV: identify title/scene if you can; no unsolicited spoilers.\n"
+            "- The picture is deleted after you look. If no PC is connected, tell them to open the Heirloom app "
+            "on the home computer. Never ask for a password.\n"
+            "- If the user message already includes a screen look, do NOT call see_screen again.\n"
+        ),
+    },
+    {
+        "id": "business",
+        "name": "Business",
+        "tagline": "Write Docs, read Search & YouTube, draft SEO, post on connected apps after you say yes.",
+        "icon": "briefcase",
+        "category": "work",
+        "default_enabled": True,
+        "requires_companion": False,
+        "tools": [
+            "write_google_doc", "write_google_sheet", "list_workspace_files",
+            "research_seo", "post_to_social",
+            "read_search_console", "list_youtube", "list_tiktok",
+            "write_notion_page", "save_to_dropbox", "send_mailchimp",
+        ],
+        "permissions": [
+            {"id": "write_docs", "label": "Create a Google Doc or Notion page only after you say yes"},
+            {"id": "write_sheets", "label": "Create a spreadsheet or Dropbox file only after you say yes"},
+            {"id": "research_marketing", "label": "Look up public pages and Search Console to draft an SEO plan"},
+            {"id": "post_social", "label": "Post on connected apps only after you say yes"},
+        ],
+        "prompt_block": (
+            "Business (enabled):\n"
+            "- Docs/Sheets/YouTube/Search Console use the same Connect Gmail tap. If a tool says to reconnect, "
+            "tell them to tap Connect Gmail again so Google can share Docs, Search, and YouTube. NEVER ask for a password.\n"
+            "- `write_google_doc(title, body)` — first call WITHOUT confirmed so they see a draft. "
+            "Write the full plan in `body` (business plan, letter, campaign). After they say yes, call again with confirmed=true. "
+            "Then share the Google link. If the home PC is open, it can open the Doc.\n"
+            "- `write_google_sheet(title, headers, rows)` — same confirm pattern. Use for budgets, keyword lists, posting calendars.\n"
+            "- `list_workspace_files()` — Docs/Sheets Heirloom already made.\n"
+            "- `research_seo(topic, location, audience)` — public-web starter plan (phrases, two-week posts, page outline). "
+            "Do not invent ranking numbers. For real Google numbers, call `read_search_console()`.\n"
+            "- `read_search_console(site, days)` — Google's numbers for sites they already verified. Never invent rankings.\n"
+            "- `list_youtube()` — channel + recent uploads. Cannot upload a video file.\n"
+            "- `list_tiktok()` — recent TikToks after Connect TikTok. New clips need a video file.\n"
+            "- `post_to_social(network, text)` — twitter (X), linkedin, discord, reddit, pinterest, wordpress, slack. "
+            "First call WITHOUT confirmed. Extra args: title, image_url (Pinterest), subreddit, channel. "
+            "If they haven't connected, tell them to tap Connect on Settings. "
+            "Instagram/Facebook/Threads need Meta review. Bluesky/WhatsApp/Telegram are not wired. NEVER ask for a password.\n"
+            "- `write_notion_page(title, body)` / `save_to_dropbox(filename, body)` / `send_mailchimp(subject, body)` — "
+            "draft first, confirmed=true after they say yes. Notion: they must share a page with Heirloom.\n"
+        ),
+    },
+    {
+        "id": "creative",
+        "name": "Creative",
+        "tagline": "Describe a picture, clip, or song. We sketch it on your computer, then open Photoshop, CapCut, or your music app.",
+        "icon": "palette",
+        "category": "create",
+        "default_enabled": True,
+        "requires_companion": True,
+        "tools": ["create_artwork", "edit_video", "make_music", "open_studio"],
+        "permissions": [
+            {"id": "make_media", "label": "Make pictures, videos, and songs on your computer after you say yes"},
+        ],
+        "prompt_block": (
+            "Creative (enabled — needs the desktop app running):\n"
+            "- I sketch on the home PC (Pinokio / ComfyUI: Fooocus or Flux for pictures, WAN for short clips, ACE-Step for songs), "
+            "then open the app they already have. I cannot click every Photoshop, CapCut, Premiere, or DAW control. "
+            "I cannot edit a timeline inside YouTube Studio or TikTok — I can only open those websites.\n"
+            "- Pinokio and ComfyUI do not need an account. NEVER ask for a Photoshop, Adobe, CapCut, or music-app password.\n"
+            "- If no PC is connected, tell them to open the Heirloom app on the home computer.\n"
+            "- GPU work needs a yes first: call WITHOUT confirmed so they see the plan, then after they clearly say yes, "
+            "call again with confirmed=true.\n"
+            "- `create_artwork(prompt, open_in)` — pictures. Default studio is Photoshop (Photopea if Photoshop isn't installed).\n"
+            "- `edit_video(prompt, open_in, source)` — short local clip, then CapCut / Premiere / DaVinci. "
+            "open_in=youtube or tiktok only opens the website.\n"
+            "- `make_music(prompt, open_in)` — short sketch, then Ableton / FL Studio / Logic / GarageBand / REAPER.\n"
+            "- `open_studio(app)` — just open the app they named. No confirm.\n"
+        ),
+    },
+    {
+        "id": "windows_security",
+        "name": "Windows Safety",
+        "tagline": "Checks Windows Security on this computer and stops steps that could put it at risk.",
+        "icon": "shield",
+        "category": "computer",
+        "default_enabled": True,
+        "requires_companion": True,
+        "tools": ["check_pc_safety", "open_windows_security", "scan_pc"],
+        "permissions": [
+            {"id": "look_windows_security", "label": "Look at Windows Security on this computer and warn you before risky steps"},
+        ],
+        "prompt_block": (
+            "Windows Safety (enabled — needs the desktop app running; this is an extra pair of eyes on Windows Security, not a replacement):\n"
+            "- NEVER ask for a Windows, Microsoft, PIN, or BitLocker password.\n"
+            "- NEVER turn Windows Security, Defender, the firewall, or UAC off — even if they (or someone on the phone) "
+            "say yes. Refuse those steps out loud. Do not ask them to confirm turning protection off.\n"
+            "- Never bypass the blue Windows protection box (SmartScreen). If no PC is connected, tell them to open "
+            "the Heirloom app on the home computer.\n"
+            "- `check_pc_safety()` — read whether virus protection, real-time protection, the firewall, and UAC are on. "
+            "Call when they ask if the computer is safe, if Defender is on, or 'check Windows Security'.\n"
+            "- `open_windows_security()` — open the same Windows Security app Microsoft already ships. No confirm. "
+            "On a Mac or Linux PC, open that computer's privacy settings and say Windows Security is a Windows feature.\n"
+            "- `scan_pc()` — start a Windows Security quick scan. First call WITHOUT confirmed so they see the plan. "
+            "After they clearly say yes, call again with confirmed=true.\n"
+        ),
+    },
+    {
+        "id": "unbound_keyboard",
+        "name": "Unbound Keyboard",
+        "tagline": "A keyboard that fixes spelling as you type, notices words you lean on, and still sounds like you.",
+        "icon": "keyboard",
+        "category": "knowledge",
+        "default_enabled": True,
+        "requires_companion": False,
+        "tools": ["proofread_text", "polish_wording", "word_habits"],
+        "permissions": [
+            {"id": "help_me_write", "label": "Help fix spelling, grammar, and overused words in text you share — never password boxes"},
+        ],
+        "prompt_block": (
+            "Unbound Keyboard (enabled):\n"
+            "- This is their writing helper, not a spy. NEVER ask for a Google, Microsoft, phone, or Windows password. "
+            "NEVER read or store password-box text. Do not keep other people's documents.\n"
+            "- On Android they choose Unbound Keyboard as the keyboard. On Windows they open the writing helper "
+            "(tray or Ctrl+Shift+U) — we cannot sit inside every Windows box the way a phone keyboard can.\n"
+            "- `proofread_text(text)` — instant spelling, grammar, and word-habit notes. Call when they paste a draft, "
+            "ask you to check writing, or say a sentence looks off.\n"
+            "- `polish_wording(text)` — rewrite so it still sounds like them, not like a magazine. Keep their meaning.\n"
+            "- `word_habits()` — words they overuse in the archive. Offer gentler swaps; do not scold.\n"
         ),
     },
     {
@@ -139,7 +340,10 @@ ABILITIES: list[dict] = [
         ],
         "prompt_block": (
             "Terminal (enabled): `run_command(command)` — run a shell command. Powerful & risky: always show the "
-            "command, explain it, and confirm with the owner, then call again with confirmed=true.\n"
+            "command, explain it, and confirm with the owner, then call again with confirmed=true. "
+            "Even with terminal on, Windows Safety still blocks commands that turn Defender, the firewall, or UAC off, "
+            "wipe the disk, bypass SmartScreen, or download-and-run a program. Refuse those even after a yes. "
+            "Never ask for a Windows password.\n"
         ),
     },
 ]

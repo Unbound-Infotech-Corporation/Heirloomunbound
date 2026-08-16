@@ -48,6 +48,7 @@ from twilio.twiml.voice_response import Gather, VoiceResponse
 from deps import db, get_current_user
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from routers.push import notify_user
+from services.voice_council import format_portrait_for_prompt
 
 router = APIRouter(prefix="/twilio", tags=["twilio"])
 log = logging.getLogger("twilio_voice")
@@ -519,13 +520,16 @@ async def _twin_reply(user_id: str, prior_turns: list, caller_said: str) -> str:
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "name": 1, "personality": 1})
     persona = (user or {}).get("personality") or ""
     name = (user or {}).get("name") or "the owner"
+    profile = await db.personality_profiles.find_one({"user_id": user_id}, {"_id": 0})
+    portrait = format_portrait_for_prompt(profile)
+    voice_notes = portrait[:1500] if portrait else persona[:1200]
     system = (
         f"You are the digital twin of {name}. You are on a phone call — someone called your "
         f"owner's number and you're speaking with them AS the owner. Keep replies SHORT "
         f"(1-3 sentences), warm, natural, spoken-cadence. Never break character. Never say "
         f"you're an AI unless they explicitly ask. If they ask for something urgent that "
         f"only the real owner can decide, politely say you'll pass it along.\n\n"
-        f"Owner personality notes:\n{persona[:1200]}"
+        f"How you sound:\n{voice_notes}"
     )
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,

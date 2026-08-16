@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Unbound" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:statusBarColor">#C45C38</item>
+        <item name="android:navigationBarColor">#F4E8C8</item>
+        <item name="android:windowBackground">#F4E8C8</item>
+    </style>
+</resources>

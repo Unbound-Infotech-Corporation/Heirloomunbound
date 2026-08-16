@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
 import {
+  Briefcase,
+  Calendar,
   Check,
   Eye,
   Globe,
+  Keyboard,
   Loader2,
+  Mail,
   Monitor,
   Music,
+  Palette,
+  Phone,
   ShieldCheck,
   Terminal,
   Wrench,
@@ -15,12 +21,28 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePageMeta } from "@/lib/usePageMeta";
 
-const ICONS = { globe: Globe, music: Music, wrench: Wrench, monitor: Monitor, eye: Eye, terminal: Terminal };
+const ICONS = {
+  globe: Globe,
+  mail: Mail,
+  calendar: Calendar,
+  phone: Phone,
+  music: Music,
+  wrench: Wrench,
+  monitor: Monitor,
+  eye: Eye,
+  terminal: Terminal,
+  briefcase: Briefcase,
+  palette: Palette,
+  shield: ShieldCheck,
+  keyboard: Keyboard,
+};
 
 const CATEGORY_LABELS = {
   knowledge: "Knowledge",
   companion: "Companion",
   computer: "Your computer",
+  work: "Work",
+  create: "Create",
 };
 
 export default function Abilities() {

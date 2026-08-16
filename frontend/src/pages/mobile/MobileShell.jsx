@@ -1,32 +1,33 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { Camera, History, Phone } from "lucide-react";
+import { Camera, History, Home, Keyboard, Phone, Puzzle, Sparkles } from "lucide-react";
+import { api } from "@/lib/api";
 
 /**
  * Mobile PWA shell — bottom tab bar + safe-area padding for iOS.
  * Routes:
  *   /m           → default → redirect to /m/call
- *   /m/call      → in-app dialer + PSTN card
+ *   /m/call      → in-app dialer + PSTN (the phone-native add-on)
+ *   /m/twin      → talk to the twin against the home archive
  *   /m/capture   → voice memo + photo capture
  *   /m/history   → recent calls + memories
- *
- * This shell is intentionally standalone from AppLayout — no sidebar, no
- * marketing header — so it feels like a native app when opened from the
- * Home Screen. It respects the safe-area insets on notched devices.
+ *   /m/packs     → optional integrations (only those on at the desktop)
+ *   /m/keyboard  → Unbound Keyboard writing helper (IME is the Android app)
  */
 const TABS = [
-  { to: "/m/call",    label: "Call",    icon: Phone,   tid: "mobile-tab-call" },
-  { to: "/m/capture", label: "Capture", icon: Camera,  tid: "mobile-tab-capture" },
-  { to: "/m/history", label: "History", icon: History, tid: "mobile-tab-history" },
+  { to: "/m/call", label: "Call", icon: Phone, tid: "mobile-tab-call" },
+  { to: "/m/twin", label: "Twin", icon: Sparkles, tid: "mobile-tab-twin" },
+  { to: "/m/capture", label: "Capture", icon: Camera, tid: "mobile-tab-capture" },
+  { to: "/m/history", label: "Recent", icon: History, tid: "mobile-tab-history" },
+  { to: "/m/packs", label: "Packs", icon: Puzzle, tid: "mobile-tab-packs" },
+  { to: "/m/keyboard", label: "Write", icon: Keyboard, tid: "mobile-tab-keyboard" },
 ];
 
 export default function MobileShell() {
   const loc = useLocation();
   const [installable, setInstallable] = useState(null);
+  const [home, setHome] = useState(null);
 
-  // Capture the beforeinstallprompt event so we can show a "Install app"
-  // button in-app on Android/desktop. iOS Safari doesn't fire this and needs
-  // the manual "Add to Home Screen" gesture — we show a hint for that too.
   useEffect(() => {
     const onPrompt = (e) => {
       e.preventDefault();
@@ -36,12 +37,18 @@ export default function MobileShell() {
     return () => window.removeEventListener("beforeinstallprompt", onPrompt);
   }, []);
 
+  useEffect(() => {
+    api.get("/mobile/home").then(({ data }) => setHome(data)).catch(() => {});
+  }, [loc.pathname]);
+
   const promptInstall = async () => {
     if (!installable) return;
     installable.prompt();
     await installable.userChoice;
     setInstallable(null);
   };
+
+  const online = Boolean(home?.home?.online);
 
   return (
     <div
@@ -65,11 +72,25 @@ export default function MobileShell() {
         </button>
       )}
 
+      {home && (
+        <div
+          className="mx-4 mt-3 text-xs px-3 py-2 rounded-sm flex items-start gap-2"
+          style={{
+            background: "var(--surface-elev)",
+            color: online ? "#527a3d" : "var(--text-muted)",
+            border: "1px solid var(--border-default)",
+          }}
+          data-testid="mobile-home-banner"
+        >
+          <Home className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span>{home.message}</span>
+        </div>
+      )}
+
       <main className="flex-1 px-4 py-4" data-testid="mobile-main">
-        <Outlet />
+        <Outlet context={{ home }} />
       </main>
 
-      {/* Bottom tab bar */}
       <nav
         className="fixed bottom-0 left-0 right-0 border-t backdrop-blur"
         style={{
@@ -79,7 +100,7 @@ export default function MobileShell() {
         }}
         data-testid="mobile-tabbar"
       >
-        <div className="grid grid-cols-3 h-16">
+        <div className="grid grid-cols-6 h-16">
           {TABS.map((t) => {
             const active = loc.pathname.startsWith(t.to);
             const Icon = t.icon;

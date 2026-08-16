@@ -117,6 +117,15 @@ async def ensure_indexes() -> None:
         ("user_templates", [("user_id", 1), ("created_at", 1)], {"name": "user_created"}),
         ("user_templates", [("template_id", 1)], {"unique": True, "name": "template_id_uniq"}),
 
+        # Maestro model downloads + phone companion packs
+        ("model_pulls", [("user_id", 1), ("created_at", -1)], {"name": "user_created"}),
+        ("model_pulls", [("cmd_id", 1)], {"unique": True, "sparse": True, "name": "cmd_id_uniq"}),
+        ("mobile_integrations", [("user_id", 1)], {"unique": True, "name": "user_uniq"}),
+
+        # Local Pinokio/ComfyUI twin video jobs
+        ("avatar_jobs", [("user_id", 1), ("created_at", -1)], {"name": "user_created"}),
+        ("avatar_jobs", [("job_id", 1)], {"unique": True, "name": "job_id_uniq"}),
+
         # Projection history snapshots — one row per (user, provider, day).
         ("projection_history", [("user_id", 1), ("provider", 1), ("day", 1)],
             {"unique": True, "name": "user_provider_day_uniq"}),

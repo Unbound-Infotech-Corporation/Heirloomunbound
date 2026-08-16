@@ -17,6 +17,8 @@ love.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import os
 import secrets
 import time
@@ -45,6 +47,46 @@ GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
 GITHUB_REDIRECT_URI = os.environ.get("GITHUB_REDIRECT_URI", "")
 GITHUB_SCOPES = "read:user user:email"
 PUBLIC_FRONTEND = os.environ.get("PUBLIC_FRONTEND_URL", "").rstrip("/") or "/"
+PUBLIC_BACKEND = os.environ.get("PUBLIC_BACKEND_URL", "").rstrip("/")
+
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = (os.environ.get("GOOGLE_REDIRECT_URI") or f"{PUBLIC_BACKEND}/api/oauth/google/callback").rstrip("/")
+GOOGLE_SCOPES = (
+    "openid email profile "
+    "https://www.googleapis.com/auth/gmail.readonly "
+    "https://www.googleapis.com/auth/gmail.send "
+    "https://www.googleapis.com/auth/calendar.events "
+    "https://www.googleapis.com/auth/documents "
+    "https://www.googleapis.com/auth/spreadsheets "
+    "https://www.googleapis.com/auth/drive.file "
+    "https://www.googleapis.com/auth/youtube.readonly "
+    "https://www.googleapis.com/auth/webmasters.readonly"
+)
+
+MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "")
+MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET", "")
+MICROSOFT_REDIRECT_URI = (
+    os.environ.get("MICROSOFT_REDIRECT_URI") or f"{PUBLIC_BACKEND}/api/oauth/microsoft/callback"
+).rstrip("/")
+MICROSOFT_SCOPES = "offline_access User.Read Mail.Read Mail.Send Calendars.ReadWrite"
+MICROSOFT_TENANT = os.environ.get("MICROSOFT_TENANT", "common")
+
+TWITTER_CLIENT_ID = os.environ.get("TWITTER_CLIENT_ID") or os.environ.get("X_CLIENT_ID", "")
+TWITTER_CLIENT_SECRET = os.environ.get("TWITTER_CLIENT_SECRET") or os.environ.get("X_CLIENT_SECRET", "")
+TWITTER_REDIRECT_URI = (
+    os.environ.get("TWITTER_REDIRECT_URI")
+    or os.environ.get("X_REDIRECT_URI")
+    or f"{PUBLIC_BACKEND}/api/oauth/twitter/callback"
+).rstrip("/")
+TWITTER_SCOPES = "tweet.read tweet.write users.read offline.access"
+
+LINKEDIN_CLIENT_ID = os.environ.get("LINKEDIN_CLIENT_ID", "")
+LINKEDIN_CLIENT_SECRET = os.environ.get("LINKEDIN_CLIENT_SECRET", "")
+LINKEDIN_REDIRECT_URI = (
+    os.environ.get("LINKEDIN_REDIRECT_URI") or f"{PUBLIC_BACKEND}/api/oauth/linkedin/callback"
+).rstrip("/")
+LINKEDIN_SCOPES = "openid profile email w_member_social"
 
 
 def _now_iso() -> str:
@@ -59,8 +101,12 @@ async def list_connections(user: dict = Depends(get_current_user)):
     """Return one row per provider showing whether THIS user has connected it."""
     docs = await db.oauth_connections.find(
         {"user_id": user["user_id"]}, {"_id": 0, "access_token": 0, "refresh_token": 0}
-    ).to_list(length=20)
+    ).to_list(length=50)
     by_provider = {d["provider"]: d for d in docs}
+    from services.google_insights import scope_has_search_console, scope_has_youtube
+    from services.google_workspace import scope_has_docs, scope_has_sheets
+    from services.oauth_catalog import EXTRA_OAUTH, extra_ready
+    google_scope = (by_provider.get("google") or {}).get("scope") or ""
 
     providers = [
         {
@@ -81,7 +127,57 @@ async def list_connections(user: dict = Depends(get_current_user)):
             "profile": by_provider.get("github", {}).get("profile") or None,
             "connected_at": by_provider.get("github", {}).get("connected_at"),
         },
+        {
+            "provider": "google",
+            "label": "Gmail",
+            "description": "One tap. Google asks you — we never see your password. Mail, calendar, Docs, Sheets, Search, and YouTube. Send, add a date, or create a file only after you say yes.",
+            "configured": bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI.startswith("http")),
+            "connected": "google" in by_provider,
+            "profile": by_provider.get("google", {}).get("profile") or None,
+            "connected_at": by_provider.get("google", {}).get("connected_at"),
+            "docs": scope_has_docs(google_scope),
+            "sheets": scope_has_sheets(google_scope),
+            "youtube": scope_has_youtube(google_scope),
+            "search_console": scope_has_search_console(google_scope),
+        },
+        {
+            "provider": "microsoft",
+            "label": "Outlook",
+            "description": "Same idea for Outlook / Hotmail / Microsoft 365 — mail and calendar. Sign in on Microsoft's page. No password typed into Heirloom.",
+            "configured": bool(MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET and MICROSOFT_REDIRECT_URI.startswith("http")),
+            "connected": "microsoft" in by_provider,
+            "profile": by_provider.get("microsoft", {}).get("profile") or None,
+            "connected_at": by_provider.get("microsoft", {}).get("connected_at"),
+        },
+        {
+            "provider": "twitter",
+            "label": "X",
+            "description": "Post as you on X. X asks — we never see the password. The twin shows a draft first.",
+            "configured": bool(TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET and TWITTER_REDIRECT_URI.startswith("http")),
+            "connected": "twitter" in by_provider,
+            "profile": by_provider.get("twitter", {}).get("profile") or None,
+            "connected_at": by_provider.get("twitter", {}).get("connected_at"),
+        },
+        {
+            "provider": "linkedin",
+            "label": "LinkedIn",
+            "description": "Post as you on LinkedIn. LinkedIn asks — we never see the password. Draft first, then you say yes.",
+            "configured": bool(LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET and LINKEDIN_REDIRECT_URI.startswith("http")),
+            "connected": "linkedin" in by_provider,
+            "profile": by_provider.get("linkedin", {}).get("profile") or None,
+            "connected_at": by_provider.get("linkedin", {}).get("connected_at"),
+        },
     ]
+    for pid, spec in EXTRA_OAUTH.items():
+        providers.append({
+            "provider": pid,
+            "label": spec["label"],
+            "description": spec["description"],
+            "configured": extra_ready(pid),
+            "connected": pid in by_provider,
+            "profile": by_provider.get(pid, {}).get("profile") or None,
+            "connected_at": by_provider.get(pid, {}).get("connected_at"),
+        })
     return {"connections": providers}
 
 
@@ -438,6 +534,513 @@ async def _seed_github_signals(user_id: str, headers: dict, profile: dict) -> No
         )
 
 
+# ─────────────────────────── Google / Gmail ───────────────────────────
+
+
+def _google_ready() -> bool:
+    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI.startswith("http"))
+
+
+@router.get("/google/connect")
+async def google_connect(user: dict = Depends(get_current_user)):
+    if not _google_ready():
+        raise HTTPException(
+            status_code=400,
+            detail="Gmail isn't wired on this server yet. Ask the person who set up Heirloom to add Google. We never ask for your Gmail password.",
+        )
+    state_token = secrets.token_urlsafe(24)
+    await db.oauth_states.insert_one({
+        "state": state_token,
+        "user_id": user["user_id"],
+        "provider": "google",
+        "created_at": _now_iso(),
+    })
+    params = {
+        "response_type": "code",
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "scope": GOOGLE_SCOPES,
+        "state": state_token,
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true",
+    }
+    return {"authorize_url": "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)}
+
+
+@router.get("/google/callback")
+async def google_callback(
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+):
+    redirect_back = f"{PUBLIC_FRONTEND}/settings?google="
+    if error:
+        return RedirectResponse(redirect_back + f"error:{error}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(redirect_back + "error:missing_code", status_code=302)
+    state_row = await db.oauth_states.find_one_and_delete({"state": state})
+    if not state_row:
+        return RedirectResponse(redirect_back + "error:invalid_state", status_code=302)
+    uid = state_row["user_id"]
+    tok = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return RedirectResponse(redirect_back + f"error:token_{tok.status_code}", status_code=302)
+    tk = tok.json()
+    access = tk.get("access_token")
+    if not access:
+        return RedirectResponse(redirect_back + "error:no_token", status_code=302)
+    refresh = tk.get("refresh_token") or ""
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=int(tk.get("expires_in", 3600)) - 60)).isoformat()
+    me = requests.get(
+        "https://www.googleapis.com/oauth2/v2/userinfo",
+        headers={"Authorization": f"Bearer {access}"},
+        timeout=10,
+    ).json()
+    profile = {
+        "id": me.get("id"),
+        "display_name": me.get("name") or me.get("email"),
+        "email": me.get("email"),
+        "image": me.get("picture"),
+    }
+    granted = (tk.get("scope") or GOOGLE_SCOPES).strip()
+    await _store_connection(
+        uid, "google", access, refresh, expires_at, granted, profile, keep_refresh=True,
+    )
+    await _after_mail_connected(uid, "Gmail", profile.get("email") or "")
+    return RedirectResponse(redirect_back + "connected", status_code=302)
+
+
+# ─────────────────────────── Microsoft / Outlook ───────────────────────────
+
+
+def _microsoft_ready() -> bool:
+    return bool(MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET and MICROSOFT_REDIRECT_URI.startswith("http"))
+
+
+def _microsoft_auth_base() -> str:
+    return f"https://login.microsoftonline.com/{MICROSOFT_TENANT}/oauth2/v2.0"
+
+
+@router.get("/microsoft/connect")
+async def microsoft_connect(user: dict = Depends(get_current_user)):
+    if not _microsoft_ready():
+        raise HTTPException(
+            status_code=400,
+            detail="Outlook isn't wired on this server yet. Ask the person who set up Heirloom to add Microsoft. We never ask for your Outlook password.",
+        )
+    state_token = secrets.token_urlsafe(24)
+    await db.oauth_states.insert_one({
+        "state": state_token,
+        "user_id": user["user_id"],
+        "provider": "microsoft",
+        "created_at": _now_iso(),
+    })
+    params = {
+        "client_id": MICROSOFT_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": MICROSOFT_REDIRECT_URI,
+        "response_mode": "query",
+        "scope": MICROSOFT_SCOPES,
+        "state": state_token,
+        "prompt": "consent",
+    }
+    return {"authorize_url": _microsoft_auth_base() + "/authorize?" + urlencode(params)}
+
+
+@router.get("/microsoft/callback")
+async def microsoft_callback(
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+    error_description: str | None = Query(None),
+):
+    redirect_back = f"{PUBLIC_FRONTEND}/settings?microsoft="
+    if error:
+        return RedirectResponse(redirect_back + f"error:{error}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(redirect_back + "error:missing_code", status_code=302)
+    state_row = await db.oauth_states.find_one_and_delete({"state": state})
+    if not state_row:
+        return RedirectResponse(redirect_back + "error:invalid_state", status_code=302)
+    uid = state_row["user_id"]
+    tok = requests.post(
+        _microsoft_auth_base() + "/token",
+        data={
+            "client_id": MICROSOFT_CLIENT_ID,
+            "client_secret": MICROSOFT_CLIENT_SECRET,
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": MICROSOFT_REDIRECT_URI,
+            "scope": MICROSOFT_SCOPES,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return RedirectResponse(redirect_back + f"error:token_{tok.status_code}", status_code=302)
+    tk = tok.json()
+    access = tk.get("access_token")
+    if not access:
+        return RedirectResponse(redirect_back + "error:no_token", status_code=302)
+    refresh = tk.get("refresh_token") or ""
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=int(tk.get("expires_in", 3600)) - 60)).isoformat()
+    me = requests.get(
+        "https://graph.microsoft.com/v1.0/me",
+        headers={"Authorization": f"Bearer {access}"},
+        timeout=10,
+    ).json()
+    profile = {
+        "id": me.get("id"),
+        "display_name": me.get("displayName") or me.get("userPrincipalName"),
+        "email": me.get("mail") or me.get("userPrincipalName"),
+        "image": "",
+    }
+    await _store_connection(
+        uid, "microsoft", access, refresh, expires_at, MICROSOFT_SCOPES, profile, keep_refresh=True,
+    )
+    await _after_mail_connected(uid, "Outlook", profile.get("email") or "")
+    return RedirectResponse(redirect_back + "connected", status_code=302)
+
+
+async def _store_connection(
+    user_id: str,
+    provider: str,
+    access: str,
+    refresh: str,
+    expires_at: str,
+    scope: str,
+    profile: dict,
+    *,
+    keep_refresh: bool,
+) -> None:
+    patch = {
+        "user_id": user_id,
+        "provider": provider,
+        "access_token": access,
+        "expires_at": expires_at,
+        "scope": scope,
+        "profile": profile,
+        "connected_at": _now_iso(),
+        "last_refreshed_at": _now_iso(),
+    }
+    if refresh or not keep_refresh:
+        patch["refresh_token"] = refresh
+    elif keep_refresh:
+        # Google only sends refresh_token the first time — don't blank an existing one.
+        existing = await db.oauth_connections.find_one(
+            {"user_id": user_id, "provider": provider}, {"_id": 0, "refresh_token": 1}
+        )
+        if existing and existing.get("refresh_token") and not refresh:
+            pass
+        else:
+            patch["refresh_token"] = refresh
+    await db.oauth_connections.update_one(
+        {"user_id": user_id, "provider": provider},
+        {"$set": patch},
+        upsert=True,
+    )
+
+
+async def _after_mail_connected(user_id: str, label: str, email: str) -> None:
+    try:
+        import abilities as ab
+        for aid in ("email", "calendar", "business"):
+            perms = [p["id"] for p in ab.ABILITY_BY_ID[aid]["permissions"]]
+            await ab.set_state(user_id, aid, True, perms)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[oauth] enable email/calendar ability failed: {exc}")
+    try:
+        import uuid
+        addr = email or "your inbox"
+        await db.entries.insert_one({
+            "entry_id": f"ent_{uuid.uuid4().hex[:12]}",
+            "user_id": user_id,
+            "type": "memory",
+            "title": f"{label} connected",
+            "content": (
+                f"I connected {label} as {addr}. My twin may read recent mail, my calendar, "
+                "Google Docs or Sheets, YouTube, and Search Console, "
+                "and may send mail, add a date, or create a file only after I say yes. "
+                "It never stored my password — I signed in on the provider's own page."
+            ),
+            "tags": ["email", label.lower(), "personality"],
+            "source": label.lower(),
+            "created_at": _now_iso(),
+            "updated_at": _now_iso(),
+        })
+    except Exception as exc:  # noqa: BLE001
+        print(f"[oauth] mail seed failed: {exc}")
+
+
+async def public_mail_status(user_id: str) -> dict:
+    """Safe status for the UI — no tokens."""
+    for provider, label in (("google", "Gmail"), ("microsoft", "Outlook")):
+        row = await db.oauth_connections.find_one(
+            {"user_id": user_id, "provider": provider},
+            {"_id": 0, "profile": 1, "connected_at": 1, "scope": 1},
+        )
+        if row:
+            from services.google_insights import scope_has_search_console, scope_has_youtube
+            from services.google_workspace import scope_has_docs, scope_has_sheets
+            profile = row.get("profile") or {}
+            scope = row.get("scope") or ""
+            google = provider == "google"
+            return {
+                "connected": True,
+                "provider": provider,
+                "label": label,
+                "email": profile.get("email") or "",
+                "display_name": profile.get("display_name") or "",
+                "connected_at": row.get("connected_at") or "",
+                "calendar": "calendar" in scope.lower(),
+                "docs": scope_has_docs(scope) if google else False,
+                "sheets": scope_has_sheets(scope) if google else False,
+                "youtube": scope_has_youtube(scope) if google else False,
+                "search_console": scope_has_search_console(scope) if google else False,
+            }
+    return {
+        "connected": False,
+        "provider": "",
+        "label": "",
+        "email": "",
+        "display_name": "",
+        "connected_at": "",
+        "google_ready": _google_ready(),
+        "microsoft_ready": _microsoft_ready(),
+        "docs": False,
+        "sheets": False,
+        "youtube": False,
+        "search_console": False,
+        "calendar": False,
+    }
+
+
+# ─────────────────────────── X (Twitter) ───────────────────────────
+
+
+def _twitter_ready() -> bool:
+    return bool(TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET and TWITTER_REDIRECT_URI.startswith("http"))
+
+
+def _pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(48)
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return verifier, challenge
+
+
+def _twitter_basic() -> str:
+    raw = f"{TWITTER_CLIENT_ID}:{TWITTER_CLIENT_SECRET}".encode("ascii")
+    return base64.b64encode(raw).decode("ascii")
+
+
+@router.get("/twitter/connect")
+async def twitter_connect(user: dict = Depends(get_current_user)):
+    if not _twitter_ready():
+        raise HTTPException(
+            status_code=400,
+            detail="X isn't wired on this server yet. Ask the person who set up Heirloom. We never ask for your X password.",
+        )
+    state_token = secrets.token_urlsafe(24)
+    verifier, challenge = _pkce_pair()
+    await db.oauth_states.insert_one({
+        "state": state_token,
+        "user_id": user["user_id"],
+        "provider": "twitter",
+        "code_verifier": verifier,
+        "created_at": _now_iso(),
+    })
+    params = {
+        "response_type": "code",
+        "client_id": TWITTER_CLIENT_ID,
+        "redirect_uri": TWITTER_REDIRECT_URI,
+        "scope": TWITTER_SCOPES,
+        "state": state_token,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+    }
+    return {"authorize_url": "https://twitter.com/i/oauth2/authorize?" + urlencode(params)}
+
+
+@router.get("/twitter/callback")
+async def twitter_callback(
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+):
+    redirect_back = f"{PUBLIC_FRONTEND}/settings?twitter="
+    if error:
+        return RedirectResponse(redirect_back + f"error:{error}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(redirect_back + "error:missing_code", status_code=302)
+    state_row = await db.oauth_states.find_one_and_delete({"state": state})
+    if not state_row or not state_row.get("code_verifier"):
+        return RedirectResponse(redirect_back + "error:invalid_state", status_code=302)
+    uid = state_row["user_id"]
+    tok = requests.post(
+        "https://api.twitter.com/2/oauth2/token",
+        headers={
+            "Authorization": f"Basic {_twitter_basic()}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": TWITTER_REDIRECT_URI,
+            "code_verifier": state_row["code_verifier"],
+            "client_id": TWITTER_CLIENT_ID,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return RedirectResponse(redirect_back + f"error:token_{tok.status_code}", status_code=302)
+    tk = tok.json()
+    access = tk.get("access_token")
+    if not access:
+        return RedirectResponse(redirect_back + "error:no_token", status_code=302)
+    refresh = tk.get("refresh_token") or ""
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=int(tk.get("expires_in", 7200)) - 60)).isoformat()
+    me = requests.get(
+        "https://api.twitter.com/2/users/me",
+        headers={"Authorization": f"Bearer {access}"},
+        timeout=10,
+    ).json()
+    data = (me or {}).get("data") if isinstance(me, dict) else {}
+    profile = {
+        "id": (data or {}).get("id"),
+        "display_name": (data or {}).get("name") or (data or {}).get("username"),
+        "username": (data or {}).get("username"),
+    }
+    await _store_connection(
+        uid, "twitter", access, refresh, expires_at, tk.get("scope") or TWITTER_SCOPES, profile, keep_refresh=True,
+    )
+    await _after_social_connected(uid, "X", profile.get("display_name") or "")
+    return RedirectResponse(redirect_back + "connected", status_code=302)
+
+
+# ─────────────────────────── LinkedIn ───────────────────────────
+
+
+def _linkedin_ready() -> bool:
+    return bool(LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET and LINKEDIN_REDIRECT_URI.startswith("http"))
+
+
+@router.get("/linkedin/connect")
+async def linkedin_connect(user: dict = Depends(get_current_user)):
+    if not _linkedin_ready():
+        raise HTTPException(
+            status_code=400,
+            detail="LinkedIn isn't wired on this server yet. Ask the person who set up Heirloom. We never ask for your LinkedIn password.",
+        )
+    state_token = secrets.token_urlsafe(24)
+    await db.oauth_states.insert_one({
+        "state": state_token,
+        "user_id": user["user_id"],
+        "provider": "linkedin",
+        "created_at": _now_iso(),
+    })
+    params = {
+        "response_type": "code",
+        "client_id": LINKEDIN_CLIENT_ID,
+        "redirect_uri": LINKEDIN_REDIRECT_URI,
+        "scope": LINKEDIN_SCOPES,
+        "state": state_token,
+    }
+    return {"authorize_url": "https://www.linkedin.com/oauth/v2/authorization?" + urlencode(params)}
+
+
+@router.get("/linkedin/callback")
+async def linkedin_callback(
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+):
+    redirect_back = f"{PUBLIC_FRONTEND}/settings?linkedin="
+    if error:
+        return RedirectResponse(redirect_back + f"error:{error}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(redirect_back + "error:missing_code", status_code=302)
+    state_row = await db.oauth_states.find_one_and_delete({"state": state})
+    if not state_row:
+        return RedirectResponse(redirect_back + "error:invalid_state", status_code=302)
+    uid = state_row["user_id"]
+    tok = requests.post(
+        "https://www.linkedin.com/oauth/v2/accessToken",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": LINKEDIN_REDIRECT_URI,
+            "client_id": LINKEDIN_CLIENT_ID,
+            "client_secret": LINKEDIN_CLIENT_SECRET,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return RedirectResponse(redirect_back + f"error:token_{tok.status_code}", status_code=302)
+    tk = tok.json()
+    access = tk.get("access_token")
+    if not access:
+        return RedirectResponse(redirect_back + "error:no_token", status_code=302)
+    refresh = tk.get("refresh_token") or ""
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=int(tk.get("expires_in", 5184000)) - 60)).isoformat()
+    me = requests.get(
+        "https://api.linkedin.com/v2/userinfo",
+        headers={"Authorization": f"Bearer {access}"},
+        timeout=10,
+    ).json()
+    sub = (me or {}).get("sub") or ""
+    profile = {
+        "id": sub,
+        "display_name": (me or {}).get("name") or (me or {}).get("given_name"),
+        "email": (me or {}).get("email"),
+        "urn": f"urn:li:person:{sub}" if sub else "",
+    }
+    await _store_connection(
+        uid, "linkedin", access, refresh, expires_at, LINKEDIN_SCOPES, profile, keep_refresh=True,
+    )
+    await _after_social_connected(uid, "LinkedIn", profile.get("display_name") or "")
+    return RedirectResponse(redirect_back + "connected", status_code=302)
+
+
+async def _after_social_connected(user_id: str, label: str, name: str) -> None:
+    try:
+        import abilities as ab
+        perms = [p["id"] for p in ab.ABILITY_BY_ID["business"]["permissions"]]
+        await ab.set_state(user_id, "business", True, perms)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[oauth] enable business ability failed: {exc}")
+    try:
+        import uuid
+        await db.entries.insert_one({
+            "entry_id": f"ent_{uuid.uuid4().hex[:12]}",
+            "user_id": user_id,
+            "type": "memory",
+            "title": f"{label} connected",
+            "content": (
+                f"I connected {label}"
+                + (f" as {name}" if name else "")
+                + ". My twin may draft posts and publish only after I say yes. "
+                "It never stored my password — I signed in on their page."
+            ),
+            "tags": ["social", label.lower(), "personality"],
+            "source": label.lower(),
+            "created_at": _now_iso(),
+            "updated_at": _now_iso(),
+        })
+    except Exception as exc:  # noqa: BLE001
+        print(f"[oauth] social seed failed: {exc}")
+
+
 # ─────────────────────────── Refresh helper (used by music.py later) ──────
 
 
@@ -484,3 +1087,362 @@ async def get_fresh_spotify_token(user_id: str) -> str | None:
         }},
     )
     return new_access
+
+
+async def get_fresh_google_token(user_id: str) -> str | None:
+    """Valid Gmail access token. Never returns the refresh token."""
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "google"}, {"_id": 0}
+    )
+    if not row:
+        return None
+    try:
+        exp = datetime.fromisoformat(row["expires_at"])
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) < exp:
+            return row["access_token"]
+    except Exception:
+        pass
+    if not row.get("refresh_token") or not GOOGLE_CLIENT_ID:
+        return None
+    tok = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": row["refresh_token"],
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return None
+    tk = tok.json()
+    new_access = tk["access_token"]
+    patch = {
+        "access_token": new_access,
+        "last_refreshed_at": _now_iso(),
+    }
+    if tk.get("expires_in"):
+        patch["expires_at"] = (
+            datetime.now(timezone.utc) + timedelta(seconds=int(tk["expires_in"]) - 60)
+        ).isoformat()
+    if tk.get("refresh_token"):
+        patch["refresh_token"] = tk["refresh_token"]
+    await db.oauth_connections.update_one(
+        {"user_id": user_id, "provider": "google"},
+        {"$set": patch},
+    )
+    return new_access
+
+
+async def get_fresh_microsoft_token(user_id: str) -> str | None:
+    """Valid Outlook access token. Never returns the refresh token."""
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "microsoft"}, {"_id": 0}
+    )
+    if not row:
+        return None
+    try:
+        exp = datetime.fromisoformat(row["expires_at"])
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) < exp:
+            return row["access_token"]
+    except Exception:
+        pass
+    if not row.get("refresh_token") or not MICROSOFT_CLIENT_ID:
+        return None
+    tok = requests.post(
+        f"{_microsoft_auth_base()}/token",
+        data={
+            "client_id": MICROSOFT_CLIENT_ID,
+            "client_secret": MICROSOFT_CLIENT_SECRET,
+            "grant_type": "refresh_token",
+            "refresh_token": row["refresh_token"],
+            "scope": MICROSOFT_SCOPES,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return None
+    tk = tok.json()
+    new_access = tk["access_token"]
+    patch = {
+        "access_token": new_access,
+        "last_refreshed_at": _now_iso(),
+    }
+    if tk.get("expires_in"):
+        patch["expires_at"] = (
+            datetime.now(timezone.utc) + timedelta(seconds=int(tk["expires_in"]) - 60)
+        ).isoformat()
+    if tk.get("refresh_token"):
+        patch["refresh_token"] = tk["refresh_token"]
+    await db.oauth_connections.update_one(
+        {"user_id": user_id, "provider": "microsoft"},
+        {"$set": patch},
+    )
+    return new_access
+
+
+async def get_fresh_mail_token(user_id: str) -> tuple[str, str, dict] | None:
+    """Prefer Gmail, then Outlook. Returns (provider, access_token, profile) or None."""
+    google_row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "google"}, {"_id": 0, "profile": 1}
+    )
+    if google_row:
+        token = await get_fresh_google_token(user_id)
+        if not token:
+            return None
+        return ("google", token, google_row.get("profile") or {})
+    ms_row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "microsoft"}, {"_id": 0, "profile": 1}
+    )
+    if ms_row:
+        token = await get_fresh_microsoft_token(user_id)
+        if not token:
+            return None
+        return ("microsoft", token, ms_row.get("profile") or {})
+    return None
+
+
+async def get_fresh_twitter_token(user_id: str) -> str | None:
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "twitter"}, {"_id": 0}
+    )
+    if not row:
+        return None
+    try:
+        exp = datetime.fromisoformat(row["expires_at"])
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) < exp:
+            return row["access_token"]
+    except Exception:
+        pass
+    if not row.get("refresh_token") or not TWITTER_CLIENT_ID:
+        return None
+    tok = requests.post(
+        "https://api.twitter.com/2/oauth2/token",
+        headers={
+            "Authorization": f"Basic {_twitter_basic()}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": row["refresh_token"],
+            "client_id": TWITTER_CLIENT_ID,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return None
+    tk = tok.json()
+    patch = {
+        "access_token": tk["access_token"],
+        "last_refreshed_at": _now_iso(),
+    }
+    if tk.get("refresh_token"):
+        patch["refresh_token"] = tk["refresh_token"]
+    if tk.get("expires_in"):
+        patch["expires_at"] = (
+            datetime.now(timezone.utc) + timedelta(seconds=int(tk["expires_in"]) - 60)
+        ).isoformat()
+    await db.oauth_connections.update_one(
+        {"user_id": user_id, "provider": "twitter"},
+        {"$set": patch},
+    )
+    return tk["access_token"]
+
+
+async def get_fresh_linkedin_token(user_id: str) -> tuple[str, dict] | None:
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": "linkedin"}, {"_id": 0}
+    )
+    if not row:
+        return None
+    try:
+        exp = datetime.fromisoformat(row["expires_at"])
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) < exp:
+            return row["access_token"], row.get("profile") or {}
+    except Exception:
+        pass
+    if not row.get("refresh_token") or not LINKEDIN_CLIENT_ID:
+        if row.get("access_token"):
+            return row["access_token"], row.get("profile") or {}
+        return None
+    tok = requests.post(
+        "https://www.linkedin.com/oauth/v2/accessToken",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": row["refresh_token"],
+            "client_id": LINKEDIN_CLIENT_ID,
+            "client_secret": LINKEDIN_CLIENT_SECRET,
+        },
+        timeout=15,
+    )
+    if tok.status_code != 200:
+        return None
+    tk = tok.json()
+    patch = {
+        "access_token": tk["access_token"],
+        "last_refreshed_at": _now_iso(),
+    }
+    if tk.get("expires_in"):
+        patch["expires_at"] = (
+            datetime.now(timezone.utc) + timedelta(seconds=int(tk["expires_in"]) - 60)
+        ).isoformat()
+    if tk.get("refresh_token"):
+        patch["refresh_token"] = tk["refresh_token"]
+    await db.oauth_connections.update_one(
+        {"user_id": user_id, "provider": "linkedin"},
+        {"$set": patch},
+    )
+    return tk["access_token"], row.get("profile") or {}
+
+
+async def public_social_status(user_id: str) -> dict:
+    """Safe status for the UI — no tokens."""
+    from services.oauth_catalog import EXTRA_OAUTH, extra_ready
+    out = {
+        "twitter": False,
+        "linkedin": False,
+        "twitter_ready": _twitter_ready(),
+        "linkedin_ready": _linkedin_ready(),
+        "handles": {},
+        "ready": {
+            "twitter": _twitter_ready(),
+            "linkedin": _linkedin_ready(),
+        },
+    }
+    for provider in list(EXTRA_OAUTH):
+        out[provider] = False
+        out["ready"][provider] = extra_ready(provider)
+    for provider in ("twitter", "linkedin", *EXTRA_OAUTH):
+        row = await db.oauth_connections.find_one(
+            {"user_id": user_id, "provider": provider},
+            {"_id": 0, "profile": 1},
+        )
+        if row:
+            out[provider] = True
+            profile = row.get("profile") or {}
+            out["handles"][provider] = profile.get("display_name") or profile.get("username") or ""
+    return out
+
+
+async def get_fresh_extra(user_id: str, provider: str) -> tuple[str, dict] | None:
+    """Valid extra-app access token + public profile. Never returns the refresh token."""
+    from services.oauth_catalog import EXTRA_OAUTH, pick_access_token, refresh_extra_token
+    if provider not in EXTRA_OAUTH:
+        return None
+    row = await db.oauth_connections.find_one(
+        {"user_id": user_id, "provider": provider}, {"_id": 0}
+    )
+    if not row:
+        return None
+    profile = row.get("profile") or {}
+    try:
+        exp = datetime.fromisoformat(row["expires_at"])
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) < exp and row.get("access_token"):
+            return row["access_token"], profile
+    except Exception:
+        if row.get("access_token"):
+            return row["access_token"], profile
+    if not row.get("refresh_token"):
+        if row.get("access_token"):
+            return row["access_token"], profile
+        return None
+    status, tk = refresh_extra_token(provider, row["refresh_token"])
+    access = pick_access_token(provider, tk) if isinstance(tk, dict) else ""
+    if status >= 400 or not access:
+        if row.get("access_token"):
+            return row["access_token"], profile
+        return None
+    patch = {
+        "access_token": access,
+        "last_refreshed_at": _now_iso(),
+    }
+    if tk.get("refresh_token"):
+        patch["refresh_token"] = tk["refresh_token"]
+    if tk.get("expires_in"):
+        patch["expires_at"] = (
+            datetime.now(timezone.utc) + timedelta(seconds=int(tk["expires_in"]) - 60)
+        ).isoformat()
+    await db.oauth_connections.update_one(
+        {"user_id": user_id, "provider": provider},
+        {"$set": patch},
+    )
+    return access, profile
+
+
+# ─────────────────────────── Extra apps (Discord, Reddit, …) ───────────
+
+
+@router.get("/{provider}/connect")
+async def extra_connect(provider: str, user: dict = Depends(get_current_user)):
+    from services.oauth_catalog import EXTRA_OAUTH, build_authorize_url, extra_ready
+    spec = EXTRA_OAUTH.get(provider)
+    if not spec:
+        raise HTTPException(status_code=404, detail="Unknown app")
+    if not extra_ready(provider):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{spec['label']} isn't wired on this server yet. "
+                "Ask the person who set up Heirloom. We never ask for your password."
+            ),
+        )
+    state_token = secrets.token_urlsafe(24)
+    await db.oauth_states.insert_one({
+        "state": state_token,
+        "user_id": user["user_id"],
+        "provider": provider,
+        "created_at": _now_iso(),
+    })
+    return {"authorize_url": build_authorize_url(provider, state_token)}
+
+
+@router.get("/{provider}/callback")
+async def extra_callback(
+    provider: str,
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+):
+    from services.oauth_catalog import (
+        EXTRA_OAUTH,
+        exchange_extra_code,
+        fetch_extra_profile,
+        pick_access_token,
+    )
+    spec = EXTRA_OAUTH.get(provider)
+    redirect_back = f"{PUBLIC_FRONTEND}/settings?{provider}="
+    if not spec:
+        return RedirectResponse(f"{PUBLIC_FRONTEND}/settings?oauth=error:unknown", status_code=302)
+    if error:
+        return RedirectResponse(redirect_back + f"error:{error}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(redirect_back + "error:missing_code", status_code=302)
+    state_row = await db.oauth_states.find_one_and_delete({"state": state, "provider": provider})
+    if not state_row:
+        return RedirectResponse(redirect_back + "error:invalid_state", status_code=302)
+    uid = state_row["user_id"]
+    status, tk = exchange_extra_code(provider, code)
+    access = pick_access_token(provider, tk)
+    if status >= 400 or not access or tk.get("ok") is False:
+        return RedirectResponse(redirect_back + f"error:token_{status}", status_code=302)
+    refresh = str(tk.get("refresh_token") or "")
+    expires_in = int(tk.get("expires_in") or 0) or 30 * 24 * 3600
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in - 60)).isoformat()
+    profile = fetch_extra_profile(provider, access, tk)
+    await _store_connection(
+        uid, provider, access, refresh, expires_at, spec.get("scopes") or spec.get("user_scope") or "", profile, keep_refresh=True,
+    )
+    await _after_social_connected(uid, spec["label"], profile.get("display_name") or "")
+    return RedirectResponse(redirect_back + "connected", status_code=302)
+

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Bookmark, Loader2, Sparkles, ArrowRight } from "lucide-react";
 import { api, streamSSE } from "../lib/api";
+import FunctionModelPicker, { modelOverride } from "@/components/FunctionModelPicker";
 
 export default function Interviewer() {
   const [searchParams] = useSearchParams();
@@ -11,6 +12,7 @@ export default function Interviewer() {
   const [streaming, setStreaming] = useState("");
   const [input, setInput] = useState("");
   const [savedIds, setSavedIds] = useState(new Set());
+  const [modelChoice, setModelChoice] = useState(null);
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -45,7 +47,7 @@ export default function Interviewer() {
     let fullText = "";
     await streamSSE(
       "/interviewer/message",
-      { conversation_id: conversation.conversation_id, message: text },
+      { conversation_id: conversation.conversation_id, message: text, ...modelOverride(modelChoice) },
       (chunk) => {
         fullText += chunk;
         setStreaming(fullText);
@@ -89,7 +91,10 @@ export default function Interviewer() {
   return (
     <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl" data-testid="interviewer-root">
       <header className="mb-10">
-        <div className="overline mb-3">the interviewer</div>
+        <div className="overline mb-3 flex items-center justify-between gap-3 flex-wrap">
+          <span>the interviewer</span>
+          <FunctionModelPicker functionId="interview" compact onChange={setModelChoice} />
+        </div>
         <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">A patient question, then another.</h1>
         <p className="mt-3 text-base max-w-xl" style={{ color: "var(--text-secondary)" }}>
           Answer in your own time. Each meaningful turn can be saved into your archive.

@@ -8,16 +8,48 @@ time, so the user double-clicks Heirloom.bat and is immediately signed in.
 """
 from __future__ import annotations
 
+import os
 import sys
+import traceback
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from . import config
 from .maintenance import Maintenance
 from .ui.main_window import MainWindow, TrayProxy
 from .ui.splash import Splash
+
+
+def _setup_log_path() -> Path:
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+        folder = Path(base) / "Heirloom"
+    else:
+        folder = Path.home() / ".heirloom"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / "setup.log"
+
+
+def _append_setup_log(text: str) -> None:
+    try:
+        path = _setup_log_path()
+        with path.open("a", encoding="utf-8") as f:
+            f.write(f"\n{datetime.now().isoformat()}\n{text}\n")
+    except Exception:
+        pass
+
+
+def _show_start_error(message: str) -> None:
+    _append_setup_log(message)
+    try:
+        if QApplication.instance() is None:
+            QApplication(sys.argv)
+        QMessageBox.critical(None, "Heirloom", message)
+    except Exception:
+        print(message, file=sys.stderr)
 
 
 def _schedule_midnight_maintenance(window: MainWindow) -> None:
@@ -44,19 +76,18 @@ def _schedule_midnight_maintenance(window: MainWindow) -> None:
     _arm()
 
 
-def main() -> int:
+def _run() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Heirloom")
     app.setOrganizationName("Unbound Infotech")
     app.setQuitOnLastWindowClosed(False)  # tray keeps us alive
 
-    if not config.DEVICE_TOKEN:
-        QMessageBox.critical(
-            None,
-            "Heirloom",
-            "No device token configured. Re-download Heirloom from your account.",
+    unsigned = not config.is_paired()
+    if unsigned:
+        _append_setup_log(
+            "This copy isn’t signed in. Tap Sign in with Google in the big window. "
+            "Unbound Keyboard will still catch spelling here without signing in."
         )
-        return 1
 
     window = MainWindow()
     tray = TrayProxy(window)  # noqa: F841 — kept alive by app
@@ -64,12 +95,34 @@ def main() -> int:
     app.aboutToQuit.connect(window.shutdown)
     _schedule_midnight_maintenance(window)
 
+    def _after_splash() -> None:
+        window.show()
+        try_keyboard = os.environ.get("HEIRLOOM_TRY_KEYBOARD", "").strip() == "1"
+        # Five-step card first. That card signs in with Google, or open_sign_in
+        # later if they skipped and this copy still isn't paired.
+        QTimer.singleShot(200, window.open_first_run)
+        if try_keyboard:
+            QTimer.singleShot(450, window.open_writing_helper)
+
     # Serif boot fade — 800ms, then reveal the main window
     splash = Splash()
-    splash.finished.connect(window.show)
+    splash.finished.connect(_after_splash)
     splash.start()
 
     return app.exec()
+
+
+def main() -> int:
+    try:
+        return _run()
+    except Exception:
+        tb = traceback.format_exc()
+        _append_setup_log(tb)
+        _show_start_error(
+            "Heirloom couldn't start. Download it again from Local PC in your account.\n\n"
+            f"Details: {_setup_log_path()}"
+        )
+        return 1
 
 
 if __name__ == "__main__":

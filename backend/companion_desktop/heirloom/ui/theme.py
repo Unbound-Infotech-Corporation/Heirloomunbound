@@ -139,6 +139,28 @@ THEMES: Dict[str, Dict[str, str]] = {
         "error":         "#bf616a",
         "ok":            "#a3be8c",
     },
+    # 5) Painted playroom — cream wood on a walnut table. Optional toy look.
+    "playroom": {
+        "bg_base":       "#2a1c12",
+        "bg_surface":    "#f4e8c8",
+        "bg_elevated":   "#fff6d8",
+        "bg_glass":      "rgba(244, 232, 200, 0.92)",
+        "bg_glass_high": "rgba(255, 246, 216, 0.94)",
+        "text_primary":  "#3a2418",
+        "text_secondary":"#5c4030",
+        "text_muted":    "#8a6a4a",
+        "text_inverse":  "#fff8e8",
+        "accent":        "#e24a3a",
+        "accent_hover":  "#f05a48",
+        "accent_muted":  "rgba(226, 74, 58, 0.16)",
+        "accent_deep":   "#c9a227",
+        "border":        "#d4b88a",
+        "border_soft":   "rgba(58, 36, 24, 0.14)",
+        "user_bubble":   "#ffe8a0",
+        "twin_bubble":   "#ffd4c8",
+        "error":         "#c0392b",
+        "ok":            "#3d9a4a",
+    },
 }
 
 DEFAULT_THEME = "amber_library"
@@ -365,14 +387,14 @@ QSplitter::handle:vertical {{ height: 1px; }}
 
 /* Chat bubbles — asymmetric tails per the owner's mockup */
 QFrame#bubble_user {{
-    background: {p['user_bubble']};
-    border: none;
+    background: #c45c38;
+    border: 2px solid #3a2418;
     border-radius: 12px;
     border-bottom-right-radius: 2px;
 }}
 QFrame#bubble_assistant {{
-    background: {p['twin_bubble']};
-    border: none;
+    background: #f4e8c8;
+    border: 2px solid #3a2418;
     border-radius: 12px;
     border-bottom-left-radius: 2px;
 }}
@@ -550,12 +572,13 @@ def current_qss() -> str:
 
 
 # Public: the theme names in the order the settings dialog should show them.
-THEME_ORDER = ["amber_library", "slate_pro", "ivory_library", "nordic_mist"]
+THEME_ORDER = ["amber_library", "slate_pro", "ivory_library", "nordic_mist", "playroom"]
 THEME_LABELS: Dict[str, str] = {
     "amber_library":  "Amber Library",
     "slate_pro":      "Slate Pro",
     "ivory_library":  "Ivory Library",
     "nordic_mist":    "Nordic Mist",
+    "playroom":       "Playroom",
 }
 
 

@@ -66,6 +66,7 @@ agenthub/agents/youtube/db
 
 # Archive files and large assets
 **/*.zip
+!try-it/*.zip
 **/*.tar.gz
 **/*.tar
 **/*.tgz
@@ -77,6 +78,13 @@ agenthub/agents/youtube/db
 .cache/
 
 memory/test_credentials.md
+
+# Android keyboard build leftovers
+android/unbound-keyboard/.gradle/
+android/unbound-keyboard/build/
+android/unbound-keyboard/app/build/
+android/unbound-keyboard/local.properties
+android/unbound-keyboard/.idea/
 
 # Mobile development
 android-sdk/frontend/node_modules/.cache/default-development/0.pack

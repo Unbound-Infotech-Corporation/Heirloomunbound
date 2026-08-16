@@ -165,6 +165,35 @@ async def send_magic_link_email(
     )
 
 
+async def send_desktop_sign_in_email(*, to: str, code: str) -> dict:
+    """Sign-in slip for Unbound Keyboard / the Heirloom app. Paste in the app — not a password."""
+    inner = f"""
+<p style="font-family:Georgia,serif;font-size:22px;font-weight:300;line-height:1.35;margin:0 0 14px 0;color:{_TEXT_PRIMARY};">
+  Your sign-in slip
+</p>
+<p style="font-family:Georgia,serif;font-size:17px;line-height:1.55;margin:0 0 20px 0;color:{_TEXT_SECONDARY};">
+  Open Unbound Keyboard on your computer. Paste this slip into the sign-in box. This is a Heirloom note &mdash; not a Google, Microsoft, or Windows password. We never ask for those.
+</p>
+<p style="font-family:'Courier New',monospace;font-size:16px;letter-spacing:0.04em;line-height:1.5;margin:0 0 22px 0;padding:14px 16px;background:{_BG};border:1px solid {_BORDER};color:{_TEXT_PRIMARY};word-break:break-all;">
+  {code}
+</p>
+<p style="font-family:Arial,sans-serif;font-size:13px;line-height:1.55;margin:0;color:#7a6f5e;">
+  It works for about an hour. If it expires, tap Send a sign-in note again.
+</p>
+"""
+    return await _send(
+        to=to,
+        subject="Your Unbound Keyboard sign-in slip",
+        html=_wrap(inner, preheader="Paste this slip into Unbound Keyboard on your computer."),
+        text=(
+            "Open Unbound Keyboard on your computer and paste this sign-in slip:\n\n"
+            f"{code}\n\n"
+            "This is a Heirloom note — not a Google, Microsoft, or Windows password.\n"
+            "It works for about an hour."
+        ),
+    )
+
+
 async def send_heir_release_email(
     *,
     to: str,

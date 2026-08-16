@@ -2,7 +2,6 @@ import axios from "axios";
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowUpRight, ScanLine, ShieldCheck, Smartphone } from "lucide-react";
-import { Link } from "react-router-dom";
 import { usePageMeta } from "../lib/usePageMeta";
 import { isTester } from "../lib/tester";
 
@@ -36,6 +35,11 @@ export default function Buy() {
     return `${link.url}${sep}prefilled_email=${encodeURIComponent(email.trim())}`;
   }, [link, email]);
 
+  const handleGoogle = () => {
+    const redirectUrl = window.location.origin + "/today";
+    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+  };
+
   // Testers never see the paid funnel — send them to free sign-in instead.
   if (tester) {
     return (
@@ -53,14 +57,15 @@ export default function Buy() {
             You're testing Heirloom — every feature is unlocked for free. Just sign in
             to start.
           </p>
-          <Link
-            to="/login"
+          <button
+            type="button"
+            onClick={handleGoogle}
             data-testid="buy-tester-continue"
             className="w-full inline-flex items-center justify-center gap-2 px-6 py-4 rounded-sm text-base font-medium tracking-wide transition-opacity hover:opacity-95"
             style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
           >
-            Continue with Google
-          </Link>
+            Sign in with Google
+          </button>
         </div>
       </div>
     );

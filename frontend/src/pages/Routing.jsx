@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { AlertTriangle, Activity, Check, Copy, DollarSign, Eye, EyeOff, KeyRound, Layers, Loader2, Route as RouteIcon, Save, ShieldCheck, TrendingUp, Trash2, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -358,6 +359,11 @@ export default function Routing() {
         </h1>
         <p className="max-w-2xl text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>
           Send different tasks to different models. Bring your own keys for OpenAI, Anthropic, Gemini, Groq, xAI or DeepSeek — or let the built-in Emergent key handle everything. Costs and monthly budget caps are tracked here.
+          Prefer one-click connect and download? Use{" "}
+          <Link to="/models" className="underline" style={{ color: "var(--accent)" }} data-testid="routing-models-link">
+            Models
+          </Link>
+          .
         </p>
         <div className="flex items-center gap-3 pt-1">
           <div className="text-xs px-3 py-1.5 rounded-full font-mono flex items-center gap-2"
