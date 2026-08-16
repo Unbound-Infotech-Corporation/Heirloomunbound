@@ -47,7 +47,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import api, config
-from ..audio import list_input_devices
+from ..audio import list_input_devices, list_output_devices
 from ..maintenance import Maintenance
 from ..vault import Vault, vault_root
 from . import PALETTE, QSS
@@ -73,21 +73,7 @@ def _label(text: str) -> QLabel:
 
 def list_speaker_names() -> list[str]:
     """Speakers/headphones Qt can actually play through."""
-    names: list[str] = []
-    seen: set[str] = set()
-    try:
-        from PySide6.QtMultimedia import QMediaDevices
-
-        for device in QMediaDevices.audioOutputs():
-            label = (device.description() or "").strip()
-            key = label.lower()
-            if not label or key in seen:
-                continue
-            seen.add(key)
-            names.append(label)
-    except Exception:  # noqa: BLE001
-        return names
-    return names
+    return list_output_devices()
 
 
 def _fill_device_combo(combo: QComboBox, names: list[str], saved: str, usual: str) -> None:

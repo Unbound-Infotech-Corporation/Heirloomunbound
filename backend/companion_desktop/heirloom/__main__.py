@@ -98,8 +98,9 @@ def _run() -> int:
     def _after_splash() -> None:
         window.show()
         try_keyboard = os.environ.get("HEIRLOOM_TRY_KEYBOARD", "").strip() == "1"
-        if unsigned:
-            QTimer.singleShot(200, window.open_sign_in)
+        # Five-step card first. That card signs in with Google, or open_sign_in
+        # later if they skipped and this copy still isn't paired.
+        QTimer.singleShot(200, window.open_first_run)
         if try_keyboard:
             QTimer.singleShot(450, window.open_writing_helper)
 

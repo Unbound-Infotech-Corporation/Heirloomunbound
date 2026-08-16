@@ -117,24 +117,36 @@ def _get_object(path: str) -> tuple[bytes, str]:
 # ---------------- Upload ----------------
 
 
-@router.post("/upload")
-async def upload_avatar(
-    angle: str = Form(...),
-    file: UploadFile = File(...),
-    user: dict = Depends(get_current_user),
-):
-    """Upload one reference image. Angle ∈ front|left|right|three_quarter|full."""
+def _detect_image_content_type(raw: bytes, content_type: str = "") -> str:
+    """Prefer magic bytes so a Windows photo picker can send the wrong MIME."""
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if len(raw) >= 3 and raw[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    ct = (content_type or "").lower().split(";", 1)[0].strip()
+    if ct in ("image/jpg", "image/pjpeg"):
+        return "image/jpeg"
+    return ct
+
+
+async def store_avatar_bytes(
+    user: dict,
+    angle: str,
+    raw: bytes,
+    content_type: str = "",
+) -> dict:
+    """Save a still photo for the talking twin. House page and Windows first-run card."""
     if not is_known_angle(angle):
         raise HTTPException(status_code=400, detail="angle must be front|left|right|three_quarter|full")
     angle = angle.strip().lower()
-
-    raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty upload")
     if len(raw) > MAX_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail=f"Image too big (>{MAX_IMAGE_BYTES//1024//1024} MB)")
-    ct = (file.content_type or "").lower()
-    if not ct.startswith("image/") or ct not in ("image/jpeg", "image/png", "image/webp"):
+    ct = _detect_image_content_type(raw, content_type)
+    if ct not in ("image/jpeg", "image/png", "image/webp"):
         raise HTTPException(status_code=400, detail="Only JPEG, PNG, WEBP accepted")
     ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[ct]
 
@@ -177,12 +189,25 @@ async def upload_avatar(
             {"$set": {"avatar_source_url": public_url, "updated_at": _now_iso()}},
         )
     return {
+        "ok": True,
         "image_id": img_id,
         "angle": angle,
         "serve_url": public_url,
+        "avatar_source_url": public_url if angle == "front" else (user.get("avatar_source_url") or ""),
         "size": doc["size"],
         "active": angle == "front",
     }
+
+
+@router.post("/upload")
+async def upload_avatar(
+    angle: str = Form(...),
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Upload one reference image. Angle ∈ front|left|right|three_quarter|full."""
+    raw = await file.read()
+    return await store_avatar_bytes(user, angle, raw, file.content_type or "")
 
 
 def _public_url_for(doc: dict) -> str:

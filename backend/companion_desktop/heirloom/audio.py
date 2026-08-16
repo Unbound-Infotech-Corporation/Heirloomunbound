@@ -101,6 +101,25 @@ def resolve_input_device(name: Optional[str]) -> Optional[int]:
     return matches[0][1]
 
 
+def list_output_devices() -> List[str]:
+    """Speakers and headphones Qt can play through. Empty if Qt Multimedia is missing."""
+    names: List[str] = []
+    seen = set()
+    try:
+        from PySide6.QtMultimedia import QMediaDevices
+
+        for device in QMediaDevices.audioOutputs():
+            label = (device.description() or "").strip()
+            key = label.lower()
+            if not label or key in seen:
+                continue
+            seen.add(key)
+            names.append(label)
+    except Exception:  # noqa: BLE001
+        return names
+    return names
+
+
 class Recorder(QObject):
     """Holds a single in-progress recording. Emits `level` (0..1) at ~20 Hz
     so the UI can animate a waveform. On stop, emits `wav_bytes` once."""

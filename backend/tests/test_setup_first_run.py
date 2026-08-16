@@ -152,5 +152,63 @@ def test_baked_desktop_files_include_both_starters():
     assert "heirloom/writing_local.py" in DESKTOP_FILES
     assert "heirloom/google_signin.py" in DESKTOP_FILES
     assert "heirloom/ui/signin_dialog.py" in DESKTOP_FILES
+    assert "heirloom/ui/setup_wizard.py" in DESKTOP_FILES
     assert '"__BACKEND_URL__"' in cfg
     assert "if not BACKEND_URL or BACKEND_URL.startswith" in cfg
+
+
+def test_first_run_wizard_is_five_steps_and_can_hide_tips():
+    import ast
+
+    wizard = (DESKTOP / "heirloom" / "ui" / "setup_wizard.py").read_text(encoding="utf-8")
+    window = (DESKTOP / "heirloom" / "ui" / "main_window.py").read_text(encoding="utf-8")
+    boot = (DESKTOP / "heirloom" / "__main__.py").read_text(encoding="utf-8")
+    cfg = (DESKTOP / "heirloom" / "config.py").read_text(encoding="utf-8")
+    desktop = (ROOT / "routers" / "desktop.py").read_text(encoding="utf-8")
+    studio = (ROOT / "routers" / "avatar_studio.py").read_text(encoding="utf-8")
+    audio = (DESKTOP / "heirloom" / "audio.py").read_text(encoding="utf-8")
+
+    assert "Step 1 of 5" in wizard
+    assert "Sign in with Google" in wizard
+    assert "Your face" in wizard
+    assert "talking picture" in wizard
+    assert "Your voice" in wizard
+    assert "Open the page that clones your voice" in wizard
+    assert "Hear the twin" in wizard
+    assert "How you'll use it" in wizard
+    assert "Hold to speak" in wizard
+    assert "Look at my screen" in wizard
+    assert "Unbound Keyboard" in wizard
+    assert "Talk in a small window" in wizard
+    assert "I'll look around myself" in wizard
+    assert "Show a tips card when Heirloom opens" in wizard
+    assert "Show tips when Heirloom opens" in wizard
+    assert "Don't show this next time" in wizard
+    assert "Hold to test your microphone" in wizard
+    assert "We do not upload that" in wizard or "stayed on this computer" in wizard
+    assert "/desktop/avatar-photo" in wizard
+    ast.parse(wizard)
+
+    assert '"show_setup_wizard"' in cfg
+    assert '"show_tips_on_start"' in cfg
+    assert "def list_output_devices" in audio
+
+    assert "def open_first_run" in window
+    assert "def open_setup_wizard" in window
+    assert "def open_tips" in window
+    assert "Show first-run setup" in window
+    assert "Show tips" in window
+    assert "Download again" in window
+    assert "open_first_run" in boot
+    assert "HEIRLOOM_TRY_KEYBOARD" in boot
+    assert "window.open_sign_in" not in boot
+
+    assert '@router.post("/avatar-photo")' in desktop
+    assert "store_avatar_bytes" in desktop
+    assert "async def store_avatar_bytes" in studio
+    assert '"avatar_source_url": public_url' in studio
+    assert "ElevenLabs" not in wizard
+    assert "D-ID" not in wizard
+    assert "Pinokio" not in wizard
+    assert "password" in wizard.lower()
+    assert "Google password" in wizard or "never sees that password" in wizard

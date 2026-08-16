@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from deps import db
@@ -337,6 +337,18 @@ async def desktop_speak(payload: SpeakReq, ctx: dict = Depends(get_device_user))
             "X-Voice-Id": voice_id,
         },
     )
+
+
+@router.post("/avatar-photo")
+async def desktop_avatar_photo(
+    file: UploadFile = File(...),
+    ctx: dict = Depends(get_device_user),
+):
+    """Front-facing still for the talking twin. Device token, not a house cookie."""
+    from routers.avatar_studio import store_avatar_bytes
+
+    raw = await file.read()
+    return await store_avatar_bytes(ctx["user"], "front", raw, file.content_type or "")
 
 
 @router.get("/voice/status")

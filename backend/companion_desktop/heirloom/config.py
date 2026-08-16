@@ -72,6 +72,9 @@ _DEFAULTS: Dict[str, Any] = {
     # when you plug in headphones.
     "mic_device": "",
     "speaker_device": "",
+    # First-run cream cards. Both default on; the user can turn them off.
+    "show_setup_wizard": True,
+    "show_tips_on_start": True,
 }
 
 

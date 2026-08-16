@@ -11,13 +11,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QIcon, QKeySequence, QShortcut
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
-    QLabel,
     QMainWindow,
-    QPushButton,
     QSizeGrip,
     QSplitter,
     QVBoxLayout,
@@ -35,6 +33,7 @@ from .conversation import ConversationPanel
 from .mica import apply as apply_mica
 from .panels import QuickCapture, RecentMemories
 from .settings_dialog import SettingsDialog
+from .setup_wizard import SetupWizard, TipsWindow
 from .talk_window import MiniTalkWindow
 from .signin_dialog import SignInDialog
 from .writing_window import WritingWindow
@@ -53,6 +52,8 @@ class MainWindow(QMainWindow):
         self._talk: Optional[MiniTalkWindow] = None
         self._writing: Optional[WritingWindow] = None
         self._signin = None
+        self._wizard = None
+        self._tips = None
         self._cmd_poller = None
 
         self.setWindowTitle("Heirloom")
@@ -68,8 +69,6 @@ class MainWindow(QMainWindow):
         self._wire_signals()
         self._load_initial_data()
         self._restore_geometry()
-        if not config.is_paired():
-            QTimer.singleShot(0, self.open_sign_in)
 
     # ----- UI -----
     def _build_ui(self) -> None:
@@ -246,7 +245,6 @@ class MainWindow(QMainWindow):
     # ----- data load -----
     def _load_initial_data(self) -> None:
         if not config.is_paired():
-            self.open_sign_in()
             return
         api.get_async("/desktop/me", on_ok=self._on_me, on_err=self._on_me_err)
         self.conversation.load_history()
@@ -275,6 +273,8 @@ class MainWindow(QMainWindow):
     def _on_me_err(self, msg: str) -> None:
         self.titlebar.set_user_name("this copy isn’t signed in")
         self._update_status("Sign in with Google — or Download again from Local PC")
+        if self._wizard is not None and self._wizard.isVisible():
+            return
         self.open_sign_in()
 
     # ----- twin → avatar -----
@@ -428,6 +428,18 @@ class MainWindow(QMainWindow):
                 action=self.open_mini_talk,
             ),
             Command(
+                id="setup",
+                label="Show first-run setup",
+                hint="Five steps: Google, your face, your voice, speakers, how to talk",
+                action=self.open_setup_wizard,
+            ),
+            Command(
+                id="tips",
+                label="Show tips",
+                hint="A short card of how to talk to your twin",
+                action=self.open_tips,
+            ),
+            Command(
                 id="signin",
                 label="Sign in with Google",
                 hint="Opens Google in your browser. No Google or Windows password here.",
@@ -487,9 +499,52 @@ class MainWindow(QMainWindow):
             ),
         ]
 
+    def open_first_run(self) -> None:
+        """After the splash: wizard once, else sign-in if needed, else tips."""
+        settings = config.load_settings()
+        if bool(settings.get("show_setup_wizard", True)):
+            self.open_setup_wizard()
+            return
+        if not config.is_paired():
+            self.open_sign_in()
+            return
+        if bool(settings.get("show_tips_on_start", True)):
+            self.open_tips()
+
+    def open_setup_wizard(self) -> None:
+        """Five-step cream card. First launch, or any time from the menu."""
+        if self._signin is not None:
+            self._signin.hide()
+        if self._wizard is None:
+            self._wizard = SetupWizard()
+            self._wizard.signed_in.connect(self._on_desktop_signed_in)
+            self._wizard.sound_changed.connect(self._apply_sound_settings)
+            self._wizard.setup_done.connect(self._on_setup_done)
+            self._wizard.face_ready.connect(self.avatar.set_portrait_url)
+        self._place_card(self._wizard)
+        self._wizard.show()
+        self._wizard.raise_()
+        self._wizard.activateWindow()
+
+    def open_tips(self) -> None:
+        """Short how-to. Uncheck it, or Don't show this next time, and it stays gone."""
+        if self._tips is None:
+            self._tips = TipsWindow()
+        self._place_card(self._tips)
+        self._tips.show()
+        self._tips.raise_()
+        self._tips.activateWindow()
+
+    def _on_setup_done(self) -> None:
+        self._apply_sound_settings()
+        if not config.is_paired():
+            self.open_sign_in()
+
     def open_sign_in(self) -> None:
         """Cream Sign in with Google card. One click opens Google in the browser."""
         self.titlebar.set_google_visible(not config.is_paired())
+        if self._wizard is not None and self._wizard.isVisible():
+            return
         if config.is_paired():
             if self._signin is not None:
                 self._signin.hide()
@@ -510,17 +565,22 @@ class MainWindow(QMainWindow):
             self._signin.start_google()
 
     def _place_sign_in(self) -> None:
-        if self._signin is None:
+        self._place_card(self._signin)
+
+    def _place_card(self, widget) -> None:
+        if widget is None:
             return
         geo = self.frameGeometry()
-        card = self._signin.rect()
+        card = widget.rect()
         if geo.width() > 40 and geo.height() > 40:
-            self._signin.move(geo.center() - card.center())
-        self._signin.raise_()
+            widget.move(geo.center() - card.center())
+        widget.raise_()
 
     def resizeEvent(self, ev):  # noqa: N802
         super().resizeEvent(ev)
         self._place_sign_in()
+        if self._wizard is not None and self._wizard.isVisible():
+            self._place_card(self._wizard)
 
     def _on_desktop_signed_in(self) -> None:
         if self._signin is not None:
@@ -634,6 +694,10 @@ class TrayProxy:
         minitalk.triggered.connect(window.open_mini_talk)
         write = QAction("Unbound Keyboard", menu)
         write.triggered.connect(window.open_writing_helper)
+        setup = QAction("Show first-run setup", menu)
+        setup.triggered.connect(window.open_setup_wizard)
+        tips = QAction("Show tips", menu)
+        tips.triggered.connect(window.open_tips)
         signin = QAction("Sign in with Google", menu)
         signin.triggered.connect(window.start_google_signin)
         popout = QAction("Pop out avatar for OBS", menu)
@@ -646,6 +710,8 @@ class TrayProxy:
         menu.addAction(ptt)
         menu.addAction(minitalk)
         menu.addAction(write)
+        menu.addAction(setup)
+        menu.addAction(tips)
         menu.addAction(signin)
         menu.addAction(popout)
         menu.addSeparator()
