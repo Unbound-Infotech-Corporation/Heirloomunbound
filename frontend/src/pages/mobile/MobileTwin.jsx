@@ -97,7 +97,7 @@ export default function MobileTwin() {
         {messages.map((m, i) => (
           <div key={i} data-testid={`mobile-twin-msg-${i}`}>
             <div className="overline mb-1">{m.role === "assistant" ? "twin" : "you"}</div>
-            <p className="text-sm leading-relaxed" style={{ color: m.role === "assistant" ? "var(--text-primary)" : "var(--text-secondary)" }}>
+            <p className="text-base leading-relaxed font-semibold" style={{ color: "#3a2418", background: "#f4e8c8", padding: "10px 12px", borderRadius: "14px" }}>
               {m.content}
             </p>
           </div>
@@ -105,7 +105,7 @@ export default function MobileTwin() {
         {streaming && (
           <div>
             <div className="overline mb-1">twin</div>
-            <p className="text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>
+            <p className="text-base leading-relaxed font-semibold" style={{ color: "#3a2418", background: "#f4e8c8", padding: "10px 12px", borderRadius: "14px" }}>
               {streaming}
               <span className="inline-block w-1.5 h-4 ml-1 align-middle animate-pulse" style={{ background: "var(--accent)" }} />
             </p>

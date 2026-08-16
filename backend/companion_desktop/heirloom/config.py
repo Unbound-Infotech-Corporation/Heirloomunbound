@@ -67,6 +67,11 @@ _DEFAULTS: Dict[str, Any] = {
     # avatar panel because Windows Volume Mixer gets stuck when a session is
     # created at ~0 volume. Default 1.0 = full volume out of the box.
     "twin_playback_volume": 1.0,
+    # Sound devices. Empty string = whatever Windows (or the computer) already
+    # uses. Stored as the device *name*, not a PortAudio index — indexes move
+    # when you plug in headphones.
+    "mic_device": "",
+    "speaker_device": "",
 }
 
 

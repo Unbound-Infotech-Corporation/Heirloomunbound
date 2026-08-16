@@ -22,6 +22,85 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 
 
+def _hostapi_rank(hostapi_index: int) -> int:
+    """Prefer WASAPI / Core Audio over the older Windows MME names."""
+    try:
+        hostapis = sd.query_hostapis()
+        name = str(hostapis[int(hostapi_index)]["name"]).lower()
+    except Exception:  # noqa: BLE001
+        return 50
+    if "wasapi" in name or "core audio" in name or "pulse" in name:
+        return 0
+    if "directsound" in name or "alsa" in name:
+        return 1
+    if "mme" in name:
+        return 2
+    return 10
+
+
+def _iter_portaudio_devices():
+    try:
+        raw = sd.query_devices()
+    except Exception:  # noqa: BLE001
+        return []
+    if isinstance(raw, dict):
+        return [(0, raw)]
+    out = []
+    for i, dev in enumerate(raw):
+        if isinstance(dev, dict):
+            out.append((i, dev))
+    return out
+
+
+def list_input_devices() -> List[str]:
+    """Unique microphone names, WASAPI first. Empty if PortAudio is unavailable."""
+    ranked: List[tuple[int, int, str]] = []
+    for index, dev in _iter_portaudio_devices():
+        try:
+            channels = int(dev.get("max_input_channels") or 0)
+        except (TypeError, ValueError):
+            channels = 0
+        if channels < 1:
+            continue
+        name = str(dev.get("name") or "").strip()
+        if not name:
+            continue
+        ranked.append((_hostapi_rank(dev.get("hostapi", 0)), index, name))
+    ranked.sort()
+    names: List[str] = []
+    seen = set()
+    for _rank, _index, name in ranked:
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(name)
+    return names
+
+
+def resolve_input_device(name: Optional[str]) -> Optional[int]:
+    """PortAudio index for a saved microphone name, or None for the usual one."""
+    wanted = (name or "").strip()
+    if not wanted:
+        return None
+    matches: List[tuple[int, int]] = []
+    lowered = wanted.lower()
+    for index, dev in _iter_portaudio_devices():
+        try:
+            channels = int(dev.get("max_input_channels") or 0)
+        except (TypeError, ValueError):
+            channels = 0
+        if channels < 1:
+            continue
+        label = str(dev.get("name") or "").strip()
+        if label == wanted or label.lower() == lowered:
+            matches.append((_hostapi_rank(dev.get("hostapi", 0)), index))
+    if not matches:
+        return None
+    matches.sort()
+    return matches[0][1]
+
+
 class Recorder(QObject):
     """Holds a single in-progress recording. Emits `level` (0..1) at ~20 Hz
     so the UI can animate a waveform. On stop, emits `wav_bytes` once."""
@@ -39,18 +118,22 @@ class Recorder(QObject):
     def is_recording(self) -> bool:
         return self._stream is not None
 
-    def start(self) -> None:
+    def start(self, device: Optional[str] = None) -> None:
         if self._stream is not None:
             return
         self._chunks = []
         try:
-            self._stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype="float32",
-                callback=self._on_audio,
-                blocksize=int(SAMPLE_RATE * 0.05),  # 50 ms
-            )
+            kwargs = {
+                "samplerate": SAMPLE_RATE,
+                "channels": CHANNELS,
+                "dtype": "float32",
+                "callback": self._on_audio,
+                "blocksize": int(SAMPLE_RATE * 0.05),  # 50 ms
+            }
+            index = resolve_input_device(device)
+            if index is not None:
+                kwargs["device"] = index
+            self._stream = sd.InputStream(**kwargs)
             self._stream.start()
         except Exception as exc:  # noqa: BLE001
             self._stream = None

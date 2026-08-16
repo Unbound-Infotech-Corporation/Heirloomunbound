@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap, QRegion
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -26,7 +27,39 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import QSS
+# Cream card of its own. The main window's dark QSS paints pale letters
+# that vanish on this cream talk window.
+TALK_QSS = """
+    QWidget { color: #3a2418; font-family: 'Segoe UI', sans-serif; font-size: 13px; }
+    QLabel { color: #3a2418; background: transparent; }
+    QPushButton {
+        color: #3a2418;
+        background: #fffdf6;
+        border: 3px solid #3a2418;
+        border-radius: 12px;
+        padding: 6px 10px;
+        font-weight: 800;
+    }
+    QPushButton:hover { background: #fff3c4; }
+    QPushButton:pressed { background: #f0c040; }
+    QPushButton#primary {
+        background: #e24a3a;
+        color: #fff8e8;
+        border: 4px solid #3a2418;
+    }
+    QPlainTextEdit {
+        background: #fff8e4;
+        color: #3a2418;
+        border: 4px solid #3a2418;
+        border-radius: 18px;
+        padding: 8px;
+        selection-background-color: #f0c040;
+        selection-color: #3a2418;
+        font-size: 16px;
+        font-weight: 600;
+    }
+    QScrollArea { background: transparent; border: none; }
+"""
 
 
 class MiniTalkWindow(QWidget):
@@ -48,7 +81,7 @@ class MiniTalkWindow(QWidget):
             | Qt.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setStyleSheet(QSS)
+        self.setStyleSheet(TALK_QSS)
         self.resize(380, 580)
         self.setMinimumSize(320, 480)
 
@@ -66,9 +99,10 @@ class MiniTalkWindow(QWidget):
         card.setStyleSheet(
             "QWidget#card { background: #f4e8c8; border-radius: 28px;"
             " border: 5px solid #c45c38; }"
-            "QWidget#card QLabel { color: #3a2418; }"
+            "QWidget#card QLabel { color: #3a2418; background: transparent; }"
             "QWidget#card QPlainTextEdit { background: #fff8e4; color: #3a2418;"
-            " border: 4px solid #3a2418; border-radius: 18px; padding: 8px; }"
+            " border: 4px solid #3a2418; border-radius: 18px; padding: 8px;"
+            " font-size: 16px; font-weight: 600; }"
         )
         root.addWidget(card, 1)
         col = QVBoxLayout(card)
@@ -288,12 +322,40 @@ class MiniTalkWindow(QWidget):
             text = (msg.get("content") or "").strip()
             if not text:
                 continue
-            who = "YOU" if role == "user" else "TWIN"
-            body = QLabel(f"{who}\n{text}")
+            you = role == "user"
+            who = "YOU SAID" if you else "TWIN"
+            card = QFrame()
+            card.setAttribute(Qt.WA_StyledBackground, True)
+            if you:
+                card.setStyleSheet(
+                    "QFrame { background: #c45c38; border: 2px solid #3a2418;"
+                    " border-radius: 14px; }"
+                )
+            else:
+                card.setStyleSheet(
+                    "QFrame { background: #fff8e4; border: 2px solid #3a2418;"
+                    " border-radius: 14px; }"
+                )
+            col = QVBoxLayout(card)
+            col.setContentsMargins(10, 8, 10, 10)
+            col.setSpacing(2)
+            kicker = QLabel(who)
+            kicker.setStyleSheet(
+                ("color: #fff8e4;" if you else "color: #c45c38;")
+                + " font-size: 10px; letter-spacing: 2px; font-weight: 800;"
+                " background: transparent;"
+            )
+            body = QLabel(text)
             body.setWordWrap(True)
             body.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            body.setStyleSheet("color: #3a2418; font-size: 13px; line-height: 1.4; font-weight: 600;")
-            self._thread.insertWidget(self._thread.count() - 1, body)
+            body.setStyleSheet(
+                ("color: #fff8e4;" if you else "color: #3a2418;")
+                + " font-size: 16px; line-height: 1.4; font-weight: 700;"
+                " background: transparent;"
+            )
+            col.addWidget(kicker)
+            col.addWidget(body)
+            self._thread.insertWidget(self._thread.count() - 1, card)
         bar = self.scroll.verticalScrollBar()
         from PySide6.QtCore import QTimer
 

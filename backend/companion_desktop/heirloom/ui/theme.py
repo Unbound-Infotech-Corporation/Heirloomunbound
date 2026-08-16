@@ -387,14 +387,14 @@ QSplitter::handle:vertical {{ height: 1px; }}
 
 /* Chat bubbles — asymmetric tails per the owner's mockup */
 QFrame#bubble_user {{
-    background: {p['user_bubble']};
-    border: none;
+    background: #c45c38;
+    border: 2px solid #3a2418;
     border-radius: 12px;
     border-bottom-right-radius: 2px;
 }}
 QFrame#bubble_assistant {{
-    background: {p['twin_bubble']};
-    border: none;
+    background: #f4e8c8;
+    border: 2px solid #3a2418;
     border-radius: 12px;
     border-bottom-left-radius: 2px;
 }}

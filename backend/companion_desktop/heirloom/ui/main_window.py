@@ -296,7 +296,12 @@ class MainWindow(QMainWindow):
         if self.recorder.is_recording():
             return
         self._update_status("listening…")
-        self.recorder.start()
+        mic = ""
+        try:
+            mic = str(config.load_settings().get("mic_device") or "")
+        except Exception:  # noqa: BLE001
+            mic = ""
+        self.recorder.start(device=mic)
 
     def _ptt_stop(self) -> None:
         if not self.recorder.is_recording():
@@ -352,7 +357,20 @@ class MainWindow(QMainWindow):
     # ----- settings dialog -----
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self)
+        dlg.changed.connect(self._apply_sound_settings)
         dlg.exec()
+        self._apply_sound_settings()
+
+    def _apply_sound_settings(self) -> None:
+        """Pick up microphone / speaker / volume after Settings → Sound."""
+        try:
+            self._settings = config.load_settings()
+        except Exception:  # noqa: BLE001
+            return
+        try:
+            self.avatar.apply_sound_settings(self._settings)
+        except Exception:  # noqa: BLE001
+            pass
 
     # ----- command palette -----
     def _open_palette(self) -> None:

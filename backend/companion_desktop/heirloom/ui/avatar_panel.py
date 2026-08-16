@@ -26,7 +26,7 @@ from typing import Optional
 import requests
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PySide6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QFrame,
@@ -236,6 +236,12 @@ class AvatarPanel(QFrame):
         # themselves out via a slider mishap.
         _twin_vol = max(0.05, min(1.0, _twin_vol))
         self.audio.setVolume(_twin_vol)
+        try:
+            self.apply_output_device(
+                str(config.load_settings().get("speaker_device") or "")
+            )
+        except Exception:  # noqa: BLE001
+            pass
         # -----------------------------------------------------------------
         self.player.setAudioOutput(self.audio)
         self.player.mediaStatusChanged.connect(self._on_media_status)
@@ -630,6 +636,31 @@ class AvatarPanel(QFrame):
             return float(self.audio.volume())
         except Exception:  # noqa: BLE001
             return 1.0
+
+    def apply_output_device(self, name: str = "") -> None:
+        """Send the twin's voice to a named speaker, or the usual one if blank."""
+        wanted = (name or "").strip()
+        try:
+            if not wanted:
+                self.audio.setDevice(QMediaDevices.defaultAudioOutput())
+                return
+            for device in QMediaDevices.audioOutputs():
+                if device.description() == wanted:
+                    self.audio.setDevice(device)
+                    return
+            self.audio.setDevice(QMediaDevices.defaultAudioOutput())
+        except Exception:  # noqa: BLE001
+            pass
+
+    def apply_sound_settings(self, settings: Optional[dict] = None) -> None:
+        """Re-read volume + speaker after Settings → Sound is saved."""
+        data = settings if isinstance(settings, dict) else config.load_settings()
+        try:
+            vol = float(data.get("twin_playback_volume", 1.0))
+        except (TypeError, ValueError):
+            vol = 1.0
+        self.set_playback_volume(vol)
+        self.apply_output_device(str(data.get("speaker_device") or ""))
 
     def _on_broadcast_closed(self) -> None:
         if self._broadcast is not None:

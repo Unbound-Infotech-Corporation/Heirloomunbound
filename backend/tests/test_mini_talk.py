@@ -82,6 +82,49 @@ def test_web_mini_route_and_opener_exist():
     assert "/twin/message" in mini
 
 
+def test_conversation_bubbles_are_dark_letters_on_cream():
+    text = (DESKTOP / "heirloom" / "ui" / "conversation.py").read_text(encoding="utf-8")
+    qss = (DESKTOP / "heirloom" / "ui" / "__init__.py").read_text(encoding="utf-8")
+    assert "#3a2418" in text
+    assert "#f4e8c8" in text
+    assert "YOU SAID" in text
+    assert "QGraphicsOpacityEffect" not in text
+    assert "QFrame#bubble_assistant" in qss
+    assert "background: #f4e8c8" in qss
+
+
+def test_talk_window_does_not_use_dark_global_qss():
+    text = (DESKTOP / "heirloom" / "ui" / "talk_window.py").read_text(encoding="utf-8")
+    assert "from . import QSS" not in text
+    assert "TALK_QSS" in text
+    assert "#3a2418" in text
+    assert "YOU SAID" in text
+    assert "font-size: 16px" in text
+
+
+def test_sound_settings_let_you_pick_mic_and_speakers():
+    settings = (DESKTOP / "heirloom" / "ui" / "settings_dialog.py").read_text(encoding="utf-8")
+    cfg = (DESKTOP / "heirloom" / "config.py").read_text(encoding="utf-8")
+    audio = (DESKTOP / "heirloom" / "audio.py").read_text(encoding="utf-8")
+    avatar = (DESKTOP / "heirloom" / "ui" / "avatar_panel.py").read_text(encoding="utf-8")
+    window = (DESKTOP / "heirloom" / "ui" / "main_window.py").read_text(encoding="utf-8")
+    assert "Which microphone" in settings
+    assert "Where the twin's voice comes out" in settings
+    assert "The usual microphone" in settings
+    assert "The usual speakers" in settings
+    assert "Save sound settings" in settings
+    assert '"mic_device"' in cfg
+    assert '"speaker_device"' in cfg
+    assert "def list_input_devices" in audio
+    assert "def resolve_input_device" in audio
+    assert "kwargs[\"device\"]" in audio or "kwargs['device']" in audio
+    assert "def apply_output_device" in avatar
+    assert "setDevice" in avatar
+    assert "QMediaDevices" in avatar
+    assert "recorder.start(device=" in window
+    assert "def _apply_sound_settings" in window
+
+
 def test_mini_talk_python_compiles():
     files = [
         DESKTOP / "heirloom" / "ui" / "talk_window.py",
@@ -89,6 +132,8 @@ def test_mini_talk_python_compiles():
         DESKTOP / "heirloom" / "ui" / "conversation.py",
         DESKTOP / "heirloom" / "ui" / "main_window.py",
         DESKTOP / "heirloom" / "config.py",
+        DESKTOP / "heirloom" / "audio.py",
+        DESKTOP / "heirloom" / "ui" / "settings_dialog.py",
     ]
     errors = []
     for path in files:
