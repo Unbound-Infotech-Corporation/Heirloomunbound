@@ -187,6 +187,11 @@ def test_first_run_wizard_is_five_steps_and_can_hide_tips():
     assert "Hold to test your microphone" in wizard
     assert "We do not upload that" in wizard or "stayed on this computer" in wizard
     assert "/desktop/avatar-photo" in wizard
+    assert 'INK = "#3a2418"' in wizard
+    assert "apply_cream_palette" in wizard
+    assert "WA_TranslucentBackground" in wizard
+    assert "self.setStyleSheet(QSS)" not in wizard
+    assert "from . import QSS" not in wizard
     ast.parse(wizard)
 
     assert '"show_setup_wizard"' in cfg

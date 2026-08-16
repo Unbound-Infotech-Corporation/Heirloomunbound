@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from .. import api
@@ -28,20 +29,33 @@ class SignInDialog(QWidget):
         self.resize(460, 340)
         self._busy = False
         self.setStyleSheet(
-            "QWidget#signin_card { background: #f4e8c8; border: 5px solid #c45c38;"
-            " border-radius: 28px; }"
-            "QWidget#signin_card QLabel { color: #3a2418; background: transparent; }"
-            "QWidget#signin_card QPushButton { background: #fffdf6; color: #3a2418;"
+            "QWidget { color: #3a2418; }"
+            "QLabel { color: #3a2418; background: transparent; }"
+            "QPushButton { background: #fffdf6; color: #3a2418;"
             " border: 3px solid #3a2418; border-radius: 14px; padding: 14px 16px;"
             " font-weight: 800; font-size: 16px; }"
-            "QWidget#signin_card QPushButton:hover { background: #fff3c4; }"
-            "QWidget#signin_card QPushButton:disabled { color: #8a7060;"
+            "QPushButton:hover { background: #fff3c4; color: #3a2418; }"
+            "QPushButton:disabled { color: #8a7060;"
             " background: #f3ead8; border-color: #c4b49a; }"
-            "QWidget#signin_card QPushButton#primary { background: #c45c38;"
+            "QPushButton#primary { background: #c45c38;"
             " color: #fff8e4; font-size: 18px; min-height: 52px; }"
-            "QWidget#signin_card QPushButton#primary:hover { background: #a94c2e;"
+            "QPushButton#primary:hover { background: #a94c2e;"
             " color: #fff8e4; }"
+            "QWidget#signin_card { background: #f4e8c8; border: 5px solid #c45c38;"
+            " border-radius: 28px; }"
         )
+        pal = self.palette()
+        ink = QColor("#3a2418")
+        cream = QColor("#f4e8c8")
+        for group in (QPalette.Active, QPalette.Inactive, QPalette.Disabled):
+            pal.setColor(group, QPalette.Window, cream)
+            pal.setColor(group, QPalette.WindowText, ink)
+            pal.setColor(group, QPalette.Base, QColor("#fff8e4"))
+            pal.setColor(group, QPalette.Text, ink)
+            pal.setColor(group, QPalette.Button, QColor("#fffdf6"))
+            pal.setColor(group, QPalette.ButtonText, ink)
+        self.setPalette(pal)
+        self.setAutoFillBackground(True)
         col = QVBoxLayout(self)
         col.setContentsMargins(28, 24, 28, 24)
         col.setSpacing(12)

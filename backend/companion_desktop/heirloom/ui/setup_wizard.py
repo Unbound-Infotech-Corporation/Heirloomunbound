@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QMouseEvent, QPixmap
+from PySide6.QtGui import QColor, QMouseEvent, QPalette, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -31,119 +31,138 @@ from PySide6.QtWidgets import (
 from .. import api, audio, config
 from ..google_signin import finish_pair_flow, house_url, open_browser, start_pair_flow
 
-CREAM_QSS = """
-QWidget#setup_wizard, QWidget#tips_card {
-    background: #f4e8c8;
-    border: 5px solid #c45c38;
-    border-radius: 28px;
-}
-QWidget#setup_wizard QLabel, QWidget#tips_card QLabel {
-    color: #3a2418;
+# Unscoped on purpose. The main window's dark QSS (`* { color: #f5efe6 }`)
+# makes pale letters on this cream card. Same trick as Unbound Keyboard.
+INK = "#3a2418"
+CREAM = "#f4e8c8"
+PAPER = "#fff8e4"
+TOMATO = "#c45c38"
+
+CREAM_QSS = f"""
+QWidget {{
+    color: {INK};
     background: transparent;
-}
-QWidget#setup_wizard QPushButton, QWidget#tips_card QPushButton {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 15px;
+}}
+QWidget#card {{
+    background: {CREAM};
+    border: 5px solid {TOMATO};
+    border-radius: 28px;
+}}
+QLabel {{ color: {INK}; background: transparent; }}
+QStackedWidget {{ background: {CREAM}; border: none; color: {INK}; }}
+QPushButton {{
     background: #fffdf6;
-    color: #3a2418;
-    border: 3px solid #3a2418;
+    color: {INK};
+    border: 3px solid {INK};
     border-radius: 14px;
     padding: 10px 14px;
     font-weight: 800;
     font-size: 15px;
-}
-QWidget#setup_wizard QPushButton:hover, QWidget#tips_card QPushButton:hover {
-    background: #fff3c4;
-}
-QWidget#setup_wizard QPushButton:disabled, QWidget#tips_card QPushButton:disabled {
+}}
+QPushButton:hover {{ background: #fff3c4; color: {INK}; }}
+QPushButton:disabled {{
     color: #8a7060;
     background: #f3ead8;
     border-color: #c4b49a;
-}
-QWidget#setup_wizard QPushButton#primary, QWidget#tips_card QPushButton#primary {
-    background: #c45c38;
-    color: #fff8e4;
+}}
+QPushButton#primary {{
+    background: {TOMATO};
+    color: {PAPER};
     font-size: 16px;
     min-height: 44px;
-}
-QWidget#setup_wizard QPushButton#primary:hover, QWidget#tips_card QPushButton#primary:hover {
-    background: #a94c2e;
-    color: #fff8e4;
-}
-QWidget#setup_wizard QPushButton#ghost, QWidget#tips_card QPushButton#ghost {
+}}
+QPushButton#primary:hover {{ background: #a94c2e; color: {PAPER}; }}
+QPushButton#ghost {{
     border: none;
     background: transparent;
     color: #5a3a28;
     font-size: 13px;
     font-weight: 700;
-}
-QWidget#setup_wizard QPushButton#ghost:hover, QWidget#tips_card QPushButton#ghost:hover {
-    background: #fff3c4;
-    color: #3a2418;
-}
-QWidget#setup_wizard QComboBox {
-    background: #fff8e4;
-    color: #3a2418;
-    border: 3px solid #3a2418;
+}}
+QPushButton#ghost:hover {{ background: #fff3c4; color: {INK}; }}
+QComboBox {{
+    background: {PAPER};
+    color: {INK};
+    border: 3px solid {INK};
     border-radius: 12px;
     padding: 8px 12px;
     min-height: 36px;
     font-size: 15px;
-}
-QWidget#setup_wizard QComboBox QAbstractItemView {
-    background: #fff8e4;
-    color: #3a2418;
+}}
+QComboBox QAbstractItemView {{
+    background: {PAPER};
+    color: {INK};
     selection-background-color: #f0c040;
-    selection-color: #3a2418;
-}
-QWidget#setup_wizard QSlider::groove:horizontal {
+    selection-color: {INK};
+}}
+QComboBox QLineEdit {{
+    background: {PAPER};
+    color: {INK};
+}}
+QSlider::groove:horizontal {{
     height: 10px;
     background: #e8d4a8;
-    border: 2px solid #3a2418;
+    border: 2px solid {INK};
     border-radius: 6px;
-}
-QWidget#setup_wizard QSlider::handle:horizontal {
+}}
+QSlider::handle:horizontal {{
     width: 22px;
     margin: -8px 0;
-    background: #c45c38;
-    border: 3px solid #3a2418;
+    background: {TOMATO};
+    border: 3px solid {INK};
     border-radius: 12px;
-}
-QWidget#setup_wizard QProgressBar {
-    background: #fff8e4;
-    border: 3px solid #3a2418;
+}}
+QProgressBar {{
+    background: {PAPER};
+    border: 3px solid {INK};
     border-radius: 10px;
     text-align: center;
-    color: #3a2418;
+    color: {INK};
     min-height: 18px;
-}
-QWidget#setup_wizard QProgressBar::chunk {
-    background: #c45c38;
-    border-radius: 7px;
-}
-QWidget#setup_wizard QCheckBox, QWidget#tips_card QCheckBox {
-    color: #3a2418;
+}}
+QProgressBar::chunk {{ background: {TOMATO}; border-radius: 7px; }}
+QCheckBox {{
+    color: {INK};
+    background: transparent;
     font-size: 15px;
     font-weight: 700;
     spacing: 8px;
-}
-QWidget#setup_wizard QCheckBox::indicator, QWidget#tips_card QCheckBox::indicator {
+}}
+QCheckBox::indicator {{
     width: 20px;
     height: 20px;
-    border: 3px solid #3a2418;
+    border: 3px solid {INK};
     border-radius: 6px;
-    background: #fff8e4;
-}
-QWidget#setup_wizard QCheckBox::indicator:checked, QWidget#tips_card QCheckBox::indicator:checked {
-    background: #c45c38;
-}
-QWidget#setup_wizard QLabel#dot_on {
-    color: #c45c38;
-    font-size: 22px;
-}
-QWidget#setup_wizard QLabel#dot_off {
-    color: #c4b49a;
-    font-size: 22px;
-}
+    background: {PAPER};
+}}
+QCheckBox::indicator:checked {{ background: {TOMATO}; }}
+QLabel#dot_on {{ color: {TOMATO}; font-size: 22px; background: transparent; }}
+QLabel#dot_off {{ color: #c4b49a; font-size: 22px; background: transparent; }}
 """
+
+
+def apply_cream_palette(widget: QWidget) -> None:
+    """Force dark-brown ink on cream even when Windows is in dark mode."""
+    ink = QColor(INK)
+    cream = QColor(CREAM)
+    paper = QColor(PAPER)
+    pal = widget.palette()
+    for group in (QPalette.Active, QPalette.Inactive, QPalette.Disabled):
+        pal.setColor(group, QPalette.Window, cream)
+        pal.setColor(group, QPalette.WindowText, ink)
+        pal.setColor(group, QPalette.Base, paper)
+        pal.setColor(group, QPalette.AlternateBase, cream)
+        pal.setColor(group, QPalette.Text, ink)
+        pal.setColor(group, QPalette.Button, QColor("#fffdf6"))
+        pal.setColor(group, QPalette.ButtonText, ink)
+        pal.setColor(group, QPalette.BrightText, ink)
+        pal.setColor(group, QPalette.PlaceholderText, QColor("#8a7060"))
+        pal.setColor(group, QPalette.Highlight, QColor(TOMATO))
+        pal.setColor(group, QPalette.HighlightedText, QColor(PAPER))
+    widget.setPalette(pal)
+    widget.setAutoFillBackground(True)
 
 
 def _fill_device_combo(combo: QComboBox, names: list[str], saved: str, usual: str) -> None:
@@ -191,6 +210,7 @@ class SetupWizard(QWidget):
         self.setObjectName("setup_wizard")
         self.setWindowTitle("Welcome to Heirloom")
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.resize(540, 680)
         self.setStyleSheet(CREAM_QSS)
@@ -206,7 +226,15 @@ class SetupWizard(QWidget):
         self._set_step(0)
 
     def _build(self) -> None:
-        col = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(1, 1, 1, 1)
+        root.setSpacing(0)
+        card = QWidget()
+        card.setObjectName("card")
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        apply_cream_palette(card)
+        root.addWidget(card, 1)
+        col = QVBoxLayout(card)
         col.setContentsMargins(28, 22, 28, 20)
         col.setSpacing(10)
 
@@ -243,6 +271,7 @@ class SetupWizard(QWidget):
         col.addLayout(dots)
 
         self.stack = QStackedWidget()
+        apply_cream_palette(self.stack)
         self.stack.addWidget(self._page_google())
         self.stack.addWidget(self._page_face())
         self.stack.addWidget(self._page_voice())
@@ -268,13 +297,19 @@ class SetupWizard(QWidget):
         foot.addWidget(self.next_btn)
         col.addLayout(foot)
 
-    def _page_google(self) -> QWidget:
+    def _cream_page(self) -> QWidget:
         page = QWidget()
+        page.setAttribute(Qt.WA_StyledBackground, True)
+        apply_cream_palette(page)
+        return page
+
+    def _page_google(self) -> QWidget:
+        page = self._cream_page()
         col = QVBoxLayout(page)
         col.setContentsMargins(0, 8, 0, 0)
         col.setSpacing(10)
         head = QLabel("Sign in with Google")
-        head.setStyleSheet("font-size: 20px; font-weight: 800;")
+        head.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {INK}; background: transparent;")
         col.addWidget(head)
         blurb = QLabel(
             "Tap the button. A Google page opens in your browser. "
@@ -297,13 +332,13 @@ class SetupWizard(QWidget):
         return page
 
     def _page_face(self) -> QWidget:
-        page = QWidget()
+        page = self._cream_page()
         col = QVBoxLayout(page)
         col.setContentsMargins(0, 8, 0, 0)
         col.setSpacing(10)
         head = QLabel("Your face — the talking picture")
         head.setWordWrap(True)
-        head.setStyleSheet("font-size: 20px; font-weight: 800;")
+        head.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {INK}; background: transparent;")
         col.addWidget(head)
         blurb = QLabel(
             "Pick a photo of you looking at the camera. That still becomes "
@@ -337,12 +372,12 @@ class SetupWizard(QWidget):
         return page
 
     def _page_voice(self) -> QWidget:
-        page = QWidget()
+        page = self._cream_page()
         col = QVBoxLayout(page)
         col.setContentsMargins(0, 8, 0, 0)
         col.setSpacing(10)
         head = QLabel("Your voice")
-        head.setStyleSheet("font-size: 20px; font-weight: 800;")
+        head.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {INK}; background: transparent;")
         col.addWidget(head)
         blurb = QLabel(
             "Pick the microphone you talk into. Hold the button to test it — "
@@ -356,6 +391,7 @@ class SetupWizard(QWidget):
         mic_lbl.setStyleSheet("font-size: 12px; font-weight: 800; color: #5a3a28;")
         col.addWidget(mic_lbl)
         self.mic_combo = QComboBox()
+        apply_cream_palette(self.mic_combo)
         col.addWidget(self.mic_combo)
         self.mic_level = QProgressBar()
         self.mic_level.setRange(0, 100)
@@ -379,12 +415,12 @@ class SetupWizard(QWidget):
         return page
 
     def _page_hear(self) -> QWidget:
-        page = QWidget()
+        page = self._cream_page()
         col = QVBoxLayout(page)
         col.setContentsMargins(0, 8, 0, 0)
         col.setSpacing(10)
         head = QLabel("Hear the twin")
-        head.setStyleSheet("font-size: 20px; font-weight: 800;")
+        head.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {INK}; background: transparent;")
         col.addWidget(head)
         blurb = QLabel(
             "Pick the speakers or headphones where the twin should talk. "
@@ -397,6 +433,7 @@ class SetupWizard(QWidget):
         sp_lbl.setStyleSheet("font-size: 12px; font-weight: 800; color: #5a3a28;")
         col.addWidget(sp_lbl)
         self.speaker_combo = QComboBox()
+        apply_cream_palette(self.speaker_combo)
         col.addWidget(self.speaker_combo)
         vol_lbl = QLabel("How loud")
         vol_lbl.setStyleSheet("font-size: 12px; font-weight: 800; color: #5a3a28;")
@@ -410,7 +447,9 @@ class SetupWizard(QWidget):
             cur = 100
         self.volume_slider.setValue(max(5, min(100, cur)))
         self.volume_value = QLabel(f"{self.volume_slider.value()}%")
-        self.volume_value.setStyleSheet("font-size: 14px; font-weight: 800; min-width: 44px;")
+        self.volume_value.setStyleSheet(
+            f"font-size: 14px; font-weight: 800; min-width: 44px; color: {INK}; background: transparent;"
+        )
         self.volume_slider.valueChanged.connect(
             lambda v: self.volume_value.setText(f"{v}%")
         )
@@ -421,12 +460,12 @@ class SetupWizard(QWidget):
         return page
 
     def _page_how(self) -> QWidget:
-        page = QWidget()
+        page = self._cream_page()
         col = QVBoxLayout(page)
         col.setContentsMargins(0, 8, 0, 0)
         col.setSpacing(10)
         head = QLabel("How you'll use it")
-        head.setStyleSheet("font-size: 20px; font-weight: 800;")
+        head.setStyleSheet(f"font-size: 20px; font-weight: 800; color: {INK}; background: transparent;")
         col.addWidget(head)
         blurb = QLabel(
             "Hold to speak (Ctrl+Space).\n"
@@ -438,6 +477,8 @@ class SetupWizard(QWidget):
         blurb.setStyleSheet("font-size: 15px; color: #3a2418;")
         col.addWidget(blurb)
         self.tips_check = QCheckBox("Show a tips card when Heirloom opens")
+        apply_cream_palette(self.tips_check)
+        self.tips_check.setStyleSheet(f"color: {INK}; background: transparent; font-size: 15px; font-weight: 700;")
         self.tips_check.setChecked(
             bool(config.load_settings().get("show_tips_on_start", True))
         )
@@ -691,12 +732,21 @@ class TipsWindow(QWidget):
         self.setObjectName("tips_card")
         self.setWindowTitle("Tips")
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.resize(460, 420)
         self.setStyleSheet(CREAM_QSS)
         self._drag_pos = None
         self._saved = False
-        col = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(1, 1, 1, 1)
+        root.setSpacing(0)
+        card = QWidget()
+        card.setObjectName("card")
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        apply_cream_palette(card)
+        root.addWidget(card, 1)
+        col = QVBoxLayout(card)
         col.setContentsMargins(28, 22, 28, 20)
         col.setSpacing(12)
         top = QHBoxLayout()
@@ -720,6 +770,10 @@ class TipsWindow(QWidget):
         body.setStyleSheet("font-size: 15px; color: #3a2418;")
         col.addWidget(body)
         self.show_check = QCheckBox("Show tips when Heirloom opens")
+        apply_cream_palette(self.show_check)
+        self.show_check.setStyleSheet(
+            f"color: {INK}; background: transparent; font-size: 15px; font-weight: 700;"
+        )
         self.show_check.setChecked(bool(config.load_settings().get("show_tips_on_start", True)))
         col.addWidget(self.show_check)
         col.addStretch(1)
