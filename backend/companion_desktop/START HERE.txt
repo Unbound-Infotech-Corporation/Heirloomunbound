@@ -12,7 +12,7 @@ and Unbound Keyboard. Not just the writing card.
    double-click Heirloom.bat.
 4. First time takes about a minute. Leave the window open.
    If Windows shows a blue box: More info → Run anyway.
-5. Tap Continue with Google. A browser opens. Sign in there.
+5. Tap Sign in with Google. A browser opens. Sign in there.
    Heirloom never sees that password. Then talk to your twin
    in the big window.
 
@@ -32,7 +32,7 @@ without signing in. Sign in with Google in the big window (or on
 the writing card). A slip is a Heirloom email after you tap
 Send a sign-in note. Look for “Your Unbound Keyboard sign-in slip”.
 It starts with ml_. Check spam. If nothing arrives, skip that note
-and use Continue with Google instead. The website box is the
+and use Sign in with Google instead. The website box is the
 Heirloom page in your browser (https://…) — not a street address.
 We never ask for a Google, Microsoft, Windows, or phone password.
 

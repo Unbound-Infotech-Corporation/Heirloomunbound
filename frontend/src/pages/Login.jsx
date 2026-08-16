@@ -73,7 +73,7 @@ export default function Login() {
               borderRadius: "2px",
             }}
           >
-            <span className="text-sm font-medium tracking-wide">Continue with Google</span>
+            <span className="text-sm font-medium tracking-wide">Sign in with Google</span>
             <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
           </button>
 

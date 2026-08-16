@@ -142,6 +142,7 @@ class TitleBar(QWidget):
     ptt_released = Signal()
     settings_clicked = Signal()
     palette_clicked = Signal()
+    signin_clicked = Signal()
 
     def __init__(
         self,
@@ -202,7 +203,16 @@ class TitleBar(QWidget):
 
         row.addStretch(1)
 
-        # --- right: command palette hint, PTT, settings, window buttons ---
+        # --- right: Google sign-in, command palette hint, PTT, settings, window buttons ---
+        self.signin_btn = QPushButton("Sign in with Google")
+        self.signin_btn.setObjectName("googlesignin")
+        self.signin_btn.setCursor(Qt.PointingHandCursor)
+        self.signin_btn.setMinimumHeight(32)
+        self.signin_btn.setToolTip("Opens Google in your browser. We never see that password.")
+        self.signin_btn.clicked.connect(lambda _checked=False: self.signin_clicked.emit())
+        self.signin_btn.setVisible(False)
+        row.addWidget(self.signin_btn)
+
         self.cmd_hint = QPushButton("⌘  ctrl · k")
         self.cmd_hint.setObjectName("kbdhint")
         self.cmd_hint.setCursor(Qt.PointingHandCursor)
@@ -249,6 +259,9 @@ class TitleBar(QWidget):
 
     def set_user_name(self, name: str) -> None:
         self.user_label.setText(name)
+
+    def set_google_visible(self, visible: bool) -> None:
+        self.signin_btn.setVisible(bool(visible))
 
     def set_maximized(self, maximized: bool) -> None:
         self.max_btn._glyph = "restore" if maximized else "max"
@@ -297,5 +310,6 @@ class TitleBar(QWidget):
             | self.settings_btn.geometry()
             | self.ptt_btn.geometry()
             | self.cmd_hint.geometry()
+            | self.signin_btn.geometry()
         )
         return not excluded.contains(pt)

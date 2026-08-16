@@ -129,6 +129,21 @@ QPushButton#primary:hover {{
     border-color: {PALETTE['accent_hover']};
 }}
 
+QPushButton#googlesignin {{
+    background: #c45c38;
+    color: #fff8e4;
+    border: 2px solid #fff3c4;
+    border-radius: 8px;
+    padding: 4px 12px;
+    font-weight: 800;
+    font-size: 12px;
+}}
+QPushButton#googlesignin:hover {{
+    background: #a94c2e;
+    color: #fff8e4;
+    border-color: #fff8e4;
+}}
+
 QPushButton#ghost {{
     border: none;
     color: {PALETTE['text_muted']};

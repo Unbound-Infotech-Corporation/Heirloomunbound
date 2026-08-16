@@ -102,6 +102,8 @@ class MainWindow(QMainWindow):
         self.titlebar.ptt_released.connect(self._ptt_stop)
         self.titlebar.settings_clicked.connect(self._open_settings)
         self.titlebar.palette_clicked.connect(self._open_palette)
+        self.titlebar.signin_clicked.connect(self.start_google_signin)
+        self.titlebar.set_google_visible(not config.is_paired())
         card_layout.addWidget(self.titlebar)
 
         # ---- 3-pane splitter ----
@@ -262,6 +264,7 @@ class MainWindow(QMainWindow):
         self._user = data or {}
         name = data.get("name") or data.get("email") or "your archive"
         self.titlebar.set_user_name(f"{name}'s twin")
+        self.titlebar.set_google_visible(False)
         self.avatar.set_portrait_url(data.get("avatar_source_url"))
         api.get_async(
             "/desktop/conversation?limit=1",
@@ -408,9 +411,9 @@ class MainWindow(QMainWindow):
             ),
             Command(
                 id="signin",
-                label="Sign in",
-                hint="Continue with Google in the browser. No Google or Windows password here.",
-                action=self.open_sign_in,
+                label="Sign in with Google",
+                hint="Opens Google in your browser. No Google or Windows password here.",
+                action=self.start_google_signin,
             ),
             Command(
                 id="unboundkb",
@@ -467,25 +470,34 @@ class MainWindow(QMainWindow):
         ]
 
     def open_sign_in(self) -> None:
-        """Cream card on the big window. Google in the browser — never a password here."""
+        """Cream Sign in with Google card. One click opens Google in the browser."""
+        self.titlebar.set_google_visible(not config.is_paired())
         if config.is_paired():
             if self._signin is not None:
                 self._signin.hide()
             return
-        host = self.centralWidget() or self
         if self._signin is None:
-            self._signin = SignInDialog(host)
+            self._signin = SignInDialog()
             self._signin.signed_in.connect(self._on_desktop_signed_in)
             self._signin.want_keyboard.connect(self.open_writing_helper)
         self._place_sign_in()
         self._signin.show()
         self._signin.raise_()
+        self._signin.activateWindow()
+
+    def start_google_signin(self) -> None:
+        """Click Sign in with Google → Google opens. We never see that password."""
+        self.open_sign_in()
+        if self._signin is not None and not config.is_paired():
+            self._signin.start_google()
 
     def _place_sign_in(self) -> None:
         if self._signin is None:
             return
-        host = self._signin.parentWidget() or self.centralWidget() or self
-        self._signin.setGeometry(host.rect())
+        geo = self.frameGeometry()
+        card = self._signin.rect()
+        if geo.width() > 40 and geo.height() > 40:
+            self._signin.move(geo.center() - card.center())
         self._signin.raise_()
 
     def resizeEvent(self, ev):  # noqa: N802
@@ -495,6 +507,7 @@ class MainWindow(QMainWindow):
     def _on_desktop_signed_in(self) -> None:
         if self._signin is not None:
             self._signin.hide()
+        self.titlebar.set_google_visible(False)
         self._settings = config.load_settings()
         self._update_status("this computer is signed in")
         self._load_initial_data()
@@ -603,8 +616,8 @@ class TrayProxy:
         minitalk.triggered.connect(window.open_mini_talk)
         write = QAction("Unbound Keyboard", menu)
         write.triggered.connect(window.open_writing_helper)
-        signin = QAction("Sign in", menu)
-        signin.triggered.connect(window.open_sign_in)
+        signin = QAction("Sign in with Google", menu)
+        signin.triggered.connect(window.start_google_signin)
         popout = QAction("Pop out avatar for OBS", menu)
         popout.triggered.connect(window.avatar.pop_out)
         quit_act = QAction("Quit Heirloom", menu)

@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from .. import api, config
 from ..commands import _looks_secret_writing, clipboard_get, clipboard_set, paste_keys
-from ..google_signin import pair_this_computer
+from ..google_signin import finish_pair_flow, open_browser, start_pair_flow
 from ..writing_local import proofread_local
 
 # Cream card of its own. The rest of the desktop app uses a dark theme
@@ -295,7 +295,7 @@ class WritingWindow(QWidget):
         col.setContentsMargins(0, 0, 0, 8)
         col.setSpacing(6)
         hint = QLabel(
-            "This copy isn’t signed in. Continue with Google in your browser — "
+            "This copy isn’t signed in. Tap Sign in with Google — "
             "Heirloom never sees that password. Then this computer can talk to your twin. "
             "A slip is a short Heirloom email after you tap "
             "Send a sign-in note — look for “Your Unbound Keyboard sign-in slip”. "
@@ -308,9 +308,9 @@ class WritingWindow(QWidget):
         hint.setWordWrap(True)
         hint.setStyleSheet("font-size: 12px; color: #5a3a28;")
         col.addWidget(hint)
-        self.btn_google = QPushButton("Continue with Google")
+        self.btn_google = QPushButton("Sign in with Google")
         self.btn_google.setObjectName("primary")
-        self.btn_google.clicked.connect(self._google_sign_in)
+        self.btn_google.clicked.connect(lambda _checked=False: self._google_sign_in())
         col.addWidget(self.btn_google)
         self.email_in = QLineEdit()
         self.email_in.setPlaceholderText("Your email")
@@ -362,11 +362,16 @@ class WritingWindow(QWidget):
     def _google_sign_in(self) -> None:
         self._apply_house_url()
         self._set_busy(True)
-        self.note.setText(
-            "A browser should open. Sign in with Google there. We never see that password."
-        )
+        catcher, url, house = start_pair_flow(config.BACKEND_URL)
+        opened = open_browser(url)
+        if opened:
+            self.note.setText(
+                "A Google page should have opened. Sign in there. We never see that password."
+            )
+        else:
+            self.note.setText("Couldn’t open the browser. Paste this into Chrome or Edge:\n" + url)
         api.run_async(
-            lambda: pair_this_computer(config.BACKEND_URL),
+            lambda: finish_pair_flow(catcher, house),
             lambda data: self._on_signed_in(data if isinstance(data, dict) else {}),
             self._on_login_err,
         )

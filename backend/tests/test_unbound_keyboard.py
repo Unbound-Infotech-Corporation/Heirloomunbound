@@ -191,14 +191,15 @@ def test_windows_helper_is_not_a_keylogger():
     assert "Fix spelling" in window
     assert "Leave it" in window
     assert "Sign in" in window
-    assert "Continue with Google" in window
+    assert "Sign in with Google" in window
     assert "Send a sign-in note" in window
     assert "not a street address" in window
     assert "House address" not in window
     assert "No slip is sitting in your mail" in window
     assert "cannot send a sign-in note yet" in window
     assert "_login_error_text" in window
-    assert "pair_this_computer" in window
+    assert "start_pair_flow" in window
+    assert "open_browser" in window
     assert "drag here" in window
     assert "Stay in front" in window
     assert "WRITING_QSS" in window
@@ -239,6 +240,10 @@ def test_desktop_google_signin_pairs_the_whole_app():
     assert "companion/register" in google
     assert "session_id" in google
     assert "pair_this_computer" in google
+    assert "start_pair_flow" in google
+    assert "open_browser" in google
+    assert "QDesktopServices" in google
+    assert "os.startfile" in google
     assert "PUBLIC_HOUSE" in google
     assert "emergent.host" in cfg
     assert "PUBLIC_HOUSE" in cfg
@@ -247,15 +252,21 @@ def test_desktop_google_signin_pairs_the_whole_app():
     assert "def run_async" in api_src
     assert "SignInDialog" in main
     assert "def open_sign_in" in main
-    assert "Continue with Google" in dialog
-    assert "Sign in to use the whole house" in dialog
+    assert "def start_google_signin" in main
+    assert "Sign in with Google" in dialog
+    assert "Sign in with Google" in main
     err_fn = main.split("def _on_me_err", 1)[1].split("def ", 1)[0]
     assert "open_writing_helper" not in err_fn
     assert "open_sign_in" in err_fn
     assert "Download again" in err_fn
-    assert 'QAction("Sign in"' in main
-    assert "window.open_sign_in" in main
+    assert 'QAction("Sign in with Google"' in main
+    assert "window.start_google_signin" in main
     assert "open_sign_in" in boot
+    titlebar = (DESKTOP / "heirloom" / "ui" / "titlebar.py").read_text(encoding="utf-8")
+    assert "Sign in with Google" in titlebar
+    assert "signin_clicked" in titlebar
+    assert "googlesignin" in titlebar
+    assert "lambda _checked=False: self.signin_clicked.emit()" in titlebar
     compile(google, str(DESKTOP / "heirloom" / "google_signin.py"), "exec")
     compile(dialog, str(DESKTOP / "heirloom" / "ui" / "signin_dialog.py"), "exec")
 
@@ -268,6 +279,7 @@ def test_web_and_phone_surfaces():
     nav = (FRONT / "components" / "AppLayout.jsx").read_text(encoding="utf-8")
     today = (FRONT / "pages" / "Today.jsx").read_text(encoding="utf-8")
     roadmap = (FRONT / "pages" / "Roadmap.jsx").read_text(encoding="utf-8")
+    login = (FRONT / "pages" / "Login.jsx").read_text(encoding="utf-8")
     assert 'path="/writing"' in app
     assert 'path="keyboard"' in app
     assert 'data-testid="writing-root"' in writing
@@ -287,6 +299,9 @@ def test_web_and_phone_surfaces():
     assert 'tid: "nav-writing"' in nav
     assert 'playset-knob-write' in today
     assert "Unbound Keyboard" in roadmap
+    assert "Sign in with Google" in login
+    assert "auth.emergentagent.com" in login
+    assert 'data-testid="login-google-button"' in login
 
 
 def test_ollama_still_out_of_cloud_providers():
@@ -323,7 +338,7 @@ def test_desktop_writing_brain_matches_cloud():
     try_bat = (DESKTOP / "Try-Unbound-Keyboard.bat").read_text(encoding="utf-8", errors="replace")
     assert "Try-Unbound-Keyboard.bat" in start
     assert "Heirloom.bat" in start
-    assert "Continue with Google" in start
+    assert "Sign in with Google" in start
     assert "I recieve this" in start
     assert "Fix spelling" in start
     assert "Sign in" in start

@@ -85,7 +85,7 @@ def _run() -> int:
     unsigned = not config.is_paired()
     if unsigned:
         _append_setup_log(
-            "This copy isn’t signed in. Continue with Google in the big window. "
+            "This copy isn’t signed in. Tap Sign in with Google in the big window. "
             "Unbound Keyboard will still catch spelling here without signing in."
         )
 
