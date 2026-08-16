@@ -258,7 +258,7 @@ DESKTOP_FILES: dict[str, bytes] = {
         "ZWlybG9vbSBlbWFpbCBhZnRlciB5b3UgdGFwIFNlbmQgYSBzaWduLWluIG5vdGUuCkxvb2sg"
         "Zm9yIOKAnFlvdXIgVW5ib3VuZCBLZXlib2FyZCBzaWduLWluIHNsaXDigJ0uIEl0IHN0YXJ0"
         "cyB3aXRoIG1sXy4KQ2hlY2sgc3BhbS4gSWYgbm90aGluZyBhcnJpdmVzLCB0aGUgbGl2ZSB3"
-        "ZWJzaXRlIGNhbm5vdCBzZW5kIHRoYXQgbm90ZQp5ZXQg4oCUIHNraXAgc2lnbi1pbiBhbmQg"
+        "ZWJzaXRlIGNhbm5vdCBzZW5kIHRoYXQgbm90ZQp5ZXQg4oCUIHNraXAgU2lnbiBpbiBhbmQg"
         "a2VlcCB3cml0aW5nLiBUaGUgd2Vic2l0ZSBib3ggaXMgdGhlIEhlaXJsb29tCnBhZ2UgaW4g"
         "eW91ciBicm93c2VyIChodHRwczovL+KApikg4oCUIG5vdCBhIHN0cmVldCBhZGRyZXNzLiBX"
         "ZSBuZXZlciBhc2sKZm9yIGEgR29vZ2xlLCBNaWNyb3NvZnQsIFdpbmRvd3MsIG9yIHBob25l"
