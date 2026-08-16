@@ -254,7 +254,9 @@ class WritingWindow(QWidget):
         col.setSpacing(6)
         hint = QLabel(
             "This copy isn’t signed in. Type your email — we’ll send a slip. "
-            "Paste it below. We never ask for a Google or Windows password."
+            "Paste it below. We never ask for a Google or Windows password. "
+            "The website box is the Heirloom page in your browser (https://…) — "
+            "not a street address. Leave it blank if you only want spelling here."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("font-size: 12px; color: #5a3a28;")
@@ -263,7 +265,7 @@ class WritingWindow(QWidget):
         self.email_in.setPlaceholderText("Your email")
         col.addWidget(self.email_in)
         self.house_in = QLineEdit()
-        self.house_in.setPlaceholderText("House address (https://…) if this copy doesn’t know it")
+        self.house_in.setPlaceholderText("Heirloom website (https://…) — not a street address")
         url = (config.BACKEND_URL or "").strip()
         if url and "localhost" not in url and not url.startswith("__"):
             self.house_in.setText(url)
