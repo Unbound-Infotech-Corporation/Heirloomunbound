@@ -190,7 +190,9 @@ class SoundTab(QWidget):
         root.addLayout(form)
 
         hint = QLabel(
-            "If you plug in headphones or a USB microphone, click Look again."
+            "If you plug in headphones or a USB microphone, click Look again. "
+            "Windows Mixer often shows this app at 1 and will not let you drag "
+            "it — we push it up when the twin talks, then you can move it."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {PALETTE['text_muted']}; font-size: 12px;")

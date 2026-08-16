@@ -5,3 +5,5 @@ soundfile>=0.12.1
 numpy>=1.24
 Pillow>=10.0
 mss>=9.0
+pycaw>=20230407
+comtypes>=1.4

@@ -125,6 +125,23 @@ def test_sound_settings_let_you_pick_mic_and_speakers():
     assert "def _apply_sound_settings" in window
 
 
+def test_windows_mixer_session_volume_is_pushed_on_play():
+    avatar = (DESKTOP / "heirloom" / "ui" / "avatar_panel.py").read_text(encoding="utf-8")
+    vol = (DESKTOP / "heirloom" / "windows_volume.py").read_text(encoding="utf-8")
+    req = (DESKTOP / "requirements.txt").read_text(encoding="utf-8")
+    settings = (DESKTOP / "heirloom" / "ui" / "settings_dialog.py").read_text(encoding="utf-8")
+    assert "def set_app_session_volume" in vol
+    assert "ISimpleAudioVolume" in vol
+    assert "SetMasterVolume" in vol
+    assert "pycaw" in req
+    assert "comtypes" in req
+    assert "playbackStateChanged" in avatar
+    assert "set_app_session_volume" in avatar
+    assert "setMuted" in avatar
+    assert "def _push_playback_volume" in avatar
+    assert "Windows Mixer often shows this app at 1" in settings
+
+
 def test_mini_talk_python_compiles():
     files = [
         DESKTOP / "heirloom" / "ui" / "talk_window.py",
@@ -134,6 +151,7 @@ def test_mini_talk_python_compiles():
         DESKTOP / "heirloom" / "config.py",
         DESKTOP / "heirloom" / "audio.py",
         DESKTOP / "heirloom" / "ui" / "settings_dialog.py",
+        DESKTOP / "heirloom" / "windows_volume.py",
     ]
     errors = []
     for path in files:

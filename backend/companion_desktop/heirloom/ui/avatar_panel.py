@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import api, config
+from ..windows_volume import set_app_session_volume
 from . import PALETTE
 from .aura import Aura
 
@@ -221,31 +222,27 @@ class AvatarPanel(QFrame):
         # Media
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
-        # -----------------------------------------------------------------
-        # Windows-Mixer fix: QAudioOutput on Windows registers its session
-        # at whatever tiny default the OS picks unless we ALWAYS set volume
-        # explicitly. Without this call the app appears pinned at ~1% in the
-        # Volume Mixer and the slider can't be raised. Also read from config
-        # so a user who lowered it in-app doesn't have their setting stomped.
         try:
             _twin_vol = float(config.load_settings().get("twin_playback_volume", 1.0))
         except Exception:  # noqa: BLE001
             _twin_vol = 1.0
-        # Clamp: 0.0-1.0 per Qt docs. Anything < 0.05 causes the "stuck at 1"
-        # Windows Mixer symptom — floor it so users can't accidentally lock
-        # themselves out via a slider mishap.
-        _twin_vol = max(0.05, min(1.0, _twin_vol))
-        self.audio.setVolume(_twin_vol)
+        # Keep a copy so we can push again when WASAPI finally creates the
+        # Windows Mixer session (that happens on first play, not at startup).
+        self._desired_volume = max(0.05, min(1.0, _twin_vol))
+        try:
+            self.audio.setMuted(False)
+        except Exception:  # noqa: BLE001
+            pass
+        self.player.setAudioOutput(self.audio)
+        self.player.mediaStatusChanged.connect(self._on_media_status)
+        self.player.errorOccurred.connect(self._on_media_error)
+        self.player.playbackStateChanged.connect(self._on_playback_state)
         try:
             self.apply_output_device(
                 str(config.load_settings().get("speaker_device") or "")
             )
         except Exception:  # noqa: BLE001
-            pass
-        # -----------------------------------------------------------------
-        self.player.setAudioOutput(self.audio)
-        self.player.mediaStatusChanged.connect(self._on_media_status)
-        self.player.errorOccurred.connect(self._on_media_error)
+            self._push_playback_volume()
 
         # Layout
         root = QVBoxLayout(self)
@@ -411,6 +408,7 @@ class AvatarPanel(QFrame):
         self.player.setVideoOutput(None)  # type: ignore[arg-type]
         self.player.setSource(QUrl.fromLocalFile(path))
         self._start_tts_pulse()
+        self._push_playback_volume()
         self.player.play()
 
     def _on_tts_err(self, msg: str) -> None:
@@ -592,6 +590,7 @@ class AvatarPanel(QFrame):
             self._broadcast.video.show()
             self._broadcast.portrait.hide()
         self.player.setSource(QUrl.fromLocalFile(path))
+        self._push_playback_volume()
         self.player.play()
 
     def _on_media_status(self, status: QMediaPlayer.MediaStatus) -> None:
@@ -610,19 +609,48 @@ class AvatarPanel(QFrame):
         if self._talk_visible():
             self._talk.show_portrait_surface()
 
+    def _on_playback_state(self, state: object) -> None:
+        # The Windows Mixer session is created when playback actually starts.
+        # Pushing volume only at construction leaves the slider stuck at 1.
+        if state == QMediaPlayer.PlayingState:
+            self._push_playback_volume()
+            QTimer.singleShot(80, self._push_playback_volume)
+            QTimer.singleShot(250, self._push_playback_volume)
+            QTimer.singleShot(700, self._push_playback_volume)
+
+    def _push_playback_volume(self) -> None:
+        """Apply loudness to Qt and to this app's Windows Mixer session."""
+        try:
+            v = max(0.05, min(1.0, float(self._desired_volume)))
+        except (TypeError, ValueError):
+            v = 1.0
+        self._desired_volume = v
+        try:
+            self.audio.setMuted(False)
+            # Nudge WASAPI: some Qt builds ignore the first setVolume after
+            # setDevice / first play and keep the Mixer at 1%.
+            self.audio.setVolume(1.0)
+            self.audio.setVolume(v)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            set_app_session_volume(v)
+        except Exception:  # noqa: BLE001
+            pass
+
     # --- Public: volume control ---------------------------------------
     def set_playback_volume(self, volume: float) -> None:
         """Set the twin's voice playback volume (0.0-1.0). Persists to config.
 
-        Enforces a 0.05 floor because a QAudioOutput session created at ~0 on
-        Windows sticks in the Volume Mixer at 1% and the OS won't let it be
-        raised without restarting the app.
+        Also writes this process's Windows Mixer session so sndvol.exe is not
+        stuck at 1% with a slider that will not move.
         """
         try:
             v = max(0.05, min(1.0, float(volume)))
         except (TypeError, ValueError):
             return
-        self.audio.setVolume(v)
+        self._desired_volume = v
+        self._push_playback_volume()
         try:
             s = config.load_settings()
             s["twin_playback_volume"] = v
@@ -641,16 +669,17 @@ class AvatarPanel(QFrame):
         """Send the twin's voice to a named speaker, or the usual one if blank."""
         wanted = (name or "").strip()
         try:
-            if not wanted:
-                self.audio.setDevice(QMediaDevices.defaultAudioOutput())
-                return
-            for device in QMediaDevices.audioOutputs():
-                if device.description() == wanted:
-                    self.audio.setDevice(device)
-                    return
-            self.audio.setDevice(QMediaDevices.defaultAudioOutput())
+            chosen = QMediaDevices.defaultAudioOutput()
+            if wanted:
+                for device in QMediaDevices.audioOutputs():
+                    if device.description() == wanted:
+                        chosen = device
+                        break
+            self.audio.setDevice(chosen)
         except Exception:  # noqa: BLE001
             pass
+        # setDevice rebuilds the WASAPI client and drops volume back to 1%.
+        self._push_playback_volume()
 
     def apply_sound_settings(self, settings: Optional[dict] = None) -> None:
         """Re-read volume + speaker after Settings → Sound is saved."""
@@ -659,8 +688,9 @@ class AvatarPanel(QFrame):
             vol = float(data.get("twin_playback_volume", 1.0))
         except (TypeError, ValueError):
             vol = 1.0
-        self.set_playback_volume(vol)
+        # Device first — changing it resets Qt volume — then loudness.
         self.apply_output_device(str(data.get("speaker_device") or ""))
+        self.set_playback_volume(vol)
 
     def _on_broadcast_closed(self) -> None:
         if self._broadcast is not None:
