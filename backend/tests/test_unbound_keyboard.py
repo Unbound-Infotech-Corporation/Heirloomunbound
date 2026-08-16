@@ -154,6 +154,14 @@ def test_android_ime_is_a_real_keyboard_and_skips_password_fields():
     assert "house_key" in settings
     assert "house_blob" in settings
     assert "HouseKey.parse" in settings
+    assert "google_signin" in settings
+    assert "auth.emergentagent.com" in settings
+    assert "Sign in with Google" in (
+        ANDROID / "app" / "src" / "main" / "res" / "values" / "strings.xml"
+    ).read_text(encoding="utf-8")
+    assert "google_signin" in (
+        ANDROID / "app" / "src" / "main" / "res" / "layout" / "activity_settings.xml"
+    ).read_text(encoding="utf-8")
     assert "KEYCODE_MODE_CHANGE" in ime
     assert "KEYCODE_GLOBE = -10" in ime
     assert "LocalProofread.proofread" in ime
@@ -164,6 +172,7 @@ def test_android_ime_is_a_real_keyboard_and_skips_password_fields():
     assert 'android:codes="-2"' in numbers
     assert "imeSubtypeMode" in method
     assert "Languages" in readme
+    assert "Sign in with Google" in readme
     assert "password" in readme.lower()
     assert "house key" in readme.lower()
     assert "assembleDebug" in readme
@@ -280,8 +289,12 @@ def test_web_and_phone_surfaces():
     today = (FRONT / "pages" / "Today.jsx").read_text(encoding="utf-8")
     roadmap = (FRONT / "pages" / "Roadmap.jsx").read_text(encoding="utf-8")
     login = (FRONT / "pages" / "Login.jsx").read_text(encoding="utf-8")
+    mobile_login = (FRONT / "pages" / "mobile" / "MobileLogin.jsx").read_text(encoding="utf-8")
+    auth = (FRONT / "components" / "Auth.jsx").read_text(encoding="utf-8")
     assert 'path="/writing"' in app
     assert 'path="keyboard"' in app
+    assert 'path="/m/login"' in app
+    assert "MobileLogin" in app
     assert 'data-testid="writing-root"' in writing
     assert "Copy my house key" in writing
     assert "Fix spelling" in writing
@@ -302,6 +315,13 @@ def test_web_and_phone_surfaces():
     assert "Sign in with Google" in login
     assert "auth.emergentagent.com" in login
     assert 'data-testid="login-google-button"' in login
+    assert "Sign in with Google" in mobile_login
+    assert "auth.emergentagent.com" in mobile_login
+    assert 'data-testid="mobile-login-google-button"' in mobile_login
+    assert 'window.location.origin + "/m"' in mobile_login
+    assert "/m/login" in auth
+    assert "/m/twin" in auth
+    assert 'Navigate to={onPhone ? "/m/login" : "/login"}' in auth
 
 
 def test_ollama_still_out_of_cloud_providers():

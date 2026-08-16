@@ -34,8 +34,11 @@ Install on an Android phone
    → Manage keyboards → turn on **Unbound Keyboard**.
 4. When you type, tap 🌐 on this keyboard to switch back to Gboard (or
    your old keyboard). 123 opens numbers and symbols.
-5. Open Unbound Keyboard settings. Paste the whole house slip from
-   Heirloom → Write → Copy my house key. One paste.
+5. Open Unbound Keyboard. Tap **Sign in with Google**. A browser opens.
+   Sign in there. Heirloom never sees that password.
+6. To polish wording in your voice, paste the whole house slip from
+   Heirloom → Write → Copy my house key. One paste. Spelling still
+   works without it.
 
 The keyboard will not send text from password, PIN, or card-number boxes.
 Tap **Fix spelling** to apply the little fixes, or **Leave it** if you

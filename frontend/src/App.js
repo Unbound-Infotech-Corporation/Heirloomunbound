@@ -32,6 +32,7 @@ import MobileHistory from "@/pages/mobile/MobileHistory";
 import MobileTwin from "@/pages/mobile/MobileTwin";
 import MobilePacks from "@/pages/mobile/MobilePacks";
 import MobileKeyboard from "@/pages/mobile/MobileKeyboard";
+import MobileLogin from "@/pages/mobile/MobileLogin";
 import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import HeirPortal from "@/pages/HeirPortal";
@@ -123,6 +124,8 @@ function AppRouter() {
         <Route path="/avatar-studio" element={<AvatarStudio />} />
         <Route path="/setup/keys" element={<SetupKeys />} />
       </Route>
+      {/* Phone sign-in sits outside the protected shell so Google can open. */}
+      <Route path="/m/login" element={<MobileLogin />} />
       {/* Mobile PWA shell — protected but no AppLayout (its own bottom-tab UI). */}
       <Route
         path="/m"

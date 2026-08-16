@@ -13,8 +13,8 @@
  * Cache versioning: bump `SW_VERSION` when shipping a new PWA revision to
  * force clients to purge old caches on the next activate cycle.
  */
-const SW_VERSION = "heirloom-v2";
-const APP_SHELL = ["/m", "/manifest.json", "/icon-192.png", "/icon-512.png"];
+const SW_VERSION = "heirloom-v3";
+const APP_SHELL = ["/m", "/m/login", "/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

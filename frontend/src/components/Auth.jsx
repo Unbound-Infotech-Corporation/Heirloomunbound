@@ -33,7 +33,8 @@ export function ProtectedRoute({ children }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="/login" replace />;
+  const onPhone = location.pathname.startsWith("/m");
+  if (!user) return <Navigate to={onPhone ? "/m/login" : "/login"} replace />;
   if (onboarded === null) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-base)" }}>
@@ -41,7 +42,8 @@ export function ProtectedRoute({ children }) {
       </div>
     );
   }
-  if (onboarded === false && location.pathname !== "/onboarding") {
+  // Phone app: let them talk to the twin after Google. Desktop still does onboarding.
+  if (onboarded === false && location.pathname !== "/onboarding" && !onPhone) {
     return <Navigate to="/onboarding" replace />;
   }
   return children;
@@ -60,8 +62,16 @@ export function AuthCallback() {
 
     const hash = location.hash || window.location.hash;
     const m = hash.match(/session_id=([^&]+)/);
+    const path = window.location.pathname || "";
+    let markedPhone = false;
+    try {
+      markedPhone = sessionStorage.getItem("heirloom_after_google") === "phone";
+    } catch {
+      markedPhone = false;
+    }
+    const onPhone = path.startsWith("/m") || (markedPhone && path !== "/today");
     if (!m) {
-      navigate("/login", { replace: true });
+      navigate(onPhone ? "/m/login" : "/login", { replace: true });
       return;
     }
     const sessionId = decodeURIComponent(m[1]);
@@ -71,8 +81,13 @@ export function AuthCallback() {
       .then(({ data }) => {
         setUser(data);
         window.history.replaceState(null, "", window.location.pathname);
-        // After auth, ProtectedRoute will redirect to /onboarding if needed
-        navigate("/today", { replace: true, state: { user: data } });
+        try {
+          sessionStorage.removeItem("heirloom_after_google");
+        } catch {
+          /* ignore */
+        }
+        // Phone Google returns to /m; the website login still goes to /today.
+        navigate(onPhone ? "/m/twin" : "/today", { replace: true, state: { user: data } });
       })
       .catch((err) => {
         setError(err.message || "Auth failed");
@@ -88,7 +103,9 @@ export function AuthCallback() {
         </div>
         {error && (
           <button
-            onClick={() => navigate("/login")}
+            onClick={() =>
+              navigate((window.location.pathname || "").startsWith("/m") ? "/m/login" : "/login")
+            }
             data-testid="auth-retry-button"
             className="mt-6 px-5 py-2 text-sm"
             style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}

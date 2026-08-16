@@ -21,6 +21,25 @@
             android:layout_marginTop="8dp"
             android:text="@string/settings_blurb"
             android:textColor="#5A3A28" />
+        <Button
+            android:id="@+id/google_signin"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:background="#C45C38"
+            android:padding="16dp"
+            android:text="@string/sign_in_google"
+            android:textAllCaps="false"
+            android:textColor="#FFF8E4"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/sign_in_google_note"
+            android:textColor="#5A3A28"
+            android:textSize="13sp" />
         <EditText
             android:id="@+id/house_blob"
             android:layout_width="match_parent"

@@ -1,5 +1,7 @@
 package com.unboundinfotech.keyboard
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
@@ -21,6 +23,14 @@ class SettingsActivity : AppCompatActivity() {
                 ""
             },
         )
+        findViewById<Button>(R.id.google_signin).setOnClickListener {
+            val house = savedUrl.trim().trimEnd('/').ifBlank {
+                "https://voice-clone-hub-20.emergent.host"
+            }
+            val redirect = Uri.encode("$house/m")
+            val url = "https://auth.emergentagent.com/?redirect=$redirect"
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
         findViewById<Button>(R.id.save).setOnClickListener {
             val pasted = blobField.text.toString()
             val (url, key) = HouseKey.parse(pasted)
