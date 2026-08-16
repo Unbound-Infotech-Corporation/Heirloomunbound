@@ -1,30 +1,40 @@
-START HERE — Unbound Keyboard for your computer
-===============================================
+START HERE — Heirloom for your computer
+=======================================
+
+This is the whole Heirloom app: your twin, look at the screen, mail,
+and Unbound Keyboard. Not just the writing card.
 
 1. Unzip this. Put the folder on your Desktop.
    Do not double-click anything from inside the zip.
 2. Open the folder.
-3. Double-click  Try-Unbound-Keyboard.bat
+3. Double-click  Heirloom.bat
    If you only see a Windows folder, open that first, then
-   double-click Try-Unbound-Keyboard.bat.
+   double-click Heirloom.bat.
 4. First time takes about a minute. Leave the window open.
    If Windows shows a blue box: More info → Run anyway.
-5. When the card opens, type:
+5. Tap Continue with Google. A browser opens. Sign in there.
+   Heirloom never sees that password. Then talk to your twin
+   in the big window.
+
+Unbound Keyboard is still here: tray → Unbound Keyboard, or
+Ctrl+Shift+U. Or double-click Try-Unbound-Keyboard.bat if you
+only want the writing card.
+
+When the writing card opens, type:
 
      I recieve this and should of said thanks just just just
 
-6. Click Fix spelling, or tap a yellow chip. Leave it if you meant
-   what you typed. Then try Put this where I was typing.
+Click Fix spelling, or tap a yellow chip. Leave it if you meant
+what you typed. Then try Put this where I was typing.
 
-Tray → Unbound Keyboard, or Ctrl+Shift+U, opens the card any time.
-
-This try-it copy may not be signed in yet. Spelling still works without
-signing in. A slip is a Heirloom email after you tap Send a sign-in note.
-Look for “Your Unbound Keyboard sign-in slip”. It starts with ml_.
-Check spam. If nothing arrives, the live website cannot send that note
-yet — skip Sign in and keep writing. The website box is the Heirloom
-page in your browser (https://…) — not a street address. We never ask
-for a Google, Microsoft, Windows, or phone password.
+This try-it copy may not be signed in yet. Spelling still works
+without signing in. Sign in with Google in the big window (or on
+the writing card). A slip is a Heirloom email after you tap
+Send a sign-in note. Look for “Your Unbound Keyboard sign-in slip”.
+It starts with ml_. Check spam. If nothing arrives, skip that note
+and use Continue with Google instead. The website box is the
+Heirloom page in your browser (https://…) — not a street address.
+We never ask for a Google, Microsoft, Windows, or phone password.
 
 MAC
 ---

@@ -51,11 +51,12 @@ We catch spelling, little grammar slips, and words you lean on. Then
 "Put this where I was typing" pastes the cleaned words back.
 
 A try-it copy (no house pairing) still does spelling and grammar on this
-computer. To make it sound like you, download Heirloom from Local PC in
-your account. We never read password boxes. We never ask for a Windows
-password.
+computer. Sign in with Google in the big window so this computer can talk
+to your twin. We never ask for a Google or Windows password. We never
+read password boxes.
 
-Double-click Try-Unbound-Keyboard.bat to open the writing card on launch.
+Double-click Heirloom.bat for the whole app. Try-Unbound-Keyboard.bat
+still opens the writing card on launch.
 
 LOOK AT MY SCREEN
 -----------------

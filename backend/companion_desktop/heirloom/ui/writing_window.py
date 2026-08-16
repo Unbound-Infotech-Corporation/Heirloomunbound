@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from .. import api, config
 from ..commands import _looks_secret_writing, clipboard_get, clipboard_set, paste_keys
+from ..google_signin import pair_this_computer
 from ..writing_local import proofread_local
 
 # Cream card of its own. The rest of the desktop app uses a dark theme
@@ -130,6 +131,7 @@ class WritingWindow(QWidget):
     """Movable cream card for Unbound Keyboard on Windows. Not a keylogger."""
 
     closed = Signal()
+    signed_in = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -293,7 +295,9 @@ class WritingWindow(QWidget):
         col.setContentsMargins(0, 0, 0, 8)
         col.setSpacing(6)
         hint = QLabel(
-            "This copy isn’t signed in. A slip is a short Heirloom email after you tap "
+            "This copy isn’t signed in. Continue with Google in your browser — "
+            "Heirloom never sees that password. Then this computer can talk to your twin. "
+            "A slip is a short Heirloom email after you tap "
             "Send a sign-in note — look for “Your Unbound Keyboard sign-in slip”. "
             "It starts with ml_. Check spam. If nothing arrives, the website could not "
             "send it. Skip sign-in and keep writing; spelling still works. "
@@ -304,6 +308,10 @@ class WritingWindow(QWidget):
         hint.setWordWrap(True)
         hint.setStyleSheet("font-size: 12px; color: #5a3a28;")
         col.addWidget(hint)
+        self.btn_google = QPushButton("Continue with Google")
+        self.btn_google.setObjectName("primary")
+        self.btn_google.clicked.connect(self._google_sign_in)
+        col.addWidget(self.btn_google)
         self.email_in = QLineEdit()
         self.email_in.setPlaceholderText("Your email")
         col.addWidget(self.email_in)
@@ -350,6 +358,18 @@ class WritingWindow(QWidget):
     def _bar_release(self, event) -> None:  # noqa: N802
         self._drag_pos = None
         event.accept()
+
+    def _google_sign_in(self) -> None:
+        self._apply_house_url()
+        self._set_busy(True)
+        self.note.setText(
+            "A browser should open. Sign in with Google there. We never see that password."
+        )
+        api.run_async(
+            lambda: pair_this_computer(config.BACKEND_URL),
+            lambda data: self._on_signed_in(data if isinstance(data, dict) else {}),
+            self._on_login_err,
+        )
 
     def _apply_house_url(self) -> None:
         typed = (self.house_in.text() or "").strip().rstrip("/")
@@ -407,6 +427,7 @@ class WritingWindow(QWidget):
         self._sign_in_box.setVisible(False)
         self.note.setText(str(data.get("note") or "This computer is signed in."))
         self.code_in.clear()
+        self.signed_in.emit()
 
     def _on_login_err(self, msg: str) -> None:
         self._set_busy(False)
@@ -442,6 +463,8 @@ class WritingWindow(QWidget):
         if hasattr(self, "btn_send_login"):
             self.btn_send_login.setEnabled(not busy)
             self.btn_finish_login.setEnabled(not busy)
+        if hasattr(self, "btn_google"):
+            self.btn_google.setEnabled(not busy)
 
     def _from_clipboard(self) -> None:
         status, out = clipboard_get()

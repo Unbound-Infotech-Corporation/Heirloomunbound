@@ -1,6 +1,6 @@
-"""Build a grandmother-simple try-it zip for Unbound Keyboard.
+"""Build a grandmother-simple try-it zip for Heirloom (whole app + Unbound Keyboard).
 
-Unzip, copy to Desktop, double-click Try-Unbound-Keyboard.bat.
+Unzip, copy to Desktop, double-click Heirloom.bat.
 
     python3 pack_try_it_zip.py
     python3 pack_try_it_zip.py /tmp/Heirloom-Unbound-Keyboard.zip
@@ -59,7 +59,7 @@ def _add_tree(zf: zipfile.ZipFile, src_root: Path, zip_prefix: str) -> int:
             url = (
                 os.environ.get("PUBLIC_BACKEND_URL")
                 or os.environ.get("REACT_APP_BACKEND_URL")
-                or ""
+                or "https://voice-clone-hub-20.emergent.host"
             ).strip().rstrip("/")
             if url:
                 data = data.decode("utf-8").replace('"__BACKEND_URL__"', f'"{url}"').encode("utf-8")

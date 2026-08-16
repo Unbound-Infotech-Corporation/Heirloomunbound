@@ -20,10 +20,13 @@ from typing import Any, Dict
 BACKEND_URL = "__BACKEND_URL__"
 DEVICE_TOKEN = "__DEVICE_TOKEN__"
 
+# The live house customers already use. Try-it zips must talk here, not localhost.
+PUBLIC_HOUSE = "https://voice-clone-hub-20.emergent.host"
+
 # Fall back to env vars when running from source (developer mode),
 # or if a zip was baked without a public URL.
 if not BACKEND_URL or BACKEND_URL.startswith("__"):
-    BACKEND_URL = os.environ.get("HEIRLOOM_BACKEND_URL", "http://localhost:8001")
+    BACKEND_URL = os.environ.get("HEIRLOOM_BACKEND_URL", PUBLIC_HOUSE)
 if not DEVICE_TOKEN or DEVICE_TOKEN.startswith("__"):
     DEVICE_TOKEN = os.environ.get("HEIRLOOM_DEVICE_TOKEN", "")
 
@@ -89,6 +92,11 @@ def _looks_real_token(token: str) -> bool:
     return bool(blob) and not blob.startswith("__")
 
 
+def is_paired() -> bool:
+    token = (DEVICE_TOKEN or "").strip()
+    return bool(token) and not token.startswith("__")
+
+
 def apply_saved_login() -> None:
     """Unsigned try-it zips pick up a later in-app sign-in from settings.json."""
     global BACKEND_URL, DEVICE_TOKEN
@@ -98,8 +106,11 @@ def apply_saved_login() -> None:
     if not _looks_real_token(DEVICE_TOKEN) and _looks_real_token(tok):
         DEVICE_TOKEN = tok
     localish = (not BACKEND_URL) or BACKEND_URL.startswith("__") or "localhost" in BACKEND_URL
-    if localish and url.startswith("http"):
-        BACKEND_URL = url
+    if url.startswith("http") and "localhost" not in url:
+        if localish or not BACKEND_URL:
+            BACKEND_URL = url
+    elif localish:
+        BACKEND_URL = PUBLIC_HOUSE
 
 
 def persist_login(device_token: str, backend_url: str = "") -> None:

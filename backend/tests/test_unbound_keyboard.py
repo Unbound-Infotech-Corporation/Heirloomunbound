@@ -191,12 +191,14 @@ def test_windows_helper_is_not_a_keylogger():
     assert "Fix spelling" in window
     assert "Leave it" in window
     assert "Sign in" in window
+    assert "Continue with Google" in window
     assert "Send a sign-in note" in window
     assert "not a street address" in window
     assert "House address" not in window
     assert "No slip is sitting in your mail" in window
     assert "cannot send a sign-in note yet" in window
     assert "_login_error_text" in window
+    assert "pair_this_computer" in window
     assert "drag here" in window
     assert "Stay in front" in window
     assert "WRITING_QSS" in window
@@ -220,7 +222,42 @@ def test_windows_helper_is_not_a_keylogger():
     assert 'COMPANION_SCRIPT_VERSION = "2026.08.15.9"' in companion
     assert "open_writing_helper" in boot
     assert "HEIRLOOM_TRY_KEYBOARD" in boot
+    assert "open_sign_in" in boot
+    assert "if unsigned or try_keyboard" not in boot
     compile(window, str(DESKTOP / "heirloom" / "ui" / "writing_window.py"), "exec")
+
+
+def test_desktop_google_signin_pairs_the_whole_app():
+    google = (DESKTOP / "heirloom" / "google_signin.py").read_text(encoding="utf-8")
+    dialog = (DESKTOP / "heirloom" / "ui" / "signin_dialog.py").read_text(encoding="utf-8")
+    main = (DESKTOP / "heirloom" / "ui" / "main_window.py").read_text(encoding="utf-8")
+    boot = (DESKTOP / "heirloom" / "__main__.py").read_text(encoding="utf-8")
+    cfg = (DESKTOP / "heirloom" / "config.py").read_text(encoding="utf-8")
+    api_src = (DESKTOP / "heirloom" / "api.py").read_text(encoding="utf-8")
+    assert "auth.emergentagent.com" in google
+    assert "127.0.0.1" in google
+    assert "companion/register" in google
+    assert "session_id" in google
+    assert "pair_this_computer" in google
+    assert "PUBLIC_HOUSE" in google
+    assert "emergent.host" in cfg
+    assert "PUBLIC_HOUSE" in cfg
+    assert "def is_paired" in cfg
+    assert "def persist_login" in cfg
+    assert "def run_async" in api_src
+    assert "SignInDialog" in main
+    assert "def open_sign_in" in main
+    assert "Continue with Google" in dialog
+    assert "Sign in to use the whole house" in dialog
+    err_fn = main.split("def _on_me_err", 1)[1].split("def ", 1)[0]
+    assert "open_writing_helper" not in err_fn
+    assert "open_sign_in" in err_fn
+    assert "Download again" in err_fn
+    assert 'QAction("Sign in"' in main
+    assert "window.open_sign_in" in main
+    assert "open_sign_in" in boot
+    compile(google, str(DESKTOP / "heirloom" / "google_signin.py"), "exec")
+    compile(dialog, str(DESKTOP / "heirloom" / "ui" / "signin_dialog.py"), "exec")
 
 
 def test_web_and_phone_surfaces():
@@ -285,6 +322,8 @@ def test_desktop_writing_brain_matches_cloud():
     start = (DESKTOP / "START HERE.txt").read_text(encoding="utf-8")
     try_bat = (DESKTOP / "Try-Unbound-Keyboard.bat").read_text(encoding="utf-8", errors="replace")
     assert "Try-Unbound-Keyboard.bat" in start
+    assert "Heirloom.bat" in start
+    assert "Continue with Google" in start
     assert "I recieve this" in start
     assert "Fix spelling" in start
     assert "Sign in" in start
@@ -309,6 +348,8 @@ def test_try_it_zip_is_double_click_installable():
     assert "Heirloom-Unbound-Keyboard/Windows/run.sh" in names
     assert "Heirloom-Unbound-Keyboard/Windows/heirloom/writing_local.py" in names
     assert "Heirloom-Unbound-Keyboard/Windows/heirloom/ui/writing_window.py" in names
+    assert "Heirloom-Unbound-Keyboard/Windows/heirloom/google_signin.py" in names
+    assert "Heirloom-Unbound-Keyboard/Windows/heirloom/ui/signin_dialog.py" in names
     assert "Heirloom-Unbound-Keyboard/Windows/START HERE.txt" in names
     assert any(n.endswith("AndroidManifest.xml") for n in names)
     assert any(n.endswith("UnboundImeService.kt") for n in names)
@@ -338,5 +379,7 @@ def test_windows_zip_has_the_bat_right_there():
     assert "Unbound-Keyboard-for-Windows/Heirloom.bat" in names
     assert "Unbound-Keyboard-for-Windows/START HERE.txt" in names
     assert "Unbound-Keyboard-for-Windows/heirloom/ui/writing_window.py" in names
+    assert "Unbound-Keyboard-for-Windows/heirloom/google_signin.py" in names
+    assert "Unbound-Keyboard-for-Windows/heirloom/ui/signin_dialog.py" in names
     assert not any("/Windows/Try-Unbound-Keyboard.bat" in n for n in names)
     dest.unlink(missing_ok=True)

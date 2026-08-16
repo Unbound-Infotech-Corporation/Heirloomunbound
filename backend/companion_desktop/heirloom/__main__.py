@@ -82,13 +82,11 @@ def _run() -> int:
     app.setOrganizationName("Unbound Infotech")
     app.setQuitOnLastWindowClosed(False)  # tray keeps us alive
 
-    unsigned = not (config.DEVICE_TOKEN or "").strip()
+    unsigned = not config.is_paired()
     if unsigned:
-        # Try-it zip / source tree: Unbound Keyboard still works locally.
-        # Twin chat and PC jobs need a pairing from Local PC.
         _append_setup_log(
-            "This copy isn’t signed in. Unbound Keyboard will still catch spelling "
-            "here. Download Heirloom again from Local PC to pair this computer."
+            "This copy isn’t signed in. Continue with Google in the big window. "
+            "Unbound Keyboard will still catch spelling here without signing in."
         )
 
     window = MainWindow()
@@ -100,7 +98,9 @@ def _run() -> int:
     def _after_splash() -> None:
         window.show()
         try_keyboard = os.environ.get("HEIRLOOM_TRY_KEYBOARD", "").strip() == "1"
-        if unsigned or try_keyboard:
+        if unsigned:
+            QTimer.singleShot(200, window.open_sign_in)
+        if try_keyboard:
             QTimer.singleShot(450, window.open_writing_helper)
 
     # Serif boot fade — 800ms, then reveal the main window

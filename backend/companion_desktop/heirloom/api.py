@@ -92,6 +92,15 @@ def _check(r: requests.Response) -> dict:
 
 
 # ---- public helpers ----
+def run_async(
+    fn: Callable,
+    on_ok: Optional[Callable] = None,
+    on_err: Optional[Callable] = None,
+) -> None:
+    """Run any callable off the GUI thread."""
+    _submit(fn, on_ok, on_err)
+
+
 def get_async(
     path: str,
     on_ok: Optional[Callable] = None,

@@ -150,5 +150,7 @@ def test_baked_desktop_files_include_both_starters():
     assert "START HERE.txt" in DESKTOP_FILES
     assert "Try-Unbound-Keyboard.bat" in DESKTOP_FILES
     assert "heirloom/writing_local.py" in DESKTOP_FILES
+    assert "heirloom/google_signin.py" in DESKTOP_FILES
+    assert "heirloom/ui/signin_dialog.py" in DESKTOP_FILES
     assert '"__BACKEND_URL__"' in cfg
     assert "if not BACKEND_URL or BACKEND_URL.startswith" in cfg

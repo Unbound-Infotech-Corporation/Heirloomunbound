@@ -36,6 +36,7 @@ from .mica import apply as apply_mica
 from .panels import QuickCapture, RecentMemories
 from .settings_dialog import SettingsDialog
 from .talk_window import MiniTalkWindow
+from .signin_dialog import SignInDialog
 from .writing_window import WritingWindow
 from .titlebar import TitleBar
 
@@ -51,6 +52,8 @@ class MainWindow(QMainWindow):
         self._mica_applied = False
         self._talk: Optional[MiniTalkWindow] = None
         self._writing: Optional[WritingWindow] = None
+        self._signin = None
+        self._cmd_poller = None
 
         self.setWindowTitle("Heirloom")
         self.resize(1280, 800)
@@ -65,6 +68,8 @@ class MainWindow(QMainWindow):
         self._wire_signals()
         self._load_initial_data()
         self._restore_geometry()
+        if not config.is_paired():
+            QTimer.singleShot(0, self.open_sign_in)
 
     # ----- UI -----
     def _build_ui(self) -> None:
@@ -238,11 +243,17 @@ class MainWindow(QMainWindow):
 
     # ----- data load -----
     def _load_initial_data(self) -> None:
+        if not config.is_paired():
+            self.open_sign_in()
+            return
         api.get_async("/desktop/me", on_ok=self._on_me, on_err=self._on_me_err)
         self.conversation.load_history()
         self.memories.refresh()
         # Start listening for OS commands the Twin queues (open apps, volume,
         # screen vision, etc.). Runs in its own thread; UI never blocks.
+        poller = getattr(self, "_cmd_poller", None)
+        if poller is not None and poller.isRunning():
+            return
         self._cmd_poller = CommandPoller(self)
         self._cmd_poller.ran.connect(lambda label: self._update_status(f"twin: {label}"))
         self._cmd_poller.start()
@@ -260,8 +271,8 @@ class MainWindow(QMainWindow):
 
     def _on_me_err(self, msg: str) -> None:
         self.titlebar.set_user_name("this copy isn’t signed in")
-        self._update_status("sign in from Unbound Keyboard — or Download again from Local PC")
-        self.open_writing_helper()
+        self._update_status("Sign in with Google — or Download again from Local PC")
+        self.open_sign_in()
 
     # ----- twin → avatar -----
     def _on_twin_reply(self, text: str) -> None:
@@ -398,8 +409,8 @@ class MainWindow(QMainWindow):
             Command(
                 id="signin",
                 label="Sign in",
-                hint="Email a slip — paste it here. No Google or Windows password.",
-                action=self.open_writing_helper,
+                hint="Continue with Google in the browser. No Google or Windows password here.",
+                action=self.open_sign_in,
             ),
             Command(
                 id="unboundkb",
@@ -455,11 +466,45 @@ class MainWindow(QMainWindow):
             ),
         ]
 
+    def open_sign_in(self) -> None:
+        """Cream card on the big window. Google in the browser — never a password here."""
+        if config.is_paired():
+            if self._signin is not None:
+                self._signin.hide()
+            return
+        host = self.centralWidget() or self
+        if self._signin is None:
+            self._signin = SignInDialog(host)
+            self._signin.signed_in.connect(self._on_desktop_signed_in)
+            self._signin.want_keyboard.connect(self.open_writing_helper)
+        self._place_sign_in()
+        self._signin.show()
+        self._signin.raise_()
+
+    def _place_sign_in(self) -> None:
+        if self._signin is None:
+            return
+        host = self._signin.parentWidget() or self.centralWidget() or self
+        self._signin.setGeometry(host.rect())
+        self._signin.raise_()
+
+    def resizeEvent(self, ev):  # noqa: N802
+        super().resizeEvent(ev)
+        self._place_sign_in()
+
+    def _on_desktop_signed_in(self) -> None:
+        if self._signin is not None:
+            self._signin.hide()
+        self._settings = config.load_settings()
+        self._update_status("this computer is signed in")
+        self._load_initial_data()
+
     def open_writing_helper(self) -> None:
         """Unbound Keyboard card. Draggable; not stuck in front of every window."""
         if self._writing is None:
             self._writing = WritingWindow()
             self._writing.closed.connect(self._persist_writing_geo)
+            self._writing.signed_in.connect(self._on_desktop_signed_in)
         geo = self._settings.get("writing_geometry")
         if isinstance(geo, list) and len(geo) == 4:
             self._writing.setGeometry(*geo)
@@ -559,7 +604,7 @@ class TrayProxy:
         write = QAction("Unbound Keyboard", menu)
         write.triggered.connect(window.open_writing_helper)
         signin = QAction("Sign in", menu)
-        signin.triggered.connect(window.open_writing_helper)
+        signin.triggered.connect(window.open_sign_in)
         popout = QAction("Pop out avatar for OBS", menu)
         popout.triggered.connect(window.avatar.pop_out)
         quit_act = QAction("Quit Heirloom", menu)
