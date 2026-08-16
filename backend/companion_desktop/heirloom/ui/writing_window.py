@@ -86,6 +86,46 @@ def _house_is_paired() -> bool:
     return bool(token) and not token.startswith("__")
 
 
+def _house_url_is_ready() -> bool:
+    url = (config.BACKEND_URL or "").strip()
+    return url.startswith("http") and "localhost" not in url and not url.startswith("__")
+
+
+def _login_error_text(msg: str) -> str:
+    """Plain talk when the live website cannot send a slip yet."""
+    blob = (msg or "").lower()
+    if any(s in blob for s in ("404", "not found", "405")):
+        return (
+            "The Heirloom website this copy reached cannot send a sign-in note yet. "
+            "Nothing was put in your mail. Spelling still works here without signing in."
+        )
+    if any(
+        s in blob
+        for s in (
+            "connection",
+            "refused",
+            "timed out",
+            "timeout",
+            "localhost",
+            "failed to establish",
+            "max retries",
+            "newconnectionerror",
+            "nameresolution",
+            "not known",
+        )
+    ):
+        return (
+            "This copy could not reach Heirloom, so no slip was sent. "
+            "Paste the Heirloom page from your browser (https://…), then tap Send a sign-in note again. "
+            "Or skip sign-in — spelling still works."
+        )
+    if "503" in blob or "couldn't send the note" in blob:
+        return (
+            "Couldn't send the note. Check spam in a minute, or skip sign-in — spelling still works."
+        )
+    return (msg or "Couldn't send the note.") + " Spelling still works without signing in."
+
+
 class WritingWindow(QWidget):
     """Movable cream card for Unbound Keyboard on Windows. Not a keylogger."""
 
@@ -253,10 +293,13 @@ class WritingWindow(QWidget):
         col.setContentsMargins(0, 0, 0, 8)
         col.setSpacing(6)
         hint = QLabel(
-            "This copy isn’t signed in. Type your email — we’ll send a slip. "
-            "Paste it below. We never ask for a Google or Windows password. "
+            "This copy isn’t signed in. A slip is a short Heirloom email after you tap "
+            "Send a sign-in note — look for “Your Unbound Keyboard sign-in slip”. "
+            "It starts with ml_. Check spam. If nothing arrives, the website could not "
+            "send it. Skip sign-in and keep writing; spelling still works. "
+            "We never ask for a Google or Windows password. "
             "The website box is the Heirloom page in your browser (https://…) — "
-            "not a street address. Leave it blank if you only want spelling here."
+            "not a street address."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("font-size: 12px; color: #5a3a28;")
@@ -319,6 +362,13 @@ class WritingWindow(QWidget):
         if "@" not in email:
             self.note.setText("Type the email you use for Heirloom.")
             return
+        if not _house_url_is_ready():
+            self.note.setText(
+                "Paste the Heirloom website from your browser first (https://…). "
+                "If you don’t have that, skip sign-in — spelling still works here. "
+                "No slip is sitting in your mail until the website can send one."
+            )
+            return
         self._set_busy(True)
         api.post_async(
             "/auth/desktop-login",
@@ -360,7 +410,7 @@ class WritingWindow(QWidget):
 
     def _on_login_err(self, msg: str) -> None:
         self._set_busy(False)
-        self.note.setText(msg or "Couldn't sign in. Try the slip again.")
+        self.note.setText(_login_error_text(msg))
 
     def mousePressEvent(self, event):  # noqa: N802
         super().mousePressEvent(event)

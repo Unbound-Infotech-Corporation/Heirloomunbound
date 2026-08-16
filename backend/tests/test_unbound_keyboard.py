@@ -194,6 +194,9 @@ def test_windows_helper_is_not_a_keylogger():
     assert "Send a sign-in note" in window
     assert "not a street address" in window
     assert "House address" not in window
+    assert "No slip is sitting in your mail" in window
+    assert "cannot send a sign-in note yet" in window
+    assert "_login_error_text" in window
     assert "drag here" in window
     assert "Stay in front" in window
     assert "WRITING_QSS" in window

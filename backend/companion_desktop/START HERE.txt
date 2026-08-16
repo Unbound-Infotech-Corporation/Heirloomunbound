@@ -18,12 +18,13 @@ START HERE — Unbound Keyboard for your computer
 
 Tray → Unbound Keyboard, or Ctrl+Shift+U, opens the card any time.
 
-This try-it copy may not be signed in yet. Spelling still works.
-On the card, type your email, tap Send a sign-in note, paste the
-slip from your mail, tap Sign in. The website box is the Heirloom
-page in your browser (https://…) — not a street address. Leave it
-blank if you only want spelling here. We never ask for a Google,
-Microsoft, Windows, or phone password.
+This try-it copy may not be signed in yet. Spelling still works without
+signing in. A slip is a Heirloom email after you tap Send a sign-in note.
+Look for “Your Unbound Keyboard sign-in slip”. It starts with ml_.
+Check spam. If nothing arrives, the live website cannot send that note
+yet — skip sign-in and keep writing. The website box is the Heirloom
+page in your browser (https://…) — not a street address. We never ask
+for a Google, Microsoft, Windows, or phone password.
 
 MAC
 ---
