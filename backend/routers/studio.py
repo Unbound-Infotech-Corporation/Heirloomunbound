@@ -43,6 +43,7 @@ from studio_compute import (
     resolve_compute_device,
     user_compute,
 )
+from studio_coach_vision import COACH_STEPS, classify_vendor_screen, observe_result
 from studio_setup import (
     clamp_setup,
     setup_catalog,
@@ -637,6 +638,36 @@ async def get_vendor_handoff(service_id: str, user: dict = Depends(get_studio_us
     if not handoff:
         raise HTTPException(status_code=404, detail="Unknown vendor")
     return handoff
+
+
+class CoachObserve(BaseModel):
+    service_id: str
+    current_step: str
+    image_b64: Optional[str] = None
+
+
+@router.post("/first-run/coach/observe")
+async def observe_vendor_coach(payload: CoachObserve, user: dict = Depends(get_studio_user)):
+    """Classify a first-run screenshot. Never returns extracted secrets."""
+    handoff = vendor_handoff(payload.service_id, _user_setup(user).get("vendor_email") or "")
+    if not handoff:
+        raise HTTPException(status_code=404, detail="Unknown vendor")
+    step = (payload.current_step or "").strip() or "create_account"
+    if step not in COACH_STEPS:
+        step = "create_account"
+    image = (payload.image_b64 or "").strip()
+    if not image:
+        return observe_result(
+            current_step=step,
+            scene="unknown",
+            hint="Open Heirloom on the dedicated PC after models install so it can watch the screen.",
+            watching=False,
+        )
+    return await classify_vendor_screen(
+        image_b64=image,
+        service_label=handoff["label"],
+        current_step=step,
+    )
 
 
 @router.put("/first-run")

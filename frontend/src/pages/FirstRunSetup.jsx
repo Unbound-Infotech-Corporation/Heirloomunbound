@@ -9,9 +9,9 @@ const STEPS = [
   { id: "welcome", label: "Welcome" },
   { id: "space", label: "Disk" },
   { id: "email", label: "Email" },
-  { id: "keys", label: "Cloud keys" },
   { id: "phone", label: "Phone" },
-  { id: "done", label: "Finish" },
+  { id: "done", label: "Install" },
+  { id: "keys", label: "Cloud keys" },
 ];
 
 export default function FirstRunSetup() {
@@ -42,12 +42,50 @@ export default function FirstRunSetup() {
     return body;
   };
 
-  const finish = async () => {
+  const startCoach = () => {
+    setCoachOn(true);
+    try {
+      if (email) save({ vendor_email: email });
+      const pending = (data?.catalog?.cloud_services || [])
+        .map((svc) => ({
+          ...svc,
+          ...(data.handoffs || {})[svc.id],
+          alreadySaved: Boolean(data.keys?.[svc.id]),
+        }))
+        .filter((svc) => !svc.alreadySaved);
+      const first = pending[0];
+      if (first) {
+        const steps = first.coach_steps?.length ? first.coach_steps : null;
+        openCoachStep(
+          first,
+          steps ? steps[0] : { id: "create_account", copy: email, open_url: first.signup_url, auto_open: true },
+          email
+        );
+      }
+    } catch {
+      /* coach still opens */
+    }
+  };
+
+  const downloadModels = async () => {
     setBusy(true);
     try {
       await save({ vendor_email: email, phone_features: phoneFeats, prefer_local: true });
       const { data: body } = await api.post("/studio/first-run/complete");
-      toast.success(body.provision?.hint || "Setup complete");
+      toast.success(body.provision?.hint || "Local models queued on the dedicated PC");
+      setStep(5);
+      startCoach();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const enterStudio = async () => {
+    setBusy(true);
+    try {
+      await save({ complete: true, vendor_email: email, phone_features: phoneFeats });
       navigate("/models");
     } catch (err) {
       toast.error(err?.response?.data?.detail || err.message);
@@ -109,13 +147,13 @@ export default function FirstRunSetup() {
           <ul className="text-sm space-y-2" style={{ color: "#ccc", lineHeight: 1.45 }}>
             <li>Reserve disk for local Whisper / Ollama / Piper / vault (20–50 GB if you want full power).</li>
             <li>Save the email you will use on vendor sites (ElevenLabs, D-ID, fal).</li>
+            <li>Pair your phone. Heavy inference stays on this PC.</li>
+            <li>Download local models first so screen vision is ready.</li>
             <li>
-              Pop out a stay-on-top guide. It opens each official page and pauses with what to
-              click and paste. <strong>You</strong> click Create account, I’m not a robot, and
-              Verify — Heirloom cannot drive those sites.
+              Then a stay-on-top guide opens each official page and watches the screen.
+              <strong> You</strong> click Create account, I’m not a robot, and Verify —
+              Heirloom cannot drive those sites or read keys off a screenshot.
             </li>
-            <li>Paste each API key into the guide. We store it and move to the next vendor.</li>
-            <li>Download local models on this PC, then pair your phone and pick phone features.</li>
           </ul>
         </StudioPanel>
       ) : null}
@@ -164,63 +202,6 @@ export default function FirstRunSetup() {
       ) : null}
 
       {step === 3 ? (
-        <StudioPanel title="Cloud accounts — stay-on-top guide" defaultOpen>
-          <p className="text-xs mb-4" style={{ color: "#999", lineHeight: 1.45 }}>
-            {catalog.vendor_signup_policy} Local Whisper/Ollama do not need these keys.
-          </p>
-          <button
-            type="button"
-            className="studio-btn studio-btn-primary mb-4"
-            onClick={() => {
-              if (email) save({ vendor_email: email });
-              const pending = (catalog.cloud_services || [])
-                .map((svc) => ({ ...svc, ...(data.handoffs || {})[svc.id], alreadySaved: Boolean(data.keys?.[svc.id]) }))
-                .filter((svc) => !svc.alreadySaved);
-              const first = pending[0];
-              if (first) openCoachStep(first, (first.coach_steps || [])[0], email);
-              setCoachOn(true);
-            }}
-            data-testid="setup-start-coach"
-          >
-            Pop out the guide
-          </button>
-          {(catalog.cloud_services || []).map((svc) => (
-            <div key={svc.id} className="studio-handoff">
-              <div className="flex justify-between gap-3">
-                <strong>{svc.label}</strong>
-                <span className="text-xs" style={{ color: data.keys?.[svc.id] ? "#7da06f" : "#c95a5a" }}>
-                  {data.keys?.[svc.id] ? "saved" : "not set"}
-                </span>
-              </div>
-              <p className="text-xs" style={{ color: "#888" }}>
-                {svc.powers}
-              </p>
-            </div>
-          ))}
-        </StudioPanel>
-      ) : null}
-
-      {coachOn ? (
-        <VendorCoach
-          email={email}
-          onSaved={() => load()}
-          onPersistEmail={() => email && save({ vendor_email: email })}
-          onDone={() => {
-            setCoachOn(false);
-            load();
-          }}
-          services={(catalog.cloud_services || []).map((svc) => {
-            const handoff = (data.handoffs || {})[svc.id] || {};
-            return {
-              ...svc,
-              ...handoff,
-              alreadySaved: Boolean(data.keys?.[svc.id]),
-            };
-          })}
-        />
-      ) : null}
-
-      {step === 4 ? (
         <StudioPanel title="Connect your phone" defaultOpen>
           <p className="text-xs mb-3" style={{ color: "#999", lineHeight: 1.45 }}>
             Same Heirloom login on the phone. Heavy models stay on this PC. Choose what the phone
@@ -278,22 +259,82 @@ export default function FirstRunSetup() {
         </StudioPanel>
       ) : null}
 
-      {step === 5 ? (
-        <StudioPanel title="Finish — then pick engines in each window" defaultOpen>
+      {step === 4 ? (
+        <StudioPanel title="Install local models first" defaultOpen>
           <p className="text-sm mb-3" style={{ color: "#ccc", lineHeight: 1.5 }}>
-            Completing setup queues local model downloads on the dedicated PC (Whisper / Ollama /
-            Piper for your disk profile). After that, Models is only dropdowns per feature.
+            Completing this step queues Whisper / Ollama / Piper on the dedicated PC. The vendor
+            guide comes next so screen vision is already there on first open.
           </p>
           <button
             type="button"
             className="studio-btn studio-btn-primary"
             disabled={busy}
-            onClick={finish}
+            onClick={downloadModels}
             data-testid="setup-finish"
           >
-            {busy ? "Saving…" : "Finish setup & download local models"}
+            {busy ? "Saving…" : "Download local models"}
           </button>
         </StudioPanel>
+      ) : null}
+
+      {step === 5 ? (
+        <StudioPanel title="Cloud accounts — after install" defaultOpen>
+          <p className="text-xs mb-4" style={{ color: "#999", lineHeight: 1.45 }}>
+            {catalog.vendor_signup_policy} Local Whisper/Ollama do not need these keys. Screen
+            watch is in the dedicated PC app; this browser guide still opens official pages from
+            your click.
+          </p>
+          <button
+            type="button"
+            className="studio-btn studio-btn-primary mb-4"
+            onClick={startCoach}
+            data-testid="setup-start-coach"
+          >
+            Pop out the guide
+          </button>
+          {(catalog.cloud_services || []).map((svc) => (
+            <div key={svc.id} className="studio-handoff">
+              <div className="flex justify-between gap-3">
+                <strong>{svc.label}</strong>
+                <span className="text-xs" style={{ color: data.keys?.[svc.id] ? "#7da06f" : "#c95a5a" }}>
+                  {data.keys?.[svc.id] ? "saved" : "not set"}
+                </span>
+              </div>
+              <p className="text-xs" style={{ color: "#888" }}>
+                {svc.powers}
+              </p>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="studio-btn mt-4"
+            disabled={busy}
+            onClick={enterStudio}
+            data-testid="setup-enter-studio"
+          >
+            Enter studio
+          </button>
+        </StudioPanel>
+      ) : null}
+
+      {coachOn ? (
+        <VendorCoach
+          email={email}
+          onSaved={() => load()}
+          onPersistEmail={() => email && save({ vendor_email: email })}
+          onDone={() => {
+            setCoachOn(false);
+            load();
+          }}
+          services={(catalog.cloud_services || []).map((svc) => {
+            const handoff = (data.handoffs || {})[svc.id] || {};
+            return {
+              ...svc,
+              ...handoff,
+              alreadySaved: Boolean(data.keys?.[svc.id]),
+            };
+          })}
+        />
       ) : null}
 
       <div className="flex justify-between mt-6">

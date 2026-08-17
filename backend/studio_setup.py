@@ -363,9 +363,11 @@ def setup_catalog() -> dict:
         "full_power_gb": {"min": 20, "max": 50},
         "local_first": True,
         "vendor_signup_policy": (
-            "Pop out the stay-on-top guide. Heirloom copies your email and opens the "
-            "official sign-up page, then your inbox, then their API keys page. You click "
-            "Create account, I'm not a robot, and Verify — we cannot drive their website "
-            "or solve captchas. When you paste the key here, we save it and move on."
+            "On the dedicated PC, after local models finish installing, a stay-on-top "
+            "guide opens. Heirloom copies your email, opens the official sign-up page, "
+            "then your inbox, then their API keys page, and watches the screen to "
+            "advance. You click Create account, I'm not a robot, and Verify — we cannot "
+            "drive their website, solve captchas, or read keys off the screen. Paste "
+            "the key into Heirloom."
         ),
     }
