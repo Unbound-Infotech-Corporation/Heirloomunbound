@@ -12,6 +12,7 @@ export default function Journal() {
   const [savedEntry, setSavedEntry] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [recent, setRecent] = useState([]);
+  const [inputDeviceId, setInputDeviceId] = useState("default");
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
@@ -24,11 +25,19 @@ export default function Journal() {
 
   useEffect(() => {
     loadRecent();
+    api
+      .get("/studio/audio")
+      .then(({ data }) => setInputDeviceId(data?.settings?.input_device_id || "default"))
+      .catch(() => {});
   }, []);
 
   const start = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audio =
+        inputDeviceId && inputDeviceId !== "default"
+          ? { deviceId: { exact: inputDeviceId } }
+          : true;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio });
       const mr = new MediaRecorder(stream, { mimeType: "audio/webm" });
       chunksRef.current = [];
       mr.ondataavailable = (e) => chunksRef.current.push(e.data);

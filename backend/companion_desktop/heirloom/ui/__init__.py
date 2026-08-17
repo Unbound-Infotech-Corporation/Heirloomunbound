@@ -289,4 +289,78 @@ QToolTip {{
     padding: 6px 10px;
     font-size: 11px;
 }}
+
+/* Photoshop-style MDI */
+QMdiArea {{
+    background: #1a1917;
+    border: none;
+}}
+QMdiSubWindow {{
+    background: {PALETTE['bg_surface']};
+    border: 1px solid {PALETTE['border']};
+    color: {PALETTE['text_primary']};
+}}
+QMdiSubWindow:title {{
+    background: #2a2724;
+}}
+QWidget#mdi_body {{
+    background: {PALETTE['bg_surface']};
+}}
+QMenuBar {{
+    background: #2a2724;
+    color: {PALETTE['text_secondary']};
+    border-bottom: 1px solid {PALETTE['border_soft']};
+    padding: 2px 4px;
+}}
+QMenuBar::item {{
+    padding: 4px 10px;
+    background: transparent;
+}}
+QMenuBar::item:selected {{
+    background: rgba(212, 163, 115, 0.18);
+    color: {PALETTE['accent']};
+}}
+QGroupBox {{
+    border: 1px solid {PALETTE['border_soft']};
+    border-radius: 6px;
+    margin-top: 12px;
+    padding: 12px 8px 8px 8px;
+    color: {PALETTE['text_secondary']};
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 6px;
+    color: {PALETTE['text_muted']};
+    font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+}}
+QSlider::groove:horizontal {{
+    height: 4px;
+    background: rgba(255, 245, 230, 0.08);
+    border-radius: 2px;
+}}
+QSlider::handle:horizontal {{
+    width: 12px;
+    height: 12px;
+    margin: -5px 0;
+    background: {PALETTE['accent']};
+    border-radius: 6px;
+}}
+QProgressBar {{
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid {PALETTE['border_soft']};
+    border-radius: 4px;
+    text-align: center;
+    color: {PALETTE['text_muted']};
+    height: 16px;
+}}
+QProgressBar::chunk {{
+    background: {PALETTE['accent']};
+}}
+QCheckBox {{
+    color: {PALETTE['text_secondary']};
+    spacing: 8px;
+}}
 """

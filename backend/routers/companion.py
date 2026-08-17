@@ -248,14 +248,40 @@ async def poll(ctx: dict = Depends(get_device_user)):
             {"reminder_id": rem["reminder_id"], "user_id": user["user_id"]},
             {"$set": {"delivered_at": now_iso}},
         )
+    from studio_defaults import clamp_audio, clamp_model_map
+
     return {
         "commands": pending + reminder_commands,
         "server_time": now_iso,
         "script_version": COMPANION_SCRIPT_VERSION,
+        "audio_settings": clamp_audio(user.get("studio_audio")),
+        "model_map": clamp_model_map(user.get("studio_models")),
     }
 
 
-COMPANION_SCRIPT_VERSION = "2026.02.28.1"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.17.1"  # bump whenever _build_companion_script materially changes
+
+
+class RuntimeProbe(BaseModel):
+    gpu: Optional[dict] = None
+    ollama: Optional[dict] = None
+    whisper: Optional[dict] = None
+    piper: Optional[dict] = None
+    audio_devices: Optional[list] = None
+    detail: str = ""
+
+
+@router.post("/runtime")
+async def report_runtime(payload: RuntimeProbe, ctx: dict = Depends(get_device_user)):
+    """Companion reports GPU / Ollama / Whisper / device list so the studio
+    model window can auto-provision instead of asking the user to paste keys."""
+    device = ctx["device"]
+    probe = payload.model_dump()
+    await db.companion_devices.update_one(
+        {"device_id": device["device_id"], "user_id": ctx["user"]["user_id"]},
+        {"$set": {"runtime_probe": probe, "last_seen": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True}
 
 
 class CompanionResult(BaseModel):

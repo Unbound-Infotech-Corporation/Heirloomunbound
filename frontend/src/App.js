@@ -16,6 +16,8 @@ import Twin from "@/pages/Twin";
 import TwinLive from "@/pages/TwinLive";
 import AvatarStudio from "@/pages/AvatarStudio";
 import SetupKeys from "@/pages/SetupKeys";
+import AudioMixer from "@/pages/AudioMixer";
+import ModelsStudio from "@/pages/ModelsStudio";
 import Skills from "@/pages/Skills";
 import Abilities from "@/pages/Abilities";
 import PhotoStory from "@/pages/PhotoStory";
@@ -82,6 +84,8 @@ function AppRouter() {
         <Route path="/photos" element={<Photos />} />
         <Route path="/import" element={<Import />} />
         <Route path="/twin" element={<Twin />} />
+        <Route path="/mixer" element={<AudioMixer />} />
+        <Route path="/models" element={<ModelsStudio />} />
         <Route path="/skills" element={<Skills />} />
         <Route path="/abilities" element={<Abilities />} />
         <Route path="/photo-story" element={<PhotoStory />} />
