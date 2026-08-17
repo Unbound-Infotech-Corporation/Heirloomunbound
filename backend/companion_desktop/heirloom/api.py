@@ -90,6 +90,11 @@ def _check(r: requests.Response) -> dict:
         return {"raw": r.text}
 
 
+def is_not_found_error(err: str) -> bool:
+    """True when api._check reported HTTP 404 (route missing), not auth/network/5xx."""
+    return (err or "").strip().startswith("HTTP 404")
+
+
 # ---- public helpers ----
 def get_async(
     path: str,

@@ -273,8 +273,9 @@ class FirstRunWizard(QDialog):
         if email:
             self.email_input.setText(email)
 
-    def _on_load_err(self, _msg: str) -> None:
-        self._cloud_offline = True
+    def _on_load_err(self, msg: str) -> None:
+        if api.is_not_found_error(msg):
+            self._cloud_offline = True
 
     def _coach_handoffs(self, email: str) -> list[dict]:
         payload = self._payload or {}
@@ -394,8 +395,11 @@ class FirstRunWizard(QDialog):
             on_err=self._complete_missing,
         )
 
-    def _complete_missing(self, _msg: str) -> None:
-        """Local models still install when /api/studio/first-run is not on this cloud."""
+    def _complete_missing(self, msg: str) -> None:
+        """Fall back to local-only when this cloud has no /api/studio/first-run."""
+        if not api.is_not_found_error(msg):
+            self._download_err(msg)
+            return
         self._cloud_offline = True
         self.finish_log.setText(
             "Cloud has no first-run API yet. Downloading local models on this PC anyway…"
@@ -404,6 +408,10 @@ class FirstRunWizard(QDialog):
             {"space_profile": {"provision_features": provision_features(self._profile_id())}}
         )
 
+    def _download_err(self, msg: str) -> None:
+        self._downloading = False
+        self._sync_nav()
+        QMessageBox.warning(self, "Setup", msg)
 
     def _on_complete_ok(self, data: dict) -> None:
         features = ((data or {}).get("space_profile") or {}).get("provision_features") or [

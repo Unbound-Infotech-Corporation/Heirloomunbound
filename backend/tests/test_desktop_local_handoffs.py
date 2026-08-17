@@ -6,7 +6,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "companion_desktop"))
 
+from heirloom.api import is_not_found_error  # noqa: E402
 from heirloom.vendor_handoffs import local_handoffs, provision_features  # noqa: E402
+
+
+def test_is_not_found_error_only_matches_404():
+    assert is_not_found_error("HTTP 404: Not Found") is True
+    assert is_not_found_error("HTTP 401: Not authenticated") is False
+    assert is_not_found_error("HTTP 500: Internal Server Error") is False
+    assert is_not_found_error("Connection timed out") is False
+    assert is_not_found_error("") is False
 
 
 def test_local_handoffs_cover_three_vendors():
