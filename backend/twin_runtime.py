@@ -273,6 +273,7 @@ async def build_brain_pack(
 ) -> TwinBrainPack:
     """Assemble system + history for a twin turn without calling the LLM."""
     from model_router import resolve_twin_backend, runtime_probe_from_user
+    from studio_compute import effective_runtime_probe
 
     user_id = user["user_id"]
     text = (message or "").strip()
@@ -309,8 +310,8 @@ async def build_brain_pack(
         brand=brand,
         abilities_block=ab.build_abilities_prompt(enabled_ids),
     )
-    probe = runtime_probe_from_user(user)
-    twin_backend = resolve_twin_backend(user.get("studio_models"), probe)
+    probe = effective_runtime_probe(user, runtime_probe_from_user(user))
+    twin_backend = resolve_twin_backend(user.get("studio_models"), probe, user=user)
     return TwinBrainPack(
         system=system,
         history=history_turns(conversation.get("messages", [])),
@@ -410,15 +411,20 @@ async def run_twin_turn(
 
     tool_trace: list[dict] = []
     if backend_used == "ollama":
-        from local_inference import ollama_chat, ollama_ready
+        from local_inference import ollama_chat, ollama_ready_at
+        from studio_compute import resolve_ollama_url
 
-        if not ollama_ready():
+        ollama_url = resolve_ollama_url(user)
+        from local_inference import ollama_ready
+
+        ready = ollama_ready_at(ollama_url) if ollama_url else ollama_ready()
+        if not ready:
             backend_used = "cloud_claude"
-        else:
+        if backend_used == "ollama":
             history = list(pack.history)
             history.append({"role": "user", "content": text})
             try:
-                reply = await ollama_chat(system, history)
+                reply = await ollama_chat(system, history, base_url=ollama_url)
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError(f"Local twin (Ollama) failed: {exc!s}") from exc
             ts = _now_iso()

@@ -162,3 +162,42 @@ def clamp_model_map(raw: dict | None) -> dict[str, str]:
             if fid in allowed and str(backend) in allowed[fid]:
                 out[fid] = str(backend)
     return out
+
+
+# Where local GPU / Whisper / Piper run, and optionally where Ollama lives.
+# - local: the companion PC that most recently checked in (typical dedicated box)
+# - network: a specific registered companion device elsewhere on the LAN
+# - server: Ollama on a remote URL; Whisper/Piper still use the chosen PC
+COMPUTE_DEFAULTS: dict = {
+    "mode": "local",  # local | network | server
+    "device_id": None,  # companion_devices.device_id when mode=network
+    "remote": {
+        "label": "",
+        "ollama_url": "http://127.0.0.1:11434",
+    },
+}
+
+
+def clamp_compute(raw: dict | None) -> dict:
+    """Coerce partial studio_compute onto COMPUTE_DEFAULTS."""
+    src = {
+        "mode": COMPUTE_DEFAULTS["mode"],
+        "device_id": COMPUTE_DEFAULTS["device_id"],
+        "remote": dict(COMPUTE_DEFAULTS["remote"]),
+    }
+    if isinstance(raw, dict):
+        if raw.get("mode") in ("local", "network", "server"):
+            src["mode"] = raw["mode"]
+        if "device_id" in raw:
+            did = raw.get("device_id")
+            src["device_id"] = str(did).strip()[:64] if did else None
+        remote = raw.get("remote")
+        if isinstance(remote, dict):
+            label = str(remote.get("label") or "").strip()[:120]
+            url = str(remote.get("ollama_url") or COMPUTE_DEFAULTS["remote"]["ollama_url"]).strip()
+            if not url.startswith(("http://", "https://")):
+                url = COMPUTE_DEFAULTS["remote"]["ollama_url"]
+            src["remote"] = {"label": label, "ollama_url": url[:512]}
+    if src["mode"] != "network":
+        src["device_id"] = None
+    return src

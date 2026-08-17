@@ -203,6 +203,10 @@ async def cancel_command(cmd_id: str, user: dict = Depends(get_current_user)):
 async def poll(ctx: dict = Depends(get_device_user)):
     """Companion polls every few seconds for queued commands AND due reminders."""
     user = ctx["user"]
+    device = ctx["device"]
+    device_id = device.get("device_id")
+    from studio_compute import command_targets_device
+
     # Refunded / disputed accounts: tell the companion to quietly stop.
     if user.get("account_status") == "refunded":
         from fastapi import HTTPException as _HE
@@ -211,6 +215,7 @@ async def poll(ctx: dict = Depends(get_device_user)):
         {"user_id": user["user_id"], "status": "queued"}, {"_id": 0}
     ).sort("created_at", 1).limit(10)
     pending = await cursor.to_list(length=10)
+    pending = [c for c in pending if command_targets_device(c, device_id)]
     if pending:
         cmd_ids = [c["cmd_id"] for c in pending]
         await db.companion_commands.update_many(
@@ -248,7 +253,13 @@ async def poll(ctx: dict = Depends(get_device_user)):
             {"reminder_id": rem["reminder_id"], "user_id": user["user_id"]},
             {"$set": {"delivered_at": now_iso}},
         )
-    from studio_defaults import clamp_audio, clamp_model_map
+    from studio_defaults import clamp_audio, clamp_compute, clamp_model_map
+    from studio_compute import resolve_compute_device, user_compute
+
+    compute = user_compute(user)
+    resolved = await resolve_compute_device(db, user)
+    resolved_id = resolved.get("device_id") if resolved else None
+    is_compute_target = bool(resolved_id and resolved_id == device_id)
 
     return {
         "commands": pending + reminder_commands,
@@ -256,10 +267,13 @@ async def poll(ctx: dict = Depends(get_device_user)):
         "script_version": COMPANION_SCRIPT_VERSION,
         "audio_settings": clamp_audio(user.get("studio_audio")),
         "model_map": clamp_model_map(user.get("studio_models")),
+        "studio_compute": clamp_compute(user.get("studio_compute")),
+        "is_compute_target": is_compute_target,
+        "compute_device_id": resolved_id,
     }
 
 
-COMPANION_SCRIPT_VERSION = "2026.08.17.2"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.17.3"  # bump whenever _build_companion_script materially changes
 
 
 class RuntimeProbe(BaseModel):

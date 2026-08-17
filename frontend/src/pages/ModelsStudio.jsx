@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../lib/api";
 import {
+  ComputeTargetPanel,
   FeatureModelPanel,
   StudioPanel,
   StudioTabs,
@@ -105,6 +106,8 @@ export default function ModelsStudio() {
         inspectorWidth={300}
         inspector={
           <>
+            <ComputeTargetPanel onSaved={() => load()} />
+
             <StudioPanel title="Dedicated PC" testId="models-probe" defaultOpen>
               <dl className="studio-dl" style={{ fontSize: 11 }}>
                 <dt>Status</dt>

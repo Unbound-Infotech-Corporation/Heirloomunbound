@@ -32,9 +32,17 @@ from studio_defaults import (
     BACKEND_CREDENTIALS,
     backends_for_feature,
     clamp_audio,
+    clamp_compute,
     clamp_model_map,
     credential_for_backend,
     default_model_map,
+)
+from studio_compute import (
+    command_targets_device,
+    compute_target_device_id,
+    effective_runtime_probe,
+    resolve_compute_device,
+    user_compute,
 )
 
 router = APIRouter(prefix="/studio", tags=["studio"])
@@ -65,6 +73,10 @@ def _user_audio(user: dict) -> dict:
 
 def _user_models(user: dict) -> dict:
     return clamp_model_map(user.get("studio_models"))
+
+
+def _user_compute(user: dict) -> dict:
+    return user_compute(user)
 
 
 # ---------- Audio mixer ----------
@@ -100,6 +112,93 @@ async def put_audio(payload: AudioUpdate, user: dict = Depends(get_studio_user))
         {"$set": {"studio_audio": merged, "studio_audio_updated_at": now}},
     )
     return {"settings": merged, "updated_at": now}
+
+
+# ---------- Compute target (this PC / network PC / remote Ollama) ----------
+class RemoteCompute(BaseModel):
+    label: Optional[str] = None
+    ollama_url: Optional[str] = None
+
+
+class ComputeUpdate(BaseModel):
+    mode: Optional[str] = None  # local | network | server
+    device_id: Optional[str] = None
+    remote: Optional[RemoteCompute] = None
+
+
+@router.get("/compute")
+async def get_compute(user: dict = Depends(get_studio_user)):
+    compute = _user_compute(user)
+    devices = await db.companion_devices.find(
+        {"user_id": user["user_id"], "revoked": {"$ne": True}},
+        {"_id": 0, "device_token": 0},
+    ).sort("last_seen", -1).to_list(length=20)
+    device = await resolve_compute_device(db, user)
+    companion = _companion_probe(device)
+    probe = effective_runtime_probe(user, companion if companion.get("connected") else None)
+    return {
+        "settings": compute,
+        "devices": devices,
+        "resolved_device_id": device.get("device_id") if device else None,
+        "resolved_device_name": device.get("name") if device else None,
+        "companion": companion,
+        "ollama_reachable": bool((probe.get("ollama") or {}).get("ready")),
+        "updated_at": user.get("studio_compute_updated_at"),
+    }
+
+
+@router.put("/compute")
+async def put_compute(payload: ComputeUpdate, user: dict = Depends(get_studio_user)):
+    current = _user_compute(user)
+    patch = payload.model_dump(exclude_none=True)
+    if payload.remote is not None:
+        remote_patch = payload.remote.model_dump(exclude_none=True)
+        patch["remote"] = {**current.get("remote", {}), **remote_patch}
+    merged = clamp_compute({**current, **patch})
+    if merged["mode"] == "network" and merged.get("device_id"):
+        exists = await db.companion_devices.find_one(
+            {
+                "user_id": user["user_id"],
+                "device_id": merged["device_id"],
+                "revoked": {"$ne": True},
+            }
+        )
+        if not exists:
+            raise HTTPException(status_code=400, detail="Unknown or revoked network PC")
+    now = _now_iso()
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"studio_compute": merged, "studio_compute_updated_at": now}},
+    )
+    return {"settings": merged, "updated_at": now}
+
+
+@router.post("/compute/test-ollama")
+async def test_compute_ollama(user: dict = Depends(get_studio_user)):
+    from local_inference import ollama_ready_at
+    from studio_compute import resolve_ollama_url
+
+    compute = _user_compute(user)
+    if compute["mode"] == "server":
+        url = resolve_ollama_url(user)
+        if not url:
+            raise HTTPException(status_code=400, detail="No Ollama URL configured")
+        ready = ollama_ready_at(url)
+        label = (compute.get("remote") or {}).get("label") or "Remote Ollama"
+        return {
+            "ok": ready,
+            "url": url,
+            "detail": f"{label} reachable" if ready else f"Cannot reach {url}",
+            "mode": compute["mode"],
+        }
+    device = await resolve_compute_device(db, user)
+    companion = _companion_probe(device)
+    ready = bool((companion.get("ollama") or {}).get("ready"))
+    name = companion.get("name") or "Companion PC"
+    detail = (companion.get("ollama") or {}).get("detail") or (
+        f"{name} online — Ollama not ready" if companion.get("connected") else "No PC connected"
+    )
+    return {"ok": ready, "detail": detail, "mode": compute["mode"]}
 
 
 # ---------- Models ----------
@@ -188,6 +287,7 @@ def _feature_readiness(
 ) -> dict:
     """Whether the selected backend can run right now + what it resolves to."""
     probe = companion if companion.get("connected") else runtime_probe_from_user(user)
+    probe = effective_runtime_probe(user, probe if isinstance(probe, dict) else None)
     eff = effective_model_map(user, probe if isinstance(probe, dict) else None)
 
     if feature_id == "stt":
@@ -221,7 +321,7 @@ def _feature_readiness(
             ready = _llm_available()
             detail = "OpenAI TTS via hosted key" if ready else "No hosted LLM key on server"
     elif feature_id == "twin":
-        effective = resolve_twin_backend({feature_id: chosen_backend, **eff}, probe)
+        effective = resolve_twin_backend({feature_id: chosen_backend, **eff}, probe, user=user)
         if effective == "ollama":
             ready = bool((companion.get("ollama") or {}).get("ready"))
             detail = (companion.get("ollama") or {}).get("detail") or "Start Ollama on the dedicated PC"
@@ -283,12 +383,12 @@ def _feature_readiness(
 async def get_models(user: dict = Depends(get_studio_user)):
     chosen = _user_models(user)
     cloud = _probe_cloud(user)
-    device = await db.companion_devices.find_one(
-        {"user_id": user["user_id"], "revoked": {"$ne": True}},
-        {"_id": 0},
-        sort=[("last_seen", -1)],
-    )
+    device = await resolve_compute_device(db, user)
     companion = _companion_probe(device)
+    compute = _user_compute(user)
+    merged_probe = effective_runtime_probe(
+        user, companion if companion.get("connected") else runtime_probe_from_user(user)
+    )
     features = []
     for spec in FEATURE_MODELS:
         backends = []
@@ -332,8 +432,10 @@ async def get_models(user: dict = Depends(get_studio_user)):
     return {
         "features": features,
         "map": chosen,
-        "effective": effective_model_map(user, companion if companion.get("connected") else runtime_probe_from_user(user)),
+        "effective": effective_model_map(user, merged_probe),
         "companion": companion,
+        "compute": compute,
+        "compute_device_id": device.get("device_id") if device else None,
         "hosted_llm": _llm_available(),
         "updated_at": user.get("studio_models_updated_at"),
     }
@@ -409,11 +511,7 @@ async def test_feature_backend(feature_id: str, user: dict = Depends(get_studio_
 
 
 async def _queue_provision(user: dict, features: list[str]) -> dict:
-    device = await db.companion_devices.find_one(
-        {"user_id": user["user_id"], "revoked": {"$ne": True}},
-        {"_id": 0},
-        sort=[("last_seen", -1)],
-    )
+    device = await resolve_compute_device(db, user)
     if not device:
         raise HTTPException(
             status_code=409,
@@ -424,11 +522,16 @@ async def _queue_provision(user: dict, features: list[str]) -> dict:
 
     cmd_id = f"cmd_prov_{uuid.uuid4().hex[:10]}"
     now = _now_iso()
+    target_id = device.get("device_id") or compute_target_device_id(user)
     doc = {
         "cmd_id": cmd_id,
         "user_id": user["user_id"],
         "kind": "provision_models",
-        "payload": {"features": features, "map": chosen},
+        "payload": {
+            "features": features,
+            "map": chosen,
+            "target_device_id": target_id,
+        },
         "status": "queued",
         "result": None,
         "created_at": now,

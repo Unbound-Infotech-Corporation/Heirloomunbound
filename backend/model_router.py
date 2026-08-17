@@ -14,11 +14,26 @@ def _probe_ready(probe: Optional[dict], key: str) -> bool:
     return isinstance(block, dict) and bool(block.get("ready"))
 
 
-def _ollama_url() -> Optional[str]:
+def _ollama_url(user: dict | None = None) -> Optional[str]:
+    if user:
+        from studio_compute import resolve_ollama_url
+
+        resolved = resolve_ollama_url(user)
+        if resolved:
+            return resolved
     url = (os.environ.get("OLLAMA_BASE_URL") or os.environ.get("OLLAMA_URL") or "").strip()
     if url:
         return url.rstrip("/")
     return None
+
+
+def _ollama_available(user: dict | None, probe: Optional[dict]) -> bool:
+    from local_inference import ollama_ready_at
+
+    url = _ollama_url(user)
+    if url:
+        return ollama_ready_at(url)
+    return _probe_ready(probe, "ollama")
 
 
 def runtime_probe_from_user(user: dict) -> Optional[dict]:
@@ -44,11 +59,13 @@ def resolve_stt_backend(
 def resolve_twin_backend(
     model_map: dict | None,
     probe: Optional[dict] = None,
+    *,
+    user: dict | None = None,
 ) -> str:
     """Returns 'ollama' or 'cloud_claude'."""
     chosen = clamp_model_map(model_map)
     pick = chosen.get("twin", "auto")
-    local = _probe_ready(probe, "ollama") or bool(_ollama_url())
+    local = _ollama_available(user, probe)
     if pick == "cloud_claude":
         return "cloud_claude"
     if pick == "ollama":
@@ -88,7 +105,7 @@ def effective_model_map(user: dict, probe: Optional[dict] = None) -> dict[str, s
     )
     return {
         "stt": resolve_stt_backend(raw, probe),
-        "twin": resolve_twin_backend(raw, probe),
+        "twin": resolve_twin_backend(raw, probe, user=user),
         "tts": resolve_tts_backend(raw, probe, has_voice_clone=has_clone),
         **{k: raw.get(k, v) for k, v in default_model_map().items() if k not in ("stt", "twin", "tts")},
     }

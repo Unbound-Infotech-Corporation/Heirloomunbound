@@ -15,7 +15,7 @@ from pymongo import MongoClient
 load_dotenv(Path(__file__).parent.parent / ".env")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from studio_defaults import clamp_audio, clamp_model_map, default_model_map
+from studio_defaults import clamp_audio, clamp_model_map, clamp_compute, default_model_map
 
 BASE_URL = (
     os.environ.get("REACT_APP_BACKEND_URL")
@@ -80,6 +80,50 @@ def test_clamp_model_map_rejects_unknown():
     assert out["stt"] == "local_whisper"
     assert out["twin"] == default_model_map()["twin"]
     assert "zzz" not in out
+
+
+def test_clamp_compute_modes():
+    out = clamp_compute({"mode": "network", "device_id": "dev_abc"})
+    assert out["mode"] == "network"
+    assert out["device_id"] == "dev_abc"
+    server = clamp_compute(
+        {
+            "mode": "server",
+            "remote": {"label": "Lab", "ollama_url": "http://10.0.0.5:11434"},
+        }
+    )
+    assert server["mode"] == "server"
+    assert server["device_id"] is None
+    assert server["remote"]["ollama_url"] == "http://10.0.0.5:11434"
+    bad = clamp_compute({"remote": {"ollama_url": "ftp://nope"}})
+    assert bad["remote"]["ollama_url"].startswith("http://127.0.0.1")
+
+
+@pytest.mark.skipif(not BASE_URL, reason="backend URL not configured")
+def test_studio_compute_roundtrip(studio_user):
+    import requests
+
+    _uid, token = studio_user
+    h = {"Authorization": f"Bearer {token}"}
+    r = requests.get(f"{API}/studio/compute", headers=h, timeout=15)
+    assert r.status_code == 200, r.text
+    assert r.json()["settings"]["mode"] == "local"
+
+    r = requests.put(
+        f"{API}/studio/compute",
+        headers=h,
+        json={
+            "mode": "server",
+            "remote": {"label": "Test box", "ollama_url": "http://127.0.0.1:11434"},
+        },
+        timeout=15,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["settings"]["mode"] == "server"
+
+    r = requests.post(f"{API}/studio/compute/test-ollama", headers=h, timeout=15)
+    assert r.status_code == 200, r.text
+    assert "ok" in r.json()
 
 
 @pytest.mark.skipif(not BASE_URL, reason="backend URL not configured")

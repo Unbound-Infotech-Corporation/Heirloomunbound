@@ -23,13 +23,20 @@ def ollama_base_url() -> str:
     return (os.environ.get("OLLAMA_BASE_URL") or os.environ.get("OLLAMA_URL") or OLLAMA_DEFAULT).rstrip("/")
 
 
-def ollama_ready(timeout: float = 2.0) -> bool:
+def ollama_ready_at(base_url: str, timeout: float = 2.0) -> bool:
+    url = (base_url or "").strip().rstrip("/")
+    if not url:
+        return False
     try:
-        req = urllib.request.Request(f"{ollama_base_url()}/api/tags", method="GET")
+        req = urllib.request.Request(f"{url}/api/tags", method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status == 200
     except Exception:
         return False
+
+
+def ollama_ready(timeout: float = 2.0) -> bool:
+    return ollama_ready_at(ollama_base_url(), timeout=timeout)
 
 
 async def ollama_chat(
@@ -38,6 +45,7 @@ async def ollama_chat(
     *,
     model: str | None = None,
     timeout: float = 120.0,
+    base_url: str | None = None,
 ) -> str:
     """Single-shot chat completion via Ollama /api/chat (non-streaming)."""
     payload_messages: list[dict[str, str]] = [{"role": "system", "content": system}]
@@ -53,7 +61,7 @@ async def ollama_chat(
         "stream": False,
         "options": {"temperature": 0.65, "num_predict": 512},
     }
-    url = f"{ollama_base_url()}/api/chat"
+    url = f"{(base_url or ollama_base_url()).rstrip('/')}/api/chat"
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(url, json=body)
     if r.status_code >= 400:

@@ -292,6 +292,12 @@ class BrainPackReq(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
 
 
+def _brain_pack_ollama_url(user: dict) -> str | None:
+    from studio_compute import resolve_ollama_url
+
+    return resolve_ollama_url(user)
+
+
 @router.post("/brain-pack")
 async def desktop_brain_pack(body: BrainPackReq, ctx: dict = Depends(get_device_user)):
     """Return the twin system prompt + history for on-device Ollama inference."""
@@ -311,6 +317,7 @@ async def desktop_brain_pack(body: BrainPackReq, ctx: dict = Depends(get_device_
         "conversation_id": pack.conversation_id,
         "twin_backend": pack.twin_backend,
         "ollama_model": os.environ.get("OLLAMA_TWIN_MODEL", "llama3.1"),
+        "ollama_url": _brain_pack_ollama_url(user),
     }
 
 
