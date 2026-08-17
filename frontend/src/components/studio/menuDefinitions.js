@@ -233,6 +233,7 @@ export function getAppMenubarItems(ctx) {
       items: [
         { label: "Settings…", onClick: go(ctx.navigate, "/settings") },
         { label: "Models / credentials", onClick: go(ctx.navigate, "/models") },
+        { label: "First-run setup…", onClick: go(ctx.navigate, "/setup") },
       ],
     },
     {

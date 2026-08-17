@@ -36,6 +36,7 @@ async def get_device_user(authorization: Optional[str] = Header(None)) -> dict:
 # ---------- Registration (user-facing) ----------
 class RegisterReq(BaseModel):
     name: str = "My PC"
+    kind: str = "pc"  # pc | phone
 
 
 @router.post("/register")
@@ -46,6 +47,7 @@ async def register_device(payload: RegisterReq, user: dict = Depends(get_current
         "device_id": device_id,
         "user_id": user["user_id"],
         "name": payload.name or "My PC",
+        "kind": payload.kind if payload.kind in ("pc", "phone") else "pc",
         "device_token": token,
         "revoked": False,
         "created_at": datetime.now(timezone.utc).isoformat(),

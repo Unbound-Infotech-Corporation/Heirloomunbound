@@ -162,6 +162,10 @@ class SettingsDialog(QDialog):
         self.run_btn.clicked.connect(self._run_now)
         actions.addWidget(self.run_btn)
 
+        setup_btn = QPushButton("First-run setup…")
+        setup_btn.clicked.connect(self._open_setup)
+        actions.addWidget(setup_btn)
+
         save_btn = QPushButton("Save changes")
         save_btn.clicked.connect(self._save_changes)
         actions.addWidget(save_btn)
@@ -209,6 +213,11 @@ class SettingsDialog(QDialog):
         # Save first so the worker reads the current tier
         self._save_changes()
         self._maint.run_async()
+
+    def _open_setup(self) -> None:
+        from .setup_wizard import FirstRunWizard
+
+        FirstRunWizard(self).exec()
 
     def _on_progress(self, msg: str) -> None:
         self.log.appendPlainText(f"·  {msg}")

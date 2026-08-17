@@ -31,6 +31,8 @@ import Buy from "@/pages/Buy";
 import BuySuccess from "@/pages/BuySuccess";
 import Today from "@/pages/Today";
 import Reminders from "@/pages/Reminders";
+import FirstRunSetup from "@/pages/FirstRunSetup";
+import PhonePair from "@/pages/PhonePair";
 import Onboarding from "@/pages/Onboarding";
 import Sources from "@/pages/Sources";
 import Settings from "@/pages/Settings";
@@ -60,6 +62,14 @@ function AppRouter() {
       <Route path="/heir/:token" element={<HeirPortal />} />
       <Route path="/twin/live/:handle" element={<TwinLive />} />
       <Route
+        path="/pair"
+        element={
+          <ProtectedRoute>
+            <PhonePair />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/onboarding"
         element={
           <ProtectedRoute>
@@ -86,6 +96,7 @@ function AppRouter() {
         <Route path="/twin" element={<Twin />} />
         <Route path="/mixer" element={<AudioMixer />} />
         <Route path="/models" element={<ModelsStudio />} />
+        <Route path="/setup" element={<FirstRunSetup />} />
         <Route path="/skills" element={<Skills />} />
         <Route path="/abilities" element={<Abilities />} />
         <Route path="/photo-story" element={<PhotoStory />} />

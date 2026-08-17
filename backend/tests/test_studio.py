@@ -16,6 +16,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from studio_defaults import clamp_audio, clamp_model_map, clamp_compute, default_model_map
+from studio_setup import clamp_setup
 
 BASE_URL = (
     os.environ.get("REACT_APP_BACKEND_URL")
@@ -64,6 +65,7 @@ def studio_user():
     _DB.user_sessions.delete_many({"user_id": user_id})
     _DB.companion_devices.delete_many({"user_id": user_id})
     _DB.companion_commands.delete_many({"user_id": user_id})
+    _DB.pairing_codes.delete_many({"user_id": user_id})
 
 
 def test_clamp_audio_bounds():
@@ -97,6 +99,17 @@ def test_clamp_compute_modes():
     assert server["remote"]["ollama_url"] == "http://10.0.0.5:11434"
     bad = clamp_compute({"remote": {"ollama_url": "ftp://nope"}})
     assert bad["remote"]["ollama_url"].startswith("http://127.0.0.1")
+
+
+def test_clamp_setup_space_and_email():
+    out = clamp_setup({"space_profile": "max", "vendor_email": "YOU@Example.COM", "phone_features": ["twin", "live_listen"]})
+    assert out["space_profile"] == "max"
+    assert out["vendor_email"] == "you@example.com"
+    assert "live_listen" not in out["phone_features"]
+    assert "twin" in out["phone_features"]
+    junk = clamp_setup({"space_profile": "huge", "vendor_email": "not-an-email"})
+    assert junk["space_profile"] == "full"
+    assert junk["vendor_email"] == ""
 
 
 @pytest.mark.skipif(not BASE_URL, reason="backend URL not configured")
@@ -251,3 +264,49 @@ def test_device_token_can_put_audio(studio_user):
     r = requests.put(f"{API}/studio/audio", headers=dh, json={"output_volume": 17}, timeout=15)
     assert r.status_code == 200, r.text
     assert r.json()["settings"]["output_volume"] == 17
+
+
+@pytest.mark.skipif(not BASE_URL, reason="backend URL not configured")
+def test_first_run_and_phone_pair(studio_user):
+    import requests
+
+    user_id, token = studio_user
+    h = {"Authorization": f"Bearer {token}"}
+    r = requests.get(f"{API}/studio/first-run", headers=h, timeout=15)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["settings"]["complete"] is False
+    assert body["catalog"]["full_power_gb"]["min"] == 20
+    assert "vendor_signup_policy" in body["catalog"]
+
+    r = requests.put(
+        f"{API}/studio/first-run",
+        headers=h,
+        json={"space_profile": "lite", "vendor_email": "setup@example.com", "prefer_local": True},
+        timeout=15,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["settings"]["space_profile"] == "lite"
+    assert r.json()["settings"]["vendor_email"] == "setup@example.com"
+
+    r = requests.post(f"{API}/studio/first-run/complete", headers=h, timeout=15)
+    assert r.status_code == 200, r.text
+    assert r.json()["settings"]["complete"] is True
+    assert r.json()["provision"]["queued"] is False
+
+    r = requests.post(f"{API}/studio/first-run/pair", headers=h, timeout=15)
+    assert r.status_code == 200, r.text
+    code = r.json()["code"]
+    assert len(code) == 6
+    r = requests.post(
+        f"{API}/studio/first-run/pair/claim",
+        headers=h,
+        json={"code": code, "name": "Pixel test", "phone_features": ["twin", "reminders"]},
+        timeout=15,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True
+    assert r.json()["name"] == "Pixel test"
+    phone = _DB.companion_devices.find_one({"user_id": user_id, "kind": "phone"})
+    assert phone is not None
+    assert phone["phone_features"] == ["twin", "reminders"]

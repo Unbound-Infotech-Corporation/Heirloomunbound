@@ -38,11 +38,15 @@ from studio_defaults import (
     default_model_map,
 )
 from studio_compute import (
-    command_targets_device,
     compute_target_device_id,
     effective_runtime_probe,
     resolve_compute_device,
     user_compute,
+)
+from studio_setup import (
+    clamp_setup,
+    setup_catalog,
+    space_profile,
 )
 
 router = APIRouter(prefix="/studio", tags=["studio"])
@@ -77,6 +81,10 @@ def _user_models(user: dict) -> dict:
 
 def _user_compute(user: dict) -> dict:
     return user_compute(user)
+
+
+def _user_setup(user: dict) -> dict:
+    return clamp_setup(user.get("studio_setup"))
 
 
 # ---------- Audio mixer ----------
@@ -569,3 +577,185 @@ async def provision_models(payload: ProvisionReq, user: dict = Depends(get_studi
         fid for fid, backend in chosen.items() if backend in {"auto", "local_whisper", "local_piper", "ollama"}
     ]
     return await _queue_provision(user, wanted)
+
+
+# ---------- First-run setup (desktop + web) ----------
+class FirstRunUpdate(BaseModel):
+    space_profile: Optional[str] = None
+    vendor_email: Optional[str] = None
+    prefer_local: Optional[bool] = None
+    phone_features: Optional[list[str]] = None
+    complete: Optional[bool] = None
+
+
+def _pair_origin(request: Request) -> str:
+    return (
+        os.environ.get("PUBLIC_FRONTEND_URL")
+        or os.environ.get("PUBLIC_BACKEND_URL")
+        or str(request.base_url).rstrip("/")
+    ).rstrip("/")
+
+
+@router.get("/first-run")
+async def get_first_run(user: dict = Depends(get_studio_user)):
+    setup = _user_setup(user)
+    profile = space_profile(setup["space_profile"])
+    devices = await db.companion_devices.find(
+        {"user_id": user["user_id"], "revoked": {"$ne": True}},
+        {"_id": 0, "device_token": 0},
+    ).sort("created_at", -1).to_list(length=20)
+    phones = [d for d in devices if (d.get("kind") or "pc") == "phone"]
+    pcs = [d for d in devices if (d.get("kind") or "pc") != "phone"]
+    keys = {
+        "elevenlabs": bool((user.get("elevenlabs_api_key") or "").strip()),
+        "did": bool((user.get("d_id_api_key") or "").strip()),
+        "fal": bool((user.get("fal_api_key") or "").strip()),
+    }
+    return {
+        "settings": setup,
+        "catalog": setup_catalog(),
+        "space_profile": profile,
+        "keys": keys,
+        "pcs": pcs,
+        "phones": phones,
+        "compute": _user_compute(user),
+        "updated_at": user.get("studio_setup_updated_at"),
+    }
+
+
+@router.put("/first-run")
+async def put_first_run(payload: FirstRunUpdate, user: dict = Depends(get_studio_user)):
+    current = _user_setup(user)
+    patch = payload.model_dump(exclude_none=True)
+    merged = clamp_setup({**current, **patch})
+    now = _now_iso()
+    sets: dict = {"studio_setup": merged, "studio_setup_updated_at": now}
+    if merged["prefer_local"]:
+        sets["studio_compute"] = clamp_compute({"mode": "local"})
+        sets["studio_compute_updated_at"] = now
+    profile = space_profile(merged["space_profile"])
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": sets})
+    return {"settings": merged, "space_profile": profile, "updated_at": now}
+
+
+@router.post("/first-run/complete")
+async def complete_first_run(user: dict = Depends(get_studio_user)):
+    """Mark first-run done and queue local model downloads for the space profile."""
+    setup = _user_setup(user)
+    setup["complete"] = True
+    setup = clamp_setup(setup)
+    now = _now_iso()
+    profile = space_profile(setup["space_profile"])
+    sets = {
+        "studio_setup": setup,
+        "studio_setup_updated_at": now,
+        "setup_complete": True,
+        "setup_completed_at": now,
+    }
+    if setup["prefer_local"]:
+        sets["studio_compute"] = clamp_compute({"mode": "local"})
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": sets})
+    provision = None
+    try:
+        provision = await _queue_provision(user, list(profile["provision_features"]))
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+        provision = {
+            "queued": False,
+            "hint": "No companion PC yet — open the desktop app so models can download locally.",
+            "features": list(profile["provision_features"]),
+        }
+    return {"settings": setup, "provision": provision, "space_profile": profile}
+
+
+@router.post("/first-run/pair")
+async def create_phone_pair(request: Request, user: dict = Depends(get_studio_user)):
+    """Issue a short-lived code the phone types (or opens via /pair?code=)."""
+    import secrets
+
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    now = datetime.now(timezone.utc)
+    expires = now.timestamp() + 15 * 60
+    doc = {
+        "code": code,
+        "user_id": user["user_id"],
+        "status": "pending",
+        "created_at": now.isoformat(),
+        "expires_at": datetime.fromtimestamp(expires, tz=timezone.utc).isoformat(),
+    }
+    await db.pairing_codes.delete_many({"user_id": user["user_id"], "status": "pending"})
+    await db.pairing_codes.insert_one(doc)
+    origin = _pair_origin(request)
+    url = f"{origin}/pair?code={code}"
+    return {"code": code, "url": url, "expires_at": doc["expires_at"]}
+
+
+@router.get("/first-run/pair/{code}")
+async def get_phone_pair(code: str, user: dict = Depends(get_studio_user)):
+    doc = await db.pairing_codes.find_one(
+        {"code": code.strip(), "user_id": user["user_id"]},
+        {"_id": 0},
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Unknown pairing code")
+    return doc
+
+
+class PairClaim(BaseModel):
+    code: str
+    name: str = "My phone"
+    phone_features: Optional[list[str]] = None
+
+
+@router.post("/first-run/pair/claim")
+async def claim_phone_pair(payload: PairClaim, user: dict = Depends(get_current_user)):
+    """Phone (logged into the same Heirloom account) claims the code."""
+    import uuid
+    import secrets as _secrets
+
+    code = (payload.code or "").strip()
+    doc = await db.pairing_codes.find_one({"code": code, "status": "pending"})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Code expired or already used")
+    exp = doc.get("expires_at") or ""
+    if exp < _now_iso():
+        await db.pairing_codes.update_one({"code": code}, {"$set": {"status": "expired"}})
+        raise HTTPException(status_code=410, detail="Pairing code expired")
+    if doc["user_id"] != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Sign in with the same Heirloom email as the PC")
+
+    setup = _user_setup(user)
+    feats = payload.phone_features if payload.phone_features is not None else setup["phone_features"]
+    merged_setup = clamp_setup({**setup, "phone_features": feats})
+    device_id = f"dev_{uuid.uuid4().hex[:10]}"
+    token = "comp_" + _secrets.token_urlsafe(32)
+    now = _now_iso()
+    device = {
+        "device_id": device_id,
+        "user_id": user["user_id"],
+        "name": (payload.name or "My phone")[:80],
+        "kind": "phone",
+        "device_token": token,
+        "phone_features": merged_setup["phone_features"],
+        "revoked": False,
+        "created_at": now,
+        "last_seen": now,
+    }
+    await db.companion_devices.insert_one(device)
+    merged_setup["paired_phone_id"] = device_id
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"studio_setup": merged_setup, "studio_setup_updated_at": now}},
+    )
+    await db.pairing_codes.update_one(
+        {"code": code},
+        {"$set": {"status": "claimed", "device_id": device_id, "claimed_at": now}},
+    )
+    return {
+        "ok": True,
+        "device_id": device_id,
+        "name": device["name"],
+        "phone_features": merged_setup["phone_features"],
+        "settings": merged_setup,
+    }

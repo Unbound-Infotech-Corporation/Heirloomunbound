@@ -146,7 +146,8 @@ export default function ModelsStudio() {
             <p>
               Pick an engine in the dropdown for each feature. If that engine needs a key, paste it
               right here — only for that feature. Use <strong>Test this feature</strong> to confirm
-              it works before talking to your twin.
+              it works before talking to your twin. First-time disk, phone pairing, and vendor email
+              live in <a href="/setup">First-run setup</a>.
             </p>
 
             <div className="studio-probe-grid">

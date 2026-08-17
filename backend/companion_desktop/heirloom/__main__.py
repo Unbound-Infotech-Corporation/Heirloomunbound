@@ -69,7 +69,17 @@ def main() -> int:
 
     # Serif boot fade — 800ms, then reveal the main window
     splash = Splash()
-    splash.finished.connect(window.show)
+
+    def _after_splash() -> None:
+        settings = config.load_settings()
+        if not settings.get("setup_complete") and not settings.get("setup_skipped"):
+            from .ui.setup_wizard import FirstRunWizard
+
+            wiz = FirstRunWizard()
+            wiz.exec()
+        window.show()
+
+    splash.finished.connect(_after_splash)
     splash.start()
 
     return app.exec()

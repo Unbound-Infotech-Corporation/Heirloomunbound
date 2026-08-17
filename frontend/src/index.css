@@ -713,6 +713,29 @@
     color: #888;
     line-height: 1.35;
 }
+.studio-setup-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    list-style: none;
+    padding: 0;
+    margin: 0 0 20px;
+}
+.studio-setup-steps button {
+    background: #2a2a2a;
+    border: 1px solid #222;
+    color: #888;
+    padding: 6px 10px;
+    font-size: 11px;
+    cursor: pointer;
+}
+.studio-setup-steps .is-active button {
+    border-color: #4da3ff;
+    color: #e6e6e6;
+}
+.studio-setup-steps .is-done button {
+    color: #7da06f;
+}
 .studio-menu-item {
     display: flex;
     width: 100%;
