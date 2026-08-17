@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../lib/api";
-import { StudioFieldRow, StudioPanel } from "../components/studio";
+import { StudioFieldRow, StudioPanel, VendorCoach } from "../components/studio";
 
 const STEPS = [
   { id: "welcome", label: "Welcome" },
@@ -19,9 +19,9 @@ export default function FirstRunSetup() {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
-  const [keyDrafts, setKeyDrafts] = useState({});
   const [pair, setPair] = useState(null);
   const [phoneFeats, setPhoneFeats] = useState([]);
+  const [coachOn, setCoachOn] = useState(false);
 
   const load = useCallback(async () => {
     const { data: body } = await api.get("/studio/first-run");
@@ -69,26 +69,6 @@ export default function FirstRunSetup() {
     }
   };
 
-  const verifySaveKey = async (svc) => {
-    const draft = (keyDrafts[svc.id] || "").trim();
-    if (!draft) {
-      toast.error("Paste the key after you finish their sign-up");
-      return;
-    }
-    setBusy(true);
-    try {
-      await api.post("/user-keys/verify", { service: svc.verify_service, api_key: draft });
-      await api.put(svc.save_path, { api_key: draft });
-      toast.success(`${svc.label} saved`);
-      setKeyDrafts((d) => ({ ...d, [svc.id]: "" }));
-      await load();
-    } catch (err) {
-      toast.error(err?.response?.data?.detail || "Key was rejected");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   if (!data) {
     return (
       <div className="px-6 py-10" data-testid="setup-loading">
@@ -129,11 +109,11 @@ export default function FirstRunSetup() {
             <li>Reserve disk for local Whisper / Ollama / Piper / vault (20–50 GB if you want full power).</li>
             <li>Save the email you will use on vendor sites (ElevenLabs, D-ID, fal).</li>
             <li>
-              Open those official sign-up pages. <strong>You</strong> complete any “not a robot”
-              checks. Heirloom cannot create those accounts or click captchas for you — vendors
-              forbid it, and it would not be secure.
+              Pop out a stay-on-top guide. It opens each official page and pauses with what to
+              click and paste. <strong>You</strong> click Create account, I’m not a robot, and
+              Verify — Heirloom cannot drive those sites.
             </li>
-            <li>Paste each API key here. We store it and never ask again in a grouped wizard.</li>
+            <li>Paste each API key into the guide. We store it and move to the next vendor.</li>
             <li>Download local models on this PC, then pair your phone and pick phone features.</li>
           </ul>
         </StudioPanel>
@@ -183,56 +163,55 @@ export default function FirstRunSetup() {
       ) : null}
 
       {step === 3 ? (
-        <StudioPanel title="Cloud accounts (optional extras)" defaultOpen>
+        <StudioPanel title="Cloud accounts — stay-on-top guide" defaultOpen>
           <p className="text-xs mb-4" style={{ color: "#999", lineHeight: 1.45 }}>
-            Local engines do not need these. For cloned voice or a talking head, open the official
-            site with the email above, finish their robot check, then paste the key.
+            {catalog.vendor_signup_policy} Local Whisper/Ollama do not need these keys.
           </p>
-          {(catalog.cloud_services || []).map((svc) => {
-            const have = data.keys?.[svc.id];
-            const signup = email
-              ? `${svc.signup_url}${svc.signup_url.includes("?") ? "&" : "?"}email=${encodeURIComponent(email)}`
-              : svc.signup_url;
-            return (
-              <div key={svc.id} className="mb-5 pb-4" style={{ borderBottom: "1px solid #222" }}>
-                <div className="flex justify-between gap-3 mb-1">
-                  <strong>{svc.label}</strong>
-                  <span className="text-xs" style={{ color: have ? "#7da06f" : "#c95a5a" }}>
-                    {have ? "saved" : "not set"}
-                  </span>
-                </div>
-                <p className="text-xs mb-2" style={{ color: "#888" }}>
-                  {svc.powers}
-                </p>
-                <div className="flex gap-2 flex-wrap mb-2">
-                  <a className="studio-btn" href={signup} target="_blank" rel="noreferrer">
-                    Create account
-                  </a>
-                  <a className="studio-btn" href={svc.dashboard_url} target="_blank" rel="noreferrer">
-                    Get API key
-                  </a>
-                </div>
-                <StudioFieldRow label="Paste key">
-                  <input
-                    type="password"
-                    placeholder={svc.placeholder}
-                    value={keyDrafts[svc.id] || ""}
-                    onChange={(e) => setKeyDrafts((d) => ({ ...d, [svc.id]: e.target.value }))}
-                    data-testid={`setup-key-${svc.id}`}
-                  />
-                </StudioFieldRow>
-                <button
-                  type="button"
-                  className="studio-btn studio-btn-primary mt-2"
-                  disabled={busy}
-                  onClick={() => verifySaveKey(svc)}
-                >
-                  Verify & save
-                </button>
+          <button
+            type="button"
+            className="studio-btn studio-btn-primary mb-4"
+            onClick={async () => {
+              if (email) await save({ vendor_email: email });
+              setCoachOn(true);
+            }}
+            data-testid="setup-start-coach"
+          >
+            Pop out the guide
+          </button>
+          {(catalog.cloud_services || []).map((svc) => (
+            <div key={svc.id} className="studio-handoff">
+              <div className="flex justify-between gap-3">
+                <strong>{svc.label}</strong>
+                <span className="text-xs" style={{ color: data.keys?.[svc.id] ? "#7da06f" : "#c95a5a" }}>
+                  {data.keys?.[svc.id] ? "saved" : "not set"}
+                </span>
               </div>
-            );
-          })}
+              <p className="text-xs" style={{ color: "#888" }}>
+                {svc.powers}
+              </p>
+            </div>
+          ))}
         </StudioPanel>
+      ) : null}
+
+      {coachOn ? (
+        <VendorCoach
+          email={email}
+          onSaved={() => load()}
+          onPersistEmail={() => email && save({ vendor_email: email })}
+          onDone={() => {
+            setCoachOn(false);
+            load();
+          }}
+          services={(catalog.cloud_services || []).map((svc) => {
+            const handoff = (data.handoffs || {})[svc.id] || {};
+            return {
+              ...svc,
+              ...handoff,
+              alreadySaved: Boolean(data.keys?.[svc.id]),
+            };
+          })}
+        />
       ) : null}
 
       {step === 4 ? (
@@ -321,7 +300,16 @@ export default function FirstRunSetup() {
           Back
         </button>
         {step < STEPS.length - 1 ? (
-          <button type="button" className="studio-btn studio-btn-primary" onClick={() => setStep((s) => s + 1)}>
+          <button
+            type="button"
+            className="studio-btn studio-btn-primary"
+            onClick={async () => {
+              if (step === 2 && email) {
+                await save({ vendor_email: email });
+              }
+              setStep((s) => s + 1);
+            }}
+          >
             Next
           </button>
         ) : null}

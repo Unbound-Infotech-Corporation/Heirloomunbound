@@ -47,6 +47,7 @@ from studio_setup import (
     clamp_setup,
     setup_catalog,
     space_profile,
+    vendor_handoff,
 )
 
 router = APIRouter(prefix="/studio", tags=["studio"])
@@ -611,9 +612,15 @@ async def get_first_run(user: dict = Depends(get_studio_user)):
         "did": bool((user.get("d_id_api_key") or "").strip()),
         "fal": bool((user.get("fal_api_key") or "").strip()),
     }
+    catalog = setup_catalog()
+    email = setup.get("vendor_email") or ""
+    handoffs = {
+        svc["id"]: vendor_handoff(svc["id"], email) for svc in catalog["cloud_services"]
+    }
     return {
         "settings": setup,
-        "catalog": setup_catalog(),
+        "catalog": catalog,
+        "handoffs": handoffs,
         "space_profile": profile,
         "keys": keys,
         "pcs": pcs,
@@ -621,6 +628,15 @@ async def get_first_run(user: dict = Depends(get_studio_user)):
         "compute": _user_compute(user),
         "updated_at": user.get("studio_setup_updated_at"),
     }
+
+
+@router.get("/first-run/handoff/{service_id}")
+async def get_vendor_handoff(service_id: str, user: dict = Depends(get_studio_user)):
+    setup = _user_setup(user)
+    handoff = vendor_handoff(service_id, setup.get("vendor_email") or "")
+    if not handoff:
+        raise HTTPException(status_code=404, detail="Unknown vendor")
+    return handoff
 
 
 @router.put("/first-run")

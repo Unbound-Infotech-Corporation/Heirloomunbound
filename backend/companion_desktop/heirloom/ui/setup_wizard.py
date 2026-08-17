@@ -7,11 +7,11 @@ third-party account creation.
 from __future__ import annotations
 
 import shutil
-import webbrowser
 from typing import Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QDialog,
@@ -74,7 +74,8 @@ class FirstRunWizard(QDialog):
         self._phone_feats = ["twin", "capture", "journal", "reminders"]
         self._pair_code = ""
         self._prov: Optional[_ProvisionThread] = None
-        self._catalog: dict = {}
+        self._payload: dict = {}
+        self._coach = None
         self._build()
         api.get_async("/studio/first-run", on_ok=self._on_loaded, on_err=lambda m: None)
 
@@ -167,20 +168,17 @@ class FirstRunWizard(QDialog):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.addWidget(self._body(
-            "Optional. Local speech and Ollama do not need these. For a cloned voice or "
-            "talking head: create the account (you click the robot check), copy the API "
-            "key, then paste it in Models → that feature after this wizard."
+            "Pop out a stay-on-top guide. It opens their sign-up page, then your inbox, "
+            "then their API keys page, and pauses with what to click and paste. "
+            "You click Create account and I'm not a robot — Heirloom cannot drive their site."
         ))
-        row = QHBoxLayout()
-        for label, url in (
-            ("ElevenLabs sign-up", "https://elevenlabs.io/app/sign-up"),
-            ("D-ID studio", "https://studio.d-id.com/"),
-            ("fal.ai", "https://fal.ai/login"),
-        ):
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _=False, u=url: webbrowser.open(u))
-            row.addWidget(btn)
-        lay.addLayout(row)
+        self._cloud_status = QLabel("")
+        self._cloud_status.setWordWrap(True)
+        lay.addWidget(self._cloud_status)
+        guide = QPushButton("Pop out the guide")
+        guide.setObjectName("primary")
+        guide.clicked.connect(self._start_coach)
+        lay.addWidget(guide)
         lay.addStretch(1)
         return w
 
@@ -255,11 +253,40 @@ class FirstRunWizard(QDialog):
         api.put_async("/studio/first-run", body)
 
     def _on_loaded(self, data: dict) -> None:
-        self._catalog = data or {}
+        self._payload = data or {}
         settings = (data or {}).get("settings") or {}
         email = settings.get("vendor_email") or ""
         if email:
             self.email_input.setText(email)
+
+    def _start_coach(self) -> None:
+        self._persist()
+        email = self.email_input.text().strip().lower()
+        if email:
+            QApplication.clipboard().setText(email)
+        payload = self._payload or {}
+        keys = payload.get("keys") or {}
+        handoffs = []
+        for hid, h in (payload.get("handoffs") or {}).items():
+            item = dict(h or {})
+            item["already_saved"] = bool(keys.get(hid))
+            handoffs.append(item)
+        if not handoffs:
+            self._cloud_status.setText("Could not load vendor guide yet. Go Back and Next to retry.")
+            return
+        from .vendor_coach import VendorCoachWindow
+
+        self._coach = VendorCoachWindow(
+            handoffs,
+            email=email,
+            parent=self,
+            on_saved=lambda: api.get_async("/studio/first-run", on_ok=self._on_loaded),
+        )
+        self._coach.show()
+        self._cloud_status.setText(
+            "Guide is pinned on top. Follow it while you use the browser. "
+            "You click Create account and I'm not a robot."
+        )
 
     def _make_pair(self) -> None:
         self._persist()
