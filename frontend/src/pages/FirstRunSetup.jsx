@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../lib/api";
 import { StudioFieldRow, StudioPanel, VendorCoach } from "../components/studio";
+import { openCoachStep } from "../components/studio/VendorHandoff";
 
 const STEPS = [
   { id: "welcome", label: "Welcome" },
@@ -170,8 +171,13 @@ export default function FirstRunSetup() {
           <button
             type="button"
             className="studio-btn studio-btn-primary mb-4"
-            onClick={async () => {
-              if (email) await save({ vendor_email: email });
+            onClick={() => {
+              if (email) save({ vendor_email: email });
+              const pending = (catalog.cloud_services || [])
+                .map((svc) => ({ ...svc, ...(data.handoffs || {})[svc.id], alreadySaved: Boolean(data.keys?.[svc.id]) }))
+                .filter((svc) => !svc.alreadySaved);
+              const first = pending[0];
+              if (first) openCoachStep(first, (first.coach_steps || [])[0], email);
               setCoachOn(true);
             }}
             data-testid="setup-start-coach"

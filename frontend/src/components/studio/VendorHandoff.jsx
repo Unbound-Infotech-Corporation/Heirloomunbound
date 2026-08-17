@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../lib/api";
 
 /**
- * Stay-on-top coach: Heirloom opens official pages and pauses with copy/paste
- * hints. Humans click Create account / I'm not a robot / Verify. We never
- * drive vendor DOM or solve captchas.
+ * Stay-on-top coach: Heirloom opens official pages from a click (popup-safe)
+ * and pauses with copy/paste hints. Humans click Create account / I'm not a
+ * robot / Verify. We never drive vendor DOM or solve captchas.
  */
-function signupUrlWithEmail(url, email, param) {
+export function signupUrlWithEmail(url, email, param) {
   if (!url || !email || !param) return url;
   try {
     const next = new URL(url);
@@ -18,14 +18,33 @@ function signupUrlWithEmail(url, email, param) {
   }
 }
 
-async function copyText(value) {
+function copyText(value) {
   if (!value) return;
-  try {
-    await navigator.clipboard.writeText(value);
-    toast.success(`Copied ${value}`);
-  } catch {
-    toast.message("Copy the email yourself if paste is blocked");
+  navigator.clipboard.writeText(value).then(
+    () => toast.success(`Copied ${value}`),
+    () => toast.message("Copy the email yourself if paste is blocked")
+  );
+}
+
+export function stepOpenUrl(svc, step, email) {
+  if (!step) return "";
+  if (step.id === "create_account") {
+    return signupUrlWithEmail(
+      step.open_url || svc?.signup_url,
+      email,
+      svc?.email_query_param || "email"
+    );
   }
+  return step.open_url || "";
+}
+
+export function openCoachStep(svc, step, email) {
+  if (step?.copy) copyText(step.copy);
+  const url = stepOpenUrl(svc, step, email);
+  if (step?.auto_open && url) {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+  return url;
 }
 
 export default function VendorCoach({
@@ -40,32 +59,12 @@ export default function VendorCoach({
   const [stepIdx, setStepIdx] = useState(0);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const openedKey = useRef("");
   const persistRef = useRef(onPersistEmail);
   persistRef.current = onPersistEmail;
 
   const svc = queue[svcIdx];
   const steps = svc?.coach_steps || [];
   const step = steps[stepIdx];
-
-  useEffect(() => {
-    if (!svc || !step) return;
-    const key = `${svc.id}:${step.id}`;
-    if (openedKey.current === key) return;
-    openedKey.current = key;
-    const run = async () => {
-      await persistRef.current?.();
-      if (step.copy) await copyText(step.copy);
-      const url =
-        step.id === "create_account"
-          ? signupUrlWithEmail(step.open_url || svc.signup_url, email, svc.email_query_param || "email")
-          : step.open_url;
-      if (step.auto_open && url) {
-        window.open(url, "_blank", "noopener,noreferrer");
-      }
-    };
-    run();
-  }, [svc, step, email]);
 
   if (!queue.length) {
     return (
@@ -82,20 +81,37 @@ export default function VendorCoach({
 
   if (!svc || !step) return null;
 
-  const advance = () => {
-    setDraft("");
+  const peekNext = () => {
     if (stepIdx + 1 < steps.length) {
-      setStepIdx(stepIdx + 1);
+      return { nextSvc: svc, nextStep: steps[stepIdx + 1], nextSvcIdx: svcIdx, nextStepIdx: stepIdx + 1 };
+    }
+    if (svcIdx + 1 < queue.length) {
+      const nextSvc = queue[svcIdx + 1];
+      return {
+        nextSvc,
+        nextStep: (nextSvc.coach_steps || [])[0],
+        nextSvcIdx: svcIdx + 1,
+        nextStepIdx: 0,
+      };
+    }
+    return null;
+  };
+
+  const go = (next) => {
+    setDraft("");
+    if (!next) {
+      onDone?.();
       return;
     }
-    const nextSvc = svcIdx + 1;
-    if (nextSvc < queue.length) {
-      setSvcIdx(nextSvc);
-      setStepIdx(0);
-      openedKey.current = "";
-      return;
-    }
-    onDone?.();
+    setSvcIdx(next.nextSvcIdx);
+    setStepIdx(next.nextStepIdx);
+  };
+
+  const continueNow = () => {
+    persistRef.current?.();
+    const next = peekNext();
+    if (next?.nextStep) openCoachStep(next.nextSvc, next.nextStep, email);
+    go(next);
   };
 
   const verifySave = async () => {
@@ -111,13 +127,10 @@ export default function VendorCoach({
       toast.success(`${svc.label} saved`);
       setDraft("");
       onSaved?.();
-      const nextSvc = svcIdx + 1;
-      if (nextSvc < queue.length) {
-        setSvcIdx(nextSvc);
-        setStepIdx(0);
-        openedKey.current = "";
-      } else {
-        onDone?.();
+      const next = peekNext();
+      go(next);
+      if (next?.nextSvc) {
+        toast.message(`Next: ${next.nextSvc.label} — click Re-open page`);
       }
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Key was rejected");
@@ -127,11 +140,7 @@ export default function VendorCoach({
   };
 
   const reopen = () => {
-    const url =
-      step.id === "create_account"
-        ? signupUrlWithEmail(step.open_url || svc.signup_url, email, svc.email_query_param || "email")
-        : step.open_url;
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    openCoachStep(svc, step, email);
   };
 
   return (
@@ -178,7 +187,7 @@ export default function VendorCoach({
         <button
           type="button"
           className="studio-btn studio-btn-primary"
-          onClick={advance}
+          onClick={continueNow}
           data-testid="vendor-coach-continue"
         >
           {step.cta || "Continue"}
@@ -186,13 +195,13 @@ export default function VendorCoach({
       )}
 
       <div className="studio-coach-actions">
-        {step.open_url ? (
-          <button type="button" className="studio-btn" onClick={reopen}>
+        {stepOpenUrl(svc, step, email) ? (
+          <button type="button" className="studio-btn" onClick={reopen} data-testid="vendor-coach-reopen">
             Re-open page
           </button>
         ) : null}
         {step.skip_cta ? (
-          <button type="button" className="studio-btn" onClick={advance}>
+          <button type="button" className="studio-btn" onClick={continueNow}>
             {step.skip_cta}
           </button>
         ) : null}
