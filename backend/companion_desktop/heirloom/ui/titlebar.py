@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import PALETTE
+from .. import BUILD_ID, __version__
 
 
 class BreathingDot(QWidget):
@@ -166,7 +167,8 @@ class TitleBar(QWidget):
         brand_col = QVBoxLayout()
         brand_col.setContentsMargins(0, 6, 0, 6)
         brand_col.setSpacing(0)
-        overline = QLabel("HEIRLOOM")
+        overline = QLabel(f"HEIRLOOM  ·  {__version__}")
+        overline.setToolTip(f"Desktop {__version__} ({BUILD_ID})")
         overline.setStyleSheet(
             f"color: {PALETTE['text_muted']}; letter-spacing: 3px;"
             " font-family: 'JetBrains Mono','Consolas','Courier New',monospace;"

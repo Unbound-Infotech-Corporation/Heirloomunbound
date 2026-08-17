@@ -105,6 +105,39 @@ async def root():
     return {"app": "digital-heirloom", "status": "ok"}
 
 
+@api_router.get("/build")
+async def build_info():
+    """What this live API can bake into HeirloomDesktop.zip.
+
+    Production Emergent can lag GitHub. `features` missing first-run means
+    Local PC download is an older desktop — deploy origin/main, then re-download.
+    """
+    sha = "dev"
+    version = "0.4.0"
+    try:
+        from companion_desktop.heirloom import BUILD_ID, __version__
+
+        sha = BUILD_ID
+        version = __version__
+    except Exception:
+        pass
+    try:
+        from companion_desktop_data import DESKTOP_BUILD  # type: ignore
+
+        if DESKTOP_BUILD:
+            sha = DESKTOP_BUILD
+    except Exception:
+        pass
+    return {
+        "app": "digital-heirloom",
+        "status": "ok",
+        "desktop_version": version,
+        "git_sha": sha,
+        "features": ["studio", "first-run", "vendor-coach"],
+        "has_studio_first_run": True,
+    }
+
+
 api_router.include_router(auth.router)
 api_router.include_router(archive.router)
 api_router.include_router(abilities.router)

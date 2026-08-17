@@ -35,6 +35,8 @@ export default function Companion() {
   const [cmdDraft, setCmdDraft] = useState({ kind: "shell", text: "" });
   const [busy, setBusy] = useState(false);
 
+  const [buildInfo, setBuildInfo] = useState(null);
+
   const loadAll = async () => {
     const [d, a] = await Promise.all([
       api.get("/companion/devices"),
@@ -45,6 +47,7 @@ export default function Companion() {
   };
   useEffect(() => {
     loadAll();
+    api.get("/build").then((r) => setBuildInfo(r.data)).catch(() => setBuildInfo(null));
     const t = setInterval(loadAll, 5000);
     return () => clearInterval(t);
   }, []);
@@ -83,6 +86,11 @@ export default function Companion() {
   const downloadDesktopApp = () => {
     if (!issued) return;
     const url = `${API_BASE}/companion/desktop-package?token=${encodeURIComponent(issued.device_token)}`;
+    window.open(url, "_blank");
+  };
+
+  const redownloadDesktop = (deviceId) => {
+    const url = `${API_BASE}/companion/devices/${encodeURIComponent(deviceId)}/desktop-package`;
     window.open(url, "_blank");
   };
 
@@ -220,10 +228,11 @@ export default function Companion() {
               </button>
             </div>
             <p className="text-xs mt-4 leading-relaxed" style={{ color: "var(--text-muted)" }}>
-              <b style={{ color: "var(--accent)" }}>Heirloom Desktop</b> is the full Windows app — a resizable
-              window with your twin&apos;s talking-head avatar, full chat thread, push-to-talk, quick-capture journal,
-              and a pop-out avatar mode for OBS streaming. The background companion <code>.bat</code> is the lightweight
-              option — runs hidden in the tray, listens for Ctrl+Space, no GUI. Both share the same token.</p>
+              <b style={{ color: "var(--accent)" }}>Heirloom Desktop</b> is the full Windows app — Adobe-style
+              studio, first-run (models then vendor guide), talking-head avatar, chat, push-to-talk, and vault.
+              The zip is baked by <b>this</b> server at download time, not by GitHub. The background companion
+              <code>.bat</code> is tray-only. Both share the same token.
+            </p>
           </div>
         )}
       </section>
@@ -249,14 +258,29 @@ export default function Companion() {
                   </div>
                 </div>
                 {!d.revoked && (
-                  <button onClick={() => revoke(d.device_id)} data-testid={`revoke-${d.device_id}`} className="p-2">
-                    <Trash2 className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => redownloadDesktop(d.device_id)}
+                      data-testid={`redownload-${d.device_id}`}
+                      className="inline-flex items-center gap-2 px-3 py-2 text-xs rounded-sm"
+                      style={{ border: "1px solid var(--accent)", color: "var(--text-primary)" }}
+                    >
+                      <Download className="h-3.5 w-3.5" /> Re-download Desktop
+                    </button>
+                    <button onClick={() => revoke(d.device_id)} data-testid={`revoke-${d.device_id}`} className="p-2">
+                      <Trash2 className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
             <p className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>
-              Lost a download? Tokens can't be retrieved after they're issued — revoke the device above and click <b>Issue token</b> again to get a fresh package.
+              Re-download bakes a fresh zip from <b>this</b> live API (does not show the token again).
+              GitHub can be ahead of Emergent — if the titlebar is not <code>0.4.0</code> with first-run
+              after models, deploy <code>main</code> first.{" "}
+              {buildInfo?.desktop_version
+                ? `This server: desktop ${buildInfo.desktop_version} (${buildInfo.git_sha}).`
+                : "This server does not advertise /api/build yet."}
             </p>
           </div>
         )}

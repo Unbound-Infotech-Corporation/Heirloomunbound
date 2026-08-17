@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+import requests
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
@@ -74,7 +75,13 @@ def studio_user():
     _DB.pairing_codes.delete_many({"user_id": user_id})
 
 
-def test_clamp_audio_bounds():
+def test_build_advertises_studio_first_run():
+    r = requests.get(f"{API}/build", timeout=10)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body.get("has_studio_first_run") is True
+    assert "vendor-coach" in (body.get("features") or [])
+    assert body.get("desktop_version")
     out = clamp_audio({"output_volume": 999, "input_gain": -4, "sample_rate": 123, "noise_gate_db": 12})
     assert out["output_volume"] == 100
     assert out["input_gain"] == 0
