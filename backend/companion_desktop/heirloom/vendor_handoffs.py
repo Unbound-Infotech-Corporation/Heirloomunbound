@@ -3,6 +3,9 @@
 The downloadable zip is baked by whatever backend is live. Production can lag
 GitHub. First-run still opens ElevenLabs / D-ID / fal pages and accepts paste
 into Heirloom. Screen watch and phone pairing need the studio API.
+
+Keep vendor ids, URLs, and coach step ids aligned with ``backend/studio_setup.py``
+(``CLOUD_SETUP_SERVICES``). The desktop tree cannot import that module offline.
 """
 from __future__ import annotations
 

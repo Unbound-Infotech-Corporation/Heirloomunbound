@@ -7,7 +7,7 @@ from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai import OpenAISpeechToText
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
 from deps import EMERGENT_LLM_KEY, db, get_current_user
@@ -675,6 +675,14 @@ def build_desktop_app_zip_bytes(token: str) -> bytes:
     return buf.getvalue()
 
 
+def _desktop_zip_attachment(token: str) -> Response:
+    return Response(
+        content=build_desktop_app_zip_bytes(token),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="HeirloomDesktop.zip"'},
+    )
+
+
 @router.get("/desktop-package")
 async def desktop_package(
     token: str,
@@ -695,14 +703,7 @@ async def desktop_package(
     if not device:
         raise HTTPException(status_code=404, detail="Device token not found")
 
-    payload = build_desktop_app_zip_bytes(token)
-    from fastapi import Response
-
-    return Response(
-        content=payload,
-        media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="HeirloomDesktop.zip"'},
-    )
+    return _desktop_zip_attachment(token)
 
 
 @router.get("/devices/{device_id}/desktop-package")
@@ -718,14 +719,7 @@ async def desktop_package_for_device(
     if not device or not device.get("device_token"):
         raise HTTPException(status_code=404, detail="Device not found")
 
-    payload = build_desktop_app_zip_bytes(device["device_token"])
-    from fastapi import Response
-
-    return Response(
-        content=payload,
-        media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="HeirloomDesktop.zip"'},
-    )
+    return _desktop_zip_attachment(device["device_token"])
 
 
 @router.get("/windows-package")

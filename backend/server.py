@@ -105,12 +105,23 @@ async def root():
     return {"app": "digital-heirloom", "status": "ok"}
 
 
+def _studio_first_run_routes() -> bool:
+    """True when this deployment includes the first-run studio endpoints."""
+    try:
+        from routers import studio as studio_mod
+
+        paths = " ".join(getattr(route, "path", "") for route in studio_mod.router.routes)
+        return "/first-run" in paths and "first-run/complete" in paths
+    except Exception:
+        return False
+
+
 @api_router.get("/build")
 async def build_info():
     """What this live API can bake into HeirloomDesktop.zip.
 
-    Production Emergent can lag GitHub. `features` missing first-run means
-    Local PC download is an older desktop — deploy origin/main, then re-download.
+    Production Emergent can lag GitHub. `has_studio_first_run` false means
+    Local PC download is an older backend — deploy origin/main, then re-download.
     """
     sha = "dev"
     version = "0.4.0"
@@ -128,13 +139,17 @@ async def build_info():
             sha = DESKTOP_BUILD
     except Exception:
         pass
+    has_first_run = _studio_first_run_routes()
+    features = ["studio", "vendor-coach"]
+    if has_first_run:
+        features.insert(1, "first-run")
     return {
         "app": "digital-heirloom",
         "status": "ok",
         "desktop_version": version,
         "git_sha": sha,
-        "features": ["studio", "first-run", "vendor-coach"],
-        "has_studio_first_run": True,
+        "features": features,
+        "has_studio_first_run": has_first_run,
     }
 
 

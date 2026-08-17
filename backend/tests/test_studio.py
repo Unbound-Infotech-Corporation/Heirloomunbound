@@ -88,9 +88,17 @@ def test_build_advertises_studio_first_run():
     r = requests.get(f"{API}/build", timeout=10)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body.get("has_studio_first_run") is True
-    assert "vendor-coach" in (body.get("features") or [])
+    features = body.get("features") or []
+    has_fr = body.get("has_studio_first_run")
+    assert has_fr == ("first-run" in features)
+    assert "vendor-coach" in features
     assert body.get("desktop_version")
+
+
+def test_studio_first_run_route_detection():
+    from server import _studio_first_run_routes
+
+    assert _studio_first_run_routes() is True
 
 
 def test_clamp_model_map_rejects_unknown():

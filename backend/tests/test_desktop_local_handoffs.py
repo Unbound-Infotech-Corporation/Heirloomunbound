@@ -4,10 +4,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "companion_desktop"))
+BACKEND = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BACKEND / "companion_desktop"))
+sys.path.insert(0, str(BACKEND))
 
 from heirloom.api import is_not_found_error  # noqa: E402
 from heirloom.vendor_handoffs import local_handoffs, provision_features  # noqa: E402
+from studio_setup import CLOUD_SETUP_SERVICES, SPACE_PROFILES, vendor_coach_steps  # noqa: E402
 
 
 def test_is_not_found_error_only_matches_404():
@@ -28,7 +31,6 @@ def test_local_handoffs_cover_three_vendors():
     assert steps["create_account"]["auto_open"] is True
     assert "elevenlabs.io" in steps["create_account"]["open_url"]
     assert "email=ada" in steps["create_account"]["open_url"]
-    assert "elevenlabs.io" in steps["create_account"]["open_url"]
     assert steps["verify_email"]["open_url"].startswith("https://mail.google.com")
     assert steps["paste_key"]["kind"] == "paste"
     assert "sk_" in steps["paste_key"]["placeholder"]
@@ -39,3 +41,24 @@ def test_provision_features_match_disk_profiles():
     assert "twin" in provision_features("full")
     assert "vision" in provision_features("max")
     assert provision_features("unknown") == provision_features("full")
+    for profile in SPACE_PROFILES:
+        assert provision_features(profile["id"]) == list(profile["provision_features"])
+
+
+def test_local_handoffs_stay_aligned_with_studio_catalog():
+    email = "owner@gmail.com"
+    by_id = {h["id"]: h for h in local_handoffs(email)}
+    shared_keys = (
+        "label",
+        "dashboard_url",
+        "save_path",
+        "verify_service",
+        "placeholder",
+    )
+    for spec in CLOUD_SETUP_SERVICES:
+        local = by_id[spec["id"]]
+        for key in shared_keys:
+            assert local[key] == spec[key]
+        server_steps = {s["id"] for s in vendor_coach_steps(spec, email)}
+        local_steps = {s["id"] for s in local["coach_steps"]}
+        assert server_steps == local_steps
