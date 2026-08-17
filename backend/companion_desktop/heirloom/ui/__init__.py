@@ -368,4 +368,60 @@ QCheckBox {{
     color: {PALETTE['text_secondary']};
     spacing: 8px;
 }}
+
+/* Modal dialogs — Windows native chrome is light; force readable dark surface */
+QDialog {{
+    background-color: {PALETTE['bg_surface']};
+    color: {PALETTE['text_primary']};
+}}
+QDialog QWidget {{
+    background: transparent;
+    color: {PALETTE['text_primary']};
+}}
+QDialog QLabel {{
+    color: {PALETTE['text_primary']};
+}}
+QStackedWidget {{
+    background: transparent;
+}}
+QRadioButton {{
+    color: {PALETTE['text_secondary']};
+    spacing: 10px;
+    font-size: 13px;
+}}
+QRadioButton::indicator {{
+    width: 18px;
+    height: 18px;
+}}
+QRadioButton::indicator:unchecked {{
+    border: 1px solid {PALETTE['border']};
+    border-radius: 9px;
+    background: {PALETTE['bg_base']};
+}}
+QRadioButton::indicator:checked {{
+    border: 1px solid {PALETTE['accent']};
+    border-radius: 9px;
+    background: {PALETTE['accent']};
+}}
 """
+
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QDialog
+
+
+def dialog_stylesheet() -> str:
+    """QSS for modal windows (setup, settings, vendor coach)."""
+    return QSS
+
+
+def apply_dialog_surface(dialog: QDialog) -> None:
+    """Solid background + palette so light text is never on a white Windows dialog."""
+    dialog.setAutoFillBackground(True)
+    pal = dialog.palette()
+    bg = QColor(PALETTE["bg_surface"])
+    fg = QColor(PALETTE["text_primary"])
+    pal.setColor(QPalette.ColorRole.Window, bg)
+    pal.setColor(QPalette.ColorRole.WindowText, fg)
+    pal.setColor(QPalette.ColorRole.Base, QColor(PALETTE["bg_base"]))
+    pal.setColor(QPalette.ColorRole.Text, fg)
+    dialog.setPalette(pal)

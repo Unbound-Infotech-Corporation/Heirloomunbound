@@ -31,7 +31,7 @@ from .. import api, config
 from ..models import provision
 from ..vendor_handoffs import local_handoffs, provision_features
 from ..vault import vault_root
-from . import PALETTE, QSS
+from . import PALETTE, QSS, apply_dialog_surface, dialog_stylesheet
 
 PAGES = ("welcome", "space", "email", "phone", "finish", "cloud")
 
@@ -66,7 +66,8 @@ class _ProvisionThread(QThread):
 class FirstRunWizard(QDialog):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setStyleSheet(QSS)
+        self.setStyleSheet(dialog_stylesheet())
+        apply_dialog_surface(self)
         self.setWindowTitle("Heirloom · First-run setup")
         self.setModal(True)
         self.resize(720, 640)
@@ -88,9 +89,15 @@ class FirstRunWizard(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 24, 28, 24)
         over = QLabel("FIRST USE · THIS PC")
-        over.setProperty("class", "overline")
+        over.setStyleSheet(
+            f"color: {PALETTE['text_muted']}; letter-spacing: 3px;"
+            " font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 9px;"
+        )
         title = QLabel("Set up Heirloom once")
-        title.setObjectName("brand")
+        title.setStyleSheet(
+            f"color: {PALETTE['text_primary']}; font-family: 'Cormorant Garamond', 'Garamond', serif;"
+            " font-size: 22px;"
+        )
         root.addWidget(over)
         root.addWidget(title)
 
@@ -181,6 +188,9 @@ class FirstRunWizard(QDialog):
         ))
         self._cloud_status = QLabel("")
         self._cloud_status.setWordWrap(True)
+        self._cloud_status.setStyleSheet(
+            f"color: {PALETTE['text_secondary']}; font-size: 13px;"
+        )
         lay.addWidget(self._cloud_status)
         guide = QPushButton("Pop out the guide")
         guide.setObjectName("primary")
@@ -219,6 +229,9 @@ class FirstRunWizard(QDialog):
         self.pair_url = QLabel("")
         self.pair_url.setWordWrap(True)
         self.pair_url.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.pair_url.setStyleSheet(
+            f"color: {PALETTE['text_secondary']}; font-size: 12px;"
+        )
         lay.addWidget(self.pair_url)
         lay.addStretch(1)
         return w
@@ -232,6 +245,9 @@ class FirstRunWizard(QDialog):
         ))
         self.finish_log = QLabel("Waiting to start…")
         self.finish_log.setWordWrap(True)
+        self.finish_log.setStyleSheet(
+            f"color: {PALETTE['text_secondary']}; font-size: 13px;"
+        )
         lay.addWidget(self.finish_log)
         lay.addStretch(1)
         return w

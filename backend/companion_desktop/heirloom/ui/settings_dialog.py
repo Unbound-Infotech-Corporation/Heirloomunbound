@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 from .. import BUILD_ID, __version__, api, config
 from ..maintenance import Maintenance
 from ..vault import Vault, vault_root
-from . import PALETTE, QSS
+from . import PALETTE, QSS, apply_dialog_surface, dialog_stylesheet
 
 
 def _human_bytes(n: int) -> str:
@@ -48,7 +48,8 @@ class SettingsDialog(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setStyleSheet(QSS)
+        self.setStyleSheet(dialog_stylesheet())
+        apply_dialog_surface(self)
         self.setWindowTitle("Heirloom · Settings")
         self.setModal(True)
         self.resize(620, 640)

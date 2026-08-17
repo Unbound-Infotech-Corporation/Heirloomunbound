@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import api
-from . import PALETTE, QSS
+from . import PALETTE, apply_dialog_surface, dialog_stylesheet
 
 WATCH_MS = 4000
 
@@ -77,7 +77,8 @@ class VendorCoachWindow(QDialog):
         on_saved: Optional[Callable[[], None]] = None,
     ):
         super().__init__(parent)
-        self.setStyleSheet(QSS)
+        self.setStyleSheet(dialog_stylesheet())
+        apply_dialog_surface(self)
         self.setWindowTitle("Heirloom · Vendor guide")
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setModal(False)
