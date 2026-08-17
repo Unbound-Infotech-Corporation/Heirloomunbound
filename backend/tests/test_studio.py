@@ -16,7 +16,13 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from studio_defaults import clamp_audio, clamp_model_map, clamp_compute, default_model_map
-from studio_setup import clamp_setup
+from studio_setup import clamp_setup, inbox_for_email, vendor_handoff
+from studio_coach_vision import (
+    next_step_for_scene,
+    observe_result,
+    parse_scene_payload,
+    sanitize_hint,
+)
 
 BASE_URL = (
     os.environ.get("REACT_APP_BACKEND_URL")
@@ -266,6 +272,59 @@ def test_device_token_can_put_audio(studio_user):
     assert r.json()["settings"]["output_volume"] == 17
 
 
+def test_vendor_handoff_copies_email_into_official_url():
+    assert vendor_handoff("nope") is None
+    h = vendor_handoff("elevenlabs", "Fam+test@Example.COM")
+    assert h["email"] == "fam+test@example.com"
+    assert h["signup_url"].startswith("https://elevenlabs.io/app/sign-up")
+    assert "email=fam%2Btest%40example.com" in h["signup_url"]
+    assert h["dashboard_url"].endswith("/api-keys")
+    assert h["save_path"] == "/voice-clone/api-key"
+    assert h["inbox"]["label"] == "your email inbox"
+    assert h["inbox"]["url"] is None
+    ids = [s["id"] for s in h["coach_steps"]]
+    assert ids == ["create_account", "verify_email", "find_key", "paste_key"]
+    assert h["coach_steps"][0]["auto_open"] is True
+    assert h["coach_steps"][0]["open_url"].startswith("https://elevenlabs.io/")
+    assert h["coach_steps"][-1]["kind"] == "paste"
+    assert any("robot" in line.lower() for line in h["you_do"])
+    assert "clipboard" in " ".join(h["we_do"]).lower()
+    bare = vendor_handoff("did", "")
+    assert bare["signup_url"] == "https://studio.d-id.com/"
+    assert "email=" not in bare["signup_url"]
+
+
+def test_inbox_for_known_email_providers():
+    gmail = inbox_for_email("you@Gmail.COM")
+    assert gmail["label"] == "Gmail"
+    assert "mail.google.com" in gmail["url"]
+    guided = vendor_handoff("elevenlabs", "you@gmail.com")
+    assert guided["inbox"]["url"].startswith("https://mail.google.com")
+    assert guided["coach_steps"][1]["open_url"] == guided["inbox"]["url"]
+    assert guided["coach_steps"][1]["auto_open"] is True
+    unknown = inbox_for_email("owner@family-archive.test")
+    assert unknown["url"] is None
+    assert unknown["label"] == "your email inbox"
+
+
+def test_coach_observe_advances_forward_only():
+    assert next_step_for_scene("create_account", "email_inbox") == "verify_email"
+    assert next_step_for_scene("create_account", "api_keys_page") == "find_key"
+    assert next_step_for_scene("create_account", "captcha") is None
+    assert next_step_for_scene("verify_email", "api_keys_page") == "find_key"
+    assert next_step_for_scene("find_key", "api_keys_page") == "paste_key"
+    assert next_step_for_scene("find_key", "api_key_visible") == "paste_key"
+    assert next_step_for_scene("paste_key", "api_key_visible") is None
+    assert next_step_for_scene("paste_key", "signup_form") is None
+    out = observe_result(current_step="create_account", scene="email_inbox")
+    assert out["advance_to_step"] == "verify_email"
+    assert out["scene"] == "email_inbox"
+    parsed = parse_scene_payload('```json\n{"scene":"captcha","hint":"click the box"}\n```')
+    assert parsed["scene"] == "captcha"
+    assert "sk_live_abcdefghij" not in sanitize_hint("here is sk_live_abcdefghij")
+    assert "paste" in sanitize_hint("here is sk_live_abcdefghij").lower()
+
+
 @pytest.mark.skipif(not BASE_URL, reason="backend URL not configured")
 def test_first_run_and_phone_pair(studio_user):
     import requests
@@ -278,6 +337,9 @@ def test_first_run_and_phone_pair(studio_user):
     assert body["settings"]["complete"] is False
     assert body["catalog"]["full_power_gb"]["min"] == 20
     assert "vendor_signup_policy" in body["catalog"]
+    assert "watch" in body["catalog"]["vendor_signup_policy"].lower()
+    assert "handoffs" in body
+    assert body["handoffs"]["elevenlabs"]["signup_url"].startswith("https://elevenlabs.io/")
 
     r = requests.put(
         f"{API}/studio/first-run",
@@ -288,6 +350,28 @@ def test_first_run_and_phone_pair(studio_user):
     assert r.status_code == 200, r.text
     assert r.json()["settings"]["space_profile"] == "lite"
     assert r.json()["settings"]["vendor_email"] == "setup@example.com"
+
+    r = requests.get(f"{API}/studio/first-run/handoff/elevenlabs", headers=h, timeout=15)
+    assert r.status_code == 200, r.text
+    handoff = r.json()
+    assert "email=setup%40example.com" in handoff["signup_url"]
+    assert handoff["inbox"]["label"] == "your email inbox"
+    assert len(handoff["coach_steps"]) == 4
+    r = requests.get(f"{API}/studio/first-run/handoff/nope", headers=h, timeout=15)
+    assert r.status_code == 404
+
+    r = requests.post(
+        f"{API}/studio/first-run/coach/observe",
+        headers=h,
+        json={"service_id": "elevenlabs", "current_step": "create_account"},
+        timeout=15,
+    )
+    assert r.status_code == 200, r.text
+    observed = r.json()
+    assert observed["scene"] == "unknown"
+    assert observed["watching"] is False
+    assert observed["advance_to_step"] is None
+    assert "sk_" not in (observed.get("hint") or "")
 
     r = requests.post(f"{API}/studio/first-run/complete", headers=h, timeout=15)
     assert r.status_code == 200, r.text

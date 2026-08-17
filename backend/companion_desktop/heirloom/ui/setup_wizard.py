@@ -1,17 +1,18 @@
 """First-launch wizard for the dedicated PC.
 
-Walks disk budget, vendor email, official cloud sign-up (user completes
-robot checks), local model download, and phone pairing. Does not automate
-third-party account creation.
+Walks disk budget, vendor email, phone pairing, then local model download.
+After models are in, a stay-on-top vendor guide watches the screen (same
+path as twin see_screen) while the human clicks robot / verify. Does not
+automate third-party account creation or scrape API keys.
 """
 from __future__ import annotations
 
 import shutil
-import webbrowser
 from typing import Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QDialog,
@@ -31,7 +32,7 @@ from ..models import provision
 from ..vault import vault_root
 from . import PALETTE, QSS
 
-PAGES = ("welcome", "space", "email", "cloud", "phone", "finish")
+PAGES = ("welcome", "space", "email", "phone", "finish", "cloud")
 
 
 def _free_gb(path) -> Optional[float]:
@@ -74,7 +75,10 @@ class FirstRunWizard(QDialog):
         self._phone_feats = ["twin", "capture", "journal", "reminders"]
         self._pair_code = ""
         self._prov: Optional[_ProvisionThread] = None
-        self._catalog: dict = {}
+        self._payload: dict = {}
+        self._coach = None
+        self._provisioned = False
+        self._downloading = False
         self._build()
         api.get_async("/studio/first-run", on_ok=self._on_loaded, on_err=lambda m: None)
 
@@ -92,9 +96,9 @@ class FirstRunWizard(QDialog):
         self.stack.addWidget(self._page_welcome())
         self.stack.addWidget(self._page_space())
         self.stack.addWidget(self._page_email())
-        self.stack.addWidget(self._page_cloud())
         self.stack.addWidget(self._page_phone())
         self.stack.addWidget(self._page_finish())
+        self.stack.addWidget(self._page_cloud())
         root.addWidget(self.stack, 1)
 
         nav = QHBoxLayout()
@@ -128,9 +132,10 @@ class FirstRunWizard(QDialog):
             "Full power (local Whisper, Ollama twin, Piper, vault) uses about "
             f"20–50 GB. {free_txt}\n\n"
             "We run as much as possible on this PC for privacy and speed.\n\n"
-            "Cloud vendors (ElevenLabs, D-ID, fal) require you to create the account "
-            "and complete any 'not a robot' checks. Heirloom opens the official page "
-            "and stores the API key you paste. It cannot sign up on those sites for you."
+            "Cloud vendors (ElevenLabs, D-ID, fal) come after local models download, "
+            "so screen vision is ready. Heirloom opens official pages and watches the "
+            "screen. You click Create account and I'm not a robot — it cannot sign up "
+            "on those sites or read keys off the screen."
         ))
         lay.addStretch(1)
         return w
@@ -167,20 +172,18 @@ class FirstRunWizard(QDialog):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.addWidget(self._body(
-            "Optional. Local speech and Ollama do not need these. For a cloned voice or "
-            "talking head: create the account (you click the robot check), copy the API "
-            "key, then paste it in Models → that feature after this wizard."
+            "Local models are installed. A stay-on-top guide opens their sign-up page, "
+            "then your inbox, then API keys, and watches the screen to move on. "
+            "You click Create account and I'm not a robot — Heirloom cannot drive their site "
+            "or copy keys from the screenshot."
         ))
-        row = QHBoxLayout()
-        for label, url in (
-            ("ElevenLabs sign-up", "https://elevenlabs.io/app/sign-up"),
-            ("D-ID studio", "https://studio.d-id.com/"),
-            ("fal.ai", "https://fal.ai/login"),
-        ):
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _=False, u=url: webbrowser.open(u))
-            row.addWidget(btn)
-        lay.addLayout(row)
+        self._cloud_status = QLabel("")
+        self._cloud_status.setWordWrap(True)
+        lay.addWidget(self._cloud_status)
+        guide = QPushButton("Pop out the guide")
+        guide.setObjectName("primary")
+        guide.clicked.connect(self._start_coach)
+        lay.addWidget(guide)
         lay.addStretch(1)
         return w
 
@@ -222,8 +225,8 @@ class FirstRunWizard(QDialog):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.addWidget(self._body(
-            "Finish downloads local models for your disk profile, then every feature is "
-            "a dropdown in Models. Keep this window open while files download."
+            "Download local models for your disk profile first. After that, the vendor "
+            "guide can watch the screen. Keep this window open while files download."
         ))
         self.finish_log = QLabel("Waiting to start…")
         self.finish_log.setWordWrap(True)
@@ -232,9 +235,15 @@ class FirstRunWizard(QDialog):
         return w
 
     def _sync_nav(self) -> None:
-        self.back_btn.setEnabled(self._page > 0)
-        last = self._page >= len(PAGES) - 1
-        self.next_btn.setText("Finish & download" if last else "Next")
+        page_id = PAGES[self._page]
+        self.back_btn.setEnabled(self._page > 0 and not self._downloading)
+        self.next_btn.setEnabled(not self._downloading)
+        if page_id == "finish" and not self._provisioned:
+            self.next_btn.setText("Download models")
+        elif page_id == "cloud":
+            self.next_btn.setText("Done")
+        else:
+            self.next_btn.setText("Next")
 
     def _profile_id(self) -> str:
         checked = self._space_group.checkedId()
@@ -255,11 +264,44 @@ class FirstRunWizard(QDialog):
         api.put_async("/studio/first-run", body)
 
     def _on_loaded(self, data: dict) -> None:
-        self._catalog = data or {}
+        self._payload = data or {}
         settings = (data or {}).get("settings") or {}
         email = settings.get("vendor_email") or ""
         if email:
             self.email_input.setText(email)
+
+    def _start_coach(self) -> None:
+        if self._coach is not None and self._coach.isVisible():
+            self._coach.raise_()
+            self._coach.activateWindow()
+            return
+        self._persist()
+        email = self.email_input.text().strip().lower()
+        if email:
+            QApplication.clipboard().setText(email)
+        payload = self._payload or {}
+        keys = payload.get("keys") or {}
+        handoffs = []
+        for hid, h in (payload.get("handoffs") or {}).items():
+            item = dict(h or {})
+            item["already_saved"] = bool(keys.get(hid))
+            handoffs.append(item)
+        if not handoffs:
+            self._cloud_status.setText("Could not load vendor guide yet. Go Back and Next to retry.")
+            return
+        from .vendor_coach import VendorCoachWindow
+
+        self._coach = VendorCoachWindow(
+            handoffs,
+            email=email,
+            parent=self,
+            on_saved=lambda: api.get_async("/studio/first-run", on_ok=self._on_loaded),
+        )
+        self._coach.show()
+        self._cloud_status.setText(
+            "Guide is pinned on top and watching the screen. "
+            "You click Create account and I'm not a robot."
+        )
 
     def _make_pair(self) -> None:
         self._persist()
@@ -282,13 +324,31 @@ class FirstRunWizard(QDialog):
             self._sync_nav()
 
     def _next(self) -> None:
-        if self._page < len(PAGES) - 1:
-            self._persist()
-            self._page += 1
-            self.stack.setCurrentIndex(self._page)
-            self._sync_nav()
+        page_id = PAGES[self._page]
+        if page_id == "finish":
+            if self._provisioned:
+                self._goto_page("cloud")
+                return
+            self._start_download()
             return
-        self._finish()
+        if page_id == "cloud":
+            self._complete_setup()
+            return
+        self._persist()
+        self._page += 1
+        self.stack.setCurrentIndex(self._page)
+        self._sync_nav()
+        if PAGES[self._page] == "cloud":
+            self._start_coach()
+
+    def _goto_page(self, page_id: str) -> None:
+        if page_id not in PAGES:
+            return
+        self._page = PAGES.index(page_id)
+        self.stack.setCurrentIndex(self._page)
+        self._sync_nav()
+        if page_id == "cloud":
+            self._start_coach()
 
     def _skip(self) -> None:
         s = config.load_settings()
@@ -296,14 +356,21 @@ class FirstRunWizard(QDialog):
         config.save_settings(s)
         self.reject()
 
-    def _finish(self) -> None:
+    def _start_download(self) -> None:
         self._persist()
+        self._downloading = True
+        self._sync_nav()
         api.post_async(
             "/studio/first-run/complete",
             {},
             on_ok=self._on_complete_ok,
-            on_err=lambda m: QMessageBox.warning(self, "Setup", m),
+            on_err=lambda m: self._download_err(m),
         )
+
+    def _download_err(self, msg: str) -> None:
+        self._downloading = False
+        self._sync_nav()
+        QMessageBox.warning(self, "Setup", msg)
 
     def _on_complete_ok(self, data: dict) -> None:
         features = ((data or {}).get("space_profile") or {}).get("provision_features") or [
@@ -318,11 +385,24 @@ class FirstRunWizard(QDialog):
         self._prov.start()
 
     def _on_provisioned(self, probe: dict) -> None:
+        self._downloading = False
+        self._provisioned = True
+        err = probe.get("error")
+        if err:
+            QMessageBox.warning(
+                self,
+                "Models",
+                f"A download failed:\n{err}\n\nThe vendor guide still opens. "
+                "Screen watch uses cloud vision when local llava is missing.",
+            )
+        else:
+            self.finish_log.setText("Models ready. Opening the vendor guide…")
+        self._goto_page("cloud")
+
+    def _complete_setup(self) -> None:
+        self._persist({"complete": True})
         s = config.load_settings()
         s["setup_complete"] = True
         s["setup_skipped"] = False
         config.save_settings(s)
-        err = probe.get("error")
-        if err:
-            QMessageBox.warning(self, "Models", f"Setup saved, but a download failed:\n{err}")
         self.accept()

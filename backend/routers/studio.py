@@ -43,10 +43,12 @@ from studio_compute import (
     resolve_compute_device,
     user_compute,
 )
+from studio_coach_vision import COACH_STEPS, classify_vendor_screen, observe_result
 from studio_setup import (
     clamp_setup,
     setup_catalog,
     space_profile,
+    vendor_handoff,
 )
 
 router = APIRouter(prefix="/studio", tags=["studio"])
@@ -611,9 +613,15 @@ async def get_first_run(user: dict = Depends(get_studio_user)):
         "did": bool((user.get("d_id_api_key") or "").strip()),
         "fal": bool((user.get("fal_api_key") or "").strip()),
     }
+    catalog = setup_catalog()
+    email = setup.get("vendor_email") or ""
+    handoffs = {
+        svc["id"]: vendor_handoff(svc["id"], email) for svc in catalog["cloud_services"]
+    }
     return {
         "settings": setup,
-        "catalog": setup_catalog(),
+        "catalog": catalog,
+        "handoffs": handoffs,
         "space_profile": profile,
         "keys": keys,
         "pcs": pcs,
@@ -621,6 +629,45 @@ async def get_first_run(user: dict = Depends(get_studio_user)):
         "compute": _user_compute(user),
         "updated_at": user.get("studio_setup_updated_at"),
     }
+
+
+@router.get("/first-run/handoff/{service_id}")
+async def get_vendor_handoff(service_id: str, user: dict = Depends(get_studio_user)):
+    setup = _user_setup(user)
+    handoff = vendor_handoff(service_id, setup.get("vendor_email") or "")
+    if not handoff:
+        raise HTTPException(status_code=404, detail="Unknown vendor")
+    return handoff
+
+
+class CoachObserve(BaseModel):
+    service_id: str
+    current_step: str
+    image_b64: Optional[str] = None
+
+
+@router.post("/first-run/coach/observe")
+async def observe_vendor_coach(payload: CoachObserve, user: dict = Depends(get_studio_user)):
+    """Classify a first-run screenshot. Never returns extracted secrets."""
+    handoff = vendor_handoff(payload.service_id, _user_setup(user).get("vendor_email") or "")
+    if not handoff:
+        raise HTTPException(status_code=404, detail="Unknown vendor")
+    step = (payload.current_step or "").strip() or "create_account"
+    if step not in COACH_STEPS:
+        step = "create_account"
+    image = (payload.image_b64 or "").strip()
+    if not image:
+        return observe_result(
+            current_step=step,
+            scene="unknown",
+            hint="Open Heirloom on the dedicated PC after models install so it can watch the screen.",
+            watching=False,
+        )
+    return await classify_vendor_screen(
+        image_b64=image,
+        service_label=handoff["label"],
+        current_step=step,
+    )
 
 
 @router.put("/first-run")
