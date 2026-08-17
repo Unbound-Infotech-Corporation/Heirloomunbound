@@ -294,28 +294,10 @@ def find_file(query, open_it):
 
 
 def speak_locally(text: str) -> None:
-    """Speak reminder / say-command text through the OS TTS engine."""
-    if not text:
-        return
-    try:
-        system = platform.system()
-        # Escape quotes for shell embedding
-        safe = text.replace('"', "'")[:500]
-        if system == "Darwin":
-            subprocess.Popen(["say", safe])
-        elif system == "Windows":
-            ps = (
-                "Add-Type -AssemblyName System.Speech;"
-                f'(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{safe}")'
-            )
-            subprocess.Popen(
-                ["powershell", "-NoProfile", "-Command", ps],
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-        else:
-            subprocess.Popen(["espeak", safe])
-    except Exception as exc:  # noqa: BLE001
-        print(f"[say] TTS failed: {exc}")
+    """Speak reminder / say-command text through cloned voice when possible."""
+    from .voice_output import speak_cloned_or_system
+
+    speak_cloned_or_system(text)
 
 
 def capture_and_upload_screenshot(cmd_id):

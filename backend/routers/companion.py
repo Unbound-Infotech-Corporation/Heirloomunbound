@@ -259,7 +259,7 @@ async def poll(ctx: dict = Depends(get_device_user)):
     }
 
 
-COMPANION_SCRIPT_VERSION = "2026.08.17.1"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.17.2"  # bump whenever _build_companion_script materially changes
 
 
 class RuntimeProbe(BaseModel):
@@ -277,9 +277,14 @@ async def report_runtime(payload: RuntimeProbe, ctx: dict = Depends(get_device_u
     model window can auto-provision instead of asking the user to paste keys."""
     device = ctx["device"]
     probe = payload.model_dump()
+    user_id = ctx["user"]["user_id"]
     await db.companion_devices.update_one(
-        {"device_id": device["device_id"], "user_id": ctx["user"]["user_id"]},
+        {"device_id": device["device_id"], "user_id": user_id},
         {"$set": {"runtime_probe": probe, "last_seen": datetime.now(timezone.utc).isoformat()}},
+    )
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"companion_runtime_probe": probe, "companion_runtime_at": datetime.now(timezone.utc).isoformat()}},
     )
     return {"ok": True}
 
@@ -367,27 +372,42 @@ async def companion_screenshot(
 async def companion_voice(
     audio: UploadFile = File(...),
     save_to_archive: bool = Form(False),
+    transcript: str = Form(""),
     ctx: dict = Depends(get_device_user),
 ):
-    """Companion uploads audio. We transcribe, send to Twin, and return text+tts."""
+    """Companion uploads audio. We transcribe, send to Twin, and return text reply."""
     user = ctx["user"]
-    raw = await audio.read()
-    if not raw:
-        raise HTTPException(status_code=400, detail="Empty audio")
-    if len(raw) > 25 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Audio too large")
+    spoken = (transcript or "").strip()
 
-    # 1) STT via Whisper
-    buf = io.BytesIO(raw)
-    buf.name = audio.filename or "ptt.webm"
-    stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)
-    try:
-        result = await stt.transcribe(file=buf, model="whisper-1", response_format="json")
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"STT failed: {exc!s}") from exc
-    spoken = (getattr(result, "text", "") or "").strip()
     if not spoken:
-        return {"user_text": "", "reply": "", "skill_invocations": []}
+        raw = await audio.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Empty audio")
+        if len(raw) > 25 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Audio too large")
+
+        from model_router import resolve_stt_backend, runtime_probe_from_user
+
+        stt_backend = resolve_stt_backend(user.get("studio_models"), runtime_probe_from_user(user))
+        if stt_backend == "local_whisper":
+            from local_inference import transcribe_whisper_bytes
+
+            try:
+                spoken = transcribe_whisper_bytes(raw, filename=audio.filename or "ptt.wav")
+            except Exception as exc:  # noqa: BLE001
+                stt_backend = "cloud_whisper"
+        if stt_backend == "cloud_whisper" and not spoken:
+            buf = io.BytesIO(raw)
+            buf.name = audio.filename or "ptt.webm"
+            stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)
+            try:
+                result = await stt.transcribe(file=buf, model="whisper-1", response_format="json")
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(status_code=502, detail=f"STT failed: {exc!s}") from exc
+            spoken = (getattr(result, "text", "") or "").strip()
+
+    if not spoken:
+        return {"user_text": "", "reply": "", "skill_invocations": [], "stt_backend": "none"}
 
     # 2) Get or create a "companion" twin conversation + run full twin brain
     from twin_runtime import ensure_conversation, run_twin_turn
@@ -437,6 +457,7 @@ async def companion_voice(
         "actions": invoked,
         "tool_trace": turn.tool_trace,
         "action": turn.action,
+        "twin_backend": turn.backend,
     }
 
 
@@ -1272,18 +1293,41 @@ def safe_get(path, **kwargs):
         return None
 
 
-# ---------- Local TTS so replies play through the room ----------
+# ---------- Local TTS — prefer cloned voice via the Heirloom backend ----------
 def speak_locally(text: str):
     if not text:
         return
+    safe = text.replace('"', "'")[:500]
+    try:
+        r = requests.post(
+            f"{BACKEND_URL}/api/desktop/speak",
+            headers=HEADERS,
+            json={"text": safe},
+            timeout=90,
+        )
+        if r.status_code == 200 and r.content:
+            import tempfile
+            fd, path = tempfile.mkstemp(suffix=".mp3")
+            os.close(fd)
+            with open(path, "wb") as f:
+                f.write(r.content)
+            if platform.system() == "Windows":
+                os.startfile(path)  # type: ignore[attr-defined]
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["afplay", path])
+            else:
+                subprocess.Popen(["mpg123", "-q", path])
+            return
+    except Exception:
+        pass
     try:
         if platform.system() == "Darwin":
-            subprocess.Popen(["say", text])
+            subprocess.Popen(["say", safe])
         elif platform.system() == "Windows":
-            ps = f'Add-Type -AssemblyName System.Speech;(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{text}")'
+            ps = f'Add-Type -AssemblyName System.Speech;(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{safe}")'
             subprocess.Popen(["powershell", "-Command", ps])
         else:
-            subprocess.Popen(["espeak", text])
+            subprocess.Popen(["espeak", safe])
     except Exception:
         pass  # silent fallback — text was already printed
 

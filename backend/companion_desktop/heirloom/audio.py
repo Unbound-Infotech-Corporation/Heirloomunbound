@@ -118,9 +118,11 @@ class Recorder(QObject):
             "noise_gate_db": -45,
             "high_pass_hz": 80,
             "noise_suppression": True,
+            "monitor_input": False,
             "sample_rate": SAMPLE_RATE,
         }
         self._hp_state = 0.0
+        self._monitor_playing = False
 
     def apply_settings(self, settings: dict) -> None:
         if isinstance(settings, dict):
@@ -217,8 +219,22 @@ class Recorder(QObject):
             y = np.zeros_like(y)
         return np.clip(y, -1.0, 1.0)
 
+    def _maybe_monitor(self, block: np.ndarray) -> None:
+        if not self._settings.get("monitor_input") or self._settings.get("mute_input"):
+            return
+        if block.size == 0:
+            return
+        try:
+            rate = int(self._settings.get("sample_rate") or SAMPLE_RATE)
+            out_dev = _resolve_sd_device(str(self._settings.get("output_device_id") or "default"), "output")
+            quiet = (block * 0.35).astype(np.float32)
+            sd.play(quiet, rate, device=out_dev, blocking=False)
+        except Exception:
+            pass
+
     def _on_audio(self, indata, frames, time_info, status):
         block = self._process(indata.copy())
+        self._maybe_monitor(block)
         self._chunks.append(block)
         try:
             rms = float(np.sqrt(np.mean(block * block)))

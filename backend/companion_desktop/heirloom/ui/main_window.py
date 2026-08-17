@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__, api, audio, commands, config
 from ..commands import CommandPoller
+from .. import local_voice, twin_local
 from ..maintenance import Maintenance
 from ..mixer import MixerSession
 from ..vault import Vault
@@ -161,6 +162,8 @@ class MainWindow(QMainWindow):
             self._vault = None
         self._active_conv_id = "comp_local"
         self._audio_settings: dict = {}
+        self._model_map: dict = {}
+        self._room_greeted = False
         self._persist_timer = QTimer(self)
         self._persist_timer.setSingleShot(True)
         self._persist_timer.setInterval(400)
@@ -315,6 +318,7 @@ class MainWindow(QMainWindow):
         self.recorder.wav_bytes.connect(self._upload_voice)
         self.recorder.error.connect(lambda msg: self._update_status(f"mic: {msg}"))
         self.live.wav_bytes.connect(self._upload_voice)
+        self.live.started.connect(self._on_room_speech_started)
         self.live.started.connect(lambda: self._update_status("room: listening…"))
         self.live.error.connect(lambda msg: self._update_status(f"live: {msg}"))
         self.mixer_panel.settings_changed.connect(self._on_mixer_changed)
@@ -413,6 +417,7 @@ class MainWindow(QMainWindow):
         self._cmd_poller.status.connect(self._on_poller_status)
         self._cmd_poller.audio_settings.connect(self._apply_audio_settings)
         self._cmd_poller.volume_command.connect(self._apply_session_volume)
+        self._cmd_poller.model_map.connect(self._on_model_map)
         self._cmd_poller.start()
         commands.register_volume_hook(self._apply_session_volume)
         api.get_async("/studio/audio", on_ok=lambda d: self._apply_audio_settings((d or {}).get("settings") or {}), on_err=lambda _m: None)
@@ -533,18 +538,122 @@ class MainWindow(QMainWindow):
                     self._ptt_stop()
         return super().eventFilter(obj, event)
 
+    def _on_model_map(self, model_map: dict) -> None:
+        if isinstance(model_map, dict):
+            self._model_map = model_map
+            self.models_panel.apply_remote_map(model_map)
+
+    def _on_room_speech_started(self) -> None:
+        if self._room_greeted or not self._audio_settings.get("live_listen"):
+            return
+        self._room_greeted = True
+        name = (self._user.get("name") or "").split()[0] if self._user.get("name") else ""
+        greet = (
+            f"Hey{(' ' + name) if name else ''} — I'm here when you want to talk."
+        )
+        self.conversation.append("assistant", greet)
+        self.avatar.speak(greet)
+
     def _upload_voice(self, wav: bytes) -> None:
         if not wav:
             self._update_status("idle")
             return
         self._pending_voice_audio = wav
+        transcript = ""
+        if local_voice.should_use_local_stt(self._model_map):
+            try:
+                transcript = local_voice.transcribe_wav(wav)
+                self._update_status("local STT ✓")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[local_stt] {exc}")
+        if transcript:
+            self._handle_voice_text(transcript, wav)
+            return
         files = {"audio": ("ptt.wav", wav, "audio/wav")}
+        data = {"save_to_archive": "false"}
         api.post_multipart_async(
             "/companion/voice",
             files=files,
-            data={"save_to_archive": "false"},
+            data=data,
             on_ok=self._on_voice_reply,
             on_err=lambda msg: self._update_status(f"voice err: {msg[:40]}"),
+        )
+
+    def _handle_voice_text(self, user_text: str, wav: bytes | None = None) -> None:
+        if not user_text.strip():
+            self._update_status("idle")
+            return
+        self._update_status("thinking…")
+        if twin_local.should_use_local_twin(self._model_map):
+
+            def _brain_ok(pack: dict) -> None:
+                if (pack or {}).get("twin_backend") != "ollama":
+                    self._cloud_voice_chat(user_text, wav)
+                    return
+                try:
+                    reply = twin_local.generate_reply(
+                        pack.get("system") or "",
+                        pack.get("history") or [],
+                        user_text,
+                        model=(pack.get("ollama_model") or "llama3.1"),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[local_twin] {exc}")
+                    self._cloud_voice_chat(user_text, wav)
+                    return
+                api.post_async(
+                    "/desktop/chat/local-complete",
+                    {
+                        "text": user_text,
+                        "reply": reply,
+                        "conversation_id": pack.get("conversation_id"),
+                        "source": "desktop_local",
+                    },
+                    on_ok=lambda d: self._on_voice_reply(
+                        {
+                            "user_text": user_text,
+                            "reply": (d or {}).get("reply") or reply,
+                            "tool_trace": [],
+                            "twin_backend": "ollama",
+                        }
+                    ),
+                    on_err=lambda _m: self._on_voice_reply(
+                        {"user_text": user_text, "reply": reply, "tool_trace": []}
+                    ),
+                )
+
+            api.post_async(
+                "/desktop/brain-pack",
+                {"text": user_text},
+                on_ok=_brain_ok,
+                on_err=lambda _m: self._cloud_voice_chat(user_text, wav),
+            )
+            return
+        self._cloud_voice_chat(user_text, wav)
+
+    def _cloud_voice_chat(self, user_text: str, wav: bytes | None) -> None:
+        if wav and not local_voice.should_use_local_stt(self._model_map):
+            files = {"audio": ("ptt.wav", wav, "audio/wav")}
+            api.post_multipart_async(
+                "/companion/voice",
+                files=files,
+                data={"save_to_archive": "false", "transcript": user_text},
+                on_ok=self._on_voice_reply,
+                on_err=lambda msg: self._update_status(f"voice err: {msg[:40]}"),
+            )
+            return
+        api.post_async(
+            "/desktop/chat",
+            {"text": user_text},
+            on_ok=lambda d: self._on_voice_reply(
+                {
+                    "user_text": user_text,
+                    "reply": (d or {}).get("reply") or "",
+                    "tool_trace": (d or {}).get("tool_trace") or [],
+                    "twin_backend": (d or {}).get("twin_backend"),
+                }
+            ),
+            on_err=lambda msg: self._update_status(f"chat err: {msg[:40]}"),
         )
 
     def _on_voice_reply(self, data: dict) -> None:
@@ -566,6 +675,13 @@ class MainWindow(QMainWindow):
             self.conversation.append("assistant", reply)
             self._vault_capture("assistant", reply, "voice")
             self.avatar.speak(reply)
+            backend = (data or {}).get("twin_backend")
+            if backend:
+                self._update_status(f"idle · {backend}")
+            else:
+                self._update_status("idle")
+        else:
+            self._update_status("idle")
         self.memories.refresh()
 
     # ----- vault -----

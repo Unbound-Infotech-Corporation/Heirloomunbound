@@ -108,6 +108,24 @@ Skills available (call `run_skill` with the skill_id, only when the user explici
 """
 
 
+def _score_entry(entry: dict, tokens: list[str]) -> int:
+    if not tokens:
+        return 0
+    hay = " ".join(
+        [
+            str(entry.get("title") or ""),
+            str(entry.get("content") or ""),
+            " ".join(entry.get("tags") or []),
+            str(entry.get("type") or ""),
+        ]
+    ).lower()
+    score = 0
+    for t in tokens:
+        if t in hay:
+            score += hay.count(t) + 2
+    return score
+
+
 async def archive_blob(
     user_id: str,
     query_hint: str = "",
@@ -122,25 +140,25 @@ async def archive_blob(
         .to_list(length=limit_recent)
     )
 
+    tokens = [
+        t for t in re.split(r"\W+", query_hint.lower())
+        if len(t) > 2 and t not in _STOP_WORDS
+    ]
     match_coro = None
-    if query_hint:
-        tokens = [
-            re.escape(t) for t in re.split(r"\W+", query_hint.lower())
-            if len(t) > 2 and t not in _STOP_WORDS
-        ]
-        if tokens:
-            or_clauses = []
-            for t in tokens[:8]:
-                or_clauses.extend([
-                    {"title": {"$regex": t, "$options": "i"}},
-                    {"content": {"$regex": t, "$options": "i"}},
-                    {"tags": {"$regex": t, "$options": "i"}},
-                ])
-            match_coro = (
-                db.entries.find({"user_id": user_id, "$or": or_clauses}, projection)
-                .limit(limit_relevant)
-                .to_list(length=limit_relevant)
-            )
+    if tokens:
+        or_clauses = []
+        for t in tokens[:10]:
+            esc = re.escape(t)
+            or_clauses.extend([
+                {"title": {"$regex": esc, "$options": "i"}},
+                {"content": {"$regex": esc, "$options": "i"}},
+                {"tags": {"$regex": esc, "$options": "i"}},
+            ])
+        match_coro = (
+            db.entries.find({"user_id": user_id, "$or": or_clauses}, projection)
+            .limit(limit_relevant * 2)
+            .to_list(length=limit_relevant * 2)
+        )
 
     if match_coro is not None:
         recent, matched = await asyncio.gather(recent_coro, match_coro)
@@ -148,15 +166,34 @@ async def archive_blob(
         recent = await recent_coro
         matched = []
 
-    docs: dict[str, dict] = {}
+    ranked: dict[str, tuple[int, dict]] = {}
     for e in recent:
-        docs[e["entry_id"]] = e
+        ranked[e["entry_id"]] = (0, e)
     for e in matched:
-        docs[e["entry_id"]] = e
+        score = _score_entry(e, tokens)
+        prev = ranked.get(e["entry_id"])
+        if not prev or score > prev[0]:
+            ranked[e["entry_id"]] = (score, e)
+
+    ordered = sorted(ranked.values(), key=lambda pair: pair[0], reverse=True)
+    if tokens:
+        docs = [e for score, e in ordered if score > 0][:limit_relevant]
+        if len(docs) < 8:
+            seen = {d["entry_id"] for d in docs}
+            for _score, e in ordered:
+                if e["entry_id"] in seen:
+                    continue
+                docs.append(e)
+                seen.add(e["entry_id"])
+                if len(docs) >= limit_recent:
+                    break
+    else:
+        docs = [e for _score, e in ordered[:limit_recent]]
+
     if not docs:
         return ""
     chunks = []
-    for e in docs.values():
+    for e in docs:
         content = (e.get("content") or "")[:_ARCHIVE_CONTENT_CHARS]
         chunks.append(f"[{(e.get('type') or 'note').upper()}] {e.get('title', '')}\n{content}\n")
     return "\n".join(chunks)
@@ -185,6 +222,15 @@ class TwinTurnResult:
     action: Optional[dict] = None
     conversation_id: str = ""
     ts: str = ""
+    backend: str = "cloud_claude"
+
+
+@dataclass
+class TwinBrainPack:
+    system: str
+    history: list[dict]
+    conversation_id: str
+    twin_backend: str
 
 
 async def ensure_conversation(
@@ -219,6 +265,60 @@ async def ensure_conversation(
     return conv
 
 
+async def build_brain_pack(
+    user: dict,
+    message: str,
+    *,
+    conversation: dict,
+) -> TwinBrainPack:
+    """Assemble system + history for a twin turn without calling the LLM."""
+    from model_router import resolve_twin_backend, runtime_probe_from_user
+
+    user_id = user["user_id"]
+    text = (message or "").strip()
+    if not text:
+        raise ValueError("Empty message")
+
+    enabled_ids = await ab.enabled_ability_ids(user_id)
+    archive, skills, memory_pack, persona = await asyncio.gather(
+        archive_blob(user_id, query_hint=text),
+        skills_blob(user_id),
+        build_memory_pack(user_id, query_hint=text),
+        get_active_persona(user_id, user),
+    )
+    memory_blob = format_memory_pack_for_prompt(memory_pack)
+    merged_safe = list({
+        *(user.get("safe_topics") or []),
+        *((persona or {}).get("extra_safe_topics") or []),
+    })
+    brand = {
+        "brand_name": user.get("brand_name") or "",
+        "brand_tagline": user.get("brand_tagline") or "",
+        "brand_signoff": user.get("brand_signoff") or "",
+    }
+    if not any(brand.values()):
+        brand = None
+
+    system = build_twin_system(
+        user.get("name", ""),
+        memory_blob,
+        archive,
+        skills,
+        merged_safe,
+        persona=persona,
+        brand=brand,
+        abilities_block=ab.build_abilities_prompt(enabled_ids),
+    )
+    probe = runtime_probe_from_user(user)
+    twin_backend = resolve_twin_backend(user.get("studio_models"), probe)
+    return TwinBrainPack(
+        system=system,
+        history=history_turns(conversation.get("messages", [])),
+        conversation_id=conversation["conversation_id"],
+        twin_backend=twin_backend,
+    )
+
+
 async def run_twin_turn(
     user: dict,
     message: str,
@@ -227,6 +327,7 @@ async def run_twin_turn(
     source: str = "web",
     persist: bool = True,
     summarise: bool = True,
+    twin_backend: str | None = None,
 ) -> TwinTurnResult:
     """One full twin turn with tools. Non-streaming — for desktop + companion voice.
 
@@ -303,38 +404,44 @@ async def run_twin_turn(
 
     await rate_limit(user_id, "twin", max_calls=20, per_seconds=60)
 
-    archive, skills, memory_pack, persona = await asyncio.gather(
-        archive_blob(user_id, query_hint=text),
-        skills_blob(user_id),
-        build_memory_pack(user_id, query_hint=text),
-        get_active_persona(user_id, user),
-    )
-    memory_blob = format_memory_pack_for_prompt(memory_pack)
-    merged_safe = list({
-        *(user.get("safe_topics") or []),
-        *((persona or {}).get("extra_safe_topics") or []),
-    })
-    brand = {
-        "brand_name": user.get("brand_name") or "",
-        "brand_tagline": user.get("brand_tagline") or "",
-        "brand_signoff": user.get("brand_signoff") or "",
-    }
-    if not any(brand.values()):
-        brand = None
+    pack = await build_brain_pack(user, text, conversation=conversation)
+    system = pack.system
+    backend_used = twin_backend or pack.twin_backend
 
-    system = build_twin_system(
-        user.get("name", ""),
-        memory_blob,
-        archive,
-        skills,
-        merged_safe,
-        persona=persona,
-        brand=brand,
-        abilities_block=ab.build_abilities_prompt(enabled_ids),
-    )
+    tool_trace: list[dict] = []
+    if backend_used == "ollama":
+        from local_inference import ollama_chat, ollama_ready
+
+        if not ollama_ready():
+            backend_used = "cloud_claude"
+        else:
+            history = list(pack.history)
+            history.append({"role": "user", "content": text})
+            try:
+                reply = await ollama_chat(system, history)
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"Local twin (Ollama) failed: {exc!s}") from exc
+            ts = _now_iso()
+            if persist:
+                await _persist_pair(
+                    user_id, conversation_id, text, reply, ts,
+                    source=source, tool_trace=tool_trace,
+                )
+                if summarise:
+                    try:
+                        asyncio.create_task(_safe_summarise(user_id, conversation_id))
+                    except Exception:  # noqa: BLE001
+                        pass
+            return TwinTurnResult(
+                reply=reply,
+                tool_trace=tool_trace,
+                conversation_id=conversation_id,
+                ts=ts,
+                backend=backend_used,
+            )
 
     initial_messages = [{"role": "system", "content": system}]
-    for m in history_turns(conversation.get("messages", [])):
+    for m in pack.history:
         initial_messages.append({"role": m["role"], "content": m["content"]})
 
     active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
@@ -349,7 +456,6 @@ async def run_twin_turn(
         .with_tools(active_schemas)
     )
 
-    tool_trace: list[dict] = []
     try:
         resp = await chat.send_message_with_tools(UserMessage(text=text))
         for _ in range(6):
@@ -369,6 +475,7 @@ async def run_twin_turn(
         reply = (resp.content or "").strip()
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"LLM failed: {exc!s}") from exc
+    backend_used = "cloud_claude"
 
     ts = _now_iso()
     if persist:
@@ -387,6 +494,7 @@ async def run_twin_turn(
         tool_trace=tool_trace,
         conversation_id=conversation_id,
         ts=ts,
+        backend=backend_used,
     )
 
 

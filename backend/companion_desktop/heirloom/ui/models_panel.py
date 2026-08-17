@@ -136,6 +136,22 @@ class ModelsPanel(QWidget):
     def collect_map(self) -> dict:
         return {fid: combo.currentData() for fid, combo in self._combos.items()}
 
+    def apply_remote_map(self, model_map: dict) -> None:
+        """Sync UI when poll() ships the owner's studio map (no PUT)."""
+        if not isinstance(model_map, dict):
+            return
+        self._map = dict(model_map)
+        for fid, combo in self._combos.items():
+            want = model_map.get(fid)
+            if not want:
+                continue
+            for i in range(combo.count()):
+                if combo.itemData(i) == want:
+                    combo.blockSignals(True)
+                    combo.setCurrentIndex(i)
+                    combo.blockSignals(False)
+                    break
+
     def _emit_map(self, *_):
         payload = self.collect_map()
         self._map = payload
