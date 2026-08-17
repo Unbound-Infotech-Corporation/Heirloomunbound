@@ -17,13 +17,39 @@ from __future__ import annotations
 
 import base64
 import pathlib
-import textwrap
+import subprocess
 
 SRC_ROOT = pathlib.Path(__file__).resolve().parent / "companion_desktop"
 OUT = pathlib.Path(__file__).resolve().parent / "companion_desktop_data.py"
 
 
-def collect_files() -> list[tuple[str, bytes]]:
+def git_short_sha() -> str:
+    root = pathlib.Path(__file__).resolve().parents[1]
+    try:
+        return (
+            subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=root,
+                stderr=subprocess.DEVNULL,
+            )
+            .decode("ascii")
+            .strip()
+            or "dev"
+        )
+    except Exception:
+        return "dev"
+
+
+def stamp_build_id(rel: str, data: bytes, sha: str) -> bytes:
+    if rel != "heirloom/__init__.py":
+        return data
+    text = data.decode("utf-8")
+    text = text.replace('BUILD_ID = "dev"', f'BUILD_ID = "{sha}"')
+    return text.encode("utf-8")
+
+
+def collect_files() -> tuple[list[tuple[str, bytes]], str]:
+    sha = git_short_sha()
     files: list[tuple[str, bytes]] = []
     for p in sorted(SRC_ROOT.rglob("*")):
         if not p.is_file():
@@ -31,15 +57,16 @@ def collect_files() -> list[tuple[str, bytes]]:
         if "__pycache__" in p.parts:
             continue
         rel = p.relative_to(SRC_ROOT).as_posix()
-        files.append((rel, p.read_bytes()))
-    return files
+        files.append((rel, stamp_build_id(rel, p.read_bytes(), sha)))
+    return files, sha
 
 
-def build_module(files: list[tuple[str, bytes]]) -> str:
+def build_module(files: list[tuple[str, bytes]], sha: str) -> str:
     lines = [
         '"""GENERATED — do not edit by hand. Regenerate with build_desktop_data.py."""',
         "import base64",
         "",
+        f"DESKTOP_BUILD = {sha!r}",
         "DESKTOP_FILES: dict[str, bytes] = {",
     ]
     for rel, data in files:
@@ -58,12 +85,12 @@ def build_module(files: list[tuple[str, bytes]]) -> str:
 def main() -> None:
     if not SRC_ROOT.is_dir():
         raise SystemExit(f"source not found at {SRC_ROOT}")
-    files = collect_files()
+    files, sha = collect_files()
     if not files:
         raise SystemExit(f"no files under {SRC_ROOT}")
-    OUT.write_text(build_module(files), encoding="utf-8")
+    OUT.write_text(build_module(files, sha), encoding="utf-8")
     total = sum(len(b) for _, b in files)
-    print(f"baked {len(files)} files ({total:,} bytes) → {OUT}")
+    print(f"baked {len(files)} files ({total:,} bytes) build={sha} → {OUT}")
 
 
 if __name__ == "__main__":

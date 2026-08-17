@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import PALETTE
+from .. import BUILD_ID, __version__
 
 
 class _Hairline(QWidget):
@@ -85,6 +86,14 @@ class Splash(QWidget):
             " font-size: 9px; letter-spacing: 5px;"
         )
         wrap.addWidget(sub)
+
+        ver = QLabel(f"{__version__}  ·  {BUILD_ID}")
+        ver.setAlignment(Qt.AlignCenter)
+        ver.setStyleSheet(
+            f"color: {PALETTE['text_muted']}; font-family:'JetBrains Mono','Consolas',monospace;"
+            " font-size: 9px; letter-spacing: 2px;"
+        )
+        wrap.addWidget(ver)
         wrap.addStretch(1)
 
         # Solid card behind everything so the wordmark reads

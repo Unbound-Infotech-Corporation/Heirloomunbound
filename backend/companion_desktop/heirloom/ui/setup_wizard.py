@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from .. import api, config
 from ..models import provision
+from ..vendor_handoffs import local_handoffs, provision_features
 from ..vault import vault_root
 from . import PALETTE, QSS
 
@@ -79,8 +80,9 @@ class FirstRunWizard(QDialog):
         self._coach = None
         self._provisioned = False
         self._downloading = False
+        self._cloud_offline = False
         self._build()
-        api.get_async("/studio/first-run", on_ok=self._on_loaded, on_err=lambda m: None)
+        api.get_async("/studio/first-run", on_ok=self._on_loaded, on_err=self._on_load_err)
 
     def _build(self) -> None:
         root = QVBoxLayout(self)
@@ -264,11 +266,35 @@ class FirstRunWizard(QDialog):
         api.put_async("/studio/first-run", body)
 
     def _on_loaded(self, data: dict) -> None:
+        self._cloud_offline = False
         self._payload = data or {}
         settings = (data or {}).get("settings") or {}
         email = settings.get("vendor_email") or ""
         if email:
             self.email_input.setText(email)
+
+    def _on_load_err(self, _msg: str) -> None:
+        self._cloud_offline = True
+
+    def _coach_handoffs(self, email: str) -> list[dict]:
+        payload = self._payload or {}
+        keys = payload.get("keys") or {}
+        handoffs = []
+        raw = payload.get("handoffs") or {}
+        if isinstance(raw, dict):
+            items = raw.items()
+        elif isinstance(raw, list):
+            items = ((h.get("id"), h) for h in raw if isinstance(h, dict))
+        else:
+            items = ()
+        for hid, h in items:
+            item = dict(h or {})
+            item["id"] = item.get("id") or hid
+            item["already_saved"] = bool(keys.get(hid) or keys.get(item.get("id")))
+            handoffs.append(item)
+        if handoffs:
+            return handoffs
+        return local_handoffs(email)
 
     def _start_coach(self) -> None:
         if self._coach is not None and self._coach.isVisible():
@@ -279,13 +305,7 @@ class FirstRunWizard(QDialog):
         email = self.email_input.text().strip().lower()
         if email:
             QApplication.clipboard().setText(email)
-        payload = self._payload or {}
-        keys = payload.get("keys") or {}
-        handoffs = []
-        for hid, h in (payload.get("handoffs") or {}).items():
-            item = dict(h or {})
-            item["already_saved"] = bool(keys.get(hid))
-            handoffs.append(item)
+        handoffs = self._coach_handoffs(email)
         if not handoffs:
             self._cloud_status.setText("Could not load vendor guide yet. Go Back and Next to retry.")
             return
@@ -298,10 +318,17 @@ class FirstRunWizard(QDialog):
             on_saved=lambda: api.get_async("/studio/first-run", on_ok=self._on_loaded),
         )
         self._coach.show()
-        self._cloud_status.setText(
-            "Guide is pinned on top and watching the screen. "
-            "You click Create account and I'm not a robot."
-        )
+        if self._cloud_offline:
+            self._cloud_status.setText(
+                "Guide is pinned on top. This cloud is an older Heirloom — "
+                "screen watch and phone pairing wait for a server deploy. "
+                "You still click Create account and I'm not a robot."
+            )
+        else:
+            self._cloud_status.setText(
+                "Guide is pinned on top and watching the screen. "
+                "You click Create account and I'm not a robot."
+            )
 
     def _make_pair(self) -> None:
         self._persist()
@@ -364,13 +391,19 @@ class FirstRunWizard(QDialog):
             "/studio/first-run/complete",
             {},
             on_ok=self._on_complete_ok,
-            on_err=lambda m: self._download_err(m),
+            on_err=self._complete_missing,
         )
 
-    def _download_err(self, msg: str) -> None:
-        self._downloading = False
-        self._sync_nav()
-        QMessageBox.warning(self, "Setup", msg)
+    def _complete_missing(self, _msg: str) -> None:
+        """Local models still install when /api/studio/first-run is not on this cloud."""
+        self._cloud_offline = True
+        self.finish_log.setText(
+            "Cloud has no first-run API yet. Downloading local models on this PC anyway…"
+        )
+        self._on_complete_ok(
+            {"space_profile": {"provision_features": provision_features(self._profile_id())}}
+        )
+
 
     def _on_complete_ok(self, data: dict) -> None:
         features = ((data or {}).get("space_profile") or {}).get("provision_features") or [

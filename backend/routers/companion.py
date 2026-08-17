@@ -705,6 +705,29 @@ async def desktop_package(
     )
 
 
+@router.get("/devices/{device_id}/desktop-package")
+async def desktop_package_for_device(
+    device_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Re-download the current bake for an existing PC. Token stays on the server."""
+    device = await db.companion_devices.find_one(
+        {"device_id": device_id, "user_id": user["user_id"], "revoked": False},
+        {"_id": 0},
+    )
+    if not device or not device.get("device_token"):
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    payload = build_desktop_app_zip_bytes(device["device_token"])
+    from fastapi import Response
+
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="HeirloomDesktop.zip"'},
+    )
+
+
 @router.get("/windows-package")
 async def windows_package(
     token: str,

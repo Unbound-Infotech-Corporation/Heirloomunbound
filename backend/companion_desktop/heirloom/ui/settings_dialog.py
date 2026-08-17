@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import api, config
+from .. import BUILD_ID, __version__, api, config
 from ..maintenance import Maintenance
 from ..vault import Vault, vault_root
 from . import PALETTE, QSS
@@ -72,6 +72,10 @@ class SettingsDialog(QDialog):
         overline.setStyleSheet(
             f"color: {PALETTE['text_muted']}; letter-spacing: 2px; font-size: 10px;"
         )
+        build_lab = QLabel(f"Desktop {__version__}  ·  {BUILD_ID}")
+        build_lab.setStyleSheet(
+            f"color: {PALETTE['text_muted']}; font-family: 'IBM Plex Mono', Consolas, monospace; font-size: 11px;"
+        )
         title = QLabel("Your archive, on your disk")
         title.setStyleSheet(
             f"color: {PALETTE['text_primary']}; font-family: 'Cormorant Garamond', serif; font-size: 22px;"
@@ -84,6 +88,7 @@ class SettingsDialog(QDialog):
         sub.setWordWrap(True)
         sub.setStyleSheet(f"color: {PALETTE['text_secondary']}; font-size: 12px;")
         root.addWidget(overline)
+        root.addWidget(build_lab)
         root.addWidget(title)
         root.addWidget(sub)
 
