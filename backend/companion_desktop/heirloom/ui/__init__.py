@@ -290,42 +290,47 @@ QToolTip {{
     font-size: 11px;
 }}
 
-/* Photoshop-style MDI */
+/* Photoshop-style MDI — Adobe charcoal workspace */
 QMdiArea {{
-    background: #1a1917;
+    background: #1e1e1e;
     border: none;
 }}
 QMdiSubWindow {{
-    background: {PALETTE['bg_surface']};
-    border: 1px solid {PALETTE['border']};
+    background: #2d2d2d;
+    border: 1px solid #111111;
     color: {PALETTE['text_primary']};
 }}
 QMdiSubWindow:title {{
-    background: #2a2724;
+    background: #3a3a3a;
+    color: #dddddd;
+    font-size: 12px;
+    padding: 4px 8px;
 }}
 QWidget#mdi_body {{
-    background: {PALETTE['bg_surface']};
+    background: #262626;
 }}
 QMenuBar {{
-    background: #2a2724;
-    color: {PALETTE['text_secondary']};
-    border-bottom: 1px solid {PALETTE['border_soft']};
+    background: #333333;
+    color: #d0d0d0;
+    border-bottom: 1px solid #111111;
     padding: 2px 4px;
+    font-size: 12px;
 }}
 QMenuBar::item {{
     padding: 4px 10px;
     background: transparent;
 }}
 QMenuBar::item:selected {{
-    background: rgba(212, 163, 115, 0.18);
-    color: {PALETTE['accent']};
+    background: #4a4a4a;
+    color: #ffffff;
 }}
 QGroupBox {{
-    border: 1px solid {PALETTE['border_soft']};
-    border-radius: 6px;
+    border: 1px solid #111111;
+    border-radius: 0;
     margin-top: 12px;
     padding: 12px 8px 8px 8px;
     color: {PALETTE['text_secondary']};
+    background: #323232;
 }}
 QGroupBox::title {{
     subcontrol-origin: margin;

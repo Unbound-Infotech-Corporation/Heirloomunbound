@@ -126,6 +126,19 @@ def test_studio_models_catalog_and_provision(studio_user):
     ids = {f["id"] for f in body["features"]}
     assert {"stt", "tts", "twin", "vision", "avatar"} <= ids
     assert body["companion"]["connected"] is False
+    assert "status" in body["features"][0]
+    assert "effective" in body
+
+    r = requests.patch(f"{API}/studio/models/stt", headers=h, json={"backend": "local_whisper"}, timeout=15)
+    assert r.status_code == 200, r.text
+    assert r.json()["backend"] == "local_whisper"
+    r = requests.get(f"{API}/studio/models", headers=h, timeout=15)
+    assert r.json()["map"]["stt"] == "local_whisper"
+    assert r.json()["map"]["twin"] == default_model_map()["twin"]
+
+    r = requests.post(f"{API}/studio/models/tts/test", headers=h, timeout=15)
+    assert r.status_code == 200, r.text
+    assert "ok" in r.json()
 
     r = requests.post(f"{API}/studio/models/provision", headers=h, json={}, timeout=15)
     assert r.status_code == 409, r.text

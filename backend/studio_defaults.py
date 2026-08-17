@@ -113,6 +113,47 @@ def default_model_map() -> dict[str, str]:
     return {f["id"]: f["default"] for f in FEATURE_MODELS}
 
 
+# Which user-managed credential each cloud backend needs (if any).
+# None = app admin key or no key (local/waveform/auto).
+BACKEND_CREDENTIALS: dict[str, dict] = {
+    "elevenlabs": {
+        "service": "elevenlabs",
+        "label": "ElevenLabs API key",
+        "save_path": "/voice-clone/api-key",
+        "verify_service": "elevenlabs",
+        "placeholder": "sk_…",
+        "help": "Required for cloned-voice speech. Get one at elevenlabs.io → Profile → API Keys.",
+    },
+    "did": {
+        "service": "did",
+        "label": "D-ID API key",
+        "save_path": "/avatar/api-key",
+        "verify_service": "did",
+        "placeholder": "email:secret",
+        "help": "Required for talking-head video. Create at studio.d-id.com → Account → API.",
+    },
+    "fal": {
+        "service": "fal",
+        "label": "fal.ai API key",
+        "save_path": "/avatar-studio/api-key",
+        "verify_service": "fal",
+        "placeholder": "key_id:key_secret",
+        "help": "Optional — Avatar Studio beautify only, not required for twin speech.",
+    },
+}
+
+
+def credential_for_backend(backend_id: str) -> dict | None:
+    return BACKEND_CREDENTIALS.get(backend_id)
+
+
+def backends_for_feature(feature_id: str) -> set[str]:
+    for spec in FEATURE_MODELS:
+        if spec["id"] == feature_id:
+            return {b["id"] for b in spec["backends"]}
+    return set()
+
+
 def clamp_model_map(raw: dict | None) -> dict[str, str]:
     allowed = {f["id"]: {b["id"] for b in f["backends"]} for f in FEATURE_MODELS}
     out = default_model_map()

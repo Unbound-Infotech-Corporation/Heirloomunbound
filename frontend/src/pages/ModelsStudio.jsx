@@ -1,33 +1,30 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../lib/api";
+import {
+  FeatureModelPanel,
+  StudioPanel,
+  StudioTabs,
+  StudioWorkspace,
+} from "../components/studio";
 
 export default function ModelsStudio() {
   const [catalog, setCatalog] = useState(null);
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState("");
+  const [activeTab, setActiveTab] = useState("stt");
 
   const load = useCallback(async () => {
     const { data } = await api.get("/studio/models");
     setCatalog(data);
+    return data;
   }, []);
 
   useEffect(() => {
     load().catch(() => toast.error("Could not load model catalog"));
   }, [load]);
 
-  const setBackend = async (featureId, backend) => {
-    const map = { ...(catalog?.map || {}), [featureId]: backend };
-    try {
-      const { data } = await api.put("/studio/models", { map });
-      setCatalog((c) => ({ ...c, map: data.map }));
-      toast.success("Backend saved");
-    } catch (err) {
-      toast.error(err?.response?.data?.detail || "Save failed");
-    }
-  };
-
-  const provision = async () => {
+  const provisionAll = async () => {
     setBusy(true);
     setLog("Queuing provision on the dedicated PC…");
     try {
@@ -55,76 +52,145 @@ export default function ModelsStudio() {
   }
 
   const companion = catalog.companion || {};
+  const features = catalog.features || [];
+  const readyCount = features.filter((f) => f.status?.ready).length;
+
+  const featureTabs = features.map((feat) => ({
+    id: feat.id,
+    label: feat.label,
+    testId: `models-tab-${feat.id}`,
+    content: <FeatureModelPanel feature={feat} onRefresh={load} />,
+  }));
+
+  const activeFeature = features.find((f) => f.id === activeTab) || features[0];
 
   return (
-    <div className="px-6 py-6 max-w-3xl" data-testid="models-root">
-      <p className="text-sm mb-6" style={{ color: "var(--text-secondary)" }}>
-        Local backends run on the dedicated PC (Whisper, Ollama, Piper). Cloud
-        keys are fallbacks — you should not have to paste them for the machine
-        in the other room to work. Hit Provision and the companion downloads
-        what is missing.
-      </p>
-
-      <section className="studio-group" data-testid="models-probe">
-        <h2>Dedicated PC</h2>
-        <dl className="studio-dl">
-          <dt>Status</dt>
-          <dd>{companion.connected ? companion.name || "online" : "not connected"}</dd>
-          <dt>GPU</dt>
-          <dd>{companion.gpu?.detail || "—"}</dd>
-          <dt>Ollama</dt>
-          <dd>{companion.ollama?.detail || "—"}</dd>
-          <dt>Whisper</dt>
-          <dd>{companion.whisper?.detail || "—"}</dd>
-          <dt>Piper</dt>
-          <dd>{companion.piper?.detail || "—"}</dd>
-        </dl>
-        <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
-          {companion.detail}
-        </p>
-        <div className="flex gap-2 mt-4">
-          <button
-            type="button"
-            className="studio-btn-primary"
-            data-testid="models-provision"
-            disabled={busy}
-            onClick={provision}
-          >
-            {busy ? "Queuing…" : "Provision models on this PC"}
-          </button>
-          <button type="button" className="studio-btn" onClick={() => load()}>
-            Refresh probe
-          </button>
-        </div>
-        {log ? (
-          <pre className="studio-log" data-testid="models-log">
-            {log}
-          </pre>
-        ) : null}
-      </section>
-
-      {(catalog.features || []).map((feat) => (
-        <section className="studio-group" key={feat.id} data-testid={`models-feature-${feat.id}`}>
-          <h2>{feat.label}</h2>
-          <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
-            {feat.purpose}
-            {feat.local_artifact ? ` · local artifact: ${feat.local_artifact}` : ""}
-          </p>
+    <div data-testid="models-root">
+      <div className="studio-options-bar" data-testid="models-options-bar">
+        <label className="studio-opt-group">
+          Feature
           <select
-            data-testid={`models-select-${feat.id}`}
-            value={(catalog.map || {})[feat.id] || feat.selected}
-            onChange={(e) => setBackend(feat.id, e.target.value)}
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value)}
+            data-testid="models-feature-picker"
           >
-            {(feat.backends || []).map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.label}
-                {b.available ? "" : " — needs provision"}
-                {b.detail ? ` (${b.detail})` : ""}
+            {features.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.label}
+                {f.status?.ready ? " ✓" : ""}
               </option>
             ))}
           </select>
-        </section>
-      ))}
+        </label>
+        <button
+          type="button"
+          className="studio-btn"
+          data-testid="models-provision-opt"
+          disabled={busy}
+          onClick={provisionAll}
+        >
+          {busy ? "Queuing…" : "Provision all local"}
+        </button>
+        <button type="button" className="studio-btn" onClick={() => load()}>
+          Refresh
+        </button>
+        <span className="ml-auto" style={{ color: companion.connected ? "#7da06f" : "#c95a5a" }}>
+          {companion.connected ? companion.name || "PC online" : "Dedicated PC offline"}
+          {!catalog.hosted_llm ? " · no hosted cloud fallback" : ""}
+        </span>
+      </div>
+
+      <StudioWorkspace
+        testId="models-workspace"
+        inspectorWidth={300}
+        inspector={
+          <>
+            <StudioPanel title="Dedicated PC" testId="models-probe" defaultOpen>
+              <dl className="studio-dl" style={{ fontSize: 11 }}>
+                <dt>Status</dt>
+                <dd className="studio-value">
+                  {companion.connected ? companion.name || "online" : "not connected"}
+                </dd>
+                <dt>GPU</dt>
+                <dd>{companion.gpu?.detail || "—"}</dd>
+                <dt>Ollama</dt>
+                <dd>{companion.ollama?.detail || "—"}</dd>
+                <dt>Whisper</dt>
+                <dd>{companion.whisper?.detail || "—"}</dd>
+                <dt>Piper</dt>
+                <dd>{companion.piper?.detail || "—"}</dd>
+              </dl>
+              <p className="text-xs mt-3" style={{ color: "#777", lineHeight: 1.4 }}>
+                {companion.detail ||
+                  "Local engines run on the machine in the other room. Cloud keys are optional fallbacks — configure them inside each feature tab, not on one shared page."}
+              </p>
+            </StudioPanel>
+
+            {activeFeature ? (
+              <StudioPanel title={`${activeFeature.label} summary`} defaultOpen>
+                <p className="text-xs" style={{ color: "#aaa", lineHeight: 1.5 }}>
+                  Selected: <span className="studio-value">{activeFeature.selected}</span>
+                  <br />
+                  Runs as: <span className="studio-value">{activeFeature.status?.effective}</span>
+                </p>
+              </StudioPanel>
+            ) : null}
+          </>
+        }
+        canvas={
+          <div className="studio-canvas-hero" style={{ maxWidth: "100%" }}>
+            <h1>Models — one window per feature</h1>
+            <p>
+              Pick an engine in the dropdown for each feature. If that engine needs a key, paste it
+              right here — only for that feature. Use <strong>Test this feature</strong> to confirm
+              it works before talking to your twin.
+            </p>
+
+            <div className="studio-probe-grid">
+              {features.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  className={`studio-probe-card studio-probe-card-btn ${f.status?.ready ? "is-ready" : ""}`}
+                  onClick={() => setActiveTab(f.id)}
+                  data-testid={`models-card-${f.id}`}
+                >
+                  <dt>{f.label}</dt>
+                  <dd>{f.status?.effective || f.selected}</dd>
+                  <span className="studio-probe-card-state">{f.status?.ready ? "Ready" : "Setup"}</span>
+                </button>
+              ))}
+            </div>
+
+            {featureTabs.length > 0 ? (
+              <div className="mt-6" style={{ border: "1px solid #111" }}>
+                <StudioTabs
+                  tabs={featureTabs}
+                  defaultTab={activeTab}
+                  activeTab={activeTab}
+                  onTabChange={setActiveTab}
+                  testId="models-tabs"
+                />
+              </div>
+            ) : null}
+
+            {log ? (
+              <pre className="studio-log mt-4" data-testid="models-log">
+                {log}
+              </pre>
+            ) : null}
+          </div>
+        }
+        footer={
+          <>
+            <span>
+              {readyCount}/{features.length} features ready
+            </span>
+            <span className="mx-2">·</span>
+            <span>Keys live inside each feature tab</span>
+          </>
+        }
+      />
     </div>
   );
 }

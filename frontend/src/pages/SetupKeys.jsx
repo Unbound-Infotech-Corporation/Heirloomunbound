@@ -183,10 +183,13 @@ export default function SetupKeys() {
           <KeyRound className="h-3.5 w-3.5" /> bring your own keys
         </div>
         <h1 className="font-serif text-4xl mb-3">Keys &amp; Integrations</h1>
-        <p className="text-sm mb-10 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          Heirloom works out of the box with shared defaults, but using your own keys means
-          higher rate limits, faster responses, and your usage stays under your account. Each
-          step below has a direct link to the dashboard where the key lives.
+        <p className="text-sm mb-6 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
+          Prefer configuring keys inside each feature in{" "}
+          <a href="/models" className="underline" style={{ color: "var(--accent)" }}>
+            Models
+          </a>{" "}
+          (Speech, Twin, Voice, etc.) — paste only what that feature needs. This page is the full
+          reference if you want every integration in one place.
         </p>
 
         <div className="space-y-6 mb-12">

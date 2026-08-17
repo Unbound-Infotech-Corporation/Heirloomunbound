@@ -1,12 +1,68 @@
 import { useEffect, useRef, useState } from "react";
 
+function StudioMenuBar({ menus, inline = false }) {
+  const [openLabel, setOpenLabel] = useState(null);
+  const barRef = useRef(null);
+
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (!barRef.current?.contains(e.target)) setOpenLabel(null);
+    };
+    document.addEventListener("pointerdown", onDoc);
+    return () => document.removeEventListener("pointerdown", onDoc);
+  }, []);
+
+  return (
+    <div
+      className={inline ? "studio-menubar-inline" : "studio-window-menubar"}
+      data-testid={inline ? "studio-app-menubar-menus" : "studio-window-menubar"}
+      ref={barRef}
+    >
+      {menus.map((menu) => (
+        <div className={`studio-menu ${openLabel === menu.label ? "is-open" : ""}`} key={menu.label}>
+          <button
+            type="button"
+            className="studio-menu-trigger"
+            aria-expanded={openLabel === menu.label}
+            onClick={() => setOpenLabel((l) => (l === menu.label ? null : menu.label))}
+          >
+            {menu.label}
+          </button>
+          <div className="studio-menu-dropdown">
+            {(menu.items || []).map((item, i) =>
+              item.sep ? (
+                <div key={`sep-${i}`} className="studio-menu-sep" />
+              ) : (
+                <button
+                  key={item.label}
+                  type="button"
+                  className="studio-menu-item"
+                  onClick={() => {
+                    setOpenLabel(null);
+                    item.onClick?.();
+                  }}
+                  disabled={item.disabled}
+                >
+                  <span>{item.label}</span>
+                  {item.hint ? <span className="studio-menu-hint">{item.hint}</span> : null}
+                </button>
+              )
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Photoshop-style floating document window: title bar, per-window menus,
- * min/max/close chrome. Close navigates to /today unless onClose is given.
+ * optional context options bar, min/max/close chrome.
  */
 export default function StudioWindow({
   title,
   menus = [],
+  optionsBar,
   testId,
   onClose,
   children,
@@ -20,8 +76,8 @@ export default function StudioWindow({
     const onMove = (e) => {
       if (!drag.current) return;
       setPos({
-        x: e.clientX - drag.current.dx,
-        y: e.clientY - drag.current.dy,
+        x: Math.max(0, e.clientX - drag.current.dx),
+        y: Math.max(0, e.clientY - drag.current.dy),
       });
     };
     const onUp = () => {
@@ -48,10 +104,7 @@ export default function StudioWindow({
       <div
         className="studio-window-titlebar"
         onPointerDown={(e) => {
-          if (maximized) return;
-          const r = e.currentTarget.getBoundingClientRect();
-          drag.current = { dx: e.clientX - r.left, dy: e.clientY - (r.top - 0) };
-          setPos((p) => p);
+          if (maximized || e.target.closest("button")) return;
           drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
         }}
         data-testid="studio-window-titlebar"
@@ -76,37 +129,16 @@ export default function StudioWindow({
           ) : null}
         </div>
       </div>
-      {menus.length > 0 && (
-        <div className="studio-window-menubar" data-testid="studio-window-menubar">
-          {menus.map((menu) => (
-            <div className="studio-menu" key={menu.label}>
-              <button type="button" className="studio-menu-trigger">
-                {menu.label}
-              </button>
-              <div className="studio-menu-dropdown">
-                {(menu.items || []).map((item, i) =>
-                  item.sep ? (
-                    <div key={i} className="studio-menu-sep" />
-                  ) : (
-                    <button
-                      key={item.label}
-                      type="button"
-                      className="studio-menu-item"
-                      onClick={item.onClick}
-                      disabled={item.disabled}
-                    >
-                      <span>{item.label}</span>
-                      {item.hint ? <span className="studio-menu-hint">{item.hint}</span> : null}
-                    </button>
-                  )
-                )}
-              </div>
-            </div>
-          ))}
+      {menus.length > 0 ? <StudioMenuBar menus={menus} /> : null}
+      {optionsBar ? (
+        <div className="studio-options-bar" data-testid="studio-options-bar">
+          {optionsBar}
         </div>
-      )}
-      <div className="studio-window-body">{children}</div>
+      ) : null}
+      <div className="studio-window-body studio-window-body--pro">{children}</div>
       {status ? <div className="studio-window-status">{status}</div> : null}
     </div>
   );
 }
+
+export { StudioMenuBar };

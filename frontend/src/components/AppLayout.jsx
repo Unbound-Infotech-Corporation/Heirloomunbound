@@ -28,7 +28,8 @@ import {
 } from "lucide-react";
 import QuickCapture from "./QuickCapture";
 import SiteFooter from "./SiteFooter";
-import StudioWindow from "./StudioWindow";
+import StudioWindow, { StudioMenuBar } from "./StudioWindow";
+import { getAppMenubarItems, getWindowMenus } from "./studio";
 import TourOverlay from "./TourOverlay";
 import { useAuth } from "../lib/auth";
 
@@ -193,115 +194,15 @@ export default function AppLayout() {
   };
 
   const title = WINDOW_TITLES[location.pathname] || "Heirloom";
-  const menus = useMemo(() => {
-    const go = (to) => () => navigate(to);
-    const commonWindow = {
-      label: "Window",
-      items: [
-        { label: "Twin", onClick: go("/twin"), hint: "Ctrl+1" },
-        { label: "Mixer", onClick: go("/mixer"), hint: "devices · volume" },
-        { label: "Models", onClick: go("/models"), hint: "provision" },
-        { label: "Archive", onClick: go("/dashboard") },
-        { label: "Voice Journal", onClick: go("/journal") },
-        { sep: true },
-        { label: "Local PC", onClick: go("/companion") },
-        { label: "Settings", onClick: go("/settings") },
-      ],
-    };
-    const audioMenu = {
-      label: "Audio",
-      items: [
-        { label: "Mixer…", onClick: go("/mixer"), hint: "input / output" },
-        { label: "Live listen", onClick: go("/mixer") },
-        { label: "Session volume", onClick: go("/mixer") },
-      ],
-    };
-    const modelsMenu = {
-      label: "Models",
-      items: [
-        { label: "Provision on dedicated PC…", onClick: go("/models") },
-        { label: "Speech to text backend", onClick: go("/models") },
-        { label: "Twin LLM backend", onClick: go("/models") },
-        { label: "Voice synthesis backend", onClick: go("/models") },
-        { sep: true },
-        { label: "Cloud keys (optional fallback)", onClick: go("/setup/keys") },
-      ],
-    };
-    if (location.pathname === "/twin") {
-      return [
-        {
-          label: "Twin",
-          items: [
-            { label: "New conversation", onClick: () => window.location.reload() },
-            { label: "Open Mixer…", onClick: go("/mixer") },
-            { label: "Avatar studio", onClick: go("/avatar-studio") },
-            { label: "Abilities", onClick: go("/abilities") },
-          ],
-        },
-        audioMenu,
-        modelsMenu,
-        commonWindow,
-      ];
-    }
-    if (location.pathname === "/mixer") {
-      return [
-        {
-          label: "Devices",
-          items: [
-            { label: "Refresh (reload)", onClick: () => window.location.reload() },
-            { label: "Default input / output", onClick: go("/mixer") },
-          ],
-        },
-        {
-          label: "Input",
-          items: [
-            { label: "Gain / gate / high-pass", onClick: go("/mixer") },
-            { label: "Live listen", onClick: go("/mixer") },
-            { label: "Monitor", onClick: go("/mixer") },
-          ],
-        },
-        {
-          label: "Output",
-          items: [
-            { label: "Heirloom session volume", onClick: go("/mixer") },
-            { label: "Mute output", onClick: go("/mixer") },
-          ],
-        },
-        commonWindow,
-      ];
-    }
-    if (location.pathname === "/models") {
-      return [modelsMenu, audioMenu, commonWindow];
-    }
-    if (location.pathname === "/journal") {
-      return [
-        {
-          label: "Journal",
-          items: [
-            { label: "Choose microphone…", onClick: go("/mixer") },
-            { label: "Sample rate", onClick: go("/mixer") },
-          ],
-        },
-        audioMenu,
-        modelsMenu,
-        commonWindow,
-      ];
-    }
-    return [
-      {
-        label: "File",
-        items: [
-          { label: "Quick capture", onClick: () => setCaptureOpen(true) },
-          { label: "Import sources", onClick: go("/import") },
-          { sep: true },
-          { label: "Sign out", onClick: logout },
-        ],
-      },
-      audioMenu,
-      modelsMenu,
-      commonWindow,
-    ];
-  }, [location.pathname, navigate, logout]);
+  const menuCtx = useMemo(
+    () => ({ navigate, logout, setCaptureOpen }),
+    [navigate, logout]
+  );
+  const menus = useMemo(
+    () => getWindowMenus(location.pathname, menuCtx),
+    [location.pathname, menuCtx]
+  );
+  const appMenus = useMemo(() => getAppMenubarItems(menuCtx), [menuCtx]);
 
   return (
     <div className="studio-shell" style={{ background: "#1e1e1e" }}>
@@ -309,58 +210,7 @@ export default function AppLayout() {
         <button type="button" className="studio-brand" onClick={() => navigate("/dashboard")} data-testid="studio-brand">
           Heirloom
         </button>
-        <div className="studio-menu">
-          <button type="button" className="studio-menu-trigger">
-            File
-          </button>
-          <div className="studio-menu-dropdown">
-            <button type="button" className="studio-menu-item" onClick={() => setCaptureOpen((v) => !v)}>
-              Quick capture
-            </button>
-            <button type="button" className="studio-menu-item" onClick={() => navigate("/import")}>
-              Import…
-            </button>
-            <div className="studio-menu-sep" />
-            <button type="button" className="studio-menu-item" onClick={logout}>
-              Sign out
-            </button>
-          </div>
-        </div>
-        <div className="studio-menu">
-          <button type="button" className="studio-menu-trigger">
-            Window
-          </button>
-          <div className="studio-menu-dropdown">
-            {navItems.slice(0, 12).map((item) => (
-              <button key={item.to} type="button" className="studio-menu-item" onClick={() => navigate(item.to)}>
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="studio-menu">
-          <button type="button" className="studio-menu-trigger">
-            Audio
-          </button>
-          <div className="studio-menu-dropdown">
-            <button type="button" className="studio-menu-item" onClick={() => navigate("/mixer")}>
-              Mixer…
-            </button>
-          </div>
-        </div>
-        <div className="studio-menu">
-          <button type="button" className="studio-menu-trigger">
-            Models
-          </button>
-          <div className="studio-menu-dropdown">
-            <button type="button" className="studio-menu-item" onClick={() => navigate("/models")}>
-              Provision…
-            </button>
-            <button type="button" className="studio-menu-item" onClick={() => navigate("/setup/keys")}>
-              Cloud keys (optional)
-            </button>
-          </div>
-        </div>
+        <StudioMenuBar menus={appMenus} inline />
         <div className="ml-auto text-[11px] tracking-wide px-3" style={{ color: "#9a9a9a" }}>
           {user?.name || user?.email || "signed in"}
         </div>
