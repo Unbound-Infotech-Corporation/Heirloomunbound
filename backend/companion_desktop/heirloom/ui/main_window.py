@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMdiArea,
     QPushButton,
     QSizeGrip,
     QSplitter,
@@ -24,15 +25,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import __version__, api, audio, config
+from .. import __version__, api, audio, commands, config
 from ..commands import CommandPoller
+from .. import local_voice, twin_local
 from ..maintenance import Maintenance
+from ..mixer import MixerSession
 from ..vault import Vault
 from . import PALETTE, QSS
 from .avatar_panel import AvatarPanel
 from .command_palette import Command, CommandPalette
 from .conversation import ConversationPanel
+from .mdi import FeatureWindow
 from .mica import apply as apply_mica
+from .mixer_panel import MixerPanel
+from .models_panel import ModelsPanel
 from .panels import QuickCapture, RecentMemories
 from .settings_dialog import SettingsDialog
 from .titlebar import TitleBar
@@ -95,34 +101,50 @@ class MainWindow(QMainWindow):
         self.titlebar.palette_clicked.connect(self._open_palette)
         card_layout.addWidget(self.titlebar)
 
-        # ---- 3-pane splitter ----
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setHandleWidth(1)
-        splitter.setChildrenCollapsible(False)
+        # ---- Photoshop-style MDI workspace ----
+        self.mdi = QMdiArea()
+        self.mdi.setViewMode(QMdiArea.SubWindowView)
+        self.mdi.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.mdi.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        card_layout.addWidget(self.mdi, 1)
 
-        # left: memories sidebar
+        self.mixer_session = MixerSession(self)
+        self.recorder = audio.Recorder(self)
+        self.live = audio.LiveListen(self.recorder, self)
+
         self.memories = RecentMemories()
-        self.memories.setMinimumWidth(220)
-        splitter.addWidget(self.memories)
-
-        # center: avatar over conversation
-        center_split = QSplitter(Qt.Vertical)
-        center_split.setHandleWidth(1)
-        center_split.setChildrenCollapsible(False)
         self.avatar = AvatarPanel(self._settings)
+        self.avatar.bind_mixer(self.mixer_session)
         self.conversation = ConversationPanel(self._settings)
-        center_split.addWidget(self.avatar)
-        center_split.addWidget(self.conversation)
-        center_split.setSizes([360, 440])
-        splitter.addWidget(center_split)
-
-        # right: quick capture
         self.quickcap = QuickCapture()
-        self.quickcap.setMinimumWidth(260)
-        splitter.addWidget(self.quickcap)
+        self.mixer_panel = MixerPanel(self.mixer_session)
+        self.models_panel = ModelsPanel()
 
-        splitter.setSizes([260, 760, 280])
-        card_layout.addWidget(splitter, 1)
+        twin_body = QWidget()
+        twin_split = QSplitter(Qt.Vertical)
+        twin_split.setChildrenCollapsible(False)
+        twin_split.addWidget(self.avatar)
+        twin_split.addWidget(self.conversation)
+        twin_split.setSizes([360, 440])
+        twin_lay = QVBoxLayout(twin_body)
+        twin_lay.setContentsMargins(0, 0, 0, 0)
+        twin_lay.addWidget(twin_split)
+
+        self.win_twin = FeatureWindow("Twin", twin_body, parent=self.mdi)
+        self.win_archive = FeatureWindow("Archive", self.memories, parent=self.mdi)
+        self.win_capture = FeatureWindow("Capture", self.quickcap, parent=self.mdi)
+        self.win_mixer = FeatureWindow("Mixer", self.mixer_panel, parent=self.mdi)
+        self.win_models = FeatureWindow("Models", self.models_panel, parent=self.mdi)
+        for w in (self.win_twin, self.win_archive, self.win_capture, self.win_mixer, self.win_models):
+            self.mdi.addSubWindow(w)
+            w.show()
+        self.win_twin.resize(760, 620)
+        self.win_archive.resize(280, 520)
+        self.win_capture.resize(300, 420)
+        self.win_mixer.resize(420, 640)
+        self.win_models.resize(460, 560)
+        self._install_window_menus()
+        self.mdi.tileSubWindows()
 
         # ---- resize grip strip at the bottom-right ----
         grip_row = QHBoxLayout()
@@ -133,15 +155,152 @@ class MainWindow(QMainWindow):
         grip_row.addWidget(grip, 0, Qt.AlignRight | Qt.AlignBottom)
         card_layout.addLayout(grip_row)
 
-        # Audio recorder
-        self.recorder = audio.Recorder(self)
-        # Local vault — lazy init so a busted folder doesn't crash startup
         try:
             self._vault: Vault | None = Vault()
         except Exception as exc:  # noqa: BLE001
             print(f"[vault] init failed: {exc}")
             self._vault = None
         self._active_conv_id = "comp_local"
+        self._audio_settings: dict = {}
+        self._model_map: dict = {}
+        self._room_greeted = False
+        self._persist_timer = QTimer(self)
+        self._persist_timer.setSingleShot(True)
+        self._persist_timer.setInterval(400)
+        self._persist_timer.timeout.connect(self._persist_audio)
+
+    def _install_window_menus(self) -> None:
+        self.win_twin.rebuild_menus(
+            [
+                (
+                    "Twin",
+                    [
+                        ("Speak selection / composer", self._open_palette, "Ctrl+K"),
+                        ("Push-to-talk", self._ptt_toggle, "Ctrl+Space"),
+                        ("---", None, ""),
+                        ("Pop out avatar for OBS", self.avatar.pop_out, ""),
+                        ("Toggle avatar mode", self.avatar._toggle_mode, ""),
+                    ],
+                ),
+                (
+                    "Voice",
+                    [
+                        ("Volume +10", lambda: self._nudge_volume(10), ""),
+                        ("Volume -10", lambda: self._nudge_volume(-10), ""),
+                        ("Mute output", lambda: self._set_mute_output(True), ""),
+                        ("Unmute output", lambda: self._set_mute_output(False), ""),
+                    ],
+                ),
+                (
+                    "Window",
+                    [
+                        ("Maximize Twin", self.win_twin.showMaximized, ""),
+                        ("Tile all", self.mdi.tileSubWindows, ""),
+                        ("Cascade", self.mdi.cascadeSubWindows, ""),
+                    ],
+                ),
+            ]
+        )
+        self.win_mixer.rebuild_menus(
+            [
+                (
+                    "Devices",
+                    [
+                        ("Refresh device list", self.mixer_panel.refresh_devices, ""),
+                        ("Play test tone", self.mixer_panel._test_tone, ""),
+                    ],
+                ),
+                (
+                    "Input",
+                    [
+                        ("Toggle mute input", lambda: self._toggle_audio_flag("mute_input"), ""),
+                        ("Toggle live listen", lambda: self._toggle_audio_flag("live_listen"), ""),
+                        ("Toggle monitor", lambda: self._toggle_audio_flag("monitor_input"), ""),
+                    ],
+                ),
+                (
+                    "Output",
+                    [
+                        ("Toggle mute output", lambda: self._toggle_audio_flag("mute_output"), ""),
+                        ("Session volume 100%", lambda: self._apply_session_volume(100), ""),
+                        ("Session volume 50%", lambda: self._apply_session_volume(50), ""),
+                        ("Session volume 0%", lambda: self._apply_session_volume(0), ""),
+                    ],
+                ),
+                (
+                    "Sample rate",
+                    [
+                        ("16 kHz (voice)", lambda: self._set_sample_rate(16000), ""),
+                        ("44.1 kHz", lambda: self._set_sample_rate(44100), ""),
+                        ("48 kHz", lambda: self._set_sample_rate(48000), ""),
+                    ],
+                ),
+            ]
+        )
+        self.win_models.rebuild_menus(
+            [
+                (
+                    "Models",
+                    [
+                        ("Refresh probe", self.models_panel.refresh, ""),
+                        ("Provision on this PC", self.models_panel.provision_local, ""),
+                        ("Queue provision from studio", self.models_panel.queue_remote, ""),
+                    ],
+                ),
+                (
+                    "Backends",
+                    [
+                        ("Set all to Auto", lambda: self.models_panel.map_changed.emit({}), ""),
+                    ],
+                ),
+            ]
+        )
+        self.win_archive.rebuild_menus(
+            [
+                (
+                    "Archive",
+                    [
+                        ("Refresh", self.memories.refresh, ""),
+                        ("Compact vault now", lambda: Maintenance().run_async(), ""),
+                    ],
+                )
+            ]
+        )
+        self.win_capture.rebuild_menus(
+            [
+                (
+                    "Capture",
+                    [
+                        ("Focus capture", lambda: self.win_capture.showNormal() or self.win_capture.raise_(), ""),
+                    ],
+                )
+            ]
+        )
+
+    def _nudge_volume(self, delta: int) -> None:
+        current = int(self._audio_settings.get("output_volume") or 80)
+        self._apply_session_volume(max(0, min(100, current + delta)))
+
+    def _set_mute_output(self, muted: bool) -> None:
+        settings = {**self.mixer_panel.collect(), "mute_output": muted}
+        self.mixer_panel.apply_settings(settings)
+        self._on_mixer_changed(settings)
+
+    def _toggle_audio_flag(self, key: str) -> None:
+        settings = self.mixer_panel.collect()
+        settings[key] = not bool(settings.get(key))
+        self.mixer_panel.apply_settings(settings)
+        self._on_mixer_changed(settings)
+
+    def _set_sample_rate(self, rate: int) -> None:
+        settings = {**self.mixer_panel.collect(), "sample_rate": rate}
+        self.mixer_panel.apply_settings(settings)
+        self._on_mixer_changed(settings)
+
+    def _apply_session_volume(self, level: int) -> None:
+        settings = {**self.mixer_panel.collect(), "output_volume": int(level)}
+        self.mixer_panel.apply_settings(settings)
+        self._on_mixer_changed(settings)
 
     def _wire_signals(self) -> None:
         # Quick-cap refresh sidebar
@@ -155,8 +314,15 @@ class MainWindow(QMainWindow):
         self.avatar.status_changed.connect(self._update_status)
         # Recorder
         self.recorder.level.connect(self.avatar.set_level)
+        self.recorder.level.connect(lambda lvl: self.mixer_panel.set_level(lvl))
         self.recorder.wav_bytes.connect(self._upload_voice)
         self.recorder.error.connect(lambda msg: self._update_status(f"mic: {msg}"))
+        self.live.wav_bytes.connect(self._upload_voice)
+        self.live.started.connect(self._on_room_speech_started)
+        self.live.started.connect(lambda: self._update_status("room: listening…"))
+        self.live.error.connect(lambda msg: self._update_status(f"live: {msg}"))
+        self.mixer_panel.settings_changed.connect(self._on_mixer_changed)
+        self.mixer_panel.live_listen_toggled.connect(self._on_live_listen)
 
         # Global shortcuts
         for seq in ("Ctrl+K", "Ctrl+P"):
@@ -249,7 +415,12 @@ class MainWindow(QMainWindow):
         self._cmd_poller = CommandPoller(self)
         self._cmd_poller.ran.connect(lambda label: self._update_status(f"twin: {label}"))
         self._cmd_poller.status.connect(self._on_poller_status)
+        self._cmd_poller.audio_settings.connect(self._apply_audio_settings)
+        self._cmd_poller.volume_command.connect(self._apply_session_volume)
+        self._cmd_poller.model_map.connect(self._on_model_map)
         self._cmd_poller.start()
+        commands.register_volume_hook(self._apply_session_volume)
+        api.get_async("/studio/audio", on_ok=lambda d: self._apply_audio_settings((d or {}).get("settings") or {}), on_err=lambda _m: None)
         # Preflight: cloned-voice status for Waveform mode
         api.get_async(
             "/desktop/voice/status",
@@ -301,8 +472,10 @@ class MainWindow(QMainWindow):
             self._ptt_start()
 
     def _ptt_start(self) -> None:
-        if self.recorder.is_recording():
+        if self.recorder.is_recording() and not self._audio_settings.get("live_listen"):
             return
+        if self._audio_settings.get("live_listen"):
+            self.live.set_enabled(False)
         self._update_status("listening…")
         self.recorder.start()
 
@@ -311,6 +484,45 @@ class MainWindow(QMainWindow):
             return
         self._update_status("thinking…")
         self.recorder.stop()
+        if self._audio_settings.get("live_listen"):
+            QTimer.singleShot(400, lambda: self.live.set_enabled(True, int(self._audio_settings.get("vad_hangover_ms") or 900)))
+
+    def _on_mixer_changed(self, settings: dict) -> None:
+        self._apply_audio_settings(settings, persist=True)
+
+    def _on_live_listen(self, enabled: bool) -> None:
+        hang = int(self._audio_settings.get("vad_hangover_ms") or 900)
+        self.live.set_enabled(enabled, hang)
+
+    def _apply_audio_settings(self, settings: dict, persist: bool = False) -> None:
+        if not isinstance(settings, dict):
+            return
+        merged = {**self._audio_settings, **settings}
+        live_changed = bool(merged.get("live_listen")) != bool(self._audio_settings.get("live_listen"))
+        if merged == self._audio_settings and not persist:
+            return
+        self._audio_settings = merged
+        self.recorder.apply_settings(self._audio_settings)
+        self.mixer_session.set_device(self._audio_settings.get("output_device_id") or "default")
+        self.mixer_session.set_volume(int(self._audio_settings.get("output_volume") or 80))
+        self.mixer_session.set_mute(bool(self._audio_settings.get("mute_output")))
+        self.mixer_session.apply_to_qaudio(self.avatar.audio)
+        self.mixer_panel.apply_settings(self._audio_settings)
+        if live_changed or persist:
+            self.live.set_enabled(
+                bool(self._audio_settings.get("live_listen")),
+                int(self._audio_settings.get("vad_hangover_ms") or 900),
+            )
+        if persist:
+            self._persist_timer.start()
+
+    def _persist_audio(self) -> None:
+        api.put_async(
+            "/studio/audio",
+            self.mixer_panel.collect(),
+            on_ok=lambda _d: None,
+            on_err=lambda m: self._update_status(f"mixer save: {m[:40]}"),
+        )
 
     def eventFilter(self, obj, event):  # noqa: N802
         """Hold-to-talk: stop recording when Ctrl or Space is released."""
@@ -326,18 +538,122 @@ class MainWindow(QMainWindow):
                     self._ptt_stop()
         return super().eventFilter(obj, event)
 
+    def _on_model_map(self, model_map: dict) -> None:
+        if isinstance(model_map, dict):
+            self._model_map = model_map
+            self.models_panel.apply_remote_map(model_map)
+
+    def _on_room_speech_started(self) -> None:
+        if self._room_greeted or not self._audio_settings.get("live_listen"):
+            return
+        self._room_greeted = True
+        name = (self._user.get("name") or "").split()[0] if self._user.get("name") else ""
+        greet = (
+            f"Hey{(' ' + name) if name else ''} — I'm here when you want to talk."
+        )
+        self.conversation.append("assistant", greet)
+        self.avatar.speak(greet)
+
     def _upload_voice(self, wav: bytes) -> None:
         if not wav:
             self._update_status("idle")
             return
         self._pending_voice_audio = wav
+        transcript = ""
+        if local_voice.should_use_local_stt(self._model_map):
+            try:
+                transcript = local_voice.transcribe_wav(wav)
+                self._update_status("local STT ✓")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[local_stt] {exc}")
+        if transcript:
+            self._handle_voice_text(transcript, wav)
+            return
         files = {"audio": ("ptt.wav", wav, "audio/wav")}
+        data = {"save_to_archive": "false"}
         api.post_multipart_async(
             "/companion/voice",
             files=files,
-            data={"save_to_archive": "false"},
+            data=data,
             on_ok=self._on_voice_reply,
             on_err=lambda msg: self._update_status(f"voice err: {msg[:40]}"),
+        )
+
+    def _handle_voice_text(self, user_text: str, wav: bytes | None = None) -> None:
+        if not user_text.strip():
+            self._update_status("idle")
+            return
+        self._update_status("thinking…")
+        if twin_local.should_use_local_twin(self._model_map):
+
+            def _brain_ok(pack: dict) -> None:
+                if (pack or {}).get("twin_backend") != "ollama":
+                    self._cloud_voice_chat(user_text, wav)
+                    return
+                try:
+                    reply = twin_local.generate_reply(
+                        pack.get("system") or "",
+                        pack.get("history") or [],
+                        user_text,
+                        model=(pack.get("ollama_model") or "llama3.1"),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[local_twin] {exc}")
+                    self._cloud_voice_chat(user_text, wav)
+                    return
+                api.post_async(
+                    "/desktop/chat/local-complete",
+                    {
+                        "text": user_text,
+                        "reply": reply,
+                        "conversation_id": pack.get("conversation_id"),
+                        "source": "desktop_local",
+                    },
+                    on_ok=lambda d: self._on_voice_reply(
+                        {
+                            "user_text": user_text,
+                            "reply": (d or {}).get("reply") or reply,
+                            "tool_trace": [],
+                            "twin_backend": "ollama",
+                        }
+                    ),
+                    on_err=lambda _m: self._on_voice_reply(
+                        {"user_text": user_text, "reply": reply, "tool_trace": []}
+                    ),
+                )
+
+            api.post_async(
+                "/desktop/brain-pack",
+                {"text": user_text},
+                on_ok=_brain_ok,
+                on_err=lambda _m: self._cloud_voice_chat(user_text, wav),
+            )
+            return
+        self._cloud_voice_chat(user_text, wav)
+
+    def _cloud_voice_chat(self, user_text: str, wav: bytes | None) -> None:
+        if wav and not local_voice.should_use_local_stt(self._model_map):
+            files = {"audio": ("ptt.wav", wav, "audio/wav")}
+            api.post_multipart_async(
+                "/companion/voice",
+                files=files,
+                data={"save_to_archive": "false", "transcript": user_text},
+                on_ok=self._on_voice_reply,
+                on_err=lambda msg: self._update_status(f"voice err: {msg[:40]}"),
+            )
+            return
+        api.post_async(
+            "/desktop/chat",
+            {"text": user_text},
+            on_ok=lambda d: self._on_voice_reply(
+                {
+                    "user_text": user_text,
+                    "reply": (d or {}).get("reply") or "",
+                    "tool_trace": (d or {}).get("tool_trace") or [],
+                    "twin_backend": (d or {}).get("twin_backend"),
+                }
+            ),
+            on_err=lambda msg: self._update_status(f"chat err: {msg[:40]}"),
         )
 
     def _on_voice_reply(self, data: dict) -> None:
@@ -359,6 +675,13 @@ class MainWindow(QMainWindow):
             self.conversation.append("assistant", reply)
             self._vault_capture("assistant", reply, "voice")
             self.avatar.speak(reply)
+            backend = (data or {}).get("twin_backend")
+            if backend:
+                self._update_status(f"idle · {backend}")
+            else:
+                self._update_status("idle")
+        else:
+            self._update_status("idle")
         self.memories.refresh()
 
     # ----- vault -----
@@ -458,6 +781,18 @@ class MainWindow(QMainWindow):
                 label="Compact vault now",
                 hint="Run end-of-day memory compaction",
                 action=lambda: Maintenance().run_async(),
+            ),
+            Command(
+                id="mixer",
+                label="Mixer window",
+                hint="Input/output devices, gain, gate, Heirloom session volume",
+                action=lambda: (self.win_mixer.show(), self.win_mixer.raise_()),
+            ),
+            Command(
+                id="models",
+                label="Models window",
+                hint="Provision Whisper / Ollama on this PC",
+                action=lambda: (self.win_models.show(), self.win_models.raise_()),
             ),
             Command(
                 id="settings",

@@ -104,6 +104,24 @@ def get_async(
     )
 
 
+def put_async(
+    path: str,
+    payload: Optional[dict] = None,
+    on_ok: Optional[Callable] = None,
+    on_err: Optional[Callable] = None,
+    timeout: float = 30.0,
+) -> None:
+    body = json.dumps(payload or {}).encode("utf-8")
+    headers = {**_headers(), "Content-Type": "application/json"}
+    _submit(
+        lambda: _check(
+            requests.put(_url(path), data=body, headers=headers, timeout=timeout)
+        ),
+        on_ok,
+        on_err,
+    )
+
+
 def post_async(
     path: str,
     payload: Optional[dict] = None,

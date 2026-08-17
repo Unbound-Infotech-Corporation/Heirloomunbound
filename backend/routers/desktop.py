@@ -136,6 +136,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
         "ts": result.ts,
         "conversation_id": result.conversation_id,
         "tool_trace": result.tool_trace,
+        "twin_backend": result.backend,
     }
     if result.action:
         out["action"] = result.action
@@ -284,6 +285,88 @@ async def desktop_memories(ctx: dict = Depends(get_device_user), limit: int = 20
     )
     items = await cursor.to_list(length=limit)
     return {"items": items}
+
+
+# ---------------- Brain pack (local Ollama on the dedicated PC) ----------------
+class BrainPackReq(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+
+
+def _brain_pack_ollama_url(user: dict) -> str | None:
+    from studio_compute import resolve_ollama_url
+
+    return resolve_ollama_url(user)
+
+
+@router.post("/brain-pack")
+async def desktop_brain_pack(body: BrainPackReq, ctx: dict = Depends(get_device_user)):
+    """Return the twin system prompt + history for on-device Ollama inference."""
+    from twin_runtime import build_brain_pack, ensure_conversation
+
+    user = ctx["user"]
+    if user.get("account_status") == "refunded":
+        raise HTTPException(status_code=403, detail="account_inactive")
+    conv = await ensure_conversation(user["user_id"], kind="companion_twin")
+    try:
+        pack = await build_brain_pack(user, body.text, conversation=conv)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "system": pack.system,
+        "history": pack.history,
+        "conversation_id": pack.conversation_id,
+        "twin_backend": pack.twin_backend,
+        "ollama_model": os.environ.get("OLLAMA_TWIN_MODEL", "llama3.1"),
+        "ollama_url": _brain_pack_ollama_url(user),
+    }
+
+
+class LocalCompleteReq(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    reply: str = Field(..., min_length=1, max_length=8000)
+    conversation_id: Optional[str] = None
+    source: str = "desktop_local"
+
+
+@router.post("/chat/local-complete")
+async def desktop_local_complete(body: LocalCompleteReq, ctx: dict = Depends(get_device_user)):
+    """Persist a turn that was inferred locally (Ollama) on the dedicated PC."""
+    from twin_runtime import _persist_pair, _safe_summarise, ensure_conversation
+    import asyncio
+
+    user = ctx["user"]
+    if user.get("account_status") == "refunded":
+        raise HTTPException(status_code=403, detail="account_inactive")
+
+    conv = await ensure_conversation(
+        user["user_id"],
+        kind="companion_twin",
+        conversation_id=body.conversation_id,
+    )
+    ts = _now_iso()
+    await _persist_pair(
+        user["user_id"],
+        conv["conversation_id"],
+        body.text.strip(),
+        body.reply.strip(),
+        ts,
+        source=body.source,
+    )
+    try:
+        asyncio.create_task(_safe_summarise(user["user_id"], conv["conversation_id"]))
+    except Exception:  # noqa: BLE001
+        pass
+
+    await live_publish_turn(user["user_id"], "user", body.text, source=body.source)
+    await live_publish_turn(user["user_id"], "assistant", body.reply, source=body.source)
+
+    return {
+        "reply": body.reply.strip(),
+        "conversation_id": conv["conversation_id"],
+        "ts": ts,
+        "used_local": True,
+        "twin_backend": "ollama",
+    }
 
 
 # ---------------- Cloned-voice TTS (used by Waveform avatar mode) ----------------

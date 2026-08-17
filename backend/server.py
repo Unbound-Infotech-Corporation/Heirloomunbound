@@ -64,6 +64,7 @@ from routers import (
     skills,
     social_import,
     sources,
+    studio,
     twin,
     user_keys,
     vault,
@@ -140,6 +141,7 @@ api_router.include_router(vault.router)
 api_router.include_router(live.router)
 api_router.include_router(avatar_studio.router)
 api_router.include_router(user_keys.router)
+api_router.include_router(studio.router)
 
 app.include_router(api_router)
 

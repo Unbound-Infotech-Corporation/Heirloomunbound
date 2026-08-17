@@ -213,7 +213,9 @@ class AvatarPanel(QFrame):
         # Media
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
+        self.audio.setVolume(1.0)
         self.player.setAudioOutput(self.audio)
+        self._mixer = None
         self.player.mediaStatusChanged.connect(self._on_media_status)
         self.player.errorOccurred.connect(self._on_media_error)
 
@@ -269,6 +271,12 @@ class AvatarPanel(QFrame):
         self._apply_mode()
 
     # ---- public ----
+    def bind_mixer(self, mixer) -> None:
+        """Route TTS / D-ID audio through the named Heirloom mixer session."""
+        self._mixer = mixer
+        if mixer is not None:
+            mixer.apply_to_qaudio(self.audio)
+
     def set_portrait_url(self, url: Optional[str]) -> None:
         self.portrait_video.set_portrait_url(url)
         if self._broadcast is not None:
@@ -375,6 +383,8 @@ class AvatarPanel(QFrame):
         self.player.setVideoOutput(None)  # type: ignore[arg-type]
         self.player.setSource(QUrl.fromLocalFile(path))
         self._start_tts_pulse()
+        if self._mixer is not None:
+            self._mixer.apply_to_qaudio(self.audio)
         self.player.play()
 
     def _on_tts_err(self, msg: str) -> None:
@@ -506,6 +516,8 @@ class AvatarPanel(QFrame):
             self._broadcast.video.show()
             self._broadcast.portrait.hide()
         self.player.setSource(QUrl.fromLocalFile(path))
+        if self._mixer is not None:
+            self._mixer.apply_to_qaudio(self.audio)
         self.player.play()
 
     def _on_media_status(self, status: QMediaPlayer.MediaStatus) -> None:

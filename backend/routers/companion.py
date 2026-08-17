@@ -36,6 +36,7 @@ async def get_device_user(authorization: Optional[str] = Header(None)) -> dict:
 # ---------- Registration (user-facing) ----------
 class RegisterReq(BaseModel):
     name: str = "My PC"
+    kind: str = "pc"  # pc | phone
 
 
 @router.post("/register")
@@ -46,6 +47,7 @@ async def register_device(payload: RegisterReq, user: dict = Depends(get_current
         "device_id": device_id,
         "user_id": user["user_id"],
         "name": payload.name or "My PC",
+        "kind": payload.kind if payload.kind in ("pc", "phone") else "pc",
         "device_token": token,
         "revoked": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -203,6 +205,10 @@ async def cancel_command(cmd_id: str, user: dict = Depends(get_current_user)):
 async def poll(ctx: dict = Depends(get_device_user)):
     """Companion polls every few seconds for queued commands AND due reminders."""
     user = ctx["user"]
+    device = ctx["device"]
+    device_id = device.get("device_id")
+    from studio_compute import command_targets_device
+
     # Refunded / disputed accounts: tell the companion to quietly stop.
     if user.get("account_status") == "refunded":
         from fastapi import HTTPException as _HE
@@ -211,6 +217,7 @@ async def poll(ctx: dict = Depends(get_device_user)):
         {"user_id": user["user_id"], "status": "queued"}, {"_id": 0}
     ).sort("created_at", 1).limit(10)
     pending = await cursor.to_list(length=10)
+    pending = [c for c in pending if command_targets_device(c, device_id)]
     if pending:
         cmd_ids = [c["cmd_id"] for c in pending]
         await db.companion_commands.update_many(
@@ -248,14 +255,54 @@ async def poll(ctx: dict = Depends(get_device_user)):
             {"reminder_id": rem["reminder_id"], "user_id": user["user_id"]},
             {"$set": {"delivered_at": now_iso}},
         )
+    from studio_defaults import clamp_audio, clamp_compute, clamp_model_map
+    from studio_compute import resolve_compute_device, user_compute
+
+    compute = user_compute(user)
+    resolved = await resolve_compute_device(db, user)
+    resolved_id = resolved.get("device_id") if resolved else None
+    is_compute_target = bool(resolved_id and resolved_id == device_id)
+
     return {
         "commands": pending + reminder_commands,
         "server_time": now_iso,
         "script_version": COMPANION_SCRIPT_VERSION,
+        "audio_settings": clamp_audio(user.get("studio_audio")),
+        "model_map": clamp_model_map(user.get("studio_models")),
+        "studio_compute": clamp_compute(user.get("studio_compute")),
+        "is_compute_target": is_compute_target,
+        "compute_device_id": resolved_id,
     }
 
 
-COMPANION_SCRIPT_VERSION = "2026.02.28.1"  # bump whenever _build_companion_script materially changes
+COMPANION_SCRIPT_VERSION = "2026.08.17.3"  # bump whenever _build_companion_script materially changes
+
+
+class RuntimeProbe(BaseModel):
+    gpu: Optional[dict] = None
+    ollama: Optional[dict] = None
+    whisper: Optional[dict] = None
+    piper: Optional[dict] = None
+    audio_devices: Optional[list] = None
+    detail: str = ""
+
+
+@router.post("/runtime")
+async def report_runtime(payload: RuntimeProbe, ctx: dict = Depends(get_device_user)):
+    """Companion reports GPU / Ollama / Whisper / device list so the studio
+    model window can auto-provision instead of asking the user to paste keys."""
+    device = ctx["device"]
+    probe = payload.model_dump()
+    user_id = ctx["user"]["user_id"]
+    await db.companion_devices.update_one(
+        {"device_id": device["device_id"], "user_id": user_id},
+        {"$set": {"runtime_probe": probe, "last_seen": datetime.now(timezone.utc).isoformat()}},
+    )
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"companion_runtime_probe": probe, "companion_runtime_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True}
 
 
 class CompanionResult(BaseModel):
@@ -341,27 +388,42 @@ async def companion_screenshot(
 async def companion_voice(
     audio: UploadFile = File(...),
     save_to_archive: bool = Form(False),
+    transcript: str = Form(""),
     ctx: dict = Depends(get_device_user),
 ):
-    """Companion uploads audio. We transcribe, send to Twin, and return text+tts."""
+    """Companion uploads audio. We transcribe, send to Twin, and return text reply."""
     user = ctx["user"]
-    raw = await audio.read()
-    if not raw:
-        raise HTTPException(status_code=400, detail="Empty audio")
-    if len(raw) > 25 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Audio too large")
+    spoken = (transcript or "").strip()
 
-    # 1) STT via Whisper
-    buf = io.BytesIO(raw)
-    buf.name = audio.filename or "ptt.webm"
-    stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)
-    try:
-        result = await stt.transcribe(file=buf, model="whisper-1", response_format="json")
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"STT failed: {exc!s}") from exc
-    spoken = (getattr(result, "text", "") or "").strip()
     if not spoken:
-        return {"user_text": "", "reply": "", "skill_invocations": []}
+        raw = await audio.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Empty audio")
+        if len(raw) > 25 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Audio too large")
+
+        from model_router import resolve_stt_backend, runtime_probe_from_user
+
+        stt_backend = resolve_stt_backend(user.get("studio_models"), runtime_probe_from_user(user))
+        if stt_backend == "local_whisper":
+            from local_inference import transcribe_whisper_bytes
+
+            try:
+                spoken = transcribe_whisper_bytes(raw, filename=audio.filename or "ptt.wav")
+            except Exception as exc:  # noqa: BLE001
+                stt_backend = "cloud_whisper"
+        if stt_backend == "cloud_whisper" and not spoken:
+            buf = io.BytesIO(raw)
+            buf.name = audio.filename or "ptt.webm"
+            stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)
+            try:
+                result = await stt.transcribe(file=buf, model="whisper-1", response_format="json")
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(status_code=502, detail=f"STT failed: {exc!s}") from exc
+            spoken = (getattr(result, "text", "") or "").strip()
+
+    if not spoken:
+        return {"user_text": "", "reply": "", "skill_invocations": [], "stt_backend": "none"}
 
     # 2) Get or create a "companion" twin conversation + run full twin brain
     from twin_runtime import ensure_conversation, run_twin_turn
@@ -411,6 +473,7 @@ async def companion_voice(
         "actions": invoked,
         "tool_trace": turn.tool_trace,
         "action": turn.action,
+        "twin_backend": turn.backend,
     }
 
 
@@ -1246,18 +1309,41 @@ def safe_get(path, **kwargs):
         return None
 
 
-# ---------- Local TTS so replies play through the room ----------
+# ---------- Local TTS — prefer cloned voice via the Heirloom backend ----------
 def speak_locally(text: str):
     if not text:
         return
+    safe = text.replace('"', "'")[:500]
+    try:
+        r = requests.post(
+            f"{BACKEND_URL}/api/desktop/speak",
+            headers=HEADERS,
+            json={"text": safe},
+            timeout=90,
+        )
+        if r.status_code == 200 and r.content:
+            import tempfile
+            fd, path = tempfile.mkstemp(suffix=".mp3")
+            os.close(fd)
+            with open(path, "wb") as f:
+                f.write(r.content)
+            if platform.system() == "Windows":
+                os.startfile(path)  # type: ignore[attr-defined]
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["afplay", path])
+            else:
+                subprocess.Popen(["mpg123", "-q", path])
+            return
+    except Exception:
+        pass
     try:
         if platform.system() == "Darwin":
-            subprocess.Popen(["say", text])
+            subprocess.Popen(["say", safe])
         elif platform.system() == "Windows":
-            ps = f'Add-Type -AssemblyName System.Speech;(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{text}")'
+            ps = f'Add-Type -AssemblyName System.Speech;(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{safe}")'
             subprocess.Popen(["powershell", "-Command", ps])
         else:
-            subprocess.Popen(["espeak", text])
+            subprocess.Popen(["espeak", safe])
     except Exception:
         pass  # silent fallback — text was already printed
 

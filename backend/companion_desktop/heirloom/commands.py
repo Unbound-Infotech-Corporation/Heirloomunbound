@@ -51,6 +51,22 @@ def open_app(name: str) -> str:
     return f"opened {name}"
 
 
+# Optional hook so the UI can apply set_volume to the Heirloom WASAPI
+# session instead of the system master (which hid us from the mixer).
+_volume_hook = None
+_provision_hook = None
+
+
+def register_volume_hook(fn) -> None:
+    global _volume_hook
+    _volume_hook = fn
+
+
+def register_provision_hook(fn) -> None:
+    global _provision_hook
+    _provision_hook = fn
+
+
 def set_system_volume(level):
     system = platform.system()
     level = max(0, min(100, int(level)))
@@ -278,28 +294,10 @@ def find_file(query, open_it):
 
 
 def speak_locally(text: str) -> None:
-    """Speak reminder / say-command text through the OS TTS engine."""
-    if not text:
-        return
-    try:
-        system = platform.system()
-        # Escape quotes for shell embedding
-        safe = text.replace('"', "'")[:500]
-        if system == "Darwin":
-            subprocess.Popen(["say", safe])
-        elif system == "Windows":
-            ps = (
-                "Add-Type -AssemblyName System.Speech;"
-                f'(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{safe}")'
-            )
-            subprocess.Popen(
-                ["powershell", "-NoProfile", "-Command", ps],
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-        else:
-            subprocess.Popen(["espeak", safe])
-    except Exception as exc:  # noqa: BLE001
-        print(f"[say] TTS failed: {exc}")
+    """Speak reminder / say-command text through cloned voice when possible."""
+    from .voice_output import speak_cloned_or_system
+
+    speak_cloned_or_system(text)
 
 
 def capture_and_upload_screenshot(cmd_id):
@@ -356,7 +354,19 @@ def execute(cmd: dict):
         if kind == "open_app":
             return "ok", open_app(payload.get("name", ""))
         if kind == "set_volume":
-            return set_system_volume(payload.get("level", 50))
+            level = payload.get("level", 50)
+            if _volume_hook is not None:
+                _volume_hook(level)
+                return "ok", f"Heirloom session volume {level}%"
+            return set_system_volume(level)
+        if kind == "provision_models":
+            if _provision_hook is not None:
+                return _provision_hook(payload)
+            from .models import provision
+
+            result = provision(payload.get("features"))
+            log = result.get("log") or [result.get("detail") or "provisioned"]
+            return "ok", "\n".join(str(x) for x in log)
         if kind == "media_key":
             return media_key(payload.get("action", ""))
         if kind == "power":
@@ -388,14 +398,34 @@ class CommandPoller(QThread):
 
     ran = Signal(str)  # emits a short human label when a command runs
     status = Signal(str)  # emits connection / account status for the UI
+    audio_settings = Signal(dict)
+    model_map = Signal(dict)
+    volume_command = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._running = True
         self._consecutive_errors = 0
+        self._runtime_every = 0
 
     def stop(self) -> None:
         self._running = False
+
+    def _post_runtime(self) -> None:
+        try:
+            from .audio import list_input_devices, list_output_devices
+            from .models import full_probe
+
+            probe = full_probe()
+            probe["audio_devices"] = list_input_devices() + list_output_devices()
+            requests.post(
+                _api("/companion/runtime"),
+                headers=_headers(),
+                json=probe,
+                timeout=10,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[poller] runtime probe failed: {exc}")
 
     def run(self) -> None:  # pragma: no cover — runs in a worker thread
         if not config.DEVICE_TOKEN:
@@ -425,8 +455,24 @@ class CommandPoller(QThread):
                     continue
                 if r.status_code == 200:
                     self._consecutive_errors = 0
-                    for cmd in (r.json() or {}).get("commands", []):
-                        status, output = execute(cmd)
+                    data = r.json() or {}
+                    audio = data.get("audio_settings")
+                    if isinstance(audio, dict):
+                        self.audio_settings.emit(audio)
+                    mmap = data.get("model_map")
+                    if isinstance(mmap, dict):
+                        self.model_map.emit(mmap)
+                    self._runtime_every += 1
+                    if self._runtime_every == 1 or self._runtime_every % 10 == 0:
+                        self._post_runtime()
+                    for cmd in data.get("commands", []):
+                        if cmd.get("kind") == "set_volume":
+                            level = int((cmd.get("payload") or {}).get("level") or 50)
+                            level = max(0, min(100, level))
+                            self.volume_command.emit(level)
+                            status, output = "ok", f"Heirloom session volume {level}%"
+                        else:
+                            status, output = execute(cmd)
                         label = cmd.get("kind", "command")
                         self.ran.emit(f"{label} · {status}")
                         try:

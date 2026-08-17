@@ -16,7 +16,7 @@ export function ProtectedRoute({ children }) {
       return;
     }
     // Skip the check when we're already on /onboarding
-    if (location.pathname === "/onboarding") {
+    if (["/onboarding", "/pair"].includes(location.pathname)) {
       setOnboarded(true);
       return;
     }

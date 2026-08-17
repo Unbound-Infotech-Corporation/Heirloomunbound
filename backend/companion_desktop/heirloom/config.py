@@ -55,6 +55,8 @@ _DEFAULTS: Dict[str, Any] = {
     "storage_tier": "partial",        # "full" | "partial" | "lite"
     "maintenance_schedule": "on_quit",  # "midnight" | "on_quit" | "manual"
     "last_maintenance_at": None,
+    "setup_complete": False,
+    "setup_skipped": False,
 }
 
 

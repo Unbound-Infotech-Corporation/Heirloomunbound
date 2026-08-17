@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from . import config
+from .mixer import set_app_identity
 from .maintenance import Maintenance
 from .ui.main_window import MainWindow, TrayProxy
 from .ui.splash import Splash
@@ -45,8 +46,10 @@ def _schedule_midnight_maintenance(window: MainWindow) -> None:
 
 
 def main() -> int:
+    set_app_identity()
     app = QApplication(sys.argv)
     app.setApplicationName("Heirloom")
+    app.setApplicationDisplayName("Heirloom")
     app.setOrganizationName("Unbound Infotech")
     app.setQuitOnLastWindowClosed(False)  # tray keeps us alive
 
@@ -66,7 +69,17 @@ def main() -> int:
 
     # Serif boot fade — 800ms, then reveal the main window
     splash = Splash()
-    splash.finished.connect(window.show)
+
+    def _after_splash() -> None:
+        settings = config.load_settings()
+        if not settings.get("setup_complete") and not settings.get("setup_skipped"):
+            from .ui.setup_wizard import FirstRunWizard
+
+            wiz = FirstRunWizard()
+            wiz.exec()
+        window.show()
+
+    splash.finished.connect(_after_splash)
     splash.start()
 
     return app.exec()
