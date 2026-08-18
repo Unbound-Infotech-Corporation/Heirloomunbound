@@ -728,6 +728,89 @@ async def desktop_package_for_device(
     )
 
 
+WINUI_README = """Heirloom for Windows (native WinUI 3)
+=====================================
+
+The product on this PC is the WinUI studio in desktop/Heirloom — not the
+legacy PySide6 zip. Paste your device token in Settings after install.
+Credentials live in Windows Credential Locker, not a baked config.py.
+
+Daily PC or a dedicated second computer. 50 GB is the serious floor;
+custom/dedicated has no cap.
+
+Build / run (Windows, .NET 8 SDK):
+  desktop\\Publish-Heirloom.ps1
+  or:
+  dotnet run --project desktop\\Heirloom\\Heirloom.csproj -c Release -r win-x64 --no-launch-profile
+
+Legacy PySide6 remains at GET /api/companion/desktop-package for old installs.
+"""
+
+
+def build_winui_sideload_zip_bytes(token: str | None = None) -> bytes:
+    """Sideload kit for the native WinUI app. Ships README + optional published bits."""
+    import io
+    import pathlib
+    import zipfile
+
+    buf = io.BytesIO()
+    backend_root = pathlib.Path(__file__).resolve().parents[1]
+    dist = backend_root.parent / "desktop" / "dist" / "Heirloom"
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("README.txt", WINUI_README)
+        if token:
+            z.writestr(
+                "PAIR.txt",
+                "Paste this device token in Heirloom → Settings → Device token:\n\n"
+                + token
+                + "\n",
+            )
+        if dist.is_dir():
+            for path in dist.rglob("*"):
+                if path.is_file():
+                    z.writestr("Heirloom/" + path.relative_to(dist).as_posix(), path.read_bytes())
+    return buf.getvalue()
+
+
+@router.get("/winui")
+async def winui_manifest(user: dict = Depends(get_current_user)):
+    """Native Windows product coordinates. PySide zip is legacy."""
+    return {
+        "product": "Heirloom.WinUI",
+        "version": "0.4.0",
+        "aumid": "UnboundInfotech.Heirloom",
+        "source": "desktop/Heirloom",
+        "run": "dotnet run --project desktop/Heirloom/Heirloom.csproj -c Release -r win-x64 --no-launch-profile",
+        "publish": "desktop/Publish-Heirloom.ps1",
+        "package": "/api/companion/winui-package",
+        "legacy_pyside": True,
+        "legacy_package": "/api/companion/desktop-package",
+    }
+
+
+@router.get("/winui-package")
+async def winui_package(
+    token: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    """Native WinUI sideload zip. Token is optional and never baked into binaries."""
+    if token:
+        device = await db.companion_devices.find_one(
+            {"device_token": token, "user_id": user["user_id"], "revoked": False},
+            {"_id": 0},
+        )
+        if not device:
+            raise HTTPException(status_code=404, detail="Device token not found")
+    payload = build_winui_sideload_zip_bytes(token)
+    from fastapi import Response
+
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="HeirloomWinUI.zip"'},
+    )
+
+
 @router.get("/windows-package")
 async def windows_package(
     token: str,

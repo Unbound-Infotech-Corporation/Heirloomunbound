@@ -83,6 +83,12 @@ export default function Companion() {
     window.open(url, "_blank");
   };
 
+  const downloadWinUI = () => {
+    if (!issued) return;
+    const url = `${API_BASE}/companion/winui-package?token=${encodeURIComponent(issued.device_token)}`;
+    window.open(url, "_blank");
+  };
+
   const downloadDesktopApp = () => {
     if (!issued) return;
     const url = `${API_BASE}/companion/desktop-package?token=${encodeURIComponent(issued.device_token)}`;
@@ -136,7 +142,7 @@ export default function Companion() {
           Your hands on the machine.
         </h1>
         <p className="mt-3 text-base max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          A small Python program that runs on your 5090 PC. It listens for your push-to-talk, talks to your Twin in the cloud, and quietly carries out the things you ask it to do.
+          Heirloom on Windows is a native WinUI studio — Adobe chrome, a dedicated Volume Mixer session, local Whisper and Ollama, a vault meant to outlive you. A second PC that only runs this is the ultimate rig; most people run it on the machine they already have. 50 GB is the serious floor.
         </p>
       </header>
 
@@ -145,7 +151,7 @@ export default function Companion() {
         <div className="overline mb-3">setup — two steps</div>
         <ol className="space-y-3 text-sm leading-relaxed mb-6" style={{ color: "var(--text-secondary)" }}>
           <li>1. Name this device, then click <b style={{ color: "var(--text-primary)" }}>Issue token</b>.</li>
-          <li>2. On your PC, <b style={{ color: "var(--text-primary)" }}>download the Easy install <code className="font-mono" style={{ color: "var(--accent)" }}>.bat</code> and double-click it</b>. It installs Python silently (if missing), drops the companion in <code className="font-mono">%LOCALAPPDATA%\Heirloom</code>, runs it hidden in the tray, and auto-starts on every sign-in. That&apos;s it.</li>
+          <li>2. On your PC, download <b style={{ color: "var(--text-primary)" }}>Heirloom for Windows (WinUI)</b> and paste the token in Settings. The legacy PySide zip remains available for old installs.</li>
         </ol>
         <p className="text-xs mb-6" style={{ color: "var(--text-muted)" }}>
           Works on Windows 10 (≥ 1809) and Windows 11. No terminal, no pip, no Python knowledge needed.
@@ -185,12 +191,20 @@ export default function Companion() {
             </div>
             <div className="flex gap-3 flex-wrap">
               <button
-                onClick={downloadDesktopApp}
-                data-testid="download-desktop-app"
+                onClick={downloadWinUI}
+                data-testid="download-winui-app"
                 className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
                 style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
               >
-                <Download className="h-3.5 w-3.5" /> Heirloom Desktop (full app)
+                <Download className="h-3.5 w-3.5" /> Heirloom for Windows (WinUI)
+              </button>
+              <button
+                onClick={downloadDesktopApp}
+                data-testid="download-desktop-app"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs rounded-sm"
+                style={{ border: "1px solid var(--accent)", color: "var(--text-primary)" }}
+              >
+                <Download className="h-3.5 w-3.5" /> Legacy PySide zip
               </button>
               <button
                 onClick={downloadEasyInstaller}

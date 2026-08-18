@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Heirloom (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Heirloom (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="Heirloom.Controls.StudioDocumentWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    MinWidth="480"
+    MinHeight="36"
+    PointerCaptureLost="OnPointerReleased"
+    PointerMoved="OnPointerMoved"
+    PointerReleased="OnPointerReleased">
+    <Border
+        Background="{StaticResource HeirloomGlassBrush}"
+        BorderBrush="{StaticResource HeirloomBorderBrush}"
+        BorderThickness="1"
+        CornerRadius="3">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="36" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="24" />
+            </Grid.RowDefinitions>
+
+            <Border
+                Background="#E1262320"
+                BorderBrush="{StaticResource HeirloomBorderBrush}"
+                BorderThickness="0,0,0,1"
+                PointerMoved="OnPointerMoved"
+                PointerPressed="OnChromePressed"
+                PointerReleased="OnPointerReleased">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Margin="12,0" VerticalAlignment="Center" Orientation="Horizontal" Spacing="10">
+                        <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="{x:Bind TitleText, Mode=OneWay}" />
+                        <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind SubtitleText, Mode=OneWay}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button
+                            Width="36"
+                            Height="36"
+                            Click="OnMin"
+                            Content="–"
+                            Style="{StaticResource StudioButtonQuiet}"
+                            ToolTipService.ToolTip="Minimize" />
+                        <Button
+                            Width="36"
+                            Height="36"
+                            Click="OnMax"
+                            Content="□"
+                            Style="{StaticResource StudioButtonQuiet}"
+                            ToolTipService.ToolTip="Maximize" />
+                        <Button
+                            Width="36"
+                            Height="36"
+                            Click="OnClose"
+                            Content="×"
+                            Style="{StaticResource StudioButtonQuiet}"
+                            ToolTipService.ToolTip="Close" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border
+                x:Name="MenuHost"
+                Grid.Row="1"
+                Background="#CC1C1A18"
+                BorderBrush="{StaticResource HeirloomBorderBrush}"
+                BorderThickness="0,0,0,1">
+                <ContentPresenter Content="{x:Bind MenuBarContent, Mode=OneWay}" />
+            </Border>
+
+            <Border
+                x:Name="OptionsHost"
+                Grid.Row="2"
+                Background="#991C1A18"
+                BorderBrush="{StaticResource HeirloomBorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="8,4">
+                <ContentPresenter Content="{x:Bind OptionsContent, Mode=OneWay}" />
+            </Border>
+
+            <Grid x:Name="BodyHost" Grid.Row="3">
+                <ContentPresenter Content="{x:Bind Body, Mode=OneWay}" />
+            </Grid>
+
+            <Border
+                Grid.Row="4"
+                Background="#E1121110"
+                BorderBrush="{StaticResource HeirloomBorderBrush}"
+                BorderThickness="0,1,0,0"
+                PointerMoved="OnPointerMoved"
+                PointerPressed="OnResizePressed"
+                PointerReleased="OnPointerReleased">
+                <Grid>
+                    <TextBlock
+                        Margin="10,0"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource StudioCaption}"
+                        Text="{x:Bind StatusText, Mode=OneWay}" />
+                    <FontIcon
+                        Margin="0,0,8,0"
+                        HorizontalAlignment="Right"
+                        FontSize="10"
+                        Foreground="{StaticResource HeirloomTextMutedBrush}"
+                        Glyph="&#xE740;" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>
