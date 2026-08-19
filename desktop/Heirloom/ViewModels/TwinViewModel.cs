@@ -50,11 +50,15 @@ public partial class TwinViewModel : ObservableObject
     [ObservableProperty] private bool _speakReplies;
     [ObservableProperty] private string _persona = "family";
     [ObservableProperty] private string _lastCitation = "No memories cited yet.";
+    private long _lastFiled;
 
     partial void OnGroundedOnlyChanged(bool value)
     {
         _host.Settings.Current.GroundedOnly = value;
         _host.Settings.Save();
+        Status = value
+            ? "Vault only. The twin will not invent."
+            : "May infer. Do not leave this on for an heir.";
     }
 
     partial void OnSpeakRepliesChanged(bool value)
@@ -79,7 +83,7 @@ public partial class TwinViewModel : ObservableObject
                 ? "I'm here, and I'll only speak from what you've filed. If I don't know, I'll say so."
                 : "I'm here. Hold push-to-talk, or type — this is your archive speaking."));
         LastCitation = "New conversation. Memories stay in the vault.";
-        Status = "Ready";
+        Status = "New sitting. One job: talk or file.";
         AvatarState = "listening";
     }
 
@@ -89,6 +93,7 @@ public partial class TwinViewModel : ObservableObject
         var text = Draft.Trim();
         if (text.Length == 0)
         {
+            Status = "Type a sentence or hold to speak.";
             return;
         }
 
@@ -138,14 +143,20 @@ public partial class TwinViewModel : ObservableObject
     private async Task TalkAsync(string text)
     {
         Lines.Add(new ChatLine("you", text));
-        _host.Vault.AddCapture("speech", text);
+        _lastFiled = _host.Vault.AddCapture("speech", text);
         Status = "Thinking…";
         AvatarState = "thinking";
 
         var memories = _host.Vault.GroundedContext();
         var cites = _host.Vault.CitationsFor(text);
         LastCitation = cites.Count == 0
-            ? "Nothing in the vault matched this yet."
+            ? string.IsNullOrWhiteSpace(memories)
+                ? GroundedOnly
+                    ? "Empty vault. Nothing to retrieve."
+                    : "May infer. The vault is empty."
+                : GroundedOnly
+                    ? "No line matched this question. Other filed text was in context."
+                    : "May infer. Nothing in the vault matched this."
             : string.Join(" · ", cites.Select(c => c.Kind + (string.IsNullOrWhiteSpace(c.Tag) ? "" : "/" + c.Tag)));
 
         var personaLine = Persona switch
@@ -180,10 +191,16 @@ public partial class TwinViewModel : ObservableObject
             reply = "I don't remember that yet. File a journal, interview, or photo story and I'll speak from it.";
         }
 
-        reply ??= "I'm with you. When local models finish downloading, I'll answer from this machine.";
-        var citation = cites.Count == 0 ? "" : "Grounded in: " + LastCitation;
+        reply ??= GroundedOnly
+            ? "I don't remember that yet."
+            : "Local models are not answering. The vault did not confirm this either.";
+        var citation = cites.Count == 0 ? LastCitation : "Grounded in: " + LastCitation;
         Lines.Add(new ChatLine("twin", reply, citation));
-        Status = "Ready";
+        Status = cites.Count == 0
+            ? GroundedOnly
+                ? "Filed what you said. Vault had no match — I did not treat a guess as a memory."
+                : "Filed what you said. May infer. Vault had no match. Do not leave this on for an heir."
+            : "Filed what you said. Answered from " + LastCitation;
         AvatarState = "speaking";
         if (SpeakReplies)
         {
@@ -191,6 +208,25 @@ public partial class TwinViewModel : ObservableObject
         }
 
         AvatarState = "listening";
+    }
+
+    [RelayCommand]
+    public void UndoLastFile()
+    {
+        if (!_host.CanEdit)
+        {
+            Status = "Heir mode. The vault is locked.";
+            return;
+        }
+
+        if (_lastFiled <= 0 || !_host.Vault.DeleteCapture(_lastFiled))
+        {
+            Status = "Nothing to take back.";
+            return;
+        }
+
+        _lastFiled = 0;
+        Status = "Took back the last filed sentence. Say New if the chat should forget it too.";
     }
 
     private void OnLevel(object? sender, float peak) => UiDispatch.Post(() => Level = peak);

@@ -21,6 +21,7 @@ public partial class App : Application
     {
         Host = new AppHost();
         await Host.StartAsync();
+        ThemeService.Apply(Host.Settings.Current);
 
         Window = new MainWindow();
         DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();

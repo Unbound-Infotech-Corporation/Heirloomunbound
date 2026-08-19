@@ -1,0 +1,15 @@
+---
+description: Query the UnboundCursor keep/reject library before Heirloom UI, chrome, or copy changes. Generic models will reintroduce gamification; this stance is the filter.
+globs: desktop/Heirloom/**/*.{xaml,cs}
+alwaysApply: false
+---
+
+# Unbound library (Heirloom chrome)
+
+Before changing dock, buttons, labels, inspectors, or Twin/Archive/Today copy:
+
+1. `GET http://127.0.0.1:7733/library` (optional `?q=` for the control).
+2. If the API is down, read `F:\UnboundCursor\data\knowledge\library.json`.
+3. Do not ship anything in `against`: badges, NPS, delight, infinite scroll, Send-vs-Ask mismatch, floppy-disk Save for vault File, unlabeled icon docks, treating a fluent twin as a filed memory.
+
+New psychology/UX URLs: keep only what maps to a posthumous owner studio, then add a knowledge note and a `library.json` entry.

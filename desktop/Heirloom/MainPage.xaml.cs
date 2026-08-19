@@ -1,4 +1,5 @@
 using Heirloom.Controls;
+using Heirloom.Services;
 using Heirloom.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -38,14 +39,17 @@ public sealed partial class MainPage : Page
         ViewModel.DocumentClosed += (_, id) => HideDocument(id);
         ViewModel.LayoutCascadeRequested += (_, _) => Cascade();
         ViewModel.LayoutTileRequested += (_, _) => Tile();
+        ThemeService.Changed += () => DispatcherQueue.TryEnqueue(ApplyDockLayout);
         Loaded += OnLoaded;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        ApplyDockLayout();
         SyncChrome();
         foreach (var window in Documents())
         {
+            window.HelpRequested += OnDocHelp;
             window.Visibility = ViewModel.IsOpen(window.DocumentId) ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -54,6 +58,7 @@ public sealed partial class MainPage : Page
         AddAccelerator(Windows.System.VirtualKey.K, Windows.System.VirtualKeyModifiers.Control, () => ViewModel.TogglePalette());
         AddAccelerator(Windows.System.VirtualKey.W, Windows.System.VirtualKeyModifiers.Control, () => ViewModel.CloseDocument(ViewModel.ActiveDocumentId));
         AddAccelerator(Windows.System.VirtualKey.Tab, Windows.System.VirtualKeyModifiers.Control, () => ViewModel.CycleWindows());
+        AddAccelerator(Windows.System.VirtualKey.F1, Windows.System.VirtualKeyModifiers.None, ToggleInspector);
     }
 
     private void AddAccelerator(Windows.System.VirtualKey key, Windows.System.VirtualKeyModifiers modifiers, Action action)
@@ -151,9 +156,115 @@ public sealed partial class MainPage : Page
         }
     }
 
+    private void OnDockDocument(object sender, DockItem item)
+    {
+        if (!item.IsHeader)
+        {
+            ViewModel.OpenDocument(item.Id);
+        }
+    }
+
+    private void OnDockEdgeDropped(object sender, string edge) => ViewModel.Settings.SetDockEdge(edge);
+
+    private void OnDockSizeChanged(object sender, double size) => ViewModel.Settings.SetDockSize(size);
+
+    private void ApplyDockLayout()
+    {
+        var edge = ThemeService.DockEdge;
+        var size = ThemeService.DockSize;
+        var left = edge == "left";
+        var right = edge == "right";
+        var top = edge == "top";
+        LeftRail.Visibility = left ? Visibility.Visible : Visibility.Collapsed;
+        RightRail.Visibility = right ? Visibility.Visible : Visibility.Collapsed;
+        TopRail.Visibility = top ? Visibility.Visible : Visibility.Collapsed;
+        LeftDockCol.Width = new GridLength(left ? size : 0);
+        RightDockCol.Width = new GridLength(right ? size : 0);
+        TopDockRow.Height = top ? new GridLength(size) : new GridLength(0);
+        LeftRail.Edge = "left";
+        RightRail.Edge = "right";
+        TopRail.Edge = "top";
+
+        var inspector = ThemeService.InspectorOpen;
+        var inspectorWidth = ThemeService.InspectorWidth;
+        Inspector.Visibility = inspector ? Visibility.Visible : Visibility.Collapsed;
+        InspectorSplit.Visibility = inspector ? Visibility.Visible : Visibility.Collapsed;
+        InspectorSplitCol.Width = inspector ? new GridLength(6) : new GridLength(0);
+        InspectorCol.Width = inspector ? new GridLength(inspectorWidth) : new GridLength(0);
+    }
+
+    private bool _inspectorSplitting;
+    private double _inspectorSplitStart;
+    private double _inspectorSplitWidth;
+
+    private void OnInspectorSplitPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _inspectorSplitting = true;
+        _inspectorSplitStart = e.GetCurrentPoint(StudioBody).Position.X;
+        _inspectorSplitWidth = ThemeService.InspectorWidth;
+        InspectorSplit.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void OnInspectorSplitMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_inspectorSplitting)
+        {
+            return;
+        }
+
+        var x = e.GetCurrentPoint(StudioBody).Position.X;
+        ViewModel.Settings.SetInspectorWidth(_inspectorSplitWidth + (_inspectorSplitStart - x));
+        e.Handled = true;
+    }
+
+    private void OnInspectorSplitReleased(object sender, PointerRoutedEventArgs e)
+    {
+        _inspectorSplitting = false;
+        InspectorSplit.ReleasePointerCapture(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void OnToggleInspector(object sender, RoutedEventArgs e) => ToggleInspector();
+
+    private void ToggleInspector() =>
+        ViewModel.Settings.SetInspectorOpen(!ViewModel.Settings.InspectorOpen);
+
+    private void OnExplainActive(object sender, RoutedEventArgs e)
+    {
+        ViewModel.Settings.SetInspectorOpen(true);
+        StudioHelp.Pin(ViewModel.ActiveDocumentId);
+    }
+
+    private void OnDocHelp(object sender, RoutedEventArgs e)
+    {
+        if (sender is StudioDocumentWindow window)
+        {
+            ViewModel.Settings.SetInspectorOpen(true);
+            StudioHelp.Pin(window.DocumentId);
+        }
+    }
+
+    private void OnInspectorGlossary(object sender, EventArgs e)
+    {
+        ViewModel.OpenDocument("glossary");
+        StudioHelp.Pin("glossary");
+    }
+
+    private void OnInspectorHide(object sender, EventArgs e) =>
+        ViewModel.Settings.SetInspectorOpen(false);
+
+    private void OnInspectorTopic(object sender, string id)
+    {
+        if (ViewModel.Dock.Any(d => d.Id == id && !d.IsHeader))
+        {
+            ViewModel.OpenDocument(id);
+        }
+    }
+
     private void Dock_ItemClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is DockItem item)
+        if (e.ClickedItem is DockItem item && !item.IsHeader)
         {
             ViewModel.OpenDocument(item.Id);
         }
@@ -181,6 +292,7 @@ public sealed partial class MainPage : Page
         {
             Canvas.SetZIndex(window, ++_z);
             ViewModel.ActiveDocumentId = window.DocumentId;
+            StudioHelp.SetDocument(window.DocumentId);
         }
     }
 

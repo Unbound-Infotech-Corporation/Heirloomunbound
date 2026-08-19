@@ -23,6 +23,7 @@ public sealed partial class StudioDocumentWindow : UserControl
 
     public event RoutedEventHandler? CloseRequested;
     public event RoutedEventHandler? Activated;
+    public event RoutedEventHandler? HelpRequested;
 
     public StudioDocumentWindow()
     {
@@ -200,6 +201,11 @@ public sealed partial class StudioDocumentWindow : UserControl
     }
 
     private void OnClose(object sender, RoutedEventArgs e) => CloseRequested?.Invoke(this, e);
+
+    private void OnHelp(object sender, RoutedEventArgs e)
+    {
+        HelpRequested?.Invoke(this, e);
+    }
 
     private void OnMin(object sender, RoutedEventArgs e)
     {

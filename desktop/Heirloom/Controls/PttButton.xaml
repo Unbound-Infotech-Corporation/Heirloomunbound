@@ -12,7 +12,7 @@
             Opacity="0.55" />
         <Ellipse
             Margin="10"
-            Stroke="{StaticResource HeirloomGoldDeep}"
+            Stroke="{StaticResource HeirloomGoldDeepBrush}"
             StrokeThickness="1">
             <Ellipse.Fill>
                 <LinearGradientBrush StartPoint="0.3,0" EndPoint="0.7,1">

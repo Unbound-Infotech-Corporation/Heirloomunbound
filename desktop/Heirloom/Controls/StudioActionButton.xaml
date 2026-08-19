@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="Heirloom.Controls.StudioActionButton"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    MinWidth="40"
+    MinHeight="40">
+    <Button
+        x:Name="Inner"
+        MinWidth="40"
+        MinHeight="40"
+        Padding="0"
+        Click="OnInnerClick"
+        Style="{StaticResource StudioButtonSecondary}">
+        <StackPanel
+            x:Name="Face"
+            VerticalAlignment="Center"
+            Orientation="Horizontal"
+            Spacing="6">
+            <Image
+                x:Name="CustomImage"
+                Width="20"
+                Height="20"
+                VerticalAlignment="Center"
+                Visibility="Collapsed" />
+            <FontIcon
+                x:Name="GlyphIcon"
+                VerticalAlignment="Center"
+                FontSize="16"
+                Foreground="{StaticResource HeirloomGoldBrush}" />
+            <TextBlock
+                x:Name="Caption"
+                VerticalAlignment="Center"
+                FontFamily="{StaticResource HeirloomSans}"
+                FontSize="13"
+                FontWeight="SemiBold" />
+        </StackPanel>
+    </Button>
+</UserControl>

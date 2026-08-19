@@ -29,8 +29,15 @@
     <SolidColorBrush x:Key="HeirloomDangerBrush" Color="{StaticResource HeirloomDanger}" />
     <SolidColorBrush x:Key="HeirloomBorderBrush" Color="{StaticResource HeirloomBorder}" />
     <SolidColorBrush x:Key="HeirloomInkBrush" Color="{StaticResource HeirloomInk}" />
+    <SolidColorBrush x:Key="HeirloomGoldDeepBrush" Color="{StaticResource HeirloomGoldDeep}" />
     <SolidColorBrush x:Key="HeirloomGoldMutedBrush" Color="#26D4A373" />
     <SolidColorBrush x:Key="HeirloomGlassBrush" Color="#CC1C1A18" />
+    <SolidColorBrush x:Key="HeirloomChromeBrush" Color="#991C1A18" />
+    <SolidColorBrush x:Key="HeirloomDockBrush" Color="#E11C1A18" />
+    <SolidColorBrush x:Key="HeirloomStatusBrush" Color="#E1121110" />
+    <SolidColorBrush x:Key="HeirloomMenuStripBrush" Color="#CC1C1A18" />
+    <SolidColorBrush x:Key="HeirloomOptionsStripBrush" Color="#991C1A18" />
+    <SolidColorBrush x:Key="HeirloomDocTitleBrush" Color="#E1262320" />
 
     <FontFamily x:Key="HeirloomSerif">Sitka Display, Georgia, serif</FontFamily>
     <FontFamily x:Key="HeirloomSans">Segoe UI Variable, Segoe UI, sans-serif</FontFamily>
@@ -39,7 +46,7 @@
     <x:Double x:Key="StudioHairline">1</x:Double>
     <x:Double x:Key="StudioRadius">3</x:Double>
     <CornerRadius x:Key="StudioCorner">3</CornerRadius>
-    <Thickness x:Key="StudioButtonPadding">16,8,16,8</Thickness>
+    <Thickness x:Key="StudioButtonPadding">10,5,10,5</Thickness>
 
     <LinearGradientBrush x:Key="StudioGoldFill" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0" Color="#FFE8C49A" />
@@ -98,7 +105,7 @@
             </Grid.RenderTransform>
             <Border
                 x:Name="Rim"
-                Background="{StaticResource HeirloomGoldDeep}"
+                Background="{StaticResource HeirloomGoldDeepBrush}"
                 BorderBrush="#FF5C3F1E"
                 BorderThickness="1"
                 CornerRadius="{StaticResource StudioCorner}">
@@ -273,7 +280,7 @@
         <Grid x:Name="Root">
             <Border x:Name="Face" Background="Transparent" CornerRadius="{StaticResource StudioCorner}">
                 <ContentPresenter
-                    Margin="10,6"
+                    Margin="6,4"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Content="{TemplateBinding Content}"

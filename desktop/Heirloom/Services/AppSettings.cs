@@ -33,6 +33,13 @@ public sealed class AppSettings
     public int InputDeviceNumber { get; set; }
     public bool SessionMuted { get; set; }
     public string VendorEmail { get; set; } = "";
+    public string ColorScheme { get; set; } = "parchment";
+    public string ChromeMode { get; set; } = "iconsAndLabels";
+    public string DockEdge { get; set; } = "left";
+    public double DockSize { get; set; } = 188;
+    public bool DockLocked { get; set; }
+    public bool InspectorOpen { get; set; } = true;
+    public double InspectorWidth { get; set; } = 292;
 }
 
 public static class AppPaths
@@ -47,12 +54,15 @@ public static class AppPaths
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "HeirloomVault");
     public static string DistMsixPath =>
         Path.Combine(AppContext.BaseDirectory, "Heirloom.msix");
+    public static string ChromeRoot => Path.Combine(Root, "chrome");
+    public static string ChromeButtons => Path.Combine(ChromeRoot, "buttons");
 
     public static void EnsureDirectories()
     {
         Directory.CreateDirectory(Root);
         Directory.CreateDirectory(ModelsRoot);
         Directory.CreateDirectory(Path.Combine(ModelsRoot, "whisper"));
+        Directory.CreateDirectory(ChromeButtons);
     }
 }
 

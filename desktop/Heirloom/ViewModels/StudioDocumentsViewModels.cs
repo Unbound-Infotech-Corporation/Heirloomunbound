@@ -24,6 +24,8 @@ public sealed class ArchiveEntry
     public string Headline => string.IsNullOrWhiteSpace(Tag) ? Title : Title + "  ·  " + Tag;
 }
 
+public sealed record KindChoice(string Id, string Label);
+
 public sealed class InterviewChapter
 {
     public InterviewChapter(string id, string title, string prompt)
@@ -42,24 +44,63 @@ public partial class ArchiveViewModel : ObservableObject
 {
     private readonly AppHost _host;
 
-    public ArchiveViewModel(AppHost host)
-    {
-        _host = host;
-        Reload();
-    }
-
     public ObservableCollection<ArchiveEntry> Entries { get; } = [];
-    public IReadOnlyList<string> Kinds { get; } = ["all", "note", "speech", "journal", "interview", "photo_story", "memoir", "import"];
+    public IReadOnlyList<KindChoice> FilterKinds { get; } =
+    [
+        new("all", "All kinds"),
+        new("note", "Note"),
+        new("speech", "Spoken"),
+        new("journal", "Journal"),
+        new("interview", "Chapter"),
+        new("photo_story", "Photo story"),
+        new("memoir", "Memoir"),
+        new("import", "Import"),
+    ];
+    public IReadOnlyList<KindChoice> FileKinds { get; } =
+    [
+        new("note", "Note"),
+        new("speech", "Spoken"),
+        new("journal", "Journal"),
+        new("interview", "Chapter"),
+        new("photo_story", "Photo story"),
+        new("memoir", "Memoir"),
+        new("import", "Import"),
+    ];
 
     [ObservableProperty] private string _query = "";
     [ObservableProperty] private string _draft = "";
     [ObservableProperty] private string _kindFilter = "all";
     [ObservableProperty] private string _captureKind = "note";
+    [ObservableProperty] private KindChoice? _selectedFilter;
+    [ObservableProperty] private KindChoice? _selectedFileKind;
     [ObservableProperty] private string _status = "";
     [ObservableProperty] private string _completeness = "";
     [ObservableProperty] private string _emptyHint = "File one true sentence. The twin has nothing to stand on until you do.";
+    private long _lastFiled;
+    private bool _ready;
 
-    partial void OnKindFilterChanged(string value) => Reload();
+    public ArchiveViewModel(AppHost host)
+    {
+        _host = host;
+        SelectedFilter = FilterKinds[0];
+        SelectedFileKind = FileKinds[0];
+        _ready = true;
+        Reload();
+    }
+
+    partial void OnSelectedFilterChanged(KindChoice? value)
+    {
+        KindFilter = value?.Id ?? "all";
+        if (_ready)
+        {
+            Reload();
+        }
+    }
+
+    partial void OnSelectedFileKindChanged(KindChoice? value)
+    {
+        CaptureKind = value?.Id ?? "note";
+    }
 
     [RelayCommand]
     public void Reload()
@@ -75,7 +116,7 @@ public partial class ArchiveViewModel : ObservableObject
 
         var stats = _host.Vault.Stats();
         Status = $"{stats.Captures} captures  ·  {stats.Letters} letters  ·  {stats.Heirs} heirs";
-        Completeness = $"Life model  {stats.Completeness}%  — retrieval, not invention.";
+        Completeness = VaultService.GapLine(stats);
         EmptyHint = Entries.Count == 0
             ? "Nothing here yet. Capture, interview, or import — then the twin can answer from this vault."
             : "";
@@ -87,15 +128,43 @@ public partial class ArchiveViewModel : ObservableObject
     [RelayCommand]
     public void Capture()
     {
-        if (string.IsNullOrWhiteSpace(Draft) || !_host.CanEdit)
+        if (!_host.CanEdit)
         {
+            Status = "Heir mode. Filing is locked.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Draft))
+        {
+            Status = "Write one true sentence, then File.";
             return;
         }
 
         var kind = string.IsNullOrWhiteSpace(CaptureKind) || CaptureKind == "all" ? "note" : CaptureKind;
-        _host.Vault.AddCapture(kind, Draft.Trim());
+        _lastFiled = _host.Vault.AddCapture(kind, Draft.Trim());
         Draft = "";
         Reload();
+        Status = "Filed. Undo if that was a slip.";
+    }
+
+    [RelayCommand]
+    public void UndoLastFile()
+    {
+        if (!_host.CanEdit)
+        {
+            Status = "Heir mode. The vault is locked.";
+            return;
+        }
+
+        if (_lastFiled <= 0 || !_host.Vault.DeleteCapture(_lastFiled))
+        {
+            Status = "Nothing to take back.";
+            return;
+        }
+
+        _lastFiled = 0;
+        Reload();
+        Status = "Took back the last file.";
     }
 
     [RelayCommand]
@@ -138,21 +207,56 @@ public partial class TodayViewModel : ObservableObject
     [ObservableProperty] private string _completeness = "";
     [ObservableProperty] private string _nextChapter = "Childhood";
     [ObservableProperty] private string _streak = "No session yet today.";
+    [ObservableProperty] private string _nextActionId = "twin";
+    [ObservableProperty] private string _nextActionLabel = "Sit with the twin";
+    [ObservableProperty] private string _nextActionGlyph = "\uE8BD";
+    [ObservableProperty] private string _nextActionAsset = "action-twin";
+    [ObservableProperty] private string _nextWhy = "One true sentence is enough.";
 
     public async Task LoadAsync()
     {
         Greeting = DateTime.Now.ToString("dddd, MMMM d");
         var stats = _host.Vault.Stats();
-        Completeness = $"Life model  {stats.Completeness}%";
-        NextChapter = stats.ByKind.ContainsKey("interview") ? "Family" : "Childhood";
+        ChooseNext(stats);
+        Completeness = _host.Vault.LookBack();
+        NextChapter = NextWhy;
         Streak = stats.Captures == 0
-            ? "The vault is empty. Five minutes now is the whole product."
+            ? "Nothing filed yet"
             : $"{stats.Captures} memories on this PC.";
         var result = await _host.Api.GetSessionAsync("/nudges/today").ConfigureAwait(true);
         if (result is { } json && json.TryGetProperty("body", out var body))
         {
             Nudge = body.GetString() ?? Nudge;
         }
+    }
+
+    private void ChooseNext(VaultStats stats)
+    {
+        if (stats.Captures == 0)
+        {
+            SetNext("twin", "Sit with the twin", "\uE8BD", "action-twin",
+                "One true sentence is enough. Do not open three rooms at once.");
+            return;
+        }
+
+        if (!stats.ByKind.ContainsKey("interview"))
+        {
+            SetNext("interviewer", "One chapter", "\uE8F2", "action-interview",
+                "A life is easier to gift as chapters. One chapter today — not the whole biography.");
+            return;
+        }
+
+        SetNext("journal", "Journal today", "\uE70B", "action-journal",
+            "Write what today actually was. That is how you notice what the twin still cannot say.");
+    }
+
+    private void SetNext(string id, string label, string glyph, string asset, string why)
+    {
+        NextActionId = id;
+        NextActionLabel = label;
+        NextActionGlyph = glyph;
+        NextActionAsset = asset;
+        NextWhy = why;
     }
 }
 
@@ -188,14 +292,22 @@ public partial class JournalViewModel : ObservableObject
     [RelayCommand]
     public void FileEntry()
     {
-        if (string.IsNullOrWhiteSpace(Draft) || !_host.CanEdit)
+        if (!_host.CanEdit)
         {
+            Status = "Heir mode. Filing is locked.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Draft))
+        {
+            Status = "Write the day, then File.";
             return;
         }
 
         _host.Vault.AddCapture("journal", Draft.Trim(), Tag);
         Draft = "";
         Reload();
+        Status = "Filed this day.";
     }
 }
 
@@ -244,20 +356,32 @@ public partial class InterviewerViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void Skip() => NextChapter();
+    public void Skip()
+    {
+        var left = Chapters[_index].Title;
+        NextChapter();
+        Status = "Left " + left + ". Still here for another sitting — not a miss.";
+    }
 
     [RelayCommand]
     public void FileAnswer()
     {
-        if (string.IsNullOrWhiteSpace(Answer) || !_host.CanEdit)
+        if (!_host.CanEdit)
         {
+            Status = "Heir mode. Filing is locked.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Answer))
+        {
+            Status = "Write the answer, or Skip.";
             return;
         }
 
         var chapter = Chapters[_index];
         _host.Vault.AddCapture("interview", $"{chapter.Prompt}\n{Answer.Trim()}", chapter.Id);
         Answer = "";
-        Status = "Filed in the vault. The twin may cite this — it will not invent it.";
+        Status = "Filed this chapter. The twin may cite it — it will not invent it.";
         NextChapter();
     }
 
@@ -438,11 +562,16 @@ public partial class ContinuityViewModel : ObservableObject
             return;
         }
 
-        _host.Vault.AddHeir(HeirName.Trim(), HeirRelation.Trim(), HeirConsent);
+        var name = HeirName.Trim();
+        var consented = HeirConsent;
+        _host.Vault.AddHeir(name, HeirRelation.Trim(), consented);
         HeirName = "";
         HeirRelation = "";
         HeirConsent = false;
         Reload();
+        ExecutorNote = consented
+            ? name + " filed. Consent is on."
+            : name + " filed. Consent is off — they have not agreed to receive this.";
     }
 
     [RelayCommand]
@@ -453,17 +582,22 @@ public partial class ContinuityViewModel : ObservableObject
             return;
         }
 
-        _host.Vault.AddLetter(LetterTitle.Trim(), LetterBody.Trim(), sealedLetter: true, LetterFor.Trim(), LetterTrigger);
+        var title = LetterTitle.Trim();
+        _host.Vault.AddLetter(title, LetterBody.Trim(), sealedLetter: true, LetterFor.Trim(), LetterTrigger);
         LetterTitle = "";
         LetterBody = "";
         LetterFor = "";
         Reload();
+        ExecutorNote = "Sealed “" + title + "”. It is not a draft.";
     }
 
     [RelayCommand]
     public void Export()
     {
         ExportPath = _host.Vault.ExportArchive();
+        ExecutorNote = string.IsNullOrWhiteSpace(ExportPath)
+            ? "Export did not write a file."
+            : "Copied the vault to " + ExportPath + ".";
     }
 
     [RelayCommand]
@@ -588,15 +722,31 @@ public partial class AvatarViewModel : ObservableObject
 public partial class SettingsViewModel : ObservableObject
 {
     private readonly AppHost _host;
+    private bool _applying;
 
     public SettingsViewModel(AppHost host)
     {
         _host = host;
+        _applying = true;
         BackendUrl = host.Settings.Current.BackendUrl;
         Autostart = host.Settings.Current.Autostart;
         LibraryPath = host.Settings.Current.LibraryPath;
         VersionLine = $"Heirloom {host.Version}  ·  {host.BuildId}  ·  Unbound Infotech";
+        SelectedScheme = ThemeService.Schemes.First(s => s.Id == ThemeService.NormalizeScheme(host.Settings.Current.ColorScheme));
+        SelectedChrome = ThemeService.ChromeModes.First(s => s.Id == ThemeService.NormalizeMode(host.Settings.Current.ChromeMode));
+        SelectedDockEdge = ThemeService.DockEdges.First(s => s.Id == ThemeService.NormalizeEdge(host.Settings.Current.DockEdge));
+        DockSize = host.Settings.Current.DockSize <= 0 ? 188 : host.Settings.Current.DockSize;
+        DockLocked = host.Settings.Current.DockLocked;
+        InspectorOpen = host.Settings.Current.InspectorOpen;
+        InspectorWidth = host.Settings.Current.InspectorWidth <= 0 ? 292 : host.Settings.Current.InspectorWidth;
+        ChromeFolder = AppPaths.ChromeButtons;
+        ChromeHint = SelectedScheme.Hint;
+        _applying = false;
     }
+
+    public IReadOnlyList<ChromeChoice> Schemes => ThemeService.Schemes;
+    public IReadOnlyList<ChromeChoice> ChromeModes => ThemeService.ChromeModes;
+    public IReadOnlyList<ChromeChoice> DockEdges => ThemeService.DockEdges;
 
     [ObservableProperty] private string _backendUrl;
     [ObservableProperty] private string _libraryPath;
@@ -604,6 +754,94 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _versionLine;
     [ObservableProperty] private string _sessionToken = "";
     [ObservableProperty] private string _deviceToken = "";
+    [ObservableProperty] private ChromeChoice _selectedScheme;
+    [ObservableProperty] private ChromeChoice _selectedChrome;
+    [ObservableProperty] private ChromeChoice _selectedDockEdge;
+    [ObservableProperty] private double _dockSize;
+    [ObservableProperty] private bool _dockLocked;
+    [ObservableProperty] private bool _inspectorOpen;
+    [ObservableProperty] private double _inspectorWidth;
+    [ObservableProperty] private string _chromeFolder;
+    [ObservableProperty] private string _chromeHint;
+
+    partial void OnSelectedSchemeChanged(ChromeChoice value) => LiveApply();
+    partial void OnSelectedChromeChanged(ChromeChoice value) => LiveApply();
+    partial void OnSelectedDockEdgeChanged(ChromeChoice value) => LiveApply();
+    partial void OnDockSizeChanged(double value) => LiveApply();
+    partial void OnDockLockedChanged(bool value) => LiveApply();
+    partial void OnInspectorOpenChanged(bool value) => LiveApply();
+    partial void OnInspectorWidthChanged(double value) => LiveApply();
+
+    public void SetDockEdge(string edge)
+    {
+        _applying = true;
+        var next = ThemeService.NormalizeEdge(edge);
+        SelectedDockEdge = ThemeService.DockEdges.First(s => s.Id == next);
+        if (next == "top" && DockSize > 96)
+        {
+            DockSize = 72;
+        }
+        else if (next != "top" && DockSize < 120)
+        {
+            DockSize = 188;
+        }
+
+        _applying = false;
+        LiveApply();
+    }
+
+    public void SetDockSize(double size)
+    {
+        _applying = true;
+        DockSize = Math.Clamp(size, 56, 280);
+        _applying = false;
+        LiveApply();
+    }
+
+    private void LiveApply()
+    {
+        if (_applying || SelectedScheme is null || SelectedChrome is null || SelectedDockEdge is null)
+        {
+            return;
+        }
+
+        ChromeHint = SelectedScheme.Hint + "  ·  " + SelectedChrome.Hint;
+        WriteChrome();
+        ThemeService.Apply(_host.Settings.Current);
+        QueueSave();
+    }
+
+    private void WriteChrome()
+    {
+        _host.Settings.Current.ColorScheme = SelectedScheme.Id;
+        _host.Settings.Current.ChromeMode = SelectedChrome.Id;
+        _host.Settings.Current.DockEdge = SelectedDockEdge.Id;
+        _host.Settings.Current.DockSize = DockSize;
+        _host.Settings.Current.DockLocked = DockLocked;
+        _host.Settings.Current.InspectorOpen = InspectorOpen;
+        _host.Settings.Current.InspectorWidth = InspectorWidth;
+    }
+
+    public void SetInspectorWidth(double width)
+    {
+        _applying = true;
+        InspectorWidth = Math.Clamp(width, 220, 480);
+        _applying = false;
+        LiveApply();
+    }
+
+    public void SetInspectorOpen(bool open)
+    {
+        _applying = true;
+        InspectorOpen = open;
+        _applying = false;
+        LiveApply();
+    }
+
+    private void QueueSave()
+    {
+        UiDispatch.Post(() => _host.Settings.Save());
+    }
 
     [RelayCommand]
     public void Save()
@@ -611,7 +849,9 @@ public partial class SettingsViewModel : ObservableObject
         _host.Settings.Current.BackendUrl = BackendUrl.Trim();
         _host.Settings.Current.LibraryPath = LibraryPath.Trim();
         _host.Settings.Current.Autostart = Autostart;
+        WriteChrome();
         _host.Settings.Save();
+        ThemeService.Apply(_host.Settings.Current);
         AutostartService.Apply(Autostart);
         if (!string.IsNullOrWhiteSpace(SessionToken))
         {
@@ -622,6 +862,16 @@ public partial class SettingsViewModel : ObservableObject
         {
             _host.Auth.SetDeviceToken(DeviceToken);
         }
+    }
+
+    [RelayCommand]
+    public void OpenChromeFolder()
+    {
+        ThemeService.EnsureChromeFolder();
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(AppPaths.ChromeButtons)
+        {
+            UseShellExecute = true,
+        });
     }
 
     [RelayCommand]
@@ -639,6 +889,72 @@ public partial class SettingsViewModel : ObservableObject
 public sealed class KitchenSinkViewModel
 {
     public string Hero => "Every control in the kit. If it looks cheap here, it ships cheap.";
+}
+
+public partial class GlossaryViewModel : ObservableObject
+{
+    public GlossaryViewModel()
+    {
+        Results = [.. StudioLexicon.Terms];
+    }
+
+    public IReadOnlyList<string> Kinds { get; } = ["All", "Terms", "Documents", "Actions", "Chrome"];
+
+    [ObservableProperty] private string _query = "";
+    [ObservableProperty] private string _kind = "Terms";
+    [ObservableProperty] private HelpTopic? _selected;
+    [ObservableProperty] private string _status = "Words this studio uses. Search or click a row.";
+
+    public ObservableCollection<HelpTopic> Results { get; }
+
+    public string SelectedTitle => Selected?.Title ?? "Pick a word";
+    public string SelectedSummary => Selected?.Summary ?? "Search or click the list.";
+    public string SelectedBody => Selected?.Body ?? "Hover still updates the right inspector. Pin a topic there if you want it to stay.";
+
+    partial void OnQueryChanged(string value) => Reload();
+    partial void OnKindChanged(string value) => Reload();
+    partial void OnSelectedChanged(HelpTopic? value)
+    {
+        OnPropertyChanged(nameof(SelectedTitle));
+        OnPropertyChanged(nameof(SelectedSummary));
+        OnPropertyChanged(nameof(SelectedBody));
+        if (value is not null)
+        {
+            StudioHelp.ShowTopic(value.Id);
+            Status = value.Kind + "  ·  " + value.Title;
+        }
+    }
+
+    private void Reload()
+    {
+        IEnumerable<HelpTopic> source = Kind switch
+        {
+            "Documents" => StudioLexicon.All.Where(t => t.Kind == "document"),
+            "Actions" => StudioLexicon.All.Where(t => t.Kind == "action"),
+            "Chrome" => StudioLexicon.All.Where(t => t.Kind == "chrome"),
+            "All" => StudioLexicon.Search(Query),
+            _ => StudioLexicon.Search(Query).Where(t => t.Kind == "term"),
+        };
+
+        if (Kind is not "All" and not "Terms" && Query.Trim().Length > 0)
+        {
+            source = StudioLexicon.Search(Query).Where(t => Kind switch
+            {
+                "Documents" => t.Kind == "document",
+                "Actions" => t.Kind == "action",
+                "Chrome" => t.Kind == "chrome",
+                _ => true,
+            });
+        }
+
+        Results.Clear();
+        foreach (var row in source.DistinctBy(t => t.Id).OrderBy(t => t.Title, StringComparer.OrdinalIgnoreCase))
+        {
+            Results.Add(row);
+        }
+
+        Status = Results.Count + " entries";
+    }
 }
 
 public partial class SkillsViewModel : ObservableObject

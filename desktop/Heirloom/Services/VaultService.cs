@@ -72,7 +72,7 @@ public sealed class VaultService : IDisposable
         Status = "Vault · " + root;
     }
 
-    public void AddCapture(string kind, string text, string tag = "")
+    public long AddCapture(string kind, string text, string tag = "")
     {
         Ensure();
         using var cmd = _connection!.CreateCommand();
@@ -82,6 +82,23 @@ public sealed class VaultService : IDisposable
         cmd.Parameters.AddWithValue("$t", text);
         cmd.Parameters.AddWithValue("$g", tag);
         cmd.ExecuteNonQuery();
+        using var id = _connection.CreateCommand();
+        id.CommandText = "SELECT last_insert_rowid()";
+        return (long)id.ExecuteScalar()!;
+    }
+
+    public bool DeleteCapture(long id)
+    {
+        if (id <= 0)
+        {
+            return false;
+        }
+
+        Ensure();
+        using var cmd = _connection!.CreateCommand();
+        cmd.CommandText = "DELETE FROM captures WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        return cmd.ExecuteNonQuery() > 0;
     }
 
     public IReadOnlyList<VaultRow> Recent(int limit = 40, string? kind = null)
@@ -180,6 +197,73 @@ public sealed class VaultService : IDisposable
             0,
             100);
         return new VaultStats(captures, letters, heirs, byKind, completeness);
+    }
+
+    public string LookBack()
+    {
+        var last = Recent(1).FirstOrDefault();
+        if (last is null)
+        {
+            return "Nothing filed yet. That is the vault, not a failing.";
+        }
+
+        var kind = last.Kind switch
+        {
+            "speech" => "spoken",
+            "interview" => "chapter",
+            "journal" => "journal",
+            "photo_story" => "photo",
+            "import" => "import",
+            _ => last.Kind,
+        };
+        var text = last.Text.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        if (text.Length > 88)
+        {
+            text = text[..88].TrimEnd() + "…";
+        }
+
+        return "Last filed · " + kind + ": " + text;
+    }
+
+    public static string GapLine(VaultStats stats)
+    {
+        var missing = new List<string>();
+        if (!stats.ByKind.ContainsKey("interview"))
+        {
+            missing.Add("a chapter");
+        }
+
+        if (!stats.ByKind.ContainsKey("journal"))
+        {
+            missing.Add("a journal day");
+        }
+
+        if (!stats.ByKind.ContainsKey("photo_story"))
+        {
+            missing.Add("a photo story");
+        }
+
+        if (stats.Heirs == 0)
+        {
+            missing.Add("an heir");
+        }
+
+        if (stats.Letters == 0)
+        {
+            missing.Add("a letter");
+        }
+
+        if (stats.Captures == 0)
+        {
+            return "The vault is empty. File one true sentence — then Ask can retrieve it.";
+        }
+
+        if (missing.Count == 0)
+        {
+            return "Speech, chapters, and a gift path are on this PC. Retrieval, not invention.";
+        }
+
+        return "Still open: " + string.Join(", ", missing) + ".";
     }
 
     public void AddLetter(string title, string body, bool sealedLetter, string forPerson = "", string trigger = "after_release")

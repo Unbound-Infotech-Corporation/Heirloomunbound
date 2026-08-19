@@ -4,7 +4,7 @@ using Heirloom.Services;
 
 namespace Heirloom.ViewModels;
 
-public sealed record DockItem(string Id, string Label, string Glyph);
+public sealed record DockItem(string Id, string Label, string Glyph, bool IsHeader = false);
 
 public partial class StudioShellViewModel : ObservableObject
 {
@@ -12,7 +12,6 @@ public partial class StudioShellViewModel : ObservableObject
     private readonly HashSet<string> _open = new(StringComparer.Ordinal)
     {
         "twin",
-        "mixer",
     };
 
     public StudioShellViewModel(AppHost host)
@@ -35,6 +34,7 @@ public partial class StudioShellViewModel : ObservableObject
         Keys = new KeysViewModel(host);
         Avatar = new AvatarViewModel();
         Settings = new SettingsViewModel(host);
+        Glossary = new GlossaryViewModel();
         KitchenSink = new KitchenSinkViewModel();
         Coach = new VendorCoachViewModel(host);
         Skills = new SkillsViewModel(host);
@@ -47,6 +47,20 @@ public partial class StudioShellViewModel : ObservableObject
             }
         };
         host.Poller.CommandExecuted += (_, msg) => UiDispatch.Post(() => StatusLine = msg);
+        Twin.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(TwinViewModel.Status))
+            {
+                StatusLine = Twin.Status;
+            }
+        };
+        Mixer.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MixerViewModel.Status))
+            {
+                StatusLine = Mixer.Status;
+            }
+        };
         StatusLine = "Heirloom " + host.Version + "  ·  " + host.BuildId;
         RefreshWindowLine();
     }
@@ -73,6 +87,7 @@ public partial class StudioShellViewModel : ObservableObject
     public KeysViewModel Keys { get; }
     public AvatarViewModel Avatar { get; }
     public SettingsViewModel Settings { get; }
+    public GlossaryViewModel Glossary { get; }
     public KitchenSinkViewModel KitchenSink { get; }
     public VendorCoachViewModel Coach { get; }
     public SkillsViewModel Skills { get; }
@@ -80,28 +95,36 @@ public partial class StudioShellViewModel : ObservableObject
 
     public IReadOnlyList<DockItem> Dock { get; } =
     [
-        new("today", "Today", "\uE706"),
-        new("archive", "Archive", "\uE8F1"),
+        Head("Sit"),
         new("twin", "Twin", "\uE8BD"),
+        new("today", "Today", "\uE706"),
         new("mixer", "Mixer", "\uE767"),
-        new("models", "Models", "\uE950"),
+        Head("File"),
+        new("archive", "Archive", "\uE8F1"),
         new("journal", "Journal", "\uE70B"),
         new("interviewer", "Interviewer", "\uE8F2"),
         new("photos", "Photos", "\uE91B"),
-        new("library", "Library", "\uE8A5"),
         new("import", "Import", "\uE8B5"),
+        Head("Keep"),
+        new("library", "Library", "\uE8A5"),
         new("sources", "Sources", "\uE8B7"),
+        Head("Voice"),
         new("personality", "Portrait", "\uE8D4"),
         new("abilities", "Abilities", "\uE945"),
         new("skills", "Skills", "\uE90F"),
         new("avatar", "Avatar", "\uE8B8"),
+        Head("Gift"),
         new("heirs", "Heirs", "\uE716"),
         new("letters", "Letters", "\uE715"),
-        new("keys", "Keys", "\uE192"),
+        Head("Studio"),
+        new("models", "Models", "\uE950"),
         new("thismachine", "This PC", "\uE770"),
+        new("keys", "Keys", "\uE192"),
         new("settings", "Settings", "\uE713"),
-        new("kitchensink", "Controls", "\uE790"),
+        new("glossary", "Glossary", "\uE82D"),
     ];
+
+    private static DockItem Head(string label) => new("group-" + label.ToLowerInvariant(), label, "", true);
 
     [ObservableProperty] private string _activeDocumentId = "twin";
     [ObservableProperty] private string _statusLine = "Heirloom";
@@ -119,8 +142,14 @@ public partial class StudioShellViewModel : ObservableObject
     [RelayCommand]
     public void OpenDocument(string id)
     {
+        if (string.IsNullOrWhiteSpace(id) || Dock.Any(d => d.Id == id && d.IsHeader))
+        {
+            return;
+        }
+
         _open.Add(id);
         ActiveDocumentId = id;
+        StudioHelp.SetDocument(id);
         StatusLine = id switch
         {
             "twin" => "Twin  ·  grounded conversation",
@@ -132,6 +161,7 @@ public partial class StudioShellViewModel : ObservableObject
             "letters" => "Sealed letters",
             "skills" => "Skills  ·  webhooks",
             "library" => "Library  ·  this PC vault",
+            "glossary" => "Glossary  ·  words this studio uses",
             "kitchensink" => "Control language  ·  Ferrari kit",
             _ => char.ToUpper(id[0]) + id[1..],
         };
@@ -211,7 +241,8 @@ public partial class StudioShellViewModel : ObservableObject
             return;
         }
 
-        var hit = Dock.FirstOrDefault(d => d.Id.Contains(q) || d.Label.Contains(q, StringComparison.OrdinalIgnoreCase));
+        var hit = Dock.FirstOrDefault(d =>
+            !d.IsHeader && (d.Id.Contains(q) || d.Label.Contains(q, StringComparison.OrdinalIgnoreCase)));
         if (hit is not null)
         {
             OpenDocument(hit.Id);
@@ -230,7 +261,6 @@ public partial class StudioShellViewModel : ObservableObject
         ShowSplash = false;
         ShowFirstRun = !_host.Settings.Current.SetupComplete && !_host.Settings.Current.SetupSkipped;
         OpenDocument("twin");
-        OpenDocument("mixer");
     }
 
     [RelayCommand]
