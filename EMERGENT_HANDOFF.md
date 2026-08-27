@@ -3,8 +3,8 @@
 > **Owner shortcut:** open [`EMERGENT_PASTE_THIS.md`](EMERGENT_PASTE_THIS.md), copy the fenced block, paste into Emergent chat. Done.
 
 **GitHub (already pushed):**  
-https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/tree/main  
-**Commit:** `aa84a4c` · **Tag:** `v0.5.0`  
+https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/tree/v0.5.0  
+**Tag:** `v0.5.0` (use the tag — do not chase commit SHAs)  
 **Tree zip:** https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/archive/refs/tags/v0.5.0.zip
 
 **Audience:** Emergent operators / agents promoting this GitHub tree to preview + production  
@@ -16,7 +16,7 @@ https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/tree/main
 
 ## What you must do (checklist)
 
-1. **Pull / sync this repo** onto the Emergent app (prefer tag `v0.5.0` / `main` tip `aa84a4c`).
+1. **Pull / sync this repo** onto the Emergent app from tag **`v0.5.0`** (or unpack the tag zip).
 2. Confirm `backend/companion_desktop_data.py` is present (baked PySide zip). If you only copied loose files and that module is missing, run:
    ```bash
    cd backend && python build_desktop_data.py
