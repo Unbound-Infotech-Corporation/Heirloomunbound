@@ -9,12 +9,12 @@ Ship Heirloom desktop stamp 0.5.0 from GitHub main onto this Emergent app (previ
 SOURCE OF TRUTH
 - GitHub: https://github.com/Unbound-Infotech-Corporation/Heirloomunbound
 - Branch: main
-- Required commit: 6f8d22b2a4c34db4822ef50058452c7e0a32127f
+- Required commit: aa84a4c9202ee04a1bca9e9d98c06fa65bc56ab6 (tag v0.5.0; includes this prompt)
 - Tag: v0.5.0
 - Full operator notes in-repo: EMERGENT_HANDOFF.md
 
 DO THIS NOW
-1) Sync / pull / replace the Emergent workspace with GitHub main at commit 6f8d22b (or tag v0.5.0). Prefer a full tree sync over cherry-picking files.
+1) Sync / pull / replace the Emergent workspace with GitHub main at tag v0.5.0 (commit aa84a4c). Prefer a full tree sync over cherry-picking files.
 2) Keep all existing production .env secrets. Do NOT clear EMERGENT_LLM_KEY, MONGO_URL, Stripe keys, ElevenLabs, D-ID, Resend, etc.
 3) Confirm these files exist after sync:
    - EMERGENT_HANDOFF.md
@@ -49,4 +49,4 @@ If sync tools are broken, tell me the exact Emergent UI path to connect GitHub m
 4. Open prod: `https://voice-clone-hub-20.emergent.host/api/build`
 5. Confirm `"desktop_version":"0.5.0"` again
 
-If preview is still old after they “synced”, they did not pull `main` / `6f8d22b`. Paste the block again and demand the commit SHA in their reply.
+If preview is still old after they “synced”, they did not pull `main` / `v0.5.0`. Paste the block again and demand the commit SHA in their reply.

@@ -4,7 +4,7 @@
 
 **GitHub (already pushed):**  
 https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/tree/main  
-**Commit:** `6f8d22b2a4c34db4822ef50058452c7e0a32127f` · **Tag:** `v0.5.0`  
+**Commit:** `aa84a4c` · **Tag:** `v0.5.0`  
 **Tree zip:** https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/archive/refs/tags/v0.5.0.zip
 
 **Audience:** Emergent operators / agents promoting this GitHub tree to preview + production  
@@ -16,7 +16,7 @@ https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/tree/main
 
 ## What you must do (checklist)
 
-1. **Pull / sync this repo** onto the Emergent app (prefer `main` / tag `v0.5.0`, commit `6f8d22b`).
+1. **Pull / sync this repo** onto the Emergent app (prefer tag `v0.5.0` / `main` tip `aa84a4c`).
 2. Confirm `backend/companion_desktop_data.py` is present (baked PySide zip). If you only copied loose files and that module is missing, run:
    ```bash
    cd backend && python build_desktop_data.py
