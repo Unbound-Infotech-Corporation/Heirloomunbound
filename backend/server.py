@@ -114,7 +114,7 @@ async def build_info():
     Local PC download is an older desktop — deploy origin/main, then re-download.
     """
     sha = "dev"
-    version = "0.4.0"
+    version = "0.5.0"
     try:
         from companion_desktop.heirloom import BUILD_ID, __version__
 
@@ -134,8 +134,11 @@ async def build_info():
         "status": "ok",
         "desktop_version": version,
         "git_sha": sha,
-        "features": ["studio", "first-run", "vendor-coach"],
+        "features": ["studio", "first-run", "vendor-coach", "winui-native", "phone-twin"],
         "has_studio_first_run": True,
+        "primary_windows_product": "winui",
+        "legacy_pyside_package": "/api/companion/desktop-package",
+        "winui_manifest": "/api/companion/winui",
     }
 
 

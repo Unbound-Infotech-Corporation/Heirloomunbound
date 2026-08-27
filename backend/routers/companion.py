@@ -777,7 +777,7 @@ async def winui_manifest(user: dict = Depends(get_current_user)):
     """Native Windows product coordinates. PySide zip is legacy."""
     return {
         "product": "Heirloom.WinUI",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "aumid": "UnboundInfotech.Heirloom",
         "source": "desktop/Heirloom",
         "run": "dotnet run --project desktop/Heirloom/Heirloom.csproj -c Release -r win-x64 --no-launch-profile",

@@ -9,7 +9,7 @@
   <Identity
     Name="UnboundInfotech.Heirloom"
     Publisher="CN=Unbound Infotech"
-    Version="0.4.0.0" />
+    Version="0.5.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="DE6953CF-22A1-4C05-B859-A141A49D8FA1" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

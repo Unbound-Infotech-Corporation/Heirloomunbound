@@ -277,7 +277,7 @@ class TestBuildDesktopZip:
         missing = self.REQUIRED_FILES - names
         assert not missing, f"zip missing {missing}"
         init_py = z.read("heirloom/__init__.py").decode("utf-8")
-        assert '__version__ = "0.4.0"' in init_py
+        assert '__version__ = "0.5.0"' in init_py
         assert "BUILD_ID" in init_py
         # config.py contains injected token + https BACKEND_URL
         cfg = z.read("heirloom/config.py").decode("utf-8")

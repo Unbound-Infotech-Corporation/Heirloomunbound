@@ -48,13 +48,24 @@ def stamp_build_id(rel: str, data: bytes, sha: str) -> bytes:
     return text.encode("utf-8")
 
 
+# Local PyInstaller / publish trees must never ship inside the Emergent bake.
+_SKIP_DIR_NAMES = frozenset({
+    "__pycache__",
+    "build",
+    "dist",
+    ".venv",
+    "venv",
+    ".pytest_cache",
+})
+
+
 def collect_files() -> tuple[list[tuple[str, bytes]], str]:
     sha = git_short_sha()
     files: list[tuple[str, bytes]] = []
     for p in sorted(SRC_ROOT.rglob("*")):
         if not p.is_file():
             continue
-        if "__pycache__" in p.parts:
+        if any(part in _SKIP_DIR_NAMES for part in p.parts):
             continue
         rel = p.relative_to(SRC_ROOT).as_posix()
         files.append((rel, stamp_build_id(rel, p.read_bytes(), sha)))
@@ -90,7 +101,7 @@ def main() -> None:
         raise SystemExit(f"no files under {SRC_ROOT}")
     OUT.write_text(build_module(files, sha), encoding="utf-8")
     total = sum(len(b) for _, b in files)
-    print(f"baked {len(files)} files ({total:,} bytes) build={sha} → {OUT}")
+    print(f"baked {len(files)} files ({total:,} bytes) build={sha} -> {OUT}")
 
 
 if __name__ == "__main__":

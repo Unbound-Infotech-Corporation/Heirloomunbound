@@ -290,8 +290,8 @@ export default function Companion() {
             ))}
             <p className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>
               Re-download bakes a fresh zip from <b>this</b> live API (does not show the token again).
-              GitHub can be ahead of Emergent — if the titlebar is not <code>0.4.0</code> with first-run
-              after models, deploy <code>main</code> first.{" "}
+              GitHub can be ahead of Emergent — if the titlebar is not <code>0.5.0</code> with first-run
+              after models (WinUI is primary; PySide zip is legacy), deploy <code>main</code> first.{" "}
               {buildInfo?.desktop_version
                 ? `This server: desktop ${buildInfo.desktop_version} (${buildInfo.git_sha}).`
                 : "This server does not advertise /api/build yet."}

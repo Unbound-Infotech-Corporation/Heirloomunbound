@@ -24,7 +24,7 @@ public sealed class AppHost : IDisposable
     public ProvisionService Provision { get; }
     public ScreenCaptureService Screen { get; }
 
-    public string Version => "0.4.0";
+    public string Version => "0.5.0";
     public string BuildId => Settings.Current.BuildId;
     public bool CanEdit =>
         !string.Equals(Settings.Current.AppMode, "heir", StringComparison.OrdinalIgnoreCase);

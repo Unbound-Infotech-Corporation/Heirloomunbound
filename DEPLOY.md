@@ -1,6 +1,6 @@
 # Heirloom — Deploy, Backup & Ops Runbook
 
-Last reviewed: Feb 27, 2026.
+Last reviewed: Aug 27, 2026 (desktop **0.5.0** — WinUI primary; see `EMERGENT_HANDOFF.md`).
 
 ## TL;DR
 
@@ -58,6 +58,7 @@ If you want the archive auto-deleted on refund, change `_revoke_access_for_event
 
 ## How to deploy
 
+0. **Read `EMERGENT_HANDOFF.md`** for the current desktop stamp (WinUI primary vs legacy PySide zip) before promoting.
 1. **Run the testing agent in preview** until green. Open the latest `/app/test_reports/iteration_*.json` and confirm all critical paths pass.
 2. **Manual smoke** in preview: log in, send a Twin message, queue a companion command, render a D-ID clip, complete a $1 Stripe test checkout.
 3. **Click "Deploy" in the Emergent UI.** This promotes the preview build to production.
