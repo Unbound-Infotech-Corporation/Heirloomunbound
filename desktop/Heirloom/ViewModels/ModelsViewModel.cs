@@ -13,7 +13,7 @@ public partial class ModelsViewModel : ObservableObject
         _host = host;
         ComputeTarget = host.Settings.Current.ComputeTarget;
         MachineRole = host.Settings.Current.MachineRole;
-        Refresh();
+        _ = RefreshAsync();
     }
 
     public IReadOnlyList<DiskProfile> Profiles => DiskProfiles.All;
@@ -26,6 +26,8 @@ public partial class ModelsViewModel : ObservableObject
     [ObservableProperty] private string _machineRole;
     [ObservableProperty] private string _progress = "";
     [ObservableProperty] private bool _busy;
+    [ObservableProperty] private string _guide =
+        "If you already tapped Get everything ready, you can leave this page. These buttons are extra controls.";
 
     partial void OnComputeTargetChanged(string value)
     {
@@ -40,10 +42,11 @@ public partial class ModelsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void Refresh()
+    public async Task RefreshAsync()
     {
-        WhisperStatus = _host.Whisper.Status;
-        OllamaStatus = _host.Ollama.Status;
+        await _host.Ollama.ProbeAsync().ConfigureAwait(true);
+        WhisperStatus = SetupCopy.FriendlyLine(_host.Whisper.Status);
+        OllamaStatus = SetupCopy.FriendlyLine(_host.Ollama.Status);
         VaultStatus = _host.Vault.Status;
         DiskLine = ReadDisk();
     }
@@ -55,15 +58,35 @@ public partial class ModelsViewModel : ObservableObject
     public void SetRole(string role) => MachineRole = role;
 
     [RelayCommand]
+    public async Task GetReadyAsync()
+    {
+        Busy = true;
+        Progress = "Getting this computer ready…";
+        var plan = SetupCopy.PlanForPath(_host.Settings.Current.LibraryPath);
+        var progress = new Progress<SetupProgress>(p => Progress = p.Detail);
+        try
+        {
+            await _host.Provision.PrepareThisPcAsync(plan, progress).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Progress = SetupCopy.HumanFault(ex, "getting Heirloom ready");
+        }
+
+        await RefreshAsync().ConfigureAwait(true);
+        Busy = false;
+    }
+
+    [RelayCommand]
     public async Task ProvisionAsync(string profileId)
     {
         var profile = DiskProfiles.All.First(p => p.Id == profileId);
         Busy = true;
-        var progress = new Progress<string>(m => Progress = m);
-        await _host.Provision.ProvisionAsync(profile, progress).ConfigureAwait(true);
+        var progress = new Progress<string>(m => Progress = SetupCopy.FriendlyLine(m));
+        await _host.Provision.ProvisionAsync(profile, progress, allowInstall: true).ConfigureAwait(true);
         _host.Settings.Current.DiskProfile = profileId;
         _host.Settings.Save();
-        Refresh();
+        await RefreshAsync().ConfigureAwait(true);
         Busy = false;
     }
 

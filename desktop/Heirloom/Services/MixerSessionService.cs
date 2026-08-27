@@ -70,12 +70,37 @@ public sealed class MixerSessionService : IDisposable
 
     public void RefreshDevices()
     {
-        _enumerator ??= new MMDeviceEnumerator();
-        var defaultIn = _enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia);
-        var defaultOut = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        try
+        {
+            _enumerator ??= new MMDeviceEnumerator();
+            string defaultIn = "";
+            string defaultOut = "";
+            try
+            {
+                defaultIn = _enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia).ID;
+            }
+            catch
+            {
+                // No capture endpoint.
+            }
 
-        Inputs = Enumerate(DataFlow.Capture, defaultIn.ID);
-        Outputs = Enumerate(DataFlow.Render, defaultOut.ID);
+            try
+            {
+                defaultOut = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia).ID;
+            }
+            catch
+            {
+                // No render endpoint.
+            }
+
+            Inputs = Enumerate(DataFlow.Capture, defaultIn);
+            Outputs = Enumerate(DataFlow.Render, defaultOut);
+        }
+        catch
+        {
+            Inputs = [];
+            Outputs = [];
+        }
     }
 
     public void SetMuted(bool muted)

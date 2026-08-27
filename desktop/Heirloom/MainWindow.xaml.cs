@@ -18,11 +18,24 @@ public sealed partial class MainWindow : Window
         Closed += OnClosed;
         _tray = new TrayService(this);
         _tray.Attach();
+        App.Host.Poller.NoticeRequested += OnPhoneNotice;
         RootFrame.Navigate(typeof(MainPage));
+    }
+
+    private void OnPhoneNotice(object? sender, DesktopNotice notice)
+    {
+        DispatcherQueue.TryEnqueue(() => _tray.ShowNotice(notice.Title, notice.Message));
     }
 
     private void OnClosed(object sender, WindowEventArgs args)
     {
+        if (!_tray.Attached)
+        {
+            FaultLog.Write("window", "Close with no tray — exiting so the studio cannot vanish.");
+            Application.Current.Exit();
+            return;
+        }
+
         args.Handled = true;
         AppWindow.Hide();
     }

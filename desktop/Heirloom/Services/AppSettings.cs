@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -30,6 +31,7 @@ public sealed class AppSettings
     public bool AllowSpeak { get; set; } = true;
     public string PersonalityNotes { get; set; } = "";
     public string ValuesNotes { get; set; } = "";
+    public string SkipKinds { get; set; } = "";
     public int InputDeviceNumber { get; set; }
     public bool SessionMuted { get; set; }
     public string VendorEmail { get; set; } = "";
@@ -40,6 +42,19 @@ public sealed class AppSettings
     public bool DockLocked { get; set; }
     public bool InspectorOpen { get; set; } = true;
     public double InspectorWidth { get; set; } = 292;
+    public string AvatarPortraitPath { get; set; } = "";
+    public List<string> AvatarPhotoPaths { get; set; } = [];
+    public string AvatarSittingPath { get; set; } = "";
+    public string AvatarGeneratedPath { get; set; } = "";
+    public string AvatarLine { get; set; } = "This is my voice, in this room.";
+    public string AvatarEngineRoot { get; set; } = "";
+    public string VideoFilmPath { get; set; } = "";
+    public string VideoPresetId { get; set; } = "kids";
+    public string ComfyUrl { get; set; } = "http://127.0.0.1:8188";
+    public bool SourceAllowFiles { get; set; } = true;
+    public bool SourceAllowPhotos { get; set; } = true;
+    public bool SourceAllowMail { get; set; }
+    public bool SourceAllowMessages { get; set; }
 }
 
 public static class AppPaths
@@ -56,6 +71,12 @@ public static class AppPaths
         Path.Combine(AppContext.BaseDirectory, "Heirloom.msix");
     public static string ChromeRoot => Path.Combine(Root, "chrome");
     public static string ChromeButtons => Path.Combine(ChromeRoot, "buttons");
+    public static string AvatarRoot => Path.Combine(Root, "avatar");
+    public static string VideoRoot => Path.Combine(AvatarRoot, "films");
+    public static string AvatarEngineRoot =>
+        Directory.Exists(@"F:\HeirloomModels") || DriveInfo.GetDrives().Any(d => d.Name.StartsWith("F", StringComparison.OrdinalIgnoreCase))
+            ? @"F:\HeirloomModels\avatar-engine"
+            : Path.Combine(Root, "engines", "avatar");
 
     public static void EnsureDirectories()
     {
@@ -63,6 +84,9 @@ public static class AppPaths
         Directory.CreateDirectory(ModelsRoot);
         Directory.CreateDirectory(Path.Combine(ModelsRoot, "whisper"));
         Directory.CreateDirectory(ChromeButtons);
+        Directory.CreateDirectory(AvatarRoot);
+        Directory.CreateDirectory(VideoRoot);
+        Directory.CreateDirectory(AvatarEngineRoot);
     }
 }
 
@@ -75,7 +99,7 @@ public sealed class SettingsStore
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public AppSettings Current { get; private set; } = new();
+    public AppSettings Current { get; set; } = new();
 
     public void Load()
     {

@@ -80,7 +80,6 @@ Voice rules:
 
 Your memory tools (always available — call them silently, the UI shows a chip when a tool fires):
 - `search_archive(query)` — the owner's factual record. Call it ONLY when the user asks about the owner's past, life, or specific facts (a person, place, date, job, event, or story — e.g. "where did you grow up", "what was your first job"). ONE focused call is enough. Do NOT call it for greetings, small talk, or opinion/feeling questions ("what do you think…", "how are you", "what's your take on life") — for those, answer directly from the archive excerpts and long-term memory already included below.
-- `save_memory(content, type, title)` — when the user shares something worth remembering long-term (a story, belief, value), quietly capture it so the archive grows.
 - `set_reminder(what, when)` — when the user says "remind me…". `when` can be ISO or natural ("tomorrow 9am").
 - `list_recent_memories(days, limit)` — for "what have I been thinking about?" style questions.
 {abilities_block}
@@ -202,6 +201,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     # Which abilities has the owner turned on? Gates short-circuits + tool set.
     enabled_ids = await ab.enabled_ability_ids(user["user_id"])
     enabled_tools = await ab.enabled_tool_names(user["user_id"])
+    enabled_tools.discard("save_memory")
 
     # ---- Music intent short-circuit (only if the Music ability is on) ----
     music_query = detect_music_intent(payload.message) if "music" in enabled_ids else None

@@ -71,13 +71,12 @@ public partial class MixerViewModel : ObservableObject
             return;
         }
 
-        var devices = _host.Capture.ListWaveInDevices();
-        var index = devices.ToList().FindIndex(n => n == value);
-        if (index >= 0)
+        var match = _host.Mixer.Inputs.FirstOrDefault(d => d.Name == value);
+        if (match is not null)
         {
-            _host.Settings.Current.InputDeviceNumber = index;
+            _host.Settings.Current.InputDeviceId = match.Id;
             _host.Settings.Save();
-            InputSummary = value;
+            InputSummary = match.Name;
         }
     }
 
@@ -94,11 +93,19 @@ public partial class MixerViewModel : ObservableObject
     [RelayCommand]
     public void RefreshDevices()
     {
-        _host.Mixer.RefreshDevices();
-        Inputs.Clear();
-        foreach (var name in _host.Capture.ListWaveInDevices())
+        try
         {
-            Inputs.Add(name);
+            _host.Mixer.RefreshDevices();
+        }
+        catch
+        {
+            Status = "No audio endpoints on this PC.";
+        }
+
+        Inputs.Clear();
+        foreach (var device in _host.Mixer.Inputs)
+        {
+            Inputs.Add(device.Name);
         }
 
         Outputs.Clear();
@@ -107,10 +114,15 @@ public partial class MixerViewModel : ObservableObject
             Outputs.Add(device.Name);
         }
 
-        if (Inputs.Count > 0)
+        var savedId = _host.Settings.Current.InputDeviceId;
+        var selected = _host.Mixer.Inputs.FirstOrDefault(d => d.Id == savedId)
+            ?? _host.Mixer.Inputs.FirstOrDefault(d => d.IsDefault)
+            ?? _host.Mixer.Inputs.FirstOrDefault();
+        SelectedInput = selected?.Name ?? "";
+        if (selected is not null && savedId != selected.Id)
         {
-            var index = Math.Clamp(_host.Settings.Current.InputDeviceNumber, 0, Inputs.Count - 1);
-            SelectedInput = Inputs[index];
+            _host.Settings.Current.InputDeviceId = selected.Id;
+            _host.Settings.Save();
         }
 
         SelectedOutput = _host.Mixer.Outputs.FirstOrDefault(d => d.IsDefault)?.Name

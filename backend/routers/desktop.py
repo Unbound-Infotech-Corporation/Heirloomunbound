@@ -66,18 +66,23 @@ async def desktop_me(ctx: dict = Depends(get_device_user)):
 # ---------------- Chat (text → twin reply, shared with web) ----------------
 class ChatReq(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
+    mode: Optional[str] = Field(None, max_length=24)
+    grounded: Optional[bool] = None
+    persona: Optional[str] = Field(None, max_length=24)
+    twin_pack: Optional[dict] = None
 
 
-async def _ensure_companion_conv(user_id: str) -> dict:
+async def _ensure_companion_conv(user_id: str, kind: str = "companion_twin") -> dict:
     conv = await db.conversations.find_one(
-        {"user_id": user_id, "kind": "companion_twin"}, {"_id": 0}
+        {"user_id": user_id, "kind": kind}, {"_id": 0}
     )
     if conv:
         return conv
+    prefix = "assist" if kind == "companion_assistant" else "comp"
     conv = {
-        "conversation_id": f"comp_{uuid.uuid4().hex[:12]}",
+        "conversation_id": f"{prefix}_{uuid.uuid4().hex[:12]}",
         "user_id": user_id,
-        "kind": "companion_twin",
+        "kind": kind,
         "messages": [],
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
@@ -102,10 +107,10 @@ async def get_conversation(ctx: dict = Depends(get_device_user), limit: int = 80
 
 @router.post("/chat")
 async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
-    """Send a text message as the user; persist + return the twin's reply.
+    """Send a text message; persist + return a reply.
 
-    Uses the same tool-calling twin runtime as the web /twin page — so the
-    desktop twin can search the archive, control the PC, play music, etc.
+    mode=twin (default): grounded sitting — no PC control tools.
+    mode=assistant: copilot that may use PC / screen / terminal abilities.
     """
     from twin_runtime import ensure_conversation, run_twin_turn
 
@@ -113,15 +118,24 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     if user.get("account_status") == "refunded":
         raise HTTPException(status_code=403, detail="account_inactive")
 
-    conv = await ensure_conversation(user["user_id"], kind="companion_twin")
+    mode = (body.mode or "twin").strip().lower()
+    if mode not in ("twin", "assistant"):
+        mode = "twin"
+    kind = "companion_assistant" if mode == "assistant" else "companion_twin"
+
+    conv = await ensure_conversation(user["user_id"], kind=kind)
     try:
         result = await run_twin_turn(
             user,
             body.text,
             conversation=conv,
-            source="desktop",
+            source="desktop" if mode == "twin" else "desktop_assistant",
             persist=True,
             summarise=True,
+            role=mode,
+            twin_pack=body.twin_pack,
+            grounded=body.grounded,
+            persona_hint=body.persona,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

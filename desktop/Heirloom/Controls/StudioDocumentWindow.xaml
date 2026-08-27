@@ -9,64 +9,87 @@
     PointerMoved="OnPointerMoved"
     PointerReleased="OnPointerReleased">
     <Border
+        x:Name="Shell"
         Background="{StaticResource HeirloomGlassBrush}"
         BorderBrush="{StaticResource HeirloomBorderBrush}"
         BorderThickness="1"
         CornerRadius="3">
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="36" />
+                <RowDefinition Height="Auto" MinHeight="40" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
-                <RowDefinition Height="24" />
+                <RowDefinition Height="28" />
             </Grid.RowDefinitions>
 
             <Border
-            Background="{StaticResource HeirloomDocTitleBrush}"
-            BorderBrush="{StaticResource HeirloomBorderBrush}"
+                CornerRadius="2,2,0,0"
+                Background="{StaticResource HeirloomDocTitleBrush}"
+                BorderBrush="{StaticResource HeirloomBorderBrush}"
                 BorderThickness="0,0,0,1"
                 PointerMoved="OnPointerMoved"
                 PointerPressed="OnChromePressed"
                 PointerReleased="OnPointerReleased">
-                <Grid>
+                <Grid MinHeight="40">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <StackPanel Margin="12,0" VerticalAlignment="Center" Orientation="Horizontal" Spacing="10">
-                        <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="{x:Bind TitleText, Mode=OneWay}" />
-                        <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind SubtitleText, Mode=OneWay}" />
+                    <StackPanel Margin="14,8,12,8" VerticalAlignment="Center" Spacing="1">
+                        <TextBlock
+                            x:Name="TitleBlock"
+                            Style="{StaticResource StudioDocumentTitle}"
+                            Text="{x:Bind TitleText, Mode=OneWay}" />
+                        <TextBlock
+                            x:Name="SubtitleBlock"
+                            Style="{StaticResource StudioCaption}"
+                            Text="{x:Bind SubtitleText, Mode=OneWay}"
+                            TextTrimming="CharacterEllipsis" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal">
                         <Button
-                            Width="36"
-                            Height="36"
+                            Width="32"
+                            Height="40"
                             Click="OnHelp"
-                            Content="?"
                             Style="{StaticResource StudioButtonQuiet}"
-                            ToolTipService.ToolTip="Explain this window" />
+                            ToolTipService.ToolTip="Explain this window">
+                            <FontIcon
+                                FontSize="11"
+                                Foreground="{StaticResource HeirloomTextMutedBrush}"
+                                Glyph="&#xE897;" />
+                        </Button>
                         <Button
-                            Width="36"
-                            Height="36"
+                            Width="32"
+                            Height="40"
                             Click="OnMin"
-                            Content="–"
                             Style="{StaticResource StudioButtonQuiet}"
-                            ToolTipService.ToolTip="Minimize" />
+                            ToolTipService.ToolTip="Minimize">
+                            <FontIcon
+                                FontSize="11"
+                                Foreground="{StaticResource HeirloomTextMutedBrush}"
+                                Glyph="&#xE921;" />
+                        </Button>
                         <Button
-                            Width="36"
-                            Height="36"
+                            Width="32"
+                            Height="40"
                             Click="OnMax"
-                            Content="□"
                             Style="{StaticResource StudioButtonQuiet}"
-                            ToolTipService.ToolTip="Maximize" />
+                            ToolTipService.ToolTip="Maximize">
+                            <FontIcon
+                                FontSize="11"
+                                Foreground="{StaticResource HeirloomTextMutedBrush}"
+                                Glyph="&#xE922;" />
+                        </Button>
                         <Button
-                            Width="36"
-                            Height="36"
                             Click="OnClose"
-                            Content="×"
-                            Style="{StaticResource StudioButtonQuiet}"
-                            ToolTipService.ToolTip="Close" />
+                            Style="{StaticResource StudioButtonClose}"
+                            ToolTipService.ToolTip="Close">
+                            <FontIcon
+                                FontSize="11"
+                                Foreground="{StaticResource HeirloomTextSecondaryBrush}"
+                                Glyph="&#xE8BB;" />
+                        </Button>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -86,7 +109,7 @@
                 Background="{StaticResource HeirloomOptionsStripBrush}"
                 BorderBrush="{StaticResource HeirloomBorderBrush}"
                 BorderThickness="0,0,0,1"
-                Padding="8,4">
+                Padding="10,4">
                 <ContentPresenter Content="{x:Bind OptionsContent, Mode=OneWay}" />
             </Border>
 
@@ -99,21 +122,23 @@
                 Background="{StaticResource HeirloomStatusBrush}"
                 BorderBrush="{StaticResource HeirloomBorderBrush}"
                 BorderThickness="0,1,0,0"
+                CornerRadius="0,0,2,2"
                 PointerMoved="OnPointerMoved"
                 PointerPressed="OnResizePressed"
                 PointerReleased="OnPointerReleased">
                 <Grid>
                     <TextBlock
-                        Margin="10,0"
+                        Margin="12,0"
                         VerticalAlignment="Center"
                         Style="{StaticResource StudioCaption}"
-                        Text="{x:Bind StatusText, Mode=OneWay}" />
+                        Text="{x:Bind StatusText, Mode=OneWay}"
+                        TextTrimming="CharacterEllipsis" />
                     <FontIcon
-                        Margin="0,0,8,0"
+                        Margin="0,0,10,0"
                         HorizontalAlignment="Right"
-                        FontSize="10"
+                        FontSize="11"
                         Foreground="{StaticResource HeirloomTextMutedBrush}"
-                        Glyph="&#xE740;" />
+                        Glyph="&#xE76F;" />
                 </Grid>
             </Border>
         </Grid>

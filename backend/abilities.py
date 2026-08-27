@@ -142,6 +142,23 @@ ABILITIES: list[dict] = [
             "command, explain it, and confirm with the owner, then call again with confirmed=true.\n"
         ),
     },
+    {
+        "id": "phone",
+        "name": "Phone",
+        "tagline": "Answer and place family calls as the Twin — cloned voice, vault-grounded.",
+        "icon": "phone",
+        "category": "presence",
+        "default_enabled": False,
+        "requires_companion": False,
+        "tools": [],
+        "permissions": [
+            {"id": "phone_line", "label": "Give this Twin a phone line for family calls"},
+        ],
+        "prompt_block": (
+            "Phone (enabled): you may already be on a live family call. Keep replies short and spoken. "
+            "Do not file memories from the call. Do not drive the PC.\n"
+        ),
+    },
 ]
 
 ABILITY_BY_ID: dict[str, dict] = {a["id"]: a for a in ABILITIES}

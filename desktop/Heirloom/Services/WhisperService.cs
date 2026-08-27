@@ -7,15 +7,19 @@ public sealed class WhisperService : IDisposable
     private WhisperFactory? _factory;
     private WhisperProcessor? _processor;
 
+    private static readonly HttpClient DownloadHttp = SetupCopy.CreateDownloadClient();
+
     public bool IsReady => _processor is not null;
-    public string Status { get; private set; } = "Whisper not provisioned";
+    public string Status { get; private set; } = "Hearing isn't set up yet.";
+    public string LastError { get; private set; } = "";
 
     public async Task EnsureAsync(CancellationToken cancellationToken = default)
     {
         var path = AppPaths.WhisperModelPath;
-        if (!File.Exists(path))
+        if (!SetupCopy.WhisperLooksComplete(path))
         {
-            Status = "Missing ggml-base.bin — provision in Models";
+            Status = "Hearing isn't set up yet.";
+            LastError = Status;
             return;
         }
 
@@ -25,13 +29,42 @@ public sealed class WhisperService : IDisposable
             _factory?.Dispose();
             _factory = WhisperFactory.FromPath(path);
             _processor = _factory.CreateBuilder().WithLanguage("auto").Build();
-            Status = "Ready (base)";
+            Status = "Hearing is ready.";
+            LastError = "";
             await Task.CompletedTask.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            Status = "Load failed: " + ex.Message;
+            Status = SetupCopy.HumanFault(ex, "preparing hearing", cancellationToken);
+            LastError = Status;
         }
+    }
+
+    public async Task DownloadAndEnsureAsync(IProgress<string>? progress, CancellationToken cancellationToken = default)
+    {
+        var path = AppPaths.WhisperModelPath;
+        if (!SetupCopy.WhisperLooksComplete(path))
+        {
+            try
+            {
+                AppPaths.EnsureDirectories();
+                await SetupCopy.DownloadToFileAsync(
+                    DownloadHttp,
+                    SetupCopy.WhisperUrl,
+                    path,
+                    "Hearing you speak",
+                    progress,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Status = SetupCopy.HumanFault(ex, "getting hearing ready", cancellationToken);
+                LastError = Status;
+                return;
+            }
+        }
+
+        await EnsureAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<string> TranscribeAsync(byte[] wavBytes, CancellationToken cancellationToken = default)
@@ -43,6 +76,7 @@ public sealed class WhisperService : IDisposable
 
         if (_processor is null)
         {
+            LastError = string.IsNullOrWhiteSpace(Status) ? "Hearing isn't set up yet." : Status;
             return string.Empty;
         }
 
@@ -59,9 +93,10 @@ public sealed class WhisperService : IDisposable
 
             return text.ToString().Trim();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Status = "Transcribe failed: " + ex.Message;
+            Status = "Hearing didn't catch that. Try once more, a little closer to the microphone.";
+            LastError = Status;
             return string.Empty;
         }
         finally

@@ -8,6 +8,75 @@
     xmlns:vm="using:Heirloom.ViewModels"
     Background="{StaticResource HeirloomBgBaseBrush}">
 
+    <Page.Resources>
+        <DataTemplate x:Key="ChatLineTemplate" x:DataType="vm:ChatLine">
+            <Grid Margin="0,2,0,10">
+                <TextBlock
+                    MaxWidth="420"
+                    HorizontalAlignment="Center"
+                    Style="{StaticResource StudioCaption}"
+                    Text="{x:Bind Text}"
+                    TextAlignment="Center"
+                    TextWrapping="Wrap"
+                    Visibility="{x:Bind MetaVis}" />
+                <Border
+                    MaxWidth="520"
+                    Padding="12,10"
+                    HorizontalAlignment="Right"
+                    Background="{StaticResource HeirloomYouBubbleBrush}"
+                    BorderBrush="{StaticResource HeirloomGoldDeepBrush}"
+                    BorderThickness="1"
+                    CornerRadius="3"
+                    Visibility="{x:Bind YouVis}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Style="{StaticResource StudioRole}" Text="You" />
+                        <TextBlock
+                            Style="{StaticResource StudioText}"
+                            Text="{x:Bind Text}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+                <Border
+                    MaxWidth="520"
+                    Padding="12,10"
+                    HorizontalAlignment="Left"
+                    Background="{StaticResource HeirloomTwinBubbleBrush}"
+                    BorderBrush="{StaticResource HeirloomBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="3"
+                    Visibility="{x:Bind OtherVis}">
+                    <StackPanel Spacing="4">
+                        <TextBlock
+                            Foreground="{StaticResource HeirloomGoldBrush}"
+                            Style="{StaticResource StudioRole}"
+                            Text="{x:Bind RoleLabel}" />
+                        <TextBlock
+                            Style="{StaticResource StudioText}"
+                            Text="{x:Bind Text}"
+                            TextWrapping="Wrap" />
+                        <TextBlock
+                            Style="{StaticResource StudioMuted}"
+                            Text="{x:Bind Citation}"
+                            TextWrapping="Wrap"
+                            Visibility="{x:Bind CiteVis}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="ArchiveRowTemplate" x:DataType="vm:ArchiveEntry">
+            <Border Margin="0,0,0,8" Style="{StaticResource StudioCard}">
+                <StackPanel Spacing="4">
+                    <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind Headline}" />
+                    <TextBlock
+                        Style="{StaticResource StudioText}"
+                        Text="{x:Bind Body}"
+                        TextWrapping="Wrap" />
+                    <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind Meta}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </Page.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="36" />
@@ -30,11 +99,19 @@
                     <MenuFlyoutItem Command="{x:Bind ViewModel.TogglePaletteCommand}" Text="Command palette…" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="settings" Text="Settings…" />
                 </MenuBarItem>
+                <MenuBarItem Title="Assist">
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="assistant" Text="Work on this PC" />
+                    <MenuFlyoutItem Command="{x:Bind ViewModel.Assistant.NewConversationCommand}" Text="New job" />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="mixer" Text="Mixer…" />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="today" Text="Today" />
+                </MenuBarItem>
                 <MenuBarItem Title="Twin">
-                    <MenuFlyoutItem Click="OnMenuOpen" Tag="twin" Text="Conversation" />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="twin" Text="Sitting" />
                     <MenuFlyoutItem Command="{x:Bind ViewModel.Twin.NewConversationCommand}" Text="New conversation" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="personality" Text="Portrait…" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="abilities" Text="Abilities…" />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="skills" Text="Skills…" />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="phone" Text="Phone…" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="avatar" Text="Avatar studio…" />
                 </MenuBarItem>
                 <MenuBarItem Title="Audio">
@@ -53,6 +130,8 @@
                     <MenuFlyoutItem Command="{x:Bind ViewModel.CycleWindowsCommand}" Text="Cycle" />
                     <MenuFlyoutItem Command="{x:Bind ViewModel.CloseAllCommand}" Text="Close all" />
                     <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="assistant" Text="Assist" />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="twin" Text="Twin sitting" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="today" Text="Today" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="archive" Text="Archive" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="journal" Text="Journal" />
@@ -60,6 +139,7 @@
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="photos" Text="Photos" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="library" Text="Library" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="skills" Text="Skills" />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="phone" Text="Phone" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="heirs" Text="Heirs" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="letters" Text="Letters" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="glossary" Text="Glossary" />
@@ -71,8 +151,8 @@
                     <MenuFlyoutItem Click="OnExplainActive" Text="Explain this window" />
                     <MenuFlyoutSeparator />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="kitchensink" Text="Control kit" />
-                    <MenuFlyoutItem Command="{x:Bind ViewModel.ReopenFirstRunCommand}" Text="First-run setup…" />
-                    <MenuFlyoutItem Command="{x:Bind ViewModel.StartCoachCommand}" Text="Vendor key guide…" />
+                    <MenuFlyoutItem Command="{x:Bind ViewModel.ReopenFirstRunCommand}" Text="Getting started…" />
+                    <MenuFlyoutItem Command="{x:Bind ViewModel.StartCoachCommand}" Text="Optional: copied voice guide…" />
                     <MenuFlyoutItem Text="Heirloom is an Unbound Infotech product" />
                 </MenuBarItem>
             </MenuBar>
@@ -118,11 +198,200 @@
             <Canvas x:Name="Workspace" Grid.Row="1" Grid.Column="1">
 
                 <controls:StudioDocumentWindow
+                    x:Name="AssistDoc"
+                    Width="960"
+                    Height="620"
+                    Canvas.Left="28"
+                    Canvas.Top="18"
+                    Activated="OnDocActivated"
+                    CloseRequested="OnDocClose"
+                    DocumentId="assistant"
+                    StatusText="{x:Bind ViewModel.Assistant.Status, Mode=OneWay}"
+                    SubtitleText="{x:Bind ViewModel.Assistant.PendingSummary, Mode=OneWay}"
+                    TitleText="Assist">
+                    <controls:StudioDocumentWindow.MenuBarContent>
+                        <StackPanel Padding="6,4" Orientation="Horizontal" Spacing="1">
+                            <controls:StudioActionButton
+                                AssetId="action-new"
+                                Command="{x:Bind ViewModel.Assistant.NewConversationCommand}"
+                                Glyph="&#xE710;"
+                                Label="New" />
+                            <controls:StudioActionButton
+                                AssetId="action-mixer"
+                                Click="OnMenuOpen"
+                                Glyph="&#xE767;"
+                                Label="Mixer"
+                                Tag="mixer" />
+                            <controls:StudioActionButton
+                                AssetId="action-archive"
+                                Click="OnMenuOpen"
+                                Glyph="&#xE8F1;"
+                                Label="Vault"
+                                Tag="archive" />
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Assistant.StopJobCommand}"
+                                Glyph="&#xE71A;"
+                                Kind="Quiet"
+                                Label="Stop" />
+                        </StackPanel>
+                    </controls:StudioDocumentWindow.MenuBarContent>
+                    <controls:StudioDocumentWindow.OptionsContent>
+                        <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    Style="{StaticResource StudioOverline}"
+                                    Text="Speak" />
+                                <ToggleSwitch
+                                    MinWidth="40"
+                                    AutomationProperties.Name="Speak replies"
+                                    IsOn="{x:Bind ViewModel.Assistant.SpeakReplies, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent=""
+                                    svc:StudioHint.Topic="speak" />
+                            </StackPanel>
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Style="{StaticResource StudioCaption}"
+                                Text="{x:Bind ViewModel.Assistant.Mixer.Status, Mode=OneWay}"
+                                TextWrapping="NoWrap"
+                                svc:StudioHint.Topic="session" />
+                        </StackPanel>
+                    </controls:StudioDocumentWindow.OptionsContent>
+                    <Grid ColumnSpacing="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="268" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border
+                            Background="{StaticResource HeirloomBgSurfaceBrush}"
+                            BorderBrush="{StaticResource HeirloomBorderBrush}"
+                            BorderThickness="0,0,1,0">
+                            <Grid Padding="16,14" RowSpacing="10">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Talk" />
+                                <controls:PttButton
+                                    Grid.Row="1"
+                                    HorizontalAlignment="Stretch"
+                                    IsArmed="{x:Bind ViewModel.Assistant.IsRecording, Mode=OneWay}"
+                                    Pressed="AssistPttPressed"
+                                    Released="AssistPttReleased"
+                                    svc:StudioHint.Topic="ptt" />
+                                <StackPanel Grid.Row="2" Spacing="6">
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="Mic level" />
+                                    <ProgressBar
+                                        AutomationProperties.Name="Mic level"
+                                        Maximum="1"
+                                        Style="{StaticResource StudioMeter}"
+                                        Value="{x:Bind ViewModel.Assistant.Level, Mode=OneWay}" />
+                                    <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Hold to speak a job. Assist works on this PC — never as you." />
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="Did" />
+                                </StackPanel>
+                                <ListView
+                                    Grid.Row="3"
+                                    ItemContainerStyle="{StaticResource StudioChatItem}"
+                                    ItemsSource="{x:Bind ViewModel.Assistant.Work}"
+                                    SelectionMode="None"
+                                    Style="{StaticResource StudioPlainList}">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock
+                                                Margin="0,0,0,8"
+                                                Style="{StaticResource StudioMuted}"
+                                                Text="{Binding}"
+                                                TextWrapping="Wrap" />
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </Grid>
+                        </Border>
+                        <Grid Grid.Column="1" Padding="0" RowSpacing="0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <ListView
+                                x:Name="AssistChatList"
+                                ItemTemplate="{StaticResource ChatLineTemplate}"
+                                ItemsSource="{x:Bind ViewModel.Assistant.Lines}"
+                                Style="{StaticResource StudioChatList}" />
+                            <Border
+                                Grid.Row="1"
+                                Margin="16,0,16,8"
+                                Style="{StaticResource StudioPending}"
+                                Visibility="{x:Bind ViewModel.Assistant.PendingVis, Mode=OneWay}">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="Confirm in this document" />
+                                    <TextBlock
+                                        Style="{StaticResource StudioText}"
+                                        Text="{x:Bind ViewModel.Assistant.PendingSummary, Mode=OneWay}"
+                                        TextWrapping="Wrap" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button
+                                            Command="{x:Bind ViewModel.Assistant.ConfirmCommand}"
+                                            Content="Confirm"
+                                            Style="{StaticResource StudioButtonPrimary}" />
+                                        <Button
+                                            Command="{x:Bind ViewModel.Assistant.CancelPendingCommand}"
+                                            Content="Do not run"
+                                            Style="{StaticResource StudioButtonQuiet}" />
+                                        <Button
+                                            Command="{x:Bind ViewModel.Assistant.StopJobCommand}"
+                                            Content="Stop"
+                                            Style="{StaticResource StudioButtonQuiet}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border
+                                Grid.Row="2"
+                                Margin="16,0,16,16"
+                                Style="{StaticResource StudioComposer}">
+                                <Grid RowSpacing="0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+                                    <ProgressBar
+                                        Height="2"
+                                        IsIndeterminate="True"
+                                        Style="{StaticResource StudioMeter}"
+                                        Visibility="{x:Bind ViewModel.Assistant.BusyVis, Mode=OneWay}" />
+                                    <Grid Grid.Row="1" ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox
+                                            PlaceholderText="Open notepad. Find the tax PDF. What’s on screen…"
+                                            Style="{StaticResource StudioComposerField}"
+                                            Text="{x:Bind ViewModel.Assistant.Draft, Mode=TwoWay}" />
+                                        <Button
+                                            Grid.Column="1"
+                                            MinHeight="36"
+                                            VerticalAlignment="Center"
+                                            Command="{x:Bind ViewModel.Assistant.SendCommand}"
+                                            Content="Do"
+                                            Style="{StaticResource StudioButtonPrimary}"
+                                            svc:StudioHint.Topic="ask" />
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </controls:StudioDocumentWindow>
+
+                <controls:StudioDocumentWindow
                     x:Name="TwinDoc"
                     Width="920"
                     Height="600"
-                    Canvas.Left="28"
-                    Canvas.Top="18"
+                    Canvas.Left="56"
+                    Canvas.Top="46"
                     Activated="OnDocActivated"
                     CloseRequested="OnDocClose"
                     DocumentId="twin"
@@ -137,6 +406,11 @@
                                 Glyph="&#xE710;"
                                 Label="New" />
                             <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Twin.StopJobCommand}"
+                                Glyph="&#xE71A;"
+                                Kind="Quiet"
+                                Label="Stop" />
+                            <controls:StudioActionButton
                                 AssetId="action-archive"
                                 Click="OnMenuOpen"
                                 Glyph="&#xE8F1;"
@@ -148,88 +422,213 @@
                                 Glyph="&#xE7A7;"
                                 Kind="Quiet"
                                 Label="Undo file" />
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Twin.FileSittingCommand}"
+                                Glyph="&#xE8A5;"
+                                IsEnabled="{x:Bind ViewModel.Twin.CanEdit, Mode=OneWay}"
+                                Label="File this sitting" />
                         </StackPanel>
                     </controls:StudioDocumentWindow.MenuBarContent>
                     <controls:StudioDocumentWindow.OptionsContent>
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <ComboBox
-                                Width="140"
-                                Header="Persona"
-                                ItemsSource="{x:Bind ViewModel.Twin.Personas}"
-                                SelectedItem="{x:Bind ViewModel.Twin.Persona, Mode=TwoWay}"
-                                svc:StudioHint.Topic="persona" />
-                            <ToggleSwitch Header="Grounded only" IsOn="{x:Bind ViewModel.Twin.GroundedOnly, Mode=TwoWay}" OffContent="May infer" OnContent="Vault only" svc:StudioHint.Topic="grounded" />
-                            <ToggleSwitch Header="Speak replies" IsOn="{x:Bind ViewModel.Twin.SpeakReplies, Mode=TwoWay}" svc:StudioHint.Topic="speak" />
+                        <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    Style="{StaticResource StudioOverline}"
+                                    Text="Persona" />
+                                <ComboBox
+                                    Width="120"
+                                    MinHeight="32"
+                                    ItemsSource="{x:Bind ViewModel.Twin.Personas}"
+                                    SelectedItem="{x:Bind ViewModel.Twin.Persona, Mode=TwoWay}"
+                                    svc:StudioHint.Topic="persona" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    Style="{StaticResource StudioOverline}"
+                                    Text="Grounded" />
+                                <ToggleSwitch
+                                    MinWidth="40"
+                                    AutomationProperties.Name="Grounded only"
+                                    IsEnabled="{x:Bind ViewModel.Twin.CanEdit, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.Twin.GroundedOnly, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent=""
+                                    svc:StudioHint.Topic="grounded" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    Style="{StaticResource StudioOverline}"
+                                    Text="Speak" />
+                                <ToggleSwitch
+                                    MinWidth="40"
+                                    AutomationProperties.Name="Speak replies"
+                                    IsOn="{x:Bind ViewModel.Twin.SpeakReplies, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent=""
+                                    svc:StudioHint.Topic="speak" />
+                            </StackPanel>
                             <TextBlock
-                                VerticalAlignment="Bottom"
+                                VerticalAlignment="Center"
                                 Style="{StaticResource StudioCaption}"
                                 Text="{x:Bind ViewModel.Twin.Mixer.Status, Mode=OneWay}"
-                                TextWrapping="Wrap"
+                                TextWrapping="NoWrap"
                                 svc:StudioHint.Topic="session" />
                         </StackPanel>
                     </controls:StudioDocumentWindow.OptionsContent>
                     <Grid ColumnSpacing="1">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="280" />
+                            <ColumnDefinition Width="268" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Border
                             Background="{StaticResource HeirloomBgSurfaceBrush}"
                             BorderBrush="{StaticResource HeirloomBorderBrush}"
                             BorderThickness="0,0,1,0">
-                            <StackPanel Padding="12" Spacing="8">
-                                <TextBlock Style="{StaticResource StudioCaption}" Text="PRESENCE" />
+                            <Grid Padding="16,14" RowSpacing="10">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Talk" />
                                 <controls:PttButton
-                                    HorizontalAlignment="Center"
+                                    Grid.Row="1"
+                                    HorizontalAlignment="Stretch"
                                     IsArmed="{x:Bind ViewModel.Twin.IsRecording, Mode=OneWay}"
-                                    Pressed="PttPressed"
-                                    Released="PttReleased"
+                                    Pressed="TwinPttPressed"
+                                    Released="TwinPttReleased"
                                     svc:StudioHint.Topic="ptt" />
+                                <StackPanel Grid.Row="2" Spacing="6">
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="Mic level" />
+                                    <ProgressBar
+                                        AutomationProperties.Name="Mic level"
+                                        Maximum="1"
+                                        Style="{StaticResource StudioMeter}"
+                                        Value="{x:Bind ViewModel.Twin.Level, Mode=OneWay}" />
+                                    <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Hold to ask aloud." />
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="Likeness" />
+                                </StackPanel>
+                                <Border
+                                    Grid.Row="3"
+                                    Height="168"
+                                    Background="{StaticResource HeirloomBgElevatedBrush}"
+                                    BorderBrush="{StaticResource HeirloomBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="3">
+                                    <Grid>
+                                        <MediaPlayerElement
+                                            AreTransportControlsEnabled="False"
+                                            AutoPlay="False"
+                                            Source="{x:Bind ViewModel.Avatar.GeneratedSource, Mode=OneWay}"
+                                            Stretch="Uniform"
+                                            Visibility="{x:Bind ViewModel.Avatar.HasGenerated, Mode=OneWay}" />
+                                        <TextBlock
+                                            Margin="12"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Style="{StaticResource StudioEmpty}"
+                                            Text="Made in Video studio."
+                                            Visibility="{x:Bind ViewModel.Avatar.NeedsLikeness, Mode=OneWay}" />
+                                    </Grid>
+                                </Border>
                                 <TextBlock
-                                    HorizontalAlignment="Center"
+                                    Grid.Row="4"
                                     Style="{StaticResource StudioMuted}"
-                                    Text="{x:Bind ViewModel.Twin.AvatarState, Mode=OneWay}" />
-                                <ProgressBar
-                                    AutomationProperties.Name="Microphone level"
-                                    Foreground="{StaticResource HeirloomGoldBrush}"
-                                    Maximum="1"
-                                    Value="{x:Bind ViewModel.Twin.Level, Mode=OneWay}" />
-                                <TextBlock
-                                    HorizontalAlignment="Center"
-                                    Style="{StaticResource StudioMuted}"
-                                    Text="Mic level" />
-                                <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="If it isn’t in the vault, the twin says it doesn’t remember. That is the product. Hover a button — the right panel names it." />
-                            </StackPanel>
+                                    TextWrapping="Wrap"
+                                    Text="Filed likeness. Ask speaks in Mixer; this take does not lip-sync each answer." />
+                            </Grid>
                         </Border>
-                        <Grid Grid.Column="1" Padding="10" RowSpacing="4">
+                        <Grid Grid.Column="1">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
-                            <ListView ItemsSource="{x:Bind ViewModel.Twin.Lines}">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:ChatLine">
-                                        <TextBlock
-                                            Margin="0,6"
-                                            Style="{StaticResource StudioText}"
-                                            Text="{x:Bind Display}"
-                                            TextWrapping="Wrap" />
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                            <Grid Grid.Row="1" ColumnSpacing="8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBox PlaceholderText="Ask only what they left…" Text="{x:Bind ViewModel.Twin.Draft, Mode=TwoWay}" />
-                                <Button
-                                    Grid.Column="1"
-                                    Command="{x:Bind ViewModel.Twin.SendCommand}"
-                                    Content="Ask"
-                                    Style="{StaticResource StudioButtonPrimary}"
-                                    svc:StudioHint.Topic="ask" />
-                            </Grid>
+                            <ListView
+                                x:Name="TwinChatList"
+                                ItemTemplate="{StaticResource ChatLineTemplate}"
+                                ItemsSource="{x:Bind ViewModel.Twin.Lines}"
+                                Style="{StaticResource StudioChatList}" />
+                            <Border
+                                Grid.Row="1"
+                                Margin="16,0,16,16"
+                                Style="{StaticResource StudioComposer}">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+                                    <ProgressBar
+                                        Height="2"
+                                        IsIndeterminate="True"
+                                        Style="{StaticResource StudioMeter}"
+                                        Visibility="{x:Bind ViewModel.Twin.BusyVis, Mode=OneWay}" />
+                                    <Border
+                                        Grid.Row="1"
+                                        Margin="8,8,8,0"
+                                        Style="{StaticResource StudioPending}"
+                                        Visibility="{x:Bind ViewModel.Twin.PendingVis, Mode=OneWay}">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock Style="{StaticResource StudioOverline}" Text="Confirm in this document" />
+                                            <TextBlock
+                                                Style="{StaticResource StudioText}"
+                                                Text="{x:Bind ViewModel.Twin.PendingSummary, Mode=OneWay}"
+                                                TextWrapping="Wrap" />
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <Button
+                                                    Command="{x:Bind ViewModel.Twin.ConfirmCommand}"
+                                                    Content="Confirm"
+                                                    Style="{StaticResource StudioButtonPrimary}" />
+                                                <Button
+                                                    Command="{x:Bind ViewModel.Twin.CancelPendingCommand}"
+                                                    Content="Do not run"
+                                                    Style="{StaticResource StudioButtonQuiet}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                    <Button
+                                        Grid.Row="2"
+                                        Margin="8,8,8,0"
+                                        HorizontalAlignment="Left"
+                                        Command="{x:Bind ViewModel.Twin.MakeVideoOfLastCommand}"
+                                        Content="Make a video of that"
+                                        Style="{StaticResource StudioButtonSecondary}"
+                                        Visibility="{x:Bind ViewModel.Twin.OfferVideoVis, Mode=OneWay}"
+                                        svc:StudioHint.Topic="make-film" />
+                                    <Grid Grid.Row="3" ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox
+                                            PlaceholderText="Ask only what they left…"
+                                            Style="{StaticResource StudioComposerField}"
+                                            Text="{x:Bind ViewModel.Twin.Draft, Mode=TwoWay}" />
+                                        <Button
+                                            Grid.Column="1"
+                                            MinHeight="36"
+                                            VerticalAlignment="Center"
+                                            Command="{x:Bind ViewModel.Twin.StopJobCommand}"
+                                            Content="Stop"
+                                            Style="{StaticResource StudioButtonQuiet}" />
+                                        <Button
+                                            Grid.Column="2"
+                                            MinHeight="36"
+                                            VerticalAlignment="Center"
+                                            Command="{x:Bind ViewModel.Twin.SendCommand}"
+                                            Content="Ask"
+                                            Style="{StaticResource StudioButtonPrimary}"
+                                            svc:StudioHint.Topic="ask" />
+                                    </Grid>
+                                </Grid>
+                            </Border>
                         </Grid>
                     </Grid>
                 </controls:StudioDocumentWindow>
@@ -267,32 +666,49 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel
-                            Padding="12"
+                            Padding="16,14"
                             Background="{StaticResource HeirloomBgSurfaceBrush}"
-                            Spacing="8">
-                            <TextBlock Style="{StaticResource StudioCaption}" Text="HEIRLOOM SESSION" />
-                            <ComboBox
-                                Width="260"
-                                Header="Microphone"
-                                ItemsSource="{x:Bind ViewModel.Mixer.Inputs}"
-                                SelectedItem="{x:Bind ViewModel.Mixer.SelectedInput, Mode=TwoWay}" />
-                            <ComboBox
-                                Width="260"
-                                Header="Output"
-                                ItemsSource="{x:Bind ViewModel.Mixer.Outputs}"
-                                SelectedItem="{x:Bind ViewModel.Mixer.SelectedOutput, Mode=TwoWay}" />
-                            <TextBlock Style="{StaticResource StudioText}" Text="Session volume" />
-                            <Slider Maximum="100" Value="{x:Bind ViewModel.Mixer.SessionVolume, Mode=TwoWay}" />
-                            <TextBlock Style="{StaticResource StudioText}" Text="Input gain" />
-                            <Slider Maximum="4" Minimum="0.2" StepFrequency="0.05" Value="{x:Bind ViewModel.Mixer.InputGain, Mode=TwoWay}" />
-                            <TextBlock Style="{StaticResource StudioText}" Text="Noise gate" />
-                            <Slider Maximum="0.4" StepFrequency="0.01" Value="{x:Bind ViewModel.Mixer.NoiseGate, Mode=TwoWay}" />
-                            <ToggleSwitch Header="High-pass" IsOn="{x:Bind ViewModel.Mixer.HighPass, Mode=TwoWay}" />
-                            <ToggleSwitch Header="Live listen" IsOn="{x:Bind ViewModel.Mixer.LiveListen, Mode=TwoWay}" />
+                            Spacing="10">
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Session" />
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Microphone" />
+                                <ComboBox
+                                    HorizontalAlignment="Stretch"
+                                    ItemsSource="{x:Bind ViewModel.Mixer.Inputs, Mode=OneWay}"
+                                    SelectedItem="{x:Bind ViewModel.Mixer.SelectedInput, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Output" />
+                                <ComboBox
+                                    HorizontalAlignment="Stretch"
+                                    ItemsSource="{x:Bind ViewModel.Mixer.Outputs, Mode=OneWay}"
+                                    SelectedItem="{x:Bind ViewModel.Mixer.SelectedOutput, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Session volume" />
+                                <Slider Maximum="100" Value="{x:Bind ViewModel.Mixer.SessionVolume, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Input gain" />
+                                <Slider Maximum="4" Minimum="0.2" StepFrequency="0.05" Value="{x:Bind ViewModel.Mixer.InputGain, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Noise gate" />
+                                <Slider Maximum="0.4" StepFrequency="0.01" Value="{x:Bind ViewModel.Mixer.NoiseGate, Mode=TwoWay}" />
+                            </StackPanel>
+                            <Grid MinHeight="32">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="High-pass" />
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind ViewModel.Mixer.HighPass, Mode=TwoWay}" />
+                            </Grid>
+                            <Grid MinHeight="32">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Live listen" />
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind ViewModel.Mixer.LiveListen, Mode=TwoWay}" />
+                            </Grid>
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Padding="16" Spacing="8">
-                            <TextBlock Style="{StaticResource StudioWordmark}" Text="This slider is Heirloom." />
+                        <StackPanel Grid.Column="1" Padding="16,14" Spacing="8">
+                            <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="This slider is Heirloom." />
                             <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Windows Volume Mixer shows a dedicated Heirloom session. Twin set_volume writes here — never the system master." />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Now" />
                             <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Mixer.InputSummary, Mode=OneWay}" />
                             <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Mixer.OutputSummary, Mode=OneWay}" />
                         </StackPanel>
@@ -346,18 +762,22 @@
                                 Label="Network" />
                         </StackPanel>
                     </controls:StudioDocumentWindow.MenuBarContent>
-                    <ScrollViewer Padding="24">
+                    <ScrollViewer Padding="16">
                         <StackPanel Spacing="12">
-                            <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.WhisperStatus, Mode=OneWay}" />
-                            <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.OllamaStatus, Mode=OneWay}" />
-                            <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.VaultStatus, Mode=OneWay}" />
-                            <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Models.MachineRole, Mode=OneWay}" />
-                            <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Models.ComputeTarget, Mode=OneWay}" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Command="{x:Bind ViewModel.Models.ProvisionCommand}" CommandParameter="full" Content="Full" Style="{StaticResource StudioButtonSecondary}" />
-                                <Button Command="{x:Bind ViewModel.Models.ProvisionCommand}" CommandParameter="studio" Content="Studio 50GB+" Style="{StaticResource StudioButtonSecondary}" />
-                                <Button Command="{x:Bind ViewModel.Models.ProvisionCommand}" CommandParameter="dedicated" Content="Dedicated" Style="{StaticResource StudioButtonSecondary}" />
-                            </StackPanel>
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="This computer" />
+                            <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="{x:Bind ViewModel.Models.Guide, Mode=OneWay}" />
+                            <Button
+                                MinHeight="44"
+                                HorizontalAlignment="Left"
+                                Command="{x:Bind ViewModel.Models.GetReadyCommand}"
+                                Content="Get everything ready"
+                                Style="{StaticResource StudioButtonPrimary}" />
+                            <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.WhisperStatus, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.OllamaStatus, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.VaultStatus, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.Progress, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Extra" />
+                            <Button Command="{x:Bind ViewModel.Models.ProvisionCommand}" CommandParameter="dedicated" Content="Dedicated" Style="{StaticResource StudioButtonSecondary}" />
                             <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="50 GB is the serious floor. A dedicated second PC is uncommon and first-class." />
                         </StackPanel>
                     </ScrollViewer>
@@ -386,10 +806,15 @@
                                 Tag="{x:Bind ViewModel.Today.NextActionId, Mode=OneWay}" />
                         </StackPanel>
                     </controls:StudioDocumentWindow.MenuBarContent>
-                    <StackPanel Padding="32" Spacing="12">
+                    <StackPanel Padding="16" Spacing="12">
                         <TextBlock Style="{StaticResource StudioWordmark}" Text="{x:Bind ViewModel.Today.Greeting, Mode=OneWay}" />
                         <TextBlock Style="{StaticResource StudioText}" TextWrapping="Wrap" Text="{x:Bind ViewModel.Today.NextWhy, Mode=OneWay}" />
                         <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="{x:Bind ViewModel.Today.Nudge, Mode=OneWay}" />
+                        <TextBlock Style="{StaticResource StudioOverline}" Text="Recent" />
+                        <ListView
+                            ItemTemplate="{StaticResource ArchiveRowTemplate}"
+                            ItemsSource="{x:Bind ViewModel.Today.Recent}"
+                            Style="{StaticResource StudioPlainList}" />
                     </StackPanel>
                 </controls:StudioDocumentWindow>
 
@@ -433,75 +858,85 @@
                         </StackPanel>
                     </controls:StudioDocumentWindow.MenuBarContent>
                     <controls:StudioDocumentWindow.OptionsContent>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <ComboBox
-                                Width="160"
-                                Header="Kind"
-                                DisplayMemberPath="Label"
-                                ItemsSource="{x:Bind ViewModel.Archive.FilterKinds}"
-                                SelectedItem="{x:Bind ViewModel.Archive.SelectedFilter, Mode=TwoWay}" />
-                            <ComboBox
-                                Width="160"
-                                Header="File as"
-                                DisplayMemberPath="Label"
-                                ItemsSource="{x:Bind ViewModel.Archive.FileKinds}"
-                                SelectedItem="{x:Bind ViewModel.Archive.SelectedFileKind, Mode=TwoWay}" />
+                        <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Kind" />
+                                <ComboBox
+                                    Width="148"
+                                    DisplayMemberPath="Label"
+                                    ItemsSource="{x:Bind ViewModel.Archive.FilterKinds}"
+                                    SelectedItem="{x:Bind ViewModel.Archive.SelectedFilter, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="File as" />
+                                <ComboBox
+                                    Width="148"
+                                    DisplayMemberPath="Label"
+                                    ItemsSource="{x:Bind ViewModel.Archive.FileKinds}"
+                                    SelectedItem="{x:Bind ViewModel.Archive.SelectedFileKind, Mode=TwoWay}" />
+                            </StackPanel>
                         </StackPanel>
                     </controls:StudioDocumentWindow.OptionsContent>
-                    <Grid Padding="16" RowSpacing="10">
+                    <Grid Padding="16" RowSpacing="12">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <StackPanel Spacing="8">
-                            <Grid ColumnSpacing="8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBox PlaceholderText="One true sentence" Text="{x:Bind ViewModel.Archive.Draft, Mode=TwoWay}" />
-                                <controls:StudioActionButton
-                                    Grid.Column="1"
-                                    AssetId="action-file"
-                                    Command="{x:Bind ViewModel.Archive.CaptureCommand}"
-                                    Glyph="&#xE74E;"
-                                    IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}"
-                                    Kind="Primary"
-                                    Label="File" />
-                            </Grid>
-                            <Grid ColumnSpacing="8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBox PlaceholderText="Search or ask" Text="{x:Bind ViewModel.Archive.Query, Mode=TwoWay}" />
-                                <controls:StudioActionButton
-                                    Grid.Column="1"
-                                    AssetId="action-ask"
-                                    Command="{x:Bind ViewModel.Archive.AskArchiveCommand}"
-                                    Glyph="&#xE773;"
-                                    Label="Ask" />
-                            </Grid>
+                            <Border Style="{StaticResource StudioComposer}">
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox
+                                        PlaceholderText="One true sentence"
+                                        Style="{StaticResource StudioComposerField}"
+                                        Text="{x:Bind ViewModel.Archive.Draft, Mode=TwoWay}" />
+                                    <controls:StudioActionButton
+                                        Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        AssetId="action-file"
+                                        Command="{x:Bind ViewModel.Archive.CaptureCommand}"
+                                        Glyph="&#xE74E;"
+                                        IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}"
+                                        Kind="Primary"
+                                        Label="File" />
+                                </Grid>
+                            </Border>
+                            <Border Style="{StaticResource StudioComposer}">
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox
+                                        PlaceholderText="Search or ask"
+                                        Style="{StaticResource StudioComposerField}"
+                                        Text="{x:Bind ViewModel.Archive.Query, Mode=TwoWay}" />
+                                    <controls:StudioActionButton
+                                        Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        AssetId="action-ask"
+                                        Command="{x:Bind ViewModel.Archive.AskArchiveCommand}"
+                                        Glyph="&#xE773;"
+                                        Label="Ask" />
+                                </Grid>
+                            </Border>
                         </StackPanel>
                         <Grid Grid.Row="1">
-                            <ListView ItemsSource="{x:Bind ViewModel.Archive.Entries}">
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:ArchiveEntry">
-                                        <StackPanel Margin="0,8">
-                                            <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind Headline}" />
-                                            <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind Body}" TextWrapping="Wrap" />
-                                            <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind Meta}" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
+                            <ListView
+                                ItemContainerStyle="{StaticResource StudioChatItem}"
+                                ItemTemplate="{StaticResource ArchiveRowTemplate}"
+                                ItemsSource="{x:Bind ViewModel.Archive.Entries}"
+                                SelectionMode="None"
+                                Style="{StaticResource StudioPlainList}" />
                             <TextBlock
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 IsHitTestVisible="False"
-                                Style="{StaticResource StudioMuted}"
-                                Text="{x:Bind ViewModel.Archive.EmptyHint, Mode=OneWay}"
-                                TextWrapping="Wrap" />
+                                Style="{StaticResource StudioEmpty}"
+                                Text="{x:Bind ViewModel.Archive.EmptyHint, Mode=OneWay}" />
                         </Grid>
                     </Grid>
                 </controls:StudioDocumentWindow>
@@ -534,13 +969,16 @@
                                 Tag="twin" />
                         </StackPanel>
                     </controls:StudioDocumentWindow.MenuBarContent>
-                    <Grid Padding="20" RowSpacing="10">
+                    <Grid Padding="16" RowSpacing="10">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <StackPanel Spacing="8">
-                            <ComboBox Header="Tag" ItemsSource="{x:Bind ViewModel.Journal.Tags}" SelectedItem="{x:Bind ViewModel.Journal.Tag, Mode=TwoWay}" Width="200" />
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Tag" />
+                                <ComboBox ItemsSource="{x:Bind ViewModel.Journal.Tags}" SelectedItem="{x:Bind ViewModel.Journal.Tag, Mode=TwoWay}" Width="200" />
+                            </StackPanel>
                             <TextBox AcceptsReturn="True" Height="90" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" PlaceholderText="What was today, really?" Text="{x:Bind ViewModel.Journal.Draft, Mode=TwoWay}" />
                             <controls:StudioActionButton
                                 AssetId="action-file"
@@ -550,16 +988,11 @@
                                 Kind="Primary"
                                 Label="File entry" />
                         </StackPanel>
-                        <ListView Grid.Row="1" ItemsSource="{x:Bind ViewModel.Journal.Entries}">
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ArchiveEntry">
-                                    <StackPanel Margin="0,8">
-                                        <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind Headline}" />
-                                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind Body}" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                        <ListView
+                            Grid.Row="1"
+                            ItemTemplate="{StaticResource ArchiveRowTemplate}"
+                            ItemsSource="{x:Bind ViewModel.Journal.Entries}"
+                            Style="{StaticResource StudioPlainList}" />
                     </Grid>
                 </controls:StudioDocumentWindow>
 
@@ -595,21 +1028,17 @@
                                 Label="Skip" />
                         </StackPanel>
                     </controls:StudioDocumentWindow.MenuBarContent>
-                    <StackPanel Padding="28" Spacing="12">
-                        <TextBlock Style="{StaticResource StudioWordmark}" Text="{x:Bind ViewModel.Interviewer.ChapterTitle, Mode=OneWay}" />
+                    <StackPanel Padding="16" Spacing="12">
+                        <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="{x:Bind ViewModel.Interviewer.ChapterTitle, Mode=OneWay}" />
                         <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="{x:Bind ViewModel.Interviewer.Prompt, Mode=OneWay}" />
                         <TextBox AcceptsReturn="True" Height="120" PlaceholderText="Answer as you would to someone who will still need you." Text="{x:Bind ViewModel.Interviewer.Answer, Mode=TwoWay}" />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <controls:StudioActionButton
-                                AssetId="action-file"
-                                Command="{x:Bind ViewModel.Interviewer.FileAnswerCommand}"
-                                Glyph="&#xE74E;"
-                                IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}"
-                                Kind="Primary"
-                                Label="File answer" />
-                            <Button Command="{x:Bind ViewModel.Interviewer.SkipCommand}" Content="Skip" Style="{StaticResource StudioButtonQuiet}" />
-                            <Button Command="{x:Bind ViewModel.Interviewer.NextChapterCommand}" Content="Next chapter" Style="{StaticResource StudioButtonSecondary}" />
-                        </StackPanel>
+                        <controls:StudioActionButton
+                            AssetId="action-file"
+                            Command="{x:Bind ViewModel.Interviewer.FileAnswerCommand}"
+                            Glyph="&#xE74E;"
+                            IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}"
+                            Kind="Primary"
+                            Label="File answer" />
                     </StackPanel>
                 </controls:StudioDocumentWindow>
 
@@ -628,6 +1057,13 @@
                     <controls:StudioDocumentWindow.MenuBarContent>
                         <StackPanel Padding="6,4" Orientation="Horizontal" Spacing="1">
                             <controls:StudioActionButton
+                                AssetId="action-import"
+                                Command="{x:Bind ViewModel.Photos.FilePhotoCommand}"
+                                Glyph="&#xE8B9;"
+                                Kind="Primary"
+                                Label="File photo"
+                                svc:StudioHint.Topic="photos" />
+                            <controls:StudioActionButton
                                 AssetId="action-next"
                                 Command="{x:Bind ViewModel.Photos.NextQuestionCommand}"
                                 Glyph="&#xE76C;"
@@ -640,14 +1076,26 @@
                                 Tag="import" />
                         </StackPanel>
                     </controls:StudioDocumentWindow.MenuBarContent>
-                    <Grid Padding="20" RowSpacing="10">
+                    <Grid Padding="16" RowSpacing="10">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <StackPanel Spacing="8">
-                            <TextBox Header="Who" PlaceholderText="Names" Text="{x:Bind ViewModel.Photos.Who, Mode=TwoWay}" />
-                            <TextBox Header="When" PlaceholderText="Year, season, the day" Text="{x:Bind ViewModel.Photos.When, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Photos.PhotoLine, Mode=OneWay}" />
+                            <Image
+                                MaxHeight="140"
+                                Source="{x:Bind ViewModel.Photos.PhotoImage, Mode=OneWay}"
+                                Stretch="Uniform"
+                                Visibility="{x:Bind ViewModel.Photos.HasPhoto, Mode=OneWay}" />
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Who" />
+                                <TextBox PlaceholderText="Names" Text="{x:Bind ViewModel.Photos.Who, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="When" />
+                                <TextBox PlaceholderText="Year, season, the day" Text="{x:Bind ViewModel.Photos.When, Mode=TwoWay}" />
+                            </StackPanel>
                             <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Photos.Question, Mode=OneWay}" TextWrapping="Wrap" />
                             <TextBox AcceptsReturn="True" Height="80" PlaceholderText="What is true in this picture?" Text="{x:Bind ViewModel.Photos.Caption, Mode=TwoWay}" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -656,18 +1104,15 @@
                                     Command="{x:Bind ViewModel.Photos.FileStoryCommand}"
                                     Glyph="&#xE74E;"
                                     IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}"
-                                    Kind="Primary"
                                     Label="File story" />
                                 <Button Command="{x:Bind ViewModel.Photos.NextQuestionCommand}" Content="Next question" Style="{StaticResource StudioButtonQuiet}" />
                             </StackPanel>
                         </StackPanel>
-                        <ListView Grid.Row="1" ItemsSource="{x:Bind ViewModel.Photos.Stories}">
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ArchiveEntry">
-                                    <TextBlock Margin="0,8" Style="{StaticResource StudioText}" Text="{x:Bind Headline}" />
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                        <ListView
+                            Grid.Row="1"
+                            ItemTemplate="{StaticResource ArchiveRowTemplate}"
+                            ItemsSource="{x:Bind ViewModel.Photos.Stories}"
+                            Style="{StaticResource StudioPlainList}" />
                     </Grid>
                 </controls:StudioDocumentWindow>
 
@@ -690,6 +1135,18 @@
                                 Glyph="&#xE72C;"
                                 Label="Refresh" />
                             <controls:StudioActionButton
+                                AssetId="action-folder"
+                                Command="{x:Bind ViewModel.Library.ChangeFolderCommand}"
+                                Glyph="&#xE8B7;"
+                                Kind="Primary"
+                                Label="Change folder"
+                                svc:StudioHint.Topic="library" />
+                            <controls:StudioActionButton
+                                AssetId="action-folder"
+                                Command="{x:Bind ViewModel.Library.OpenFolderCommand}"
+                                Glyph="&#xE8A7;"
+                                Label="Open folder" />
+                            <controls:StudioActionButton
                                 AssetId="action-archive"
                                 Click="OnMenuOpen"
                                 Glyph="&#xE8F1;"
@@ -698,22 +1155,17 @@
                                 Tag="archive" />
                         </StackPanel>
                     </controls:StudioDocumentWindow.MenuBarContent>
-                    <Grid Padding="20" RowSpacing="8">
+                    <Grid Padding="16" RowSpacing="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Library.Path, Mode=OneWay}" TextWrapping="Wrap" />
-                        <ListView Grid.Row="1" ItemsSource="{x:Bind ViewModel.Library.Items}">
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ArchiveEntry">
-                                    <StackPanel Margin="0,8">
-                                        <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind Headline}" />
-                                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind Body}" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                        <ListView
+                            Grid.Row="1"
+                            ItemTemplate="{StaticResource ArchiveRowTemplate}"
+                            ItemsSource="{x:Bind ViewModel.Library.Items}"
+                            Style="{StaticResource StudioPlainList}" />
                     </Grid>
                 </controls:StudioDocumentWindow>
 
@@ -736,17 +1188,30 @@
                                 Command="{x:Bind ViewModel.Skills.ReloadCommand}"
                                 Glyph="&#xE72C;"
                                 Label="Refresh" />
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Skills.FireSelectedCommand}"
+                                Glyph="&#xE768;"
+                                Label="Fire" />
                         </StackPanel>
                     </controls:StudioDocumentWindow.MenuBarContent>
-                    <Grid Padding="20" RowSpacing="8">
+                    <Grid Padding="16" RowSpacing="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <StackPanel Spacing="8">
-                            <TextBox Header="Name" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Text="{x:Bind ViewModel.Skills.Name, Mode=TwoWay}" />
-                            <TextBox Header="Webhook URL" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Text="{x:Bind ViewModel.Skills.Url, Mode=TwoWay}" />
-                            <TextBox Header="Triggers" PlaceholderText="porch light, goodnight" Text="{x:Bind ViewModel.Skills.Triggers, Mode=TwoWay}" />
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Name" />
+                                <TextBox IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Text="{x:Bind ViewModel.Skills.Name, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Webhook URL" />
+                                <TextBox IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Text="{x:Bind ViewModel.Skills.Url, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Triggers" />
+                                <TextBox PlaceholderText="porch light, goodnight" Text="{x:Bind ViewModel.Skills.Triggers, Mode=TwoWay}" />
+                            </StackPanel>
                             <controls:StudioActionButton
                                 AssetId="action-add"
                                 Command="{x:Bind ViewModel.Skills.AddCommand}"
@@ -755,17 +1220,211 @@
                                 Kind="Primary"
                                 Label="Add skill" />
                         </StackPanel>
-                        <ListView Grid.Row="1" ItemsSource="{x:Bind ViewModel.Skills.Items}">
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ArchiveEntry">
-                                    <StackPanel Margin="0,8">
-                                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind Title}" />
-                                        <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind Body}" />
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                        <ListView
+                            Grid.Row="1"
+                            ItemTemplate="{StaticResource ArchiveRowTemplate}"
+                            ItemsSource="{x:Bind ViewModel.Skills.Items}"
+                            SelectedItem="{x:Bind ViewModel.Skills.Selected, Mode=TwoWay}"
+                            Style="{StaticResource StudioPlainList}" />
                     </Grid>
+                </controls:StudioDocumentWindow>
+
+                <controls:StudioDocumentWindow
+                    Width="560"
+                    Height="640"
+                    Canvas.Left="108"
+                    Canvas.Top="28"
+                    Activated="OnDocActivated"
+                    CloseRequested="OnDocClose"
+                    DocumentId="phone"
+                    StatusText="{x:Bind ViewModel.Phone.Status, Mode=OneWay}"
+                    SubtitleText="Family line"
+                    TitleText="Phone"
+                    Visibility="Collapsed">
+                    <controls:StudioDocumentWindow.MenuBarContent>
+                        <StackPanel Padding="6,4" Orientation="Horizontal" Spacing="1">
+                            <controls:StudioActionButton
+                                AssetId="action-refresh"
+                                Command="{x:Bind ViewModel.Phone.ReloadCommand}"
+                                Glyph="&#xE72C;"
+                                Label="Refresh" />
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Phone.GetLineCommand}"
+                                Glyph="&#xE717;"
+                                Kind="Primary"
+                                Label="Get a line"
+                                Visibility="{x:Bind ViewModel.Phone.GetLineVis, Mode=OneWay}" />
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Phone.ReleaseLineCommand}"
+                                Glyph="&#xE74D;"
+                                Label="Release line"
+                                Visibility="{x:Bind ViewModel.Phone.ReleaseVis, Mode=OneWay}" />
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Phone.SaveCommand}"
+                                Glyph="&#xE74E;"
+                                IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                Label="Save" />
+                        </StackPanel>
+                    </controls:StudioDocumentWindow.MenuBarContent>
+                    <ScrollViewer Padding="16">
+                        <StackPanel Spacing="10">
+                            <ProgressBar
+                                Height="2"
+                                IsIndeterminate="True"
+                                Style="{StaticResource StudioMeter}"
+                                Visibility="{x:Bind ViewModel.Phone.BusyVis, Mode=OneWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Number" />
+                            <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Phone.NumberLine, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Phone.VoiceLine, Mode=OneWay}" TextWrapping="Wrap" />
+                            <Grid MinHeight="32">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Answering" />
+                                <ToggleSwitch
+                                    HorizontalAlignment="Right"
+                                    IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.Phone.Answering, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent="" />
+                            </Grid>
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Who may call" />
+                            <ComboBox
+                                Width="240"
+                                IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                ItemsSource="{x:Bind ViewModel.Phone.WhoChoices}"
+                                SelectedItem="{x:Bind ViewModel.Phone.WhoChoice, Mode=TwoWay}" />
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox
+                                    IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                    PlaceholderText="Name"
+                                    Text="{x:Bind ViewModel.Phone.NewName, Mode=TwoWay}" />
+                                <TextBox
+                                    Grid.Column="1"
+                                    IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                    PlaceholderText="+1…"
+                                    Text="{x:Bind ViewModel.Phone.NewE164, Mode=TwoWay}" />
+                                <Button
+                                    Grid.Column="2"
+                                    Command="{x:Bind ViewModel.Phone.AddAllowCommand}"
+                                    Content="Add"
+                                    IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                    Style="{StaticResource StudioButtonSecondary}" />
+                            </Grid>
+                            <ListView
+                                Height="120"
+                                ItemTemplate="{StaticResource ArchiveRowTemplate}"
+                                ItemsSource="{x:Bind ViewModel.Phone.Allowlist}"
+                                SelectedItem="{x:Bind ViewModel.Phone.SelectedAllow, Mode=TwoWay}"
+                                Style="{StaticResource StudioPlainList}" />
+                            <Button
+                                Command="{x:Bind ViewModel.Phone.RemoveAllowCommand}"
+                                Content="Remove from Who may call"
+                                IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                Style="{StaticResource StudioButtonQuiet}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Unknown callers" />
+                            <ComboBox
+                                Width="240"
+                                IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                ItemsSource="{x:Bind ViewModel.Phone.UnknownChoices}"
+                                SelectedItem="{x:Bind ViewModel.Phone.UnknownChoice, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Your cell" />
+                            <TextBox
+                                IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                PlaceholderText="+1…"
+                                Text="{x:Bind ViewModel.Phone.OwnerE164, Mode=TwoWay}" />
+                            <Grid MinHeight="32">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Hours (Reach me only)" />
+                                <ToggleSwitch
+                                    HorizontalAlignment="Right"
+                                    IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.Phone.HoursEnabled, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent="" />
+                            </Grid>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox
+                                    IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                    ItemsSource="{x:Bind ViewModel.Phone.HoursSpans}"
+                                    SelectedItem="{x:Bind ViewModel.Phone.HoursSpan, Mode=TwoWay}" />
+                                <TextBox
+                                    Grid.Column="1"
+                                    Width="72"
+                                    IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                    PlaceholderText="09:00"
+                                    Text="{x:Bind ViewModel.Phone.HoursStart, Mode=TwoWay}" />
+                                <TextBox
+                                    Grid.Column="2"
+                                    Width="72"
+                                    IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                    PlaceholderText="17:00"
+                                    Text="{x:Bind ViewModel.Phone.HoursEnd, Mode=TwoWay}" />
+                            </Grid>
+                            <TextBox
+                                IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                PlaceholderText="America/Los_Angeles"
+                                Text="{x:Bind ViewModel.Phone.Timezone, Mode=TwoWay}" />
+                            <Grid MinHeight="32">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Reach me" />
+                                <ToggleSwitch
+                                    HorizontalAlignment="Right"
+                                    IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.Phone.HandoffEnabled, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent="" />
+                            </Grid>
+                            <TextBox
+                                IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                PlaceholderText="Number to transfer to"
+                                Text="{x:Bind ViewModel.Phone.HandoffE164, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Say this is the Twin" />
+                            <ComboBox
+                                Width="240"
+                                IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                ItemsSource="{x:Bind ViewModel.Phone.DisclosureChoices}"
+                                SelectedItem="{x:Bind ViewModel.Phone.DisclosureChoice, Mode=TwoWay}" />
+                            <Grid MinHeight="32">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Keep a recording" />
+                                <ToggleSwitch
+                                    HorizontalAlignment="Right"
+                                    IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.Phone.Record, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent="" />
+                            </Grid>
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Place a call" />
+                            <ComboBox
+                                DisplayMemberPath="Headline"
+                                IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                ItemsSource="{x:Bind ViewModel.Phone.Allowlist}"
+                                PlaceholderText="Someone on Who may call"
+                                SelectedItem="{x:Bind ViewModel.Phone.SelectedAllow, Mode=TwoWay}" />
+                            <Button
+                                Command="{x:Bind ViewModel.Phone.PlaceCallCommand}"
+                                Content="Place a call"
+                                IsEnabled="{x:Bind ViewModel.Phone.CanEdit, Mode=OneWay}"
+                                Style="{StaticResource StudioButtonPrimary}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Call log" />
+                            <ListView
+                                Height="160"
+                                ItemTemplate="{StaticResource ArchiveRowTemplate}"
+                                ItemsSource="{x:Bind ViewModel.Phone.Calls}"
+                                SelectedItem="{x:Bind ViewModel.Phone.SelectedCall, Mode=TwoWay}"
+                                Style="{StaticResource StudioPlainList}" />
+                            <TextBlock
+                                Style="{StaticResource StudioMuted}"
+                                Text="{x:Bind ViewModel.Phone.Transcript, Mode=OneWay}"
+                                TextWrapping="Wrap"
+                                Visibility="{x:Bind ViewModel.Phone.TranscriptVis, Mode=OneWay}" />
+                        </StackPanel>
+                    </ScrollViewer>
                 </controls:StudioDocumentWindow>
 
                 <controls:StudioDocumentWindow
@@ -779,13 +1438,28 @@
                     StatusText="{x:Bind ViewModel.Import.Status, Mode=OneWay}"
                     TitleText="Import"
                     Visibility="Collapsed">
+                    <controls:StudioDocumentWindow.MenuBarContent>
+                        <StackPanel Padding="6,4" Orientation="Horizontal" Spacing="1">
+                            <controls:StudioActionButton
+                                AssetId="action-folder"
+                                Command="{x:Bind ViewModel.Import.FileFromDiskCommand}"
+                                Glyph="&#xE8B7;"
+                                Label="File from disk" />
+                        </StackPanel>
+                    </controls:StudioDocumentWindow.MenuBarContent>
                     <controls:StudioDocumentWindow.OptionsContent>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <ComboBox Width="140" Header="Kind" ItemsSource="{x:Bind ViewModel.Import.Kinds}" SelectedItem="{x:Bind ViewModel.Import.Kind, Mode=TwoWay}" />
-                            <TextBox Width="180" Header="Source" Text="{x:Bind ViewModel.Import.SourceLabel, Mode=TwoWay}" />
+                        <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Kind" />
+                                <ComboBox Width="140" ItemsSource="{x:Bind ViewModel.Import.Kinds}" SelectedItem="{x:Bind ViewModel.Import.Kind, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Source" />
+                                <TextBox Width="180" Text="{x:Bind ViewModel.Import.SourceLabel, Mode=TwoWay}" />
+                            </StackPanel>
                         </StackPanel>
                     </controls:StudioDocumentWindow.OptionsContent>
-                    <StackPanel Padding="24" Spacing="10">
+                    <StackPanel Padding="16" Spacing="10">
                         <TextBox AcceptsReturn="True" Height="200" PlaceholderText="Paste messages, letters, a life…" Text="{x:Bind ViewModel.Import.Draft, Mode=TwoWay}" />
                         <controls:StudioActionButton
                             AssetId="action-file"
@@ -808,12 +1482,25 @@
                     StatusText="{x:Bind ViewModel.Sources.Status, Mode=OneWay}"
                     TitleText="Sources"
                     Visibility="Collapsed">
-                    <StackPanel Padding="28" Spacing="10">
-                        <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="What the twin is allowed to learn from. Local vault is always on this PC." />
-                        <ToggleSwitch Header="Files" IsOn="{x:Bind ViewModel.Sources.AllowFiles, Mode=TwoWay}" />
-                        <ToggleSwitch Header="Photos" IsOn="{x:Bind ViewModel.Sources.AllowPhotos, Mode=TwoWay}" />
-                        <ToggleSwitch Header="Mail" IsOn="{x:Bind ViewModel.Sources.AllowMail, Mode=TwoWay}" />
-                        <ToggleSwitch Header="Messages" IsOn="{x:Bind ViewModel.Sources.AllowMessages, Mode=TwoWay}" />
+                    <StackPanel Padding="16" Spacing="10">
+                        <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="What the twin is allowed to learn from. Local vault is always on this PC. Toggles file immediately." />
+                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Sources.Policy, Mode=OneWay}" TextWrapping="Wrap" />
+                        <Grid MinHeight="32">
+                            <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Files" />
+                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind ViewModel.Sources.AllowFiles, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid MinHeight="32">
+                            <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Photos" />
+                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind ViewModel.Sources.AllowPhotos, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid MinHeight="32">
+                            <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Mail" />
+                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind ViewModel.Sources.AllowMail, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid MinHeight="32">
+                            <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Messages" />
+                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind ViewModel.Sources.AllowMessages, Mode=TwoWay}" />
+                        </Grid>
                     </StackPanel>
                 </controls:StudioDocumentWindow>
 
@@ -843,32 +1530,32 @@
                                 Label="Export vault" />
                         </StackPanel>
                     </controls:StudioDocumentWindow.MenuBarContent>
-                    <Grid Padding="20" RowSpacing="10">
+                    <Grid Padding="16" RowSpacing="10">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <StackPanel Spacing="8">
-                            <TextBox Header="Name" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Text="{x:Bind ViewModel.Heirs.HeirName, Mode=TwoWay}" />
-                            <TextBox Header="Relation" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" PlaceholderText="child, spouse, executor" Text="{x:Bind ViewModel.Heirs.HeirRelation, Mode=TwoWay}" />
-                            <ToggleSwitch Header="They consented to receive this" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" IsOn="{x:Bind ViewModel.Heirs.HeirConsent, Mode=TwoWay}" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Command="{x:Bind ViewModel.Heirs.AddHeirCommand}" Content="Add heir" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Style="{StaticResource StudioButtonPrimary}" />
-                                <Button Command="{x:Bind ViewModel.Heirs.ToggleHeirModeCommand}" Content="Heir mode" Style="{StaticResource StudioButtonSecondary}" />
-                                <Button Command="{x:Bind ViewModel.Heirs.ExportCommand}" Content="Export" Style="{StaticResource StudioButtonQuiet}" />
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Name" />
+                                <TextBox IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Text="{x:Bind ViewModel.Heirs.HeirName, Mode=TwoWay}" />
                             </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Relation" />
+                                <TextBox IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" PlaceholderText="child, spouse, executor" Text="{x:Bind ViewModel.Heirs.HeirRelation, Mode=TwoWay}" />
+                            </StackPanel>
+                            <Grid MinHeight="32">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="They consented" />
+                                <ToggleSwitch HorizontalAlignment="Right" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" IsOn="{x:Bind ViewModel.Heirs.HeirConsent, Mode=TwoWay}" />
+                            </Grid>
+                            <Button Command="{x:Bind ViewModel.Heirs.AddHeirCommand}" Content="Add heir" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Style="{StaticResource StudioButtonPrimary}" />
                             <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Heirs.ExportPath, Mode=OneWay}" TextWrapping="Wrap" />
                         </StackPanel>
-                        <ListView Grid.Row="1" ItemsSource="{x:Bind ViewModel.Heirs.Heirs}">
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ArchiveEntry">
-                                    <StackPanel Margin="0,8">
-                                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind Title}" />
-                                        <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind Meta}" />
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                        <ListView
+                            Grid.Row="1"
+                            ItemTemplate="{StaticResource ArchiveRowTemplate}"
+                            ItemsSource="{x:Bind ViewModel.Heirs.Heirs}"
+                            Style="{StaticResource StudioPlainList}" />
                     </Grid>
                 </controls:StudioDocumentWindow>
 
@@ -884,39 +1571,42 @@
                     TitleText="Letters"
                     Visibility="Collapsed">
                     <controls:StudioDocumentWindow.OptionsContent>
-                        <ComboBox
-                            Width="200"
-                            Header="Trigger"
-                            ItemsSource="{x:Bind ViewModel.Heirs.Triggers}"
-                            SelectedItem="{x:Bind ViewModel.Heirs.LetterTrigger, Mode=TwoWay}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Trigger" />
+                            <ComboBox
+                                Width="200"
+                                ItemsSource="{x:Bind ViewModel.Heirs.Triggers}"
+                                SelectedItem="{x:Bind ViewModel.Heirs.LetterTrigger, Mode=TwoWay}" />
+                        </StackPanel>
                     </controls:StudioDocumentWindow.OptionsContent>
-                    <Grid Padding="20" RowSpacing="8">
+                    <Grid Padding="16" RowSpacing="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <StackPanel Spacing="8">
-                            <TextBox Header="Title" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Text="{x:Bind ViewModel.Heirs.LetterTitle, Mode=TwoWay}" />
-                            <TextBox Header="For" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" PlaceholderText="Who this is for" Text="{x:Bind ViewModel.Heirs.LetterFor, Mode=TwoWay}" />
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Title" />
+                                <TextBox IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Text="{x:Bind ViewModel.Heirs.LetterTitle, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="For" />
+                                <TextBox IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" PlaceholderText="Who this is for" Text="{x:Bind ViewModel.Heirs.LetterFor, Mode=TwoWay}" />
+                            </StackPanel>
                             <TextBox AcceptsReturn="True" Height="90" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" PlaceholderText="For after I'm gone…" Text="{x:Bind ViewModel.Heirs.LetterBody, Mode=TwoWay}" />
                             <Button Command="{x:Bind ViewModel.Heirs.AddLetterCommand}" Content="Seal letter" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Style="{StaticResource StudioButtonPrimary}" />
                         </StackPanel>
-                        <ListView Grid.Row="1" ItemsSource="{x:Bind ViewModel.Heirs.Letters}">
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ArchiveEntry">
-                                    <StackPanel Margin="0,8">
-                                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind Title}" />
-                                        <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind Meta}" />
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
+                        <ListView
+                            Grid.Row="1"
+                            ItemTemplate="{StaticResource ArchiveRowTemplate}"
+                            ItemsSource="{x:Bind ViewModel.Heirs.Letters}"
+                            Style="{StaticResource StudioPlainList}" />
                     </Grid>
                 </controls:StudioDocumentWindow>
 
                 <controls:StudioDocumentWindow
                     Width="560"
-                    Height="420"
+                    Height="560"
                     Canvas.Left="120"
                     Canvas.Top="70"
                     Activated="OnDocActivated"
@@ -925,11 +1615,32 @@
                     StatusText="{x:Bind ViewModel.Personality.Status, Mode=OneWay}"
                     TitleText="Portrait"
                     Visibility="Collapsed">
-                    <StackPanel Padding="24" Spacing="10">
-                        <ComboBox Header="How they should sound" ItemsSource="{x:Bind ViewModel.Twin.Personas}" SelectedItem="{x:Bind ViewModel.Personality.Persona, Mode=TwoWay}" Width="200" />
-                        <TextBox AcceptsReturn="True" Height="90" Header="How they were" Text="{x:Bind ViewModel.Personality.Notes, Mode=TwoWay}" />
-                        <TextBox AcceptsReturn="True" Height="90" Header="What they refused to pretend" Text="{x:Bind ViewModel.Personality.Values, Mode=TwoWay}" />
+                    <StackPanel Padding="16" Spacing="10">
+                        <StackPanel Spacing="4">
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="How they should sound" />
+                            <ComboBox IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" ItemsSource="{x:Bind ViewModel.Twin.Personas}" SelectedItem="{x:Bind ViewModel.Personality.Persona, Mode=TwoWay}" Width="200" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="How they were" />
+                            <TextBox AcceptsReturn="True" Height="90" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Text="{x:Bind ViewModel.Personality.Notes, Mode=TwoWay}" />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="What they refused to pretend" />
+                            <TextBox AcceptsReturn="True" Height="90" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Text="{x:Bind ViewModel.Personality.Values, Mode=TwoWay}" />
+                        </StackPanel>
                         <Button Command="{x:Bind ViewModel.Personality.SaveCommand}" Content="File portrait" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Style="{StaticResource StudioButtonPrimary}" />
+                        <TextBlock Style="{StaticResource StudioOverline}" Text="Fact index" />
+                        <TextBlock Style="{StaticResource StudioMuted}" Text="Each row points at a capture." />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Command="{x:Bind ViewModel.Personality.RebuildFactsCommand}" Content="Rebuild from vault" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Style="{StaticResource StudioButtonSecondary}" />
+                            <Button Command="{x:Bind ViewModel.Personality.DeleteSelectedFactCommand}" Content="Delete selected" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Style="{StaticResource StudioButtonSecondary}" />
+                        </StackPanel>
+                        <ListView
+                            Height="140"
+                            ItemTemplate="{StaticResource ArchiveRowTemplate}"
+                            ItemsSource="{x:Bind ViewModel.Personality.Facts, Mode=OneWay}"
+                            SelectedItem="{x:Bind ViewModel.Personality.SelectedFact, Mode=TwoWay}"
+                            Style="{StaticResource StudioPlainList}" />
                     </StackPanel>
                 </controls:StudioDocumentWindow>
 
@@ -944,30 +1655,287 @@
                     StatusText="{x:Bind ViewModel.Abilities.Status, Mode=OneWay}"
                     TitleText="Abilities"
                     Visibility="Collapsed">
-                    <StackPanel Padding="24" Spacing="10">
-                        <ToggleSwitch Header="Talk (cloned voice / SAPI)" IsOn="{x:Bind ViewModel.Abilities.AllowSpeak, Mode=TwoWay}" />
-                        <ToggleSwitch Header="Use this PC" IsOn="{x:Bind ViewModel.Abilities.AllowPc, Mode=TwoWay}" />
-                        <ToggleSwitch Header="See the screen (coach / observe)" IsOn="{x:Bind ViewModel.Abilities.AllowSee, Mode=TwoWay}" />
-                        <Button Command="{x:Bind ViewModel.Abilities.SaveCommand}" Content="Save permissions" Style="{StaticResource StudioButtonPrimary}" />
+                    <StackPanel Padding="16" Spacing="10">
+                        <Grid MinHeight="32">
+                            <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Talk" />
+                            <ToggleSwitch HorizontalAlignment="Right" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" IsOn="{x:Bind ViewModel.Abilities.AllowSpeak, Mode=TwoWay}" />
+                        </Grid>
+                        <TextBlock Style="{StaticResource StudioMuted}" Text="Cloned voice / SAPI" />
+                        <Grid MinHeight="32">
+                            <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Use this PC" />
+                            <ToggleSwitch HorizontalAlignment="Right" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" IsOn="{x:Bind ViewModel.Abilities.AllowPc, Mode=TwoWay}" />
+                        </Grid>
+                        <Grid MinHeight="32">
+                            <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="See the screen" />
+                            <ToggleSwitch HorizontalAlignment="Right" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" IsOn="{x:Bind ViewModel.Abilities.AllowSee, Mode=TwoWay}" />
+                        </Grid>
+                        <TextBlock Style="{StaticResource StudioMuted}" Text="Coach / observe" />
+                        <Button Command="{x:Bind ViewModel.Abilities.SaveCommand}" Content="Save permissions" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Style="{StaticResource StudioButtonPrimary}" />
                     </StackPanel>
                 </controls:StudioDocumentWindow>
 
                 <controls:StudioDocumentWindow
-                    Width="520"
-                    Height="360"
+                    Width="960"
+                    Height="740"
                     Canvas.Left="180"
-                    Canvas.Top="100"
+                    Canvas.Top="40"
                     Activated="OnDocActivated"
                     CloseRequested="OnDocClose"
                     DocumentId="avatar"
                     StatusText="{x:Bind ViewModel.Avatar.Status, Mode=OneWay}"
-                    TitleText="Avatar"
+                    SubtitleText="Talking likeness, photographs, then a film the family can keep"
+                    TitleText="Video studio"
                     Visibility="Collapsed">
-                    <StackPanel Padding="24" Spacing="12">
-                        <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Presence is the PTT. Breathing when armed. No cheap cartoon face." />
-                        <ComboBox Header="Presence" ItemsSource="{x:Bind ViewModel.Avatar.Presences}" SelectedItem="{x:Bind ViewModel.Avatar.Presence, Mode=TwoWay}" Width="200" />
-                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Twin.AvatarState, Mode=OneWay}" />
-                    </StackPanel>
+                    <controls:StudioDocumentWindow.MenuBarContent>
+                        <StackPanel Padding="6,4" Orientation="Horizontal" Spacing="1">
+                            <controls:StudioActionButton
+                                AssetId="action-avatar"
+                                Command="{x:Bind ViewModel.Avatar.FilePhotosCommand, Mode=OneWay}"
+                                Glyph="&#xE8B9;"
+                                Kind="Primary"
+                                Label="Add photos of you"
+                                svc:StudioHint.Topic="likeness" />
+                            <controls:StudioActionButton
+                                AssetId="speak-sitting"
+                                Command="{x:Bind ViewModel.Avatar.GenerateCommand, Mode=OneWay}"
+                                Glyph="&#xE768;"
+                                Label="Make live version"
+                                svc:StudioHint.Topic="speak-sitting" />
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Avatar.FileSittingCommand}"
+                                Glyph="&#xE714;"
+                                Label="File sitting"
+                                svc:StudioHint.Topic="likeness" />
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Avatar.MakeFilmCommand}"
+                                Glyph="&#xE8B2;"
+                                Label="Make film"
+                                svc:StudioHint.Topic="make-film" />
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Avatar.ExportFilmCommand}"
+                                Glyph="&#xE8F4;"
+                                Label="Export"
+                                svc:StudioHint.Topic="export-film" />
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Avatar.EnsureEngineCommand}"
+                                Glyph="&#xE896;"
+                                Label="Fetch engine"
+                                svc:StudioHint.Topic="speak-sitting" />
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Avatar.StopWorkCommand}"
+                                Glyph="&#xE71A;"
+                                Kind="Quiet"
+                                Label="Stop"
+                                svc:StudioHint.Topic="speak-sitting" />
+                        </StackPanel>
+                    </controls:StudioDocumentWindow.MenuBarContent>
+                    <Grid ColumnSpacing="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="300" />
+                        </Grid.ColumnDefinitions>
+                        <ScrollViewer Padding="16,14">
+                            <StackPanel Spacing="12">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        Command="{x:Bind ViewModel.Avatar.ShowLikenessPaneCommand}"
+                                        Content="Likeness"
+                                        Style="{StaticResource StudioButtonSecondary}" />
+                                    <Button
+                                        Command="{x:Bind ViewModel.Avatar.ShowFilmPaneCommand}"
+                                        Content="Film"
+                                        Style="{StaticResource StudioButtonPrimary}" />
+                                    <Button
+                                        Command="{x:Bind ViewModel.Avatar.ShowEnginesPaneCommand}"
+                                        Content="Engines"
+                                        Style="{StaticResource StudioButtonSecondary}" />
+                                </StackPanel>
+                                <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.Avatar.LikenessVis, Mode=OneWay}">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="What to file" />
+                                <TextBlock
+                                    Style="{StaticResource StudioMuted}"
+                                    TextWrapping="Wrap"
+                                    Text="A camera original of you alone: head and shoulders filling the frame, both eyes toward the lens, even indoor light, mouth closed. About 720 pixels on the short side. Passport-style — not a night out." />
+                                <TextBlock
+                                    Style="{StaticResource StudioMuted}"
+                                    TextWrapping="Wrap"
+                                    Text="Skip group photos, a child or pet in front of you, full-body landscapes, over-the-shoulder shots, and chat thumbnails. Make live version only locks a face the finder can see. A 1–2 minute sitting of you talking is stronger than stills. Photos is the family album; this room is likeness." />
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Your photos" />
+                                <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Avatar.PhotoLine, Mode=OneWay}" TextWrapping="Wrap" />
+                                <GridView
+                                    IsItemClickEnabled="False"
+                                    ItemContainerStyle="{StaticResource StudioTileItem}"
+                                    ItemsSource="{x:Bind ViewModel.Avatar.Photos, Mode=OneWay}"
+                                    SelectionMode="None"
+                                    Visibility="{x:Bind ViewModel.Avatar.HasPhotos, Mode=OneWay}">
+                                    <GridView.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:AvatarPhotoItem">
+                                            <Border
+                                                Width="120"
+                                                BorderBrush="{StaticResource HeirloomBorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="3">
+                                                <StackPanel>
+                                                    <Grid Height="140">
+                                                    <Image Source="{x:Bind Image}" Stretch="UniformToFill" />
+                                                        <Button
+                                                            Width="24"
+                                                            Height="24"
+                                                            Margin="4"
+                                                            Padding="0"
+                                                            HorizontalAlignment="Right"
+                                                            VerticalAlignment="Top"
+                                                            Command="{x:Bind RemoveCommand}"
+                                                            CommandParameter="{x:Bind}"
+                                                            Style="{StaticResource StudioButtonQuiet}"
+                                                            ToolTipService.ToolTip="Remove">
+                                                            <FontIcon
+                                                                FontSize="10"
+                                                                Foreground="{StaticResource HeirloomTextSecondaryBrush}"
+                                                                Glyph="&#xE711;" />
+                                                        </Button>
+                                                    </Grid>
+                                                    <TextBlock
+                                                        Margin="8,6"
+                                                        Style="{StaticResource StudioCaption}"
+                                                        Text="{x:Bind Fit}"
+                                                        TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </GridView.ItemTemplate>
+                                </GridView>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="Line to speak" />
+                                    <TextBox
+                                        PlaceholderText="A sentence in your voice"
+                                        Text="{x:Bind ViewModel.Avatar.LineToSpeak, Mode=TwoWay}" />
+                                </StackPanel>
+                                </StackPanel>
+                                <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.Avatar.FilmVis, Mode=OneWay}">
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="Preset" />
+                                    <ComboBox
+                                        HorizontalAlignment="Stretch"
+                                        DisplayMemberPath="Title"
+                                        ItemsSource="{x:Bind ViewModel.Avatar.Presets}"
+                                        SelectedItem="{x:Bind ViewModel.Avatar.SelectedPreset, Mode=TwoWay}" />
+                                    <TextBlock
+                                        Style="{StaticResource StudioMuted}"
+                                        Text="{x:Bind ViewModel.Avatar.SelectedPreset.Blurb, Mode=OneWay}"
+                                        TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="What you say" />
+                                    <TextBox
+                                        AcceptsReturn="True"
+                                        MinHeight="72"
+                                        PlaceholderText="The line in your cloned voice"
+                                        Text="{x:Bind ViewModel.Avatar.LineToSpeak, Mode=TwoWay}"
+                                        TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="{x:Bind ViewModel.Avatar.ShotCountLine, Mode=OneWay}" />
+                                    <ListView
+                                        IsItemClickEnabled="False"
+                                        ItemsSource="{x:Bind ViewModel.Avatar.Shots, Mode=OneWay}"
+                                        SelectionMode="None"
+                                        Style="{StaticResource StudioPlainList}">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:VideoShotRow">
+                                                <StackPanel Padding="0,8" Spacing="2">
+                                                    <TextBlock Style="{StaticResource StudioOverline}" Text="{x:Bind BeatLine}" />
+                                                    <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ScriptLine}" TextWrapping="Wrap" />
+                                                    <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind PhotoLine}" TextWrapping="Wrap" />
+                                                    <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind ModelLine}" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                    <TextBlock
+                                        Style="{StaticResource StudioMuted}"
+                                        TextWrapping="Wrap"
+                                        Text="Make film speaks with the Twin’s voice on the filed face, then holds photographs. Wan or LTX motion is used only when those weights are already on this PC — this room never opens a ComfyUI graph." />
+                                </StackPanel>
+                                <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.Avatar.EnginesVis, Mode=OneWay}">
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="What this PC can run" />
+                                    <TextBlock
+                                        Style="{StaticResource StudioMuted}"
+                                        Text="{x:Bind ViewModel.Avatar.RecommendLine, Mode=OneWay}"
+                                        TextWrapping="Wrap" />
+                                    <ListView
+                                        IsItemClickEnabled="False"
+                                        ItemsSource="{x:Bind ViewModel.Avatar.Models}"
+                                        SelectionMode="None"
+                                        Style="{StaticResource StudioPlainList}">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="svc:VideoModelChoice">
+                                                <StackPanel Padding="0,10" Spacing="2">
+                                                    <TextBlock Style="{StaticResource StudioOverline}" Text="{x:Bind Title}" />
+                                                    <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind RecommendFor}" TextWrapping="Wrap" />
+                                                    <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind Blurb}" TextWrapping="Wrap" />
+                                                    <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind Vram}" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                        <Border
+                            Grid.Column="1"
+                            Background="{StaticResource HeirloomBgSurfaceBrush}"
+                            BorderBrush="{StaticResource HeirloomBorderBrush}"
+                            BorderThickness="1,0,0,0">
+                            <ScrollViewer Padding="14,14">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="Film" />
+                                    <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Avatar.FilmLine, Mode=OneWay}" TextWrapping="Wrap" />
+                                    <Border
+                                        Height="180"
+                                        Background="{StaticResource HeirloomBgElevatedBrush}"
+                                        BorderBrush="{StaticResource HeirloomBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="3">
+                                        <MediaPlayerElement
+                                            AreTransportControlsEnabled="True"
+                                            AutoPlay="False"
+                                            Source="{x:Bind ViewModel.Avatar.FilmSource, Mode=OneWay}"
+                                            Stretch="Uniform"
+                                            Visibility="{x:Bind ViewModel.Avatar.HasFilm, Mode=OneWay}" />
+                                    </Border>
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="Live version" />
+                                    <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Avatar.GeneratedLine, Mode=OneWay}" TextWrapping="Wrap" />
+                                    <Border
+                                        Height="180"
+                                        Background="{StaticResource HeirloomBgElevatedBrush}"
+                                        BorderBrush="{StaticResource HeirloomBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="3">
+                                        <MediaPlayerElement
+                                            AreTransportControlsEnabled="True"
+                                            AutoPlay="True"
+                                            Source="{x:Bind ViewModel.Avatar.GeneratedSource, Mode=OneWay}"
+                                            Stretch="Uniform"
+                                            Visibility="{x:Bind ViewModel.Avatar.HasGenerated, Mode=OneWay}" />
+                                    </Border>
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="Sitting" />
+                                    <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="{x:Bind ViewModel.Avatar.SittingLine, Mode=OneWay}" />
+                                    <Border
+                                        Height="120"
+                                        Background="{StaticResource HeirloomBgElevatedBrush}"
+                                        BorderBrush="{StaticResource HeirloomBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="3">
+                                        <MediaPlayerElement
+                                            AreTransportControlsEnabled="True"
+                                            AutoPlay="False"
+                                            Source="{x:Bind ViewModel.Avatar.SittingSource, Mode=OneWay}"
+                                            Stretch="Uniform"
+                                            Visibility="{x:Bind ViewModel.Avatar.HasSitting, Mode=OneWay}" />
+                                    </Border>
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="Engine" />
+                                    <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Avatar.EngineLine, Mode=OneWay}" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Avatar.RecommendLine, Mode=OneWay}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Border>
+                    </Grid>
                 </controls:StudioDocumentWindow>
 
                 <controls:StudioDocumentWindow
@@ -978,13 +1946,31 @@
                     Activated="OnDocActivated"
                     CloseRequested="OnDocClose"
                     DocumentId="keys"
+                    StatusText="{x:Bind ViewModel.Keys.Hint, Mode=OneWay}"
                     SubtitleText="{x:Bind ViewModel.Keys.Hint, Mode=OneWay}"
                     TitleText="Keys"
                     Visibility="Collapsed">
-                    <StackPanel Padding="24" Spacing="10">
-                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Keys.SessionLine}" />
-                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Keys.DeviceLine}" />
-                        <Button Click="OnMenuOpen" Content="Paste in Settings" Style="{StaticResource StudioButtonPrimary}" Tag="settings" />
+                    <controls:StudioDocumentWindow.MenuBarContent>
+                        <StackPanel Padding="6,4" Orientation="Horizontal" Spacing="1">
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Keys.TestCommand}"
+                                Glyph="&#xE8F1;"
+                                Kind="Primary"
+                                Label="Test reach"
+                                svc:StudioHint.Topic="keys" />
+                            <controls:StudioActionButton
+                                Click="OnMenuOpen"
+                                Glyph="&#xE713;"
+                                Label="Settings"
+                                Tag="settings" />
+                        </StackPanel>
+                    </controls:StudioDocumentWindow.MenuBarContent>
+                    <StackPanel Padding="16" Spacing="10">
+                        <TextBlock Style="{StaticResource StudioOverline}" Text="Session" />
+                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Keys.SessionLine, Mode=OneWay}" />
+                        <TextBlock Style="{StaticResource StudioOverline}" Text="Device" />
+                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Keys.DeviceLine, Mode=OneWay}" />
+                        <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Paste the session and device tokens in Settings, then Test reach. Heirloom never reads keys off a screenshot." />
                     </StackPanel>
                 </controls:StudioDocumentWindow>
 
@@ -996,14 +1982,40 @@
                     Activated="OnDocActivated"
                     CloseRequested="OnDocClose"
                     DocumentId="thismachine"
+                    StatusText="{x:Bind ViewModel.Models.OllamaStatus, Mode=OneWay}"
                     TitleText="This PC"
                     Visibility="Collapsed">
-                    <StackPanel Padding="28" Spacing="10">
-                        <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Daily PC or dedicated twin box. This app is the studio — not a Python download." />
+                    <controls:StudioDocumentWindow.MenuBarContent>
+                        <StackPanel Padding="6,4" Orientation="Horizontal" Spacing="1">
+                            <controls:StudioActionButton
+                                Command="{x:Bind ViewModel.Models.RefreshCommand}"
+                                Glyph="&#xE72C;"
+                                Kind="Primary"
+                                Label="Probe" />
+                            <controls:StudioActionButton
+                                Click="OnMenuOpen"
+                                Glyph="&#xE950;"
+                                Label="Models"
+                                Tag="models" />
+                        </StackPanel>
+                    </controls:StudioDocumentWindow.MenuBarContent>
+                    <StackPanel Padding="16" Spacing="10">
+                        <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Daily PC or dedicated twin box. Probe talks to Ollama and the vault on this machine." />
+                        <TextBlock Style="{StaticResource StudioOverline}" Text="Role" />
                         <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Models.MachineRole, Mode=OneWay}" />
+                        <TextBlock Style="{StaticResource StudioOverline}" Text="Compute" />
                         <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Models.ComputeTarget, Mode=OneWay}" />
                         <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.DiskLine, Mode=OneWay}" />
-                        <Button Click="OnMenuOpen" Content="Open Models" Style="{StaticResource StudioButtonPrimary}" Tag="models" />
+                        <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.WhisperStatus, Mode=OneWay}" />
+                        <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.OllamaStatus, Mode=OneWay}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Command="{x:Bind ViewModel.Models.SetRoleCommand}" CommandParameter="daily" Content="Daily PC" Style="{StaticResource StudioButtonSecondary}" />
+                            <Button Command="{x:Bind ViewModel.Models.SetRoleCommand}" CommandParameter="dedicated" Content="Dedicated box" Style="{StaticResource StudioButtonSecondary}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Command="{x:Bind ViewModel.Models.SetComputeCommand}" CommandParameter="local" Content="This PC" Style="{StaticResource StudioButtonSecondary}" />
+                            <Button Command="{x:Bind ViewModel.Models.SetComputeCommand}" CommandParameter="network" Content="Network" Style="{StaticResource StudioButtonSecondary}" />
+                        </StackPanel>
                     </StackPanel>
                 </controls:StudioDocumentWindow>
 
@@ -1018,47 +2030,63 @@
                     SubtitleText="{x:Bind ViewModel.Settings.VersionLine, Mode=OneWay}"
                     TitleText="Settings"
                     Visibility="Collapsed">
-                    <ScrollViewer Padding="24">
-                        <StackPanel Spacing="14">
-                            <TextBlock Style="{StaticResource StudioWordmark}" Text="Look and reach" />
+                    <ScrollViewer Padding="16">
+                        <StackPanel Spacing="12">
+                            <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="Look and reach" />
                             <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="{x:Bind ViewModel.Settings.ChromeHint, Mode=OneWay}" />
-                            <ComboBox
-                                Width="320"
-                                DisplayMemberPath="Label"
-                                Header="Color"
-                                ItemsSource="{x:Bind ViewModel.Settings.Schemes}"
-                                SelectedItem="{x:Bind ViewModel.Settings.SelectedScheme, Mode=TwoWay}" />
-                            <ComboBox
-                                Width="320"
-                                DisplayMemberPath="Label"
-                                Header="Buttons"
-                                ItemsSource="{x:Bind ViewModel.Settings.ChromeModes}"
-                                SelectedItem="{x:Bind ViewModel.Settings.SelectedChrome, Mode=TwoWay}" />
-                            <ComboBox
-                                Width="320"
-                                DisplayMemberPath="Label"
-                                Header="Dock edge"
-                                ItemsSource="{x:Bind ViewModel.Settings.DockEdges}"
-                                SelectedItem="{x:Bind ViewModel.Settings.SelectedDockEdge, Mode=TwoWay}" />
-                            <TextBlock Style="{StaticResource StudioText}" Text="Dock width" />
-                            <Slider
-                                Width="320"
-                                Maximum="280"
-                                Minimum="56"
-                                StepFrequency="4"
-                                Value="{x:Bind ViewModel.Settings.DockSize, Mode=TwoWay}" />
-                            <ToggleSwitch Header="Lock dock position" IsOn="{x:Bind ViewModel.Settings.DockLocked, Mode=TwoWay}" />
-                            <ToggleSwitch Header="Hover inspector on the right" IsOn="{x:Bind ViewModel.Settings.InspectorOpen, Mode=TwoWay}" />
-                            <TextBlock Style="{StaticResource StudioText}" Text="Inspector width" />
-                            <Slider
-                                Width="320"
-                                Maximum="480"
-                                Minimum="220"
-                                StepFrequency="4"
-                                Value="{x:Bind ViewModel.Settings.InspectorWidth, Mode=TwoWay}" />
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Color" />
+                                <ComboBox
+                                    Width="320"
+                                    DisplayMemberPath="Label"
+                                    ItemsSource="{x:Bind ViewModel.Settings.Schemes}"
+                                    SelectedItem="{x:Bind ViewModel.Settings.SelectedScheme, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Buttons" />
+                                <ComboBox
+                                    Width="320"
+                                    DisplayMemberPath="Label"
+                                    ItemsSource="{x:Bind ViewModel.Settings.ChromeModes}"
+                                    SelectedItem="{x:Bind ViewModel.Settings.SelectedChrome, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Dock edge" />
+                                <ComboBox
+                                    Width="320"
+                                    DisplayMemberPath="Label"
+                                    ItemsSource="{x:Bind ViewModel.Settings.DockEdges}"
+                                    SelectedItem="{x:Bind ViewModel.Settings.SelectedDockEdge, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Dock width" />
+                                <Slider
+                                    Width="320"
+                                    Maximum="280"
+                                    Minimum="56"
+                                    StepFrequency="4"
+                                    Value="{x:Bind ViewModel.Settings.DockSize, Mode=TwoWay}" />
+                            </StackPanel>
+                            <Grid MinHeight="32" Width="320">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Lock dock" />
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind ViewModel.Settings.DockLocked, Mode=TwoWay}" />
+                            </Grid>
+                            <Grid MinHeight="32" Width="320">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Hover inspector" />
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind ViewModel.Settings.InspectorOpen, Mode=TwoWay}" />
+                            </Grid>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Inspector width" />
+                                <Slider
+                                    Width="320"
+                                    Maximum="480"
+                                    Minimum="220"
+                                    StepFrequency="4"
+                                    Value="{x:Bind ViewModel.Settings.InspectorWidth, Mode=TwoWay}" />
+                            </StackPanel>
                             <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Point at a button or dock tile. The right panel names it. F1 shows or hides the panel. ? on a window pins that room." />
-                            <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Drag the ⋮⋮ bar to snap left, right, or top. Drag the gold seam to widen until names fit. Item order never changes." />
-                            <TextBlock Style="{StaticResource StudioCaption}" Text="YOUR BUTTONS" />
+                            <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Drag the Dock bar to snap left, right, or top. Drag the seam to widen until names fit. Item order never changes." />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Your buttons" />
                             <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="{x:Bind ViewModel.Settings.ChromeFolder, Mode=OneWay}" />
                             <controls:StudioActionButton
                                 AssetId="action-folder"
@@ -1066,12 +2094,32 @@
                                 Glyph="&#xE8B7;"
                                 Label="Open buttons folder" />
                             <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Drop square PNGs named dock-twin.png, action-file.png, and so on. Simple silhouettes search faster than photos." />
-                            <TextBlock Style="{StaticResource StudioCaption}" Text="ACCOUNT" />
-                            <TextBox Header="Backend URL" Text="{x:Bind ViewModel.Settings.BackendUrl, Mode=TwoWay}" />
-                            <TextBox Header="Library path" Text="{x:Bind ViewModel.Settings.LibraryPath, Mode=TwoWay}" />
-                            <TextBox Header="Session token" PlaceholderText="Paste after browser sign-in" Text="{x:Bind ViewModel.Settings.SessionToken, Mode=TwoWay}" />
-                            <TextBox Header="Device token" PlaceholderText="Paired device token" Text="{x:Bind ViewModel.Settings.DeviceToken, Mode=TwoWay}" />
-                            <ToggleSwitch Header="Autostart" IsOn="{x:Bind ViewModel.Settings.Autostart, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Account" />
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Backend URL" />
+                                <TextBox Text="{x:Bind ViewModel.Settings.BackendUrl, Mode=TwoWay}" />
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Vault folder" />
+                            <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="The archive lives in a folder on this PC. Change it to another drive or directory. Heirloom opens vault.db there and creates one if the folder is new. The previous folder is not moved or deleted." />
+                            <TextBox Text="{x:Bind ViewModel.Settings.LibraryPath, Mode=TwoWay}" />
+                            <controls:StudioActionButton
+                                AssetId="action-folder"
+                                Command="{x:Bind ViewModel.Settings.BrowseVaultCommand}"
+                                Glyph="&#xE8B7;"
+                                Label="Browse vault folder"
+                                svc:StudioHint.Topic="library" />
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Session token" />
+                                <TextBox PlaceholderText="Paste after browser sign-in" Text="{x:Bind ViewModel.Settings.SessionToken, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Device token" />
+                                <TextBox PlaceholderText="Paired device token" Text="{x:Bind ViewModel.Settings.DeviceToken, Mode=TwoWay}" />
+                            </StackPanel>
+                            <Grid MinHeight="32" Width="320">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Autostart" />
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind ViewModel.Settings.Autostart, Mode=TwoWay}" />
+                            </Grid>
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <controls:StudioActionButton
                                     AssetId="action-save"
@@ -1089,7 +2137,7 @@
                                     AssetId="action-setup"
                                     Command="{x:Bind ViewModel.ReopenFirstRunCommand}"
                                     Glyph="&#xE90F;"
-                                    Label="First-run" />
+                                    Label="Getting started" />
                             </StackPanel>
                         </StackPanel>
                     </ScrollViewer>
@@ -1117,16 +2165,22 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
-                            <TextBox Header="Search" PlaceholderText="twin, vault, WASAPI…" Text="{x:Bind ViewModel.Glossary.Query, Mode=TwoWay}" />
-                            <ComboBox
-                                Grid.Row="1"
-                                Header="Show"
-                                ItemsSource="{x:Bind ViewModel.Glossary.Kinds}"
-                                SelectedItem="{x:Bind ViewModel.Glossary.Kind, Mode=TwoWay}" />
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Search" />
+                                <TextBox PlaceholderText="twin, vault, WASAPI…" Text="{x:Bind ViewModel.Glossary.Query, Mode=TwoWay}" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Show" />
+                                <ComboBox
+                                    ItemsSource="{x:Bind ViewModel.Glossary.Kinds}"
+                                    SelectedItem="{x:Bind ViewModel.Glossary.Kind, Mode=TwoWay}" />
+                            </StackPanel>
                             <ListView
                                 Grid.Row="2"
+                                ItemContainerStyle="{StaticResource StudioChatItem}"
                                 ItemsSource="{x:Bind ViewModel.Glossary.Results}"
-                                SelectedItem="{x:Bind ViewModel.Glossary.Selected, Mode=TwoWay}">
+                                SelectedItem="{x:Bind ViewModel.Glossary.Selected, Mode=TwoWay}"
+                                Style="{StaticResource StudioPlainList}">
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="svc:HelpTopic">
                                         <StackPanel Margin="0,6">
@@ -1157,9 +2211,9 @@
                     DocumentId="kitchensink"
                     TitleText="Control kit"
                     Visibility="Collapsed">
-                    <ScrollViewer Padding="28">
+                    <ScrollViewer Padding="16">
                         <StackPanel MaxWidth="640" Spacing="16">
-                            <TextBlock Style="{StaticResource StudioWordmark}" Text="Control kit" />
+                            <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="Control kit" />
                             <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="{x:Bind ViewModel.KitchenSink.Hero}" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Content="Primary" Style="{StaticResource StudioButtonPrimary}" />
@@ -1169,7 +2223,8 @@
                                 <Button Content="Disabled" IsEnabled="False" Style="{StaticResource StudioButtonPrimary}" />
                             </StackPanel>
                             <controls:PttButton HorizontalAlignment="Left" />
-                            <Slider Width="280" Foreground="{StaticResource HeirloomGoldBrush}" Value="72" />
+                            <ProgressBar Width="280" Maximum="1" Style="{StaticResource StudioMeter}" Value="0.42" />
+                            <Slider Width="280" Style="{StaticResource StudioSlider}" Value="72" />
                         </StackPanel>
                     </ScrollViewer>
                 </controls:StudioDocumentWindow>
@@ -1184,7 +2239,7 @@
                 PointerMoved="OnInspectorSplitMoved"
                 PointerPressed="OnInspectorSplitPressed"
                 PointerReleased="OnInspectorSplitReleased">
-                <Border Width="1" HorizontalAlignment="Center" Background="{StaticResource HeirloomGoldDeepBrush}" />
+                <Border Width="1" HorizontalAlignment="Center" Background="{StaticResource HeirloomBorderBrush}" />
             </Border>
 
             <controls:HelpInspector
@@ -1231,7 +2286,7 @@
         <Grid
             x:Name="Palette"
             Grid.RowSpan="3"
-            Background="#99000000"
+            Background="{StaticResource HeirloomScrimBrush}"
             Visibility="Collapsed">
             <Border
                 Width="560"
@@ -1239,13 +2294,13 @@
                 Padding="16"
                 VerticalAlignment="Top"
                 Background="{StaticResource HeirloomBgElevatedBrush}"
-                BorderBrush="{StaticResource HeirloomGoldBrush}"
+                BorderBrush="{StaticResource HeirloomBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="3">
-                <StackPanel Spacing="10">
-                    <TextBlock Style="{StaticResource StudioCaption}" Text="COMMAND PALETTE" />
+                <StackPanel Spacing="12">
+                    <TextBlock Style="{StaticResource StudioOverline}" Text="Command palette" />
                     <TextBox PlaceholderText="speak …  ·  capture …  ·  mixer  ·  interview" Text="{x:Bind ViewModel.CommandQuery, Mode=TwoWay}" />
-                    <Button Command="{x:Bind ViewModel.RunPaletteCommand}" Content="Run" Style="{StaticResource StudioButtonPrimary}" />
+                    <Button HorizontalAlignment="Left" Command="{x:Bind ViewModel.RunPaletteCommand}" Content="Run" Style="{StaticResource StudioButtonPrimary}" />
                 </StackPanel>
             </Border>
         </Grid>
@@ -1253,61 +2308,154 @@
         <Grid
             x:Name="FirstRun"
             Grid.RowSpan="3"
-            Background="#CC121110"
+            Background="{StaticResource HeirloomScrimBrush}"
             Visibility="Collapsed">
             <Border
-                Width="680"
-                Padding="28"
+                MaxWidth="520"
+                MaxHeight="720"
+                Margin="24"
+                Padding="28,24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
                 Background="{StaticResource HeirloomBgSurfaceBrush}"
                 BorderBrush="{StaticResource HeirloomBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="3">
-                <StackPanel Spacing="12">
-                    <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind ViewModel.FirstRun.StepCaption, Mode=OneWay}" />
-                    <TextBlock Style="{StaticResource StudioWordmark}" Text="{x:Bind ViewModel.FirstRun.StepTitle, Mode=OneWay}" />
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="14">
+                        <TextBlock Style="{StaticResource StudioOverline}" Text="Getting started" />
+                        <TextBlock
+                            FontSize="28"
+                            Style="{StaticResource StudioWordmark}"
+                            Text="{x:Bind ViewModel.FirstRun.Title, Mode=OneWay}"
+                            TextWrapping="Wrap" />
+                        <TextBlock
+                            Style="{StaticResource StudioMuted}"
+                            Text="{x:Bind ViewModel.FirstRun.Body, Mode=OneWay}"
+                            TextWrapping="Wrap" />
 
-                    <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.FirstRun.RoleVis, Mode=OneWay}">
-                        <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Daily PC is the common path. A dedicated second computer is uncommon and first-class." />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Command="{x:Bind ViewModel.FirstRun.ChooseRoleCommand}" CommandParameter="daily" Content="Daily PC" Style="{StaticResource StudioButtonPrimary}" />
-                            <Button Command="{x:Bind ViewModel.FirstRun.ChooseRoleCommand}" CommandParameter="dedicated" Content="Dedicated twin box" Style="{StaticResource StudioButtonSecondary}" />
+                        <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.FirstRun.WelcomeVis, Mode=OneWay}">
+                            <Button
+                                MinHeight="52"
+                                Padding="20,14"
+                                HorizontalAlignment="Stretch"
+                                AutomationProperties.Name="Get everything ready"
+                                Command="{x:Bind ViewModel.FirstRun.GetReadyCommand}"
+                                Content="Get everything ready"
+                                FontSize="16"
+                                Style="{StaticResource StudioButtonPrimary}" />
+                            <Button
+                                HorizontalAlignment="Left"
+                                Command="{x:Bind ViewModel.FirstRun.SkipCommand}"
+                                Content="I'll look around first"
+                                Style="{StaticResource StudioButtonQuiet}" />
                         </StackPanel>
-                        <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.FirstRun.MachineRole, Mode=OneWay}" />
-                    </StackPanel>
 
-                    <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.FirstRun.DiskVis, Mode=OneWay}">
-                        <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="50 GB is the serious floor. Custom on a dedicated box has no cap." />
-                        <TextBox Header="Library / vault path" Text="{x:Bind ViewModel.FirstRun.LibraryPath, Mode=TwoWay}" />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Command="{x:Bind ViewModel.FirstRun.ChooseProfileCommand}" CommandParameter="full" Content="Full" Style="{StaticResource StudioButtonSecondary}" />
-                            <Button Command="{x:Bind ViewModel.FirstRun.ChooseProfileCommand}" CommandParameter="studio" Content="Studio 50GB+" Style="{StaticResource StudioButtonPrimary}" />
-                            <Button Command="{x:Bind ViewModel.FirstRun.ChooseProfileCommand}" CommandParameter="dedicated" Content="Dedicated" Style="{StaticResource StudioButtonSecondary}" />
+                        <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.FirstRun.WorkingVis, Mode=OneWay}">
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="{x:Bind ViewModel.FirstRun.Summary, Mode=OneWay}" />
+                            <Border Padding="12,10" Background="{StaticResource HeirloomBgElevatedBrush}" BorderBrush="{StaticResource HeirloomBorderBrush}" BorderThickness="1" CornerRadius="3">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="Stories folder" />
+                                        <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.FirstRun.VaultDetail, Mode=OneWay}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="{x:Bind ViewModel.FirstRun.VaultState, Mode=OneWay}" />
+                                </Grid>
+                            </Border>
+                            <Border Padding="12,10" Background="{StaticResource HeirloomBgElevatedBrush}" BorderBrush="{StaticResource HeirloomBorderBrush}" BorderThickness="1" CornerRadius="3">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="Hearing you speak" />
+                                        <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.FirstRun.HearingDetail, Mode=OneWay}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="{x:Bind ViewModel.FirstRun.HearingState, Mode=OneWay}" />
+                                </Grid>
+                            </Border>
+                            <Border Padding="12,10" Background="{StaticResource HeirloomBgElevatedBrush}" BorderBrush="{StaticResource HeirloomBorderBrush}" BorderThickness="1" CornerRadius="3">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="A mind that can talk as you" />
+                                        <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.FirstRun.MindDetail, Mode=OneWay}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="{x:Bind ViewModel.FirstRun.MindState, Mode=OneWay}" />
+                                </Grid>
+                            </Border>
+                            <Border Padding="12,10" Background="{StaticResource HeirloomBgElevatedBrush}" BorderBrush="{StaticResource HeirloomBorderBrush}" BorderThickness="1" CornerRadius="3">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="A talking picture" />
+                                        <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.FirstRun.PictureDetail, Mode=OneWay}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="{x:Bind ViewModel.FirstRun.PictureState, Mode=OneWay}" />
+                                </Grid>
+                            </Border>
+                            <TextBlock
+                                Style="{StaticResource StudioMuted}"
+                                Text="{x:Bind ViewModel.FirstRun.Fault, Mode=OneWay}"
+                                TextWrapping="Wrap"
+                                Visibility="{x:Bind ViewModel.FirstRun.FaultVis, Mode=OneWay}" />
+                            <Button
+                                HorizontalAlignment="Left"
+                                Command="{x:Bind ViewModel.FirstRun.RetryCommand}"
+                                Content="Try again"
+                                Style="{StaticResource StudioButtonPrimary}"
+                                Visibility="{x:Bind ViewModel.FirstRun.RetryVis, Mode=OneWay}" />
+                            <Button
+                                HorizontalAlignment="Left"
+                                Command="{x:Bind ViewModel.FirstRun.StopCommand}"
+                                Content="Stop"
+                                Style="{StaticResource StudioButtonQuiet}"
+                                Visibility="{x:Bind ViewModel.FirstRun.StopVis, Mode=OneWay}" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.FirstRun.DoneVis, Mode=OneWay}">
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="{x:Bind ViewModel.FirstRun.Summary, Mode=OneWay}" />
+                            <Button
+                                MinHeight="52"
+                                Padding="20,14"
+                                HorizontalAlignment="Stretch"
+                                AutomationProperties.Name="Talk to your Twin"
+                                Command="{x:Bind ViewModel.FirstRun.TalkCommand}"
+                                Content="Talk to your Twin"
+                                FontSize="16"
+                                Style="{StaticResource StudioButtonPrimary}" />
+                            <Button
+                                MinHeight="44"
+                                HorizontalAlignment="Stretch"
+                                Command="{x:Bind ViewModel.FirstRun.RecordMemoryCommand}"
+                                Content="Record a memory"
+                                Style="{StaticResource StudioButtonSecondary}" />
+                            <Button
+                                MinHeight="44"
+                                HorizontalAlignment="Stretch"
+                                Command="{x:Bind ViewModel.FirstRun.MakeLikenessCommand}"
+                                Content="Make a likeness"
+                                Style="{StaticResource StudioButtonSecondary}" />
+                            <Button
+                                HorizontalAlignment="Left"
+                                Command="{x:Bind ViewModel.FirstRun.RetryCommand}"
+                                Content="Try again"
+                                Style="{StaticResource StudioButtonQuiet}"
+                                Visibility="{x:Bind ViewModel.FirstRun.RetryVis, Mode=OneWay}" />
                         </StackPanel>
                     </StackPanel>
-
-                    <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.FirstRun.PairVis, Mode=OneWay}">
-                        <TextBox Header="Backend URL" Text="{x:Bind ViewModel.FirstRun.BackendUrl, Mode=TwoWay}" />
-                        <TextBox Header="Session token" Text="{x:Bind ViewModel.FirstRun.SessionToken, Mode=TwoWay}" />
-                        <TextBox Header="Device token" Text="{x:Bind ViewModel.FirstRun.DeviceToken, Mode=TwoWay}" />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Command="{x:Bind ViewModel.FirstRun.OpenSignInCommand}" Content="Open sign-in" Style="{StaticResource StudioButtonSecondary}" />
-                            <Button Command="{x:Bind ViewModel.FirstRun.PairCommand}" Content="Pair this PC" Style="{StaticResource StudioButtonSecondary}" />
-                        </StackPanel>
-                    </StackPanel>
-
-                    <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.FirstRun.KeysVis, Mode=OneWay}">
-                        <TextBox Header="Vendor email" PlaceholderText="Copied into vendor sign-up" Text="{x:Bind ViewModel.FirstRun.VendorEmail, Mode=TwoWay}" />
-                        <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="After provision, a stay-on-top guide opens official pages. You click Create account, I'm not a robot, and Verify. Paste keys here — we never read them off a screenshot." />
-                    </StackPanel>
-
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Command="{x:Bind ViewModel.FirstRun.BackCommand}" Content="Back" Style="{StaticResource StudioButtonQuiet}" />
-                        <Button Command="{x:Bind ViewModel.FirstRun.NextCommand}" Content="Next" Style="{StaticResource StudioButtonSecondary}" />
-                        <Button Click="FinishSetup" Content="Provision &amp; continue" Style="{StaticResource StudioButtonPrimary}" />
-                        <Button Click="SkipSetup" Content="Skip for now" Style="{StaticResource StudioButtonQuiet}" />
-                    </StackPanel>
-                    <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.FirstRun.Progress, Mode=OneWay}" />
-                </StackPanel>
+                </ScrollViewer>
             </Border>
         </Grid>
 
@@ -1316,17 +2464,17 @@
             Grid.RowSpan="3"
             Width="380"
             Margin="0,0,16,48"
-            Padding="18"
-            HorizontalAlignment="Right"
-            VerticalAlignment="Bottom"
-            Background="{StaticResource HeirloomBgElevatedBrush}"
-            BorderBrush="{StaticResource HeirloomGoldBrush}"
-            BorderThickness="1"
-            CornerRadius="3"
-            Visibility="Collapsed">
-            <StackPanel Spacing="8">
-                <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind ViewModel.Coach.Overline, Mode=OneWay}" TextWrapping="Wrap" />
-                <TextBlock Style="{StaticResource StudioWordmark}" FontSize="22" Text="{x:Bind ViewModel.Coach.Title, Mode=OneWay}" TextWrapping="Wrap" />
+                Padding="20"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Background="{StaticResource HeirloomBgElevatedBrush}"
+                BorderBrush="{StaticResource HeirloomBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="3"
+                Visibility="Collapsed">
+            <StackPanel Spacing="10">
+                <TextBlock Style="{StaticResource StudioOverline}" Text="{x:Bind ViewModel.Coach.Overline, Mode=OneWay}" TextWrapping="Wrap" />
+                <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="{x:Bind ViewModel.Coach.Title, Mode=OneWay}" TextWrapping="Wrap" />
                 <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Coach.Body, Mode=OneWay}" TextWrapping="Wrap" />
                 <TextBlock Style="{StaticResource StudioText}" Text="{x:Bind ViewModel.Coach.Bullets, Mode=OneWay}" TextWrapping="Wrap" />
                 <TextBox
@@ -1349,14 +2497,13 @@
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
                 <TextBlock
                     HorizontalAlignment="Center"
-                    FontFamily="{StaticResource HeirloomSerif}"
-                    FontSize="56"
-                    Foreground="{StaticResource HeirloomTextBrush}"
+                    Style="{StaticResource StudioWordmark}"
+                    FontSize="40"
                     Text="Heirloom" />
                 <TextBlock
                     HorizontalAlignment="Center"
-                    Style="{StaticResource StudioCaption}"
-                    Text="A CONTINUATION OF YOU" />
+                    Style="{StaticResource StudioOverline}"
+                    Text="A continuation of you" />
             </StackPanel>
         </Grid>
     </Grid>

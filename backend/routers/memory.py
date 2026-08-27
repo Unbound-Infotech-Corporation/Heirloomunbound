@@ -219,12 +219,16 @@ async def build_memory_pack(user_id: str, query_hint: str = "") -> dict:
 
 
 def format_memory_pack_for_prompt(pack: dict) -> str:
-    facts = pack.get("facts") or []
+    facts = pack.get("facts") or pack.get("identity_facts") or []
+    sourced = [
+        f for f in facts
+        if f.get("source_entry_id") or f.get("source_capture_id")
+    ]
     episodes = pack.get("episodes") or []
     parts: list[str] = []
-    if facts:
-        lines = [f"- {f['fact']}" for f in facts[:MAX_FACTS_IN_PROMPT]]
-        parts.append("STABLE FACTS ABOUT YOU (don't contradict these):\n" + "\n".join(lines))
+    if sourced:
+        lines = [f"- {f['fact']} [#{f.get('source_entry_id') or f.get('source_capture_id')}]" for f in sourced[:MAX_FACTS_IN_PROMPT]]
+        parts.append("STABLE FACTS ABOUT YOU (each points at a filed entry; skip unsourced claims):\n" + "\n".join(lines))
     if episodes:
         ep_lines = []
         for ep in episodes[:MAX_EPISODES_IN_PROMPT]:

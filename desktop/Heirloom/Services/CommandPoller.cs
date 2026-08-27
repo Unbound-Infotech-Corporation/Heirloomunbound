@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 
 namespace Heirloom.Services;
@@ -13,12 +12,14 @@ public sealed class CommandPoller : IDisposable
     private readonly WhisperService _whisper;
     private readonly OllamaService _ollama;
     private readonly ProvisionService _provision;
+    private readonly PcToolkit _pc;
     private readonly CancellationTokenSource _cts = new();
     private Task? _loop;
     private int _polls;
 
     public string LastStatus { get; private set; } = "Poller idle";
     public event EventHandler<string>? CommandExecuted;
+    public event EventHandler<DesktopNotice>? NoticeRequested;
 
     public CommandPoller(
         HeirloomApiClient api,
@@ -28,7 +29,8 @@ public sealed class CommandPoller : IDisposable
         SettingsStore settings,
         WhisperService whisper,
         OllamaService ollama,
-        ProvisionService provision)
+        ProvisionService provision,
+        PcToolkit pc)
     {
         _api = api;
         _mixer = mixer;
@@ -38,6 +40,7 @@ public sealed class CommandPoller : IDisposable
         _whisper = whisper;
         _ollama = ollama;
         _provision = provision;
+        _pc = pc;
     }
 
     public void Start()
@@ -129,15 +132,31 @@ public sealed class CommandPoller : IDisposable
     {
         try
         {
-            if (kind is "shell" or "open_app" or "open_url" or "type_text" or "find_file" or "power" or "media_key"
-                && !_settings.Current.AllowPcControl)
+                if (kind is "shell" or "open_app" or "open_url" or "browse" or "type_text" or "find_file" or "power" or "media_key"
+                    or "clipboard_get" or "clipboard_set" or "windows" or "list_dir" or "read_file")
             {
-                return (false, "PC control is off");
+                if (string.Equals(_settings.Current.AppMode, "heir", StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, "Heir mode. This PC cannot be driven.");
+                }
+
+                if (!_settings.Current.AllowPcControl)
+                {
+                    return (false, "PC control is off");
+                }
             }
 
-            if (kind == "screenshot" && !_settings.Current.AllowSeeScreen)
+            if (kind == "screenshot")
             {
-                return (false, "Screen vision is off");
+                if (string.Equals(_settings.Current.AppMode, "heir", StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, "Heir mode. The screen stays private.");
+                }
+
+                if (!_settings.Current.AllowSeeScreen)
+                {
+                    return (false, "Screen vision is off");
+                }
             }
 
             if (kind is "say" or "speak" && !_settings.Current.AllowSpeak)
@@ -148,22 +167,20 @@ public sealed class CommandPoller : IDisposable
             switch (kind)
             {
                 case "open_url":
-                    OpenUrl(PayloadString(command, "url") ?? PayloadString(command, "text"));
-                    return (true, "opened");
+                    return await ToolAsync("open_url", command, cancellationToken).ConfigureAwait(false);
+                case "browse":
+                    return await ToolAsync("browse", command, cancellationToken).ConfigureAwait(false);
                 case "open_app":
-                    OpenUrl(PayloadString(command, "name") ?? PayloadString(command, "text"));
-                    return (true, "opened");
+                    return await ToolAsync("open_app", command, cancellationToken).ConfigureAwait(false);
                 case "set_volume":
-                    if (int.TryParse(PayloadString(command, "level") ?? PayloadString(command, "text"), out var vol))
-                    {
-                        _mixer.SessionVolume = vol;
-                        return (true, $"Heirloom session volume {vol}%");
-                    }
-
-                    return (false, "bad volume");
+                    return await ToolAsync("set_volume", command, cancellationToken).ConfigureAwait(false);
                 case "notify":
-                    CommandExecuted?.Invoke(this, PayloadString(command, "message") ?? PayloadString(command, "text") ?? "");
-                    return (true, "notified");
+                {
+                    var title = PayloadString(command, "title") ?? "Heirloom";
+                    var message = PayloadString(command, "message") ?? PayloadString(command, "text") ?? "";
+                    NoticeRequested?.Invoke(this, new DesktopNotice(title, message));
+                    return (true, string.IsNullOrWhiteSpace(message) ? "notified" : message);
+                }
                 case "say":
                 case "speak":
                     await _speak.SpeakAsync(PayloadString(command, "text") ?? "", cancellationToken).ConfigureAwait(false);
@@ -179,28 +196,28 @@ public sealed class CommandPoller : IDisposable
                     await _api.PostScreenshotAsync(cmdId, jpeg, cancellationToken).ConfigureAwait(false);
                     return (true, "captured");
                 case "media_key":
-                    NativeMethods.MediaKey(PayloadString(command, "action") ?? "");
-                    return (true, "media");
+                    return await ToolAsync("media", command, cancellationToken).ConfigureAwait(false);
                 case "power":
-                    return RunPower(PayloadString(command, "action") ?? "");
+                    return await ToolAsync("power", command, cancellationToken).ConfigureAwait(false);
                 case "clipboard_set":
-                    ClipboardService.CopyText(PayloadString(command, "text") ?? "");
-                    return (true, "clipboard");
+                    return await ToolAsync("clipboard_set", command, cancellationToken).ConfigureAwait(false);
+                case "clipboard_get":
+                    return await ToolAsync("clipboard_get", command, cancellationToken).ConfigureAwait(false);
+                case "type_text":
+                    return await ToolAsync("type_text", command, cancellationToken).ConfigureAwait(false);
+                case "find_file":
+                    return await ToolAsync("find_file", command, cancellationToken).ConfigureAwait(false);
+                case "windows":
+                    return await ToolAsync("windows", command, cancellationToken).ConfigureAwait(false);
                 case "provision_models":
                     var profile = DiskProfiles.All.FirstOrDefault(p => p.Id == (_settings.Current.DiskProfile ?? "full"))
                         ?? DiskProfiles.All[1];
                     await _provision.ProvisionAsync(profile, new Progress<string>(_ => { }), cancellationToken).ConfigureAwait(false);
                     return (true, "provisioned");
                 case "shell":
-                    var cmd = PayloadString(command, "command") ?? PayloadString(command, "text") ?? "";
-                    Process.Start(new ProcessStartInfo("cmd.exe", "/c " + cmd)
-                    {
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                    });
-                    return (true, "shell");
+                    return await ToolAsync("shell", command, cancellationToken).ConfigureAwait(false);
                 case "system_status":
-                    return (true, $"{Environment.MachineName} · {Environment.OSVersion} · {_whisper.Status} · {_ollama.Status}");
+                    return await ToolAsync("system_status", command, cancellationToken).ConfigureAwait(false);
                 default:
                     return (false, "unknown " + kind);
             }
@@ -211,30 +228,20 @@ public sealed class CommandPoller : IDisposable
         }
     }
 
-    private static (bool Ok, string Detail) RunPower(string action) =>
-        action switch
-        {
-            "lock" => (NativeMethods.LockWorkStation(), "lock"),
-            "sleep" => Run("rundll32.exe", "powrprof.dll,SetSuspendState 0,1,0"),
-            "shutdown" => Run("shutdown", "/s /t 5"),
-            "restart" => Run("shutdown", "/r /t 5"),
-            _ => (false, "unknown power"),
-        };
-
-    private static (bool Ok, string Detail) Run(string file, string args)
+    private async Task<(bool Ok, string Detail)> ToolAsync(string tool, JsonElement command, CancellationToken cancellationToken)
     {
-        Process.Start(new ProcessStartInfo(file, args) { UseShellExecute = false, CreateNoWindow = true });
-        return (true, file);
-    }
-
-    private static void OpenUrl(string? target)
-    {
-        if (string.IsNullOrWhiteSpace(target))
+        var args = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in new[] { "url", "name", "text", "level", "action", "query", "path", "command", "target", "mode", "amount", "label", "engine" })
         {
-            return;
+            var value = PayloadString(command, name);
+            if (!string.IsNullOrEmpty(value))
+            {
+                args[name] = value;
+            }
         }
 
-        Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+        var result = await _pc.RunAsync(tool, args, cancellationToken).ConfigureAwait(false);
+        return (result.Ok, result.Detail);
     }
 
     private static string? ReadString(JsonElement el, string name)
@@ -270,7 +277,7 @@ public sealed class CommandPoller : IDisposable
             }
         }
 
-        return ReadString(command, name) ?? ReadString(command, "text");
+        return ReadString(command, name);
     }
 
     public async Task ReportRuntimeAsync(CancellationToken cancellationToken = default)
@@ -280,7 +287,7 @@ public sealed class CommandPoller : IDisposable
         {
             ollama = new { status = _ollama.Status, reachable = _ollama.IsReachable, models = _ollama.Models },
             whisper = new { status = _whisper.Status, ready = _whisper.IsReady },
-            gpu = new { name = "local" },
+            gpu = new { name = PcToolkit.ProbeGpu() ?? "local" },
             audio_devices = _mixer.Inputs.Select(d => d.Name).Concat(_mixer.Outputs.Select(d => d.Name)).ToArray(),
             detail = LastStatus,
         }, cancellationToken).ConfigureAwait(false);
@@ -292,3 +299,6 @@ public sealed class CommandPoller : IDisposable
         _cts.Dispose();
     }
 }
+
+public readonly record struct DesktopNotice(string Title, string Message);
+

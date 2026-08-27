@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Unbound library (Heirloom chrome)
 
-Before changing dock, buttons, labels, inspectors, or Twin/Archive/Today copy:
+Before changing dock, buttons, labels, inspectors, Assist, Twin, Archive, or Today copy:
 
 1. `GET http://127.0.0.1:7733/library` (optional `?q=` for the control).
 2. If the API is down, read `F:\UnboundCursor\data\knowledge\library.json`.

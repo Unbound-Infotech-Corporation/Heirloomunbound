@@ -25,8 +25,8 @@
                 Grid.Row="0"
                 Grid.Column="0"
                 Grid.ColumnSpan="3"
-                Height="32"
-                Padding="8,0"
+                Height="26"
+                Padding="10,0"
                 Background="{StaticResource HeirloomBgElevatedBrush}"
                 BorderBrush="{StaticResource HeirloomBorderBrush}"
                 BorderThickness="0,0,0,1"
@@ -34,15 +34,14 @@
                 PointerPressed="OnGripPressed"
                 PointerReleased="OnGripReleased">
                 <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
-                    <TextBlock
-                        FontFamily="{StaticResource HeirloomSans}"
-                        FontSize="11"
-                        Foreground="{StaticResource HeirloomGoldBrush}"
-                        Text="⋮⋮" />
+                    <FontIcon
+                        FontSize="10"
+                        Foreground="{StaticResource HeirloomTextMutedBrush}"
+                        Glyph="&#xE91B;" />
                     <TextBlock
                         x:Name="GripLabel"
-                        Style="{StaticResource StudioCaption}"
-                        Text="MOVE DOCK" />
+                        Style="{StaticResource StudioOverline}"
+                        Text="Dock" />
                 </StackPanel>
             </Border>
 
@@ -63,23 +62,21 @@
                 x:Name="Tiles"
                 Grid.Row="1"
                 Grid.Column="1"
-                Padding="4,4"
+                Padding="4,6,4,8"
                 IsItemClickEnabled="True"
                 ItemClick="OnItemClick"
+                ItemContainerStyle="{StaticResource StudioDockItem}"
                 SelectionMode="None">
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="vm:DockItem">
-                            <Grid
-                            MinHeight="40"
-                            Padding="4,0"
-                            ColumnSpacing="8">
+                        <Grid MinHeight="36" Padding="8,0" ColumnSpacing="8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="24" />
+                                <ColumnDefinition Width="20" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Image
-                                Width="20"
-                                Height="20"
+                                Width="16"
+                                Height="16"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 Stretch="Uniform"
@@ -87,8 +84,8 @@
                             <FontIcon
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
-                                FontSize="16"
-                                Foreground="{StaticResource HeirloomGoldBrush}"
+                                FontSize="14"
+                                Foreground="{StaticResource HeirloomTextSecondaryBrush}"
                                 Glyph="{x:Bind Glyph}" />
                             <TextBlock
                                 Grid.Column="1"
@@ -101,13 +98,6 @@
                         </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
-                <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem">
-                        <Setter Property="Padding" Value="0" />
-                        <Setter Property="MinHeight" Value="40" />
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                    </Style>
-                </ListView.ItemContainerStyle>
             </ListView>
 
             <Border
@@ -119,7 +109,7 @@
                 PointerMoved="OnSplitMoved"
                 PointerPressed="OnSplitPressed"
                 PointerReleased="OnSplitReleased">
-                <Border Width="1" HorizontalAlignment="Center" Background="{StaticResource HeirloomGoldDeepBrush}" />
+                <Border Width="1" HorizontalAlignment="Center" Background="{StaticResource HeirloomBorderBrush}" />
             </Border>
 
             <Border
@@ -133,7 +123,7 @@
                 PointerPressed="OnSplitPressed"
                 PointerReleased="OnSplitReleased"
                 Visibility="Collapsed">
-                <Border Height="1" VerticalAlignment="Center" Background="{StaticResource HeirloomGoldDeepBrush}" />
+                <Border Height="1" VerticalAlignment="Center" Background="{StaticResource HeirloomBorderBrush}" />
             </Border>
         </Grid>
     </Border>

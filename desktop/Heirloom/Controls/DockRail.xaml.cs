@@ -1,6 +1,7 @@
 using Heirloom.Services;
 using Heirloom.ViewModels;
 using Microsoft.UI.Input;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -61,7 +62,7 @@ public sealed partial class DockRail : UserControl
     }
 
     public static readonly DependencyProperty ActiveIdProperty =
-        DependencyProperty.Register(nameof(ActiveId), typeof(string), typeof(DockRail), new PropertyMetadata("twin", OnActive));
+        DependencyProperty.Register(nameof(ActiveId), typeof(string), typeof(DockRail), new PropertyMetadata("assistant", OnActive));
 
     private static void OnActive(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
@@ -96,7 +97,7 @@ public sealed partial class DockRail : UserControl
         StartSplit.Visibility = edge == "right" ? Visibility.Visible : Visibility.Collapsed;
         EndSplit.Visibility = edge == "left" ? Visibility.Visible : Visibility.Collapsed;
         BottomSplit.Visibility = horizontal ? Visibility.Visible : Visibility.Collapsed;
-        GripLabel.Text = ThemeService.DockLocked ? "DOCK LOCKED" : "MOVE DOCK";
+        GripLabel.Text = ThemeService.DockLocked ? "Locked" : "Dock";
         Grip.Opacity = ThemeService.DockLocked ? 0.55 : 1;
         Tiles.ItemsPanel = horizontal ? HorizontalPanel() : VerticalPanel();
         ScrollViewer.SetHorizontalScrollBarVisibility(Tiles, horizontal ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled);
@@ -180,9 +181,10 @@ public sealed partial class DockRail : UserControl
             if (label is not null)
             {
                 label.Visibility = Visibility.Visible;
-                label.FontSize = 11;
-                label.CharacterSpacing = 80;
-                label.Foreground = (Brush)Application.Current.Resources["HeirloomGoldBrush"];
+                label.FontSize = 10;
+                                label.FontWeight = FontWeights.SemiBold;
+                label.CharacterSpacing = 140;
+                label.Foreground = (Brush)Application.Current.Resources["HeirloomTextMutedBrush"];
             }
 
             ToolTipService.SetToolTip(tile, null);
@@ -193,7 +195,7 @@ public sealed partial class DockRail : UserControl
             return;
         }
 
-        tile.MinHeight = 40;
+        tile.MinHeight = 36;
         tile.IsHitTestVisible = true;
         tile.IsTabStop = true;
         var here = string.Equals(item.Id, ActiveId, StringComparison.OrdinalIgnoreCase);
@@ -213,6 +215,13 @@ public sealed partial class DockRail : UserControl
             label.FontSize = 13;
             label.CharacterSpacing = 0;
             label.Foreground = (Brush)Application.Current.Resources["HeirloomTextBrush"];
+        }
+
+        if (icon is not null)
+        {
+            icon.Foreground = here
+                ? (Brush)Application.Current.Resources["HeirloomGoldBrush"]
+                : (Brush)Application.Current.Resources["HeirloomTextSecondaryBrush"];
         }
 
         var custom = ThemeService.TryGetButton("dock-" + item.Id);

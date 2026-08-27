@@ -14,12 +14,12 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Border
-                Padding="14,10"
+                Padding="16,12"
                 Background="{StaticResource HeirloomBgElevatedBrush}"
                 BorderBrush="{StaticResource HeirloomBorderBrush}"
                 BorderThickness="0,0,0,1">
                 <StackPanel Spacing="4">
-                    <TextBlock Style="{StaticResource StudioCaption}" Text="LOOK HERE" />
+                    <TextBlock Style="{StaticResource StudioOverline}" Text="Look here" />
                     <TextBlock
                         x:Name="ModeText"
                         Style="{StaticResource StudioMuted}"
@@ -36,8 +36,8 @@
                         Text="" />
                 </StackPanel>
             </Border>
-            <ScrollViewer Grid.Row="1" Padding="14,12">
-                <StackPanel Spacing="12">
+            <ScrollViewer Grid.Row="1" Padding="16,14">
+                <StackPanel Spacing="14">
                     <TextBlock
                         x:Name="SummaryText"
                         Style="{StaticResource StudioText}"
@@ -46,7 +46,7 @@
                         x:Name="BodyText"
                         Style="{StaticResource StudioMuted}"
                         TextWrapping="Wrap" />
-                    <TextBlock Style="{StaticResource StudioCaption}" Text="RELATED" />
+                    <TextBlock Style="{StaticResource StudioOverline}" Text="Related" />
                     <ItemsControl x:Name="RelatedList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
@@ -65,7 +65,7 @@
             </ScrollViewer>
             <StackPanel
                 Grid.Row="2"
-                Padding="10,8"
+                Padding="16,12"
                 BorderBrush="{StaticResource HeirloomBorderBrush}"
                 BorderThickness="0,1,0,0"
                 Spacing="6">

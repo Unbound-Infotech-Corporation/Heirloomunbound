@@ -75,6 +75,14 @@ async def ensure_indexes() -> None:
         # Stripe webhook event-level idempotency
         ("stripe_events", [("event_id", 1)], {"unique": True, "name": "event_id_uniq"}),
 
+        # Twin phone line
+        ("twin_phone_lines", [("user_id", 1)], {"unique": True, "name": "user_id_uniq"}),
+        ("twin_phone_lines", [("e164", 1)], {"unique": True, "sparse": True, "name": "e164_uniq"}),
+        ("twin_phone_settings", [("user_id", 1)], {"unique": True, "name": "user_id_uniq"}),
+        ("twin_phone_calls", [("user_id", 1), ("started_at", -1)], {"name": "user_started"}),
+        ("twin_phone_calls", [("call_id", 1)], {"unique": True, "name": "call_id_uniq"}),
+        ("twin_phone_webhook_events", [("event_key", 1)], {"unique": True, "name": "event_key_uniq"}),
+
         # OAuth account-linking
         ("oauth_connections", [("user_id", 1), ("provider", 1)], {"unique": True, "name": "user_provider_uniq"}),
         ("oauth_states", [("state", 1)], {"unique": True, "name": "state_uniq"}),

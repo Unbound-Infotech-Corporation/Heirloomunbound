@@ -3,60 +3,33 @@
     x:Class="Heirloom.Controls.PttButton"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Width="168"
-    Height="168">
-    <Grid>
-        <Ellipse
-            x:Name="Halo"
-            Fill="{StaticResource HeirloomGoldMutedBrush}"
-            Opacity="0.55" />
-        <Ellipse
-            Margin="10"
-            Stroke="{StaticResource HeirloomGoldDeepBrush}"
-            StrokeThickness="1">
-            <Ellipse.Fill>
-                <LinearGradientBrush StartPoint="0.3,0" EndPoint="0.7,1">
-                    <GradientStop Offset="0" Color="#FFE8C49A" />
-                    <GradientStop Offset="0.5" Color="#FFD4A373" />
-                    <GradientStop Offset="1" Color="#FF8A6238" />
-                </LinearGradientBrush>
-            </Ellipse.Fill>
-        </Ellipse>
-        <Ellipse
-            Margin="12"
-            Fill="{StaticResource StudioInnerHighlight}"
-            Opacity="0.35"
-            VerticalAlignment="Top"
-            Height="48" />
-        <Button
-            HorizontalAlignment="Stretch"
-            VerticalAlignment="Stretch"
-            Background="Transparent"
-            BorderThickness="0"
-            Click="OnClick"
-            PointerPressed="OnPressed"
-            PointerReleased="OnReleased">
-            <Button.Template>
-                <ControlTemplate TargetType="Button">
-                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                </ControlTemplate>
-            </Button.Template>
-            <StackPanel HorizontalAlignment="Center">
-                <TextBlock
-                    x:Name="Label"
-                    HorizontalAlignment="Center"
-                    FontFamily="{StaticResource HeirloomSerif}"
-                    FontSize="22"
-                    Foreground="{StaticResource HeirloomInkBrush}"
-                    Text="Hold" />
-                <TextBlock
-                    HorizontalAlignment="Center"
-                    FontFamily="{StaticResource HeirloomSans}"
-                    FontSize="11"
-                    Foreground="{StaticResource HeirloomInkBrush}"
-                    Opacity="0.7"
-                    Text="PUSH TO TALK" />
-            </StackPanel>
-        </Button>
-    </Grid>
+    MinWidth="168"
+    MinHeight="40"
+    Height="40"
+    IsTabStop="True"
+    UseSystemFocusVisuals="True">
+    <Button
+        x:Name="Face"
+        HorizontalAlignment="Stretch"
+        VerticalAlignment="Stretch"
+        AllowFocusOnInteraction="False"
+        AutomationProperties.Name="Hold to talk"
+        ClickMode="Press"
+        IsTabStop="False"
+        Style="{StaticResource StudioButtonPrimary}">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <FontIcon
+                x:Name="Mic"
+                VerticalAlignment="Center"
+                FontSize="14"
+                Glyph="&#xE720;" />
+            <TextBlock
+                x:Name="Label"
+                VerticalAlignment="Center"
+                FontFamily="{StaticResource HeirloomSans}"
+                FontSize="13"
+                FontWeight="SemiBold"
+                Text="Hold to talk" />
+        </StackPanel>
+    </Button>
 </UserControl>

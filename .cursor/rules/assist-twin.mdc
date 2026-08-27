@@ -1,0 +1,14 @@
+---
+description: Assist is the PC copilot; Twin is the grounded gift. Do not collapse them. Do not launch Heirloom.
+globs: desktop/Heirloom/**/*.{cs,xaml}
+alwaysApply: false
+---
+
+# Assist vs Twin (WinUI)
+
+- **Assist** (`assistant` dock, `AssistantViewModel`, `PcToolkit`): works FOR the owner on this PC. Never speak as them. Gold verb is **Do**.
+- **Twin** (`twin` dock under Twin group, `TwinViewModel`): grounded first-person from the vault. Gold verb is **Ask**. No PC/screen/terminal tools.
+- Cloud: `POST /api/desktop/chat` with `mode=assistant` or `mode=twin`.
+- Destructive Assist tools wait for Confirm in the document. No MessageBox, no extra windows, no `Heirloom.exe` launch after publish.
+- Publish to `desktop/dist/Heirloom-ready` when the live exe is locked. Mixer is the Heirloom WASAPI session, not system master.
+- After chrome/copy edits, query UnboundCursor library (`127.0.0.1:7733/library` or `F:/UnboundCursor/data/knowledge/library.json`).

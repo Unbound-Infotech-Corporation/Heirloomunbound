@@ -15,7 +15,10 @@ public sealed class AppHost : IDisposable
     public OllamaService Ollama { get; }
     public VaultService Vault { get; }
     public CommandPoller Poller { get; }
+    public PcToolkit Pc { get; }
     public SpeakService Speak { get; }
+    public AvatarEngineService AvatarEngine { get; }
+    public VideoEngineService VideoEngine { get; }
     public AuthService Auth { get; }
     public HeirloomApiClient Api { get; }
     public ProvisionService Provision { get; }
@@ -47,8 +50,11 @@ public sealed class AppHost : IDisposable
         services.AddSingleton<VaultService>();
         services.AddSingleton<ScreenCaptureService>();
         services.AddSingleton<SpeakService>();
+        services.AddSingleton<AvatarEngineService>();
+        services.AddSingleton<VideoEngineService>();
         services.AddSingleton<AuthService>();
         services.AddSingleton<ProvisionService>();
+        services.AddSingleton<PcToolkit>();
         services.AddSingleton<CommandPoller>();
         Services = services.BuildServiceProvider();
 
@@ -59,11 +65,29 @@ public sealed class AppHost : IDisposable
         Ollama = Services.GetRequiredService<OllamaService>();
         Vault = Services.GetRequiredService<VaultService>();
         Speak = Services.GetRequiredService<SpeakService>();
+        AvatarEngine = Services.GetRequiredService<AvatarEngineService>();
+        VideoEngine = Services.GetRequiredService<VideoEngineService>();
         Auth = Services.GetRequiredService<AuthService>();
         Provision = Services.GetRequiredService<ProvisionService>();
         Screen = Services.GetRequiredService<ScreenCaptureService>();
+        Pc = Services.GetRequiredService<PcToolkit>();
         Poller = Services.GetRequiredService<CommandPoller>();
         Current = this;
+    }
+
+    public event Action? VaultPathChanged;
+    public event Action? AppModeChanged;
+
+    public void RaiseAppModeChanged() => AppModeChanged?.Invoke();
+
+    public void SetVaultPath(string path)
+    {
+        var root = Path.GetFullPath(path.Trim());
+        Directory.CreateDirectory(root);
+        Settings.Current.LibraryPath = root;
+        Settings.Save();
+        Vault.Open();
+        VaultPathChanged?.Invoke();
     }
 
     public async Task StartAsync()
@@ -80,6 +104,7 @@ public sealed class AppHost : IDisposable
     public void Dispose()
     {
         Poller.Dispose();
+        Pc.Dispose();
         Capture.Dispose();
         Mixer.Dispose();
         Whisper.Dispose();

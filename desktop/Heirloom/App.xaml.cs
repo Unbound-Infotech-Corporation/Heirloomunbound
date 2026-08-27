@@ -14,7 +14,11 @@ public partial class App : Application
     {
         NativeMethods.SetAppIdentity();
         InitializeComponent();
-        UnhandledException += (_, e) => e.Handled = true;
+        UnhandledException += (_, e) =>
+        {
+            FaultLog.Write("unhandled", e.Exception.GetType().Name + ": " + e.Exception.Message);
+            e.Handled = true;
+        };
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)

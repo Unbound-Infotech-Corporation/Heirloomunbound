@@ -193,17 +193,89 @@ public static class ThemeService
         SetBrush(res, "HeirloomBorderBrush", p.Border);
         SetBrush(res, "HeirloomInkBrush", p.Ink);
         SetBrush(res, "HeirloomGoldMutedBrush", WithAlpha(p.Gold, 0x26));
-        SetBrush(res, "HeirloomGlassBrush", WithAlpha(p.BgSurface, 0xCC));
-        SetBrush(res, "HeirloomChromeBrush", WithAlpha(p.BgSurface, 0x99));
-        SetBrush(res, "HeirloomDockBrush", WithAlpha(p.BgSurface, 0xE1));
-        SetBrush(res, "HeirloomStatusBrush", WithAlpha(p.BgBase, 0xE1));
-        SetBrush(res, "HeirloomMenuStripBrush", WithAlpha(p.BgSurface, 0xCC));
-        SetBrush(res, "HeirloomOptionsStripBrush", WithAlpha(p.BgSurface, 0x99));
-        SetBrush(res, "HeirloomDocTitleBrush", WithAlpha(p.BgElevated, 0xE1));
+        SetBrush(res, "HeirloomGlassBrush", WithAlpha(p.BgSurface, 0xF2));
+        SetBrush(res, "HeirloomChromeBrush", WithAlpha(p.BgSurface, 0xE8));
+        SetBrush(res, "HeirloomDockBrush", WithAlpha(p.BgSurface, 0xF4));
+        SetBrush(res, "HeirloomStatusBrush", WithAlpha(p.BgBase, 0xF0));
+        SetBrush(res, "HeirloomMenuStripBrush", WithAlpha(p.BgSurface, 0xE8));
+        SetBrush(res, "HeirloomOptionsStripBrush", WithAlpha(p.BgBase, 0xCC));
+        SetBrush(res, "HeirloomDocTitleBrush", WithAlpha(p.BgElevated, 0xF0));
+        SetBrush(res, "HeirloomScrimBrush", WithAlpha(p.BgBase, 0xB8));
+        SetBrush(res, "HeirloomYouBubbleBrush", WithAlpha(p.Gold, 0x22));
+        SetBrush(res, "HeirloomTwinBubbleBrush", WithAlpha(p.BgElevated, 0xE8));
+        SetBrush(res, "HeirloomDangerFillBrush", WithAlpha(p.Danger, 0x28));
+        SetBrush(res, "HeirloomDangerTextBrush", Lighten(p.Danger, 80));
+        SetBrush(res, "HeirloomMeterTrackBrush", WithAlpha(p.Border, 0xCC));
 
         SetGoldFill(res, "StudioGoldFill", p.GoldHover, p.Gold, p.GoldPressed);
         SetGoldFill(res, "StudioGoldFillHover", Lighten(p.GoldHover, 18), p.GoldHover, p.Gold);
         SetGoldFill(res, "StudioGoldFillPressed", p.GoldPressed, p.GoldDeep, p.GoldDeep);
+        ApplyControlChrome(res, p);
+    }
+
+    private static void ApplyControlChrome(ResourceDictionary res, PaletteSpec p)
+    {
+        res["SystemAccentColor"] = p.Gold;
+        SetBrush(res, "SystemAccentColorLight2", Lighten(p.Gold, 24));
+        SetBrush(res, "AccentFillColorDefaultBrush", p.Gold);
+        SetBrush(res, "AccentFillColorSecondaryBrush", Lighten(p.Gold, 18));
+        SetBrush(res, "AccentFillColorTertiaryBrush", p.GoldPressed);
+        SetBrush(res, "AccentFillColorDisabledBrush", WithAlpha(p.Gold, 0x55));
+        SetBrush(res, "ControlFillColorDefaultBrush", p.BgElevated);
+        SetBrush(res, "ControlFillColorSecondaryBrush", p.BgSurface);
+        SetBrush(res, "ControlFillColorTertiaryBrush", p.BgElevated);
+        SetBrush(res, "ControlFillColorInputActiveBrush", p.BgElevated);
+        SetBrush(res, "ControlStrokeColorDefaultBrush", p.Border);
+        SetBrush(res, "ControlStrokeColorOnAccentDefaultBrush", p.GoldDeep);
+        SetBrush(res, "ControlStrokeColorFocusedBrush", p.Gold);
+        SetBrush(res, "FocusStrokeColorOuterBrush", p.Gold);
+        SetBrush(res, "TextFillColorPrimaryBrush", p.Text);
+        SetBrush(res, "TextFillColorSecondaryBrush", p.TextSecondary);
+        SetBrush(res, "TextFillColorTertiaryBrush", p.TextMuted);
+        SetBrush(res, "TextControlBackground", p.BgElevated);
+        SetBrush(res, "TextControlBackgroundPointerOver", p.BgElevated);
+        SetBrush(res, "TextControlBackgroundFocused", p.BgElevated);
+        SetBrush(res, "TextControlForeground", p.Text);
+        SetBrush(res, "TextControlForegroundPointerOver", p.Text);
+        SetBrush(res, "TextControlForegroundFocused", p.Text);
+        SetBrush(res, "TextControlBorderBrush", p.Border);
+        SetBrush(res, "TextControlBorderBrushPointerOver", p.Gold);
+        SetBrush(res, "TextControlBorderBrushFocused", p.Gold);
+        SetBrush(res, "TextControlPlaceholderForeground", p.TextMuted);
+        SetBrush(res, "TextControlPlaceholderForegroundPointerOver", p.TextMuted);
+        SetBrush(res, "TextControlPlaceholderForegroundFocused", p.TextSecondary);
+        SetBrush(res, "ComboBoxBackground", p.BgElevated);
+        SetBrush(res, "ComboBoxBackgroundPointerOver", p.BgElevated);
+        SetBrush(res, "ComboBoxBackgroundPressed", p.BgSurface);
+        SetBrush(res, "ComboBoxBackgroundFocused", p.BgElevated);
+        SetBrush(res, "ComboBoxBorderBrush", p.Border);
+        SetBrush(res, "ComboBoxBorderBrushPointerOver", p.Gold);
+        SetBrush(res, "ComboBoxBorderBrushFocused", p.Gold);
+        SetBrush(res, "ComboBoxForeground", p.Text);
+        SetBrush(res, "ComboBoxPlaceHolderForeground", p.TextMuted);
+        SetBrush(res, "ComboBoxDropDownBackground", p.BgSurface);
+        SetBrush(res, "ComboBoxDropDownBorderBrush", p.Border);
+        SetBrush(res, "ProgressBarForeground", p.Gold);
+        SetBrush(res, "ProgressBarBackground", p.Border);
+        SetBrush(res, "SliderTrackFill", p.Border);
+        SetBrush(res, "SliderTrackValueFill", p.Gold);
+        SetBrush(res, "SliderThumbBackground", p.Gold);
+        SetBrush(res, "ToggleSwitchFillOn", p.Gold);
+        SetBrush(res, "ToggleSwitchFillOnPointerOver", Lighten(p.Gold, 18));
+        SetBrush(res, "ToggleSwitchFillOnPressed", p.GoldPressed);
+        SetBrush(res, "ToggleSwitchKnobFillOn", p.Ink);
+        SetBrush(res, "ToggleSwitchFillOff", p.BgElevated);
+        SetBrush(res, "ToggleSwitchStrokeOff", p.Border);
+        SetBrush(res, "ToggleSwitchStrokeOn", p.GoldDeep);
+        SetBrush(res, "MenuBarItemBackgroundSelected", WithAlpha(p.Gold, 0x22));
+        SetBrush(res, "MenuBarItemBackgroundPointerOver", WithAlpha(p.Gold, 0x18));
+        SetBrush(res, "MenuFlyoutPresenterBackground", p.BgSurface);
+        SetBrush(res, "MenuFlyoutPresenterBorderBrush", p.Border);
+        SetBrush(res, "MenuFlyoutItemBackgroundPointerOver", WithAlpha(p.Gold, 0x22));
+        SetBrush(res, "MenuFlyoutItemForeground", p.Text);
+        SetBrush(res, "ScrollBarThumbFill", WithAlpha(p.Gold, 0x66));
+        SetBrush(res, "ScrollBarThumbFillPointerOver", p.Gold);
+        SetBrush(res, "ScrollBarTrackFill", WithAlpha(p.BgBase, 0x66));
     }
 
     private static PaletteSpec Palette(string id) => id switch

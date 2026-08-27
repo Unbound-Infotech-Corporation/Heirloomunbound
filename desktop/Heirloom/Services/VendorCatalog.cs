@@ -44,7 +44,7 @@ public static class VendorCatalog
             Build(
                 "did",
                 "D-ID",
-                "Talking-head video of your face.",
+                "Talking-head from a sitting video of your face (not a still stamp).",
                 "https://studio.d-id.com/",
                 "https://studio.d-id.com/account-settings",
                 "/avatar/api-key",
@@ -53,7 +53,7 @@ public static class VendorCatalog
             Build(
                 "fal",
                 "fal.ai",
-                "Optional Avatar Studio beautify only.",
+                "Optional face restorer — leave off. It flattens a likeness into a stamp.",
                 "https://fal.ai/login",
                 "https://fal.ai/dashboard/keys",
                 "/avatar-studio/api-key",

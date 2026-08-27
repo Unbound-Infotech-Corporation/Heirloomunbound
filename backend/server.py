@@ -59,6 +59,7 @@ from routers import (
     onboarding,
     personality,
     personas,
+    phone,
     photos,
     reminders,
     skills,
@@ -161,6 +162,7 @@ api_router.include_router(letters.router)
 api_router.include_router(heir_portal.router)
 api_router.include_router(personality.router)
 api_router.include_router(personas.router)
+api_router.include_router(phone.router)
 api_router.include_router(nudges.router)
 api_router.include_router(memory.router)
 api_router.include_router(music.router)

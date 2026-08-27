@@ -18,7 +18,7 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 SESSION_TOKEN = "test_session_fork23"
 USER_ID = "test-user-fork23"
 
-ALL_IDS = {"web", "music", "smart_home", "pc_control", "screen_vision", "terminal"}
+ALL_IDS = {"web", "music", "smart_home", "pc_control", "screen_vision", "terminal", "phone"}
 DEFAULT_ENABLED = {"web", "music", "smart_home", "pc_control", "screen_vision"}
 
 

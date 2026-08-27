@@ -48,6 +48,9 @@ async def test_build_brain_pack_shape(monkeypatch):
     async def fake_enabled(_uid):
         return set()
 
+    async def fake_passages(_uid, query_hint="", limit=8):
+        return []
+
     async def fake_archive(_uid, query_hint=""):
         return "[MEMORY] Home\nVermont"
 
@@ -66,6 +69,7 @@ async def test_build_brain_pack_shape(monkeypatch):
 
     monkeypatch.setattr(ab, "enabled_ability_ids", fake_enabled)
     monkeypatch.setattr(tr, "archive_blob", fake_archive)
+    monkeypatch.setattr(tr, "archive_passages", fake_passages)
     monkeypatch.setattr(tr, "skills_blob", fake_skills)
     monkeypatch.setattr(mem, "build_memory_pack", fake_memory)
     monkeypatch.setattr(tr, "get_active_persona", fake_persona)
@@ -76,3 +80,45 @@ async def test_build_brain_pack_shape(monkeypatch):
     assert "Alex" in pack.system
     assert pack.conversation_id == "c1"
     assert pack.twin_backend in ("cloud_claude", "ollama")
+    assert "faithful continuation" in pack.system.lower()
+
+
+@pytest.mark.asyncio
+async def test_build_brain_pack_assistant_is_copilot(monkeypatch):
+    async def fake_enabled(_uid):
+        return {"pc_control", "web"}
+
+    async def fake_passages(_uid, query_hint="", limit=8):
+        return []
+
+    async def fake_archive(_uid, query_hint=""):
+        return ""
+
+    async def fake_skills(_uid):
+        return ""
+
+    async def fake_memory(_uid, query_hint=""):
+        return {"identity_facts": [], "episodes": []}
+
+    async def fake_persona(_uid, _user):
+        return None
+
+    import abilities as ab
+    import twin_runtime as tr
+    from routers import memory as mem
+
+    monkeypatch.setattr(ab, "enabled_ability_ids", fake_enabled)
+    monkeypatch.setattr(tr, "archive_blob", fake_archive)
+    monkeypatch.setattr(tr, "archive_passages", fake_passages)
+    monkeypatch.setattr(tr, "skills_blob", fake_skills)
+    monkeypatch.setattr(mem, "build_memory_pack", fake_memory)
+    monkeypatch.setattr(tr, "get_active_persona", fake_persona)
+
+    user = {"user_id": "u1", "name": "Alex", "studio_models": {"twin": "cloud_claude"}}
+    conv = {"conversation_id": "c1", "messages": []}
+    twin = await build_brain_pack(user, "open notepad", conversation=conv, role="twin")
+    assist = await build_brain_pack(user, "open notepad", conversation=conv, role="assistant")
+    assert "not their digital twin" in assist.system.lower()
+    assert "open_on_pc" in assist.system
+    assert "open_on_pc" not in twin.system
+    assert "faithful continuation" in twin.system.lower()

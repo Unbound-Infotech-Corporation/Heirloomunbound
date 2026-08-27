@@ -41,8 +41,14 @@ public sealed partial class StudioDocumentWindow : UserControl
             }
 
             ApplySlots();
+            ApplyActive();
+            ApplySubtitle();
+            Heirloom.Services.ThemeService.Changed += OnTheme;
         };
+        Unloaded += (_, _) => Heirloom.Services.ThemeService.Changed -= OnTheme;
     }
+
+    private void OnTheme() => DispatcherQueue.TryEnqueue(ApplyActive);
 
     public string DocumentId
     {
@@ -69,7 +75,7 @@ public sealed partial class StudioDocumentWindow : UserControl
     }
 
     public static readonly DependencyProperty SubtitleTextProperty =
-        DependencyProperty.Register(nameof(SubtitleText), typeof(string), typeof(StudioDocumentWindow), new PropertyMetadata(""));
+        DependencyProperty.Register(nameof(SubtitleText), typeof(string), typeof(StudioDocumentWindow), new PropertyMetadata("", OnSubtitleChanged));
 
     public string StatusText
     {
@@ -79,6 +85,15 @@ public sealed partial class StudioDocumentWindow : UserControl
 
     public static readonly DependencyProperty StatusTextProperty =
         DependencyProperty.Register(nameof(StatusText), typeof(string), typeof(StudioDocumentWindow), new PropertyMetadata(""));
+
+    public bool IsActive
+    {
+        get => (bool)GetValue(IsActiveProperty);
+        set => SetValue(IsActiveProperty, value);
+    }
+
+    public static readonly DependencyProperty IsActiveProperty =
+        DependencyProperty.Register(nameof(IsActive), typeof(bool), typeof(StudioDocumentWindow), new PropertyMetadata(false, OnActiveChanged));
 
     public UIElement? MenuBarContent
     {
@@ -134,6 +149,50 @@ public sealed partial class StudioDocumentWindow : UserControl
         {
             OptionsHost.Visibility = OptionsContent is null ? Visibility.Collapsed : Visibility.Visible;
         }
+
+        ApplySubtitle();
+    }
+
+    private static void OnSubtitleChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is StudioDocumentWindow window)
+        {
+            window.ApplySubtitle();
+        }
+    }
+
+    private static void OnActiveChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is StudioDocumentWindow window)
+        {
+            window.ApplyActive();
+        }
+    }
+
+    private void ApplySubtitle()
+    {
+        if (SubtitleBlock is null)
+        {
+            return;
+        }
+
+        SubtitleBlock.Visibility = string.IsNullOrWhiteSpace(SubtitleText)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void ApplyActive()
+    {
+        if (Shell is null || TitleBlock is null)
+        {
+            return;
+        }
+
+        var gold = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["HeirloomGoldBrush"];
+        var border = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["HeirloomBorderBrush"];
+        var text = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["HeirloomTextBrush"];
+        Shell.BorderBrush = IsActive ? gold : border;
+        TitleBlock.Foreground = IsActive ? gold : text;
     }
 
     private void OnChromePressed(object sender, PointerRoutedEventArgs e)

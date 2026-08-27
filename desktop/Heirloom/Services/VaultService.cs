@@ -2,7 +2,6 @@ using Microsoft.Data.Sqlite;
 
 namespace Heirloom.Services;
 
-public sealed record VaultRow(long Id, string Created, string Kind, string Text, string Tag);
 public sealed record LetterRow(long Id, string Title, string Body, string ForPerson, string Trigger, bool Sealed, string Created);
 public sealed record HeirRow(long Id, string Name, string Relation, bool Consent, string Created);
 public sealed record VaultStats(int Captures, int Letters, int Heirs, IReadOnlyDictionary<string, int> ByKind, int Completeness);
@@ -14,6 +13,10 @@ public sealed class VaultService : IDisposable
 
     public string Status { get; private set; } = "Vault closed";
     public string RootPath { get; private set; } = "";
+    public string DbPath => Path.Combine(RootPath, "vault.db");
+
+    public bool CanWrite =>
+        !string.Equals(_settings.Current.AppMode, "heir", StringComparison.OrdinalIgnoreCase);
 
     public VaultService(SettingsStore settings)
     {
@@ -22,13 +25,14 @@ public sealed class VaultService : IDisposable
 
     public void Open()
     {
+        _connection?.Dispose();
+        _connection = null;
         var root = string.IsNullOrWhiteSpace(_settings.Current.LibraryPath)
             ? AppPaths.DefaultVaultPath
             : _settings.Current.LibraryPath;
         Directory.CreateDirectory(root);
         RootPath = root;
-        var db = Path.Combine(root, "vault.db");
-        _connection = new SqliteConnection("Data Source=" + db);
+        _connection = new SqliteConnection("Data Source=" + Path.Combine(root, "vault.db"));
         _connection.Open();
         using var cmd = _connection.CreateCommand();
         cmd.CommandText =
@@ -64,38 +68,83 @@ public sealed class VaultService : IDisposable
               enabled INTEGER NOT NULL DEFAULT 1,
               created_utc TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS vault_facts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              fact TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              source_capture_id INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS capture_vectors (
+              capture_id INTEGER PRIMARY KEY,
+              model TEXT NOT NULL,
+              vector_json TEXT NOT NULL
+            );
             """;
         cmd.ExecuteNonQuery();
         EnsureColumn("captures", "tag", "ALTER TABLE captures ADD COLUMN tag TEXT NOT NULL DEFAULT ''");
         EnsureColumn("letters", "for_person", "ALTER TABLE letters ADD COLUMN for_person TEXT NOT NULL DEFAULT ''");
         EnsureColumn("letters", "trigger_when", "ALTER TABLE letters ADD COLUMN trigger_when TEXT NOT NULL DEFAULT 'after_release'");
+        EnsureFts();
+        ReindexMissingVectors();
         Status = "Vault · " + root;
     }
 
     public long AddCapture(string kind, string text, string tag = "")
     {
+        if (!CanWrite || string.IsNullOrWhiteSpace(text))
+        {
+            return 0;
+        }
+
         Ensure();
         using var cmd = _connection!.CreateCommand();
         cmd.CommandText = "INSERT INTO captures (created_utc, kind, text, tag) VALUES ($c, $k, $t, $g)";
         cmd.Parameters.AddWithValue("$c", DateTime.UtcNow.ToString("o"));
         cmd.Parameters.AddWithValue("$k", kind);
-        cmd.Parameters.AddWithValue("$t", text);
+        cmd.Parameters.AddWithValue("$t", text.Trim());
         cmd.Parameters.AddWithValue("$g", tag);
         cmd.ExecuteNonQuery();
-        using var id = _connection.CreateCommand();
-        id.CommandText = "SELECT last_insert_rowid()";
-        return (long)id.ExecuteScalar()!;
+        using var idCmd = _connection.CreateCommand();
+        idCmd.CommandText = "SELECT last_insert_rowid()";
+        var id = (long)idCmd.ExecuteScalar()!;
+        IndexCapture(id, kind, text.Trim(), tag);
+        return id;
     }
 
     public bool DeleteCapture(long id)
     {
-        if (id <= 0)
+        if (id <= 0 || !CanWrite)
         {
             return false;
         }
 
         Ensure();
-        using var cmd = _connection!.CreateCommand();
+        using (var facts = _connection!.CreateCommand())
+        {
+            facts.CommandText = "DELETE FROM vault_facts WHERE source_capture_id = $id";
+            facts.Parameters.AddWithValue("$id", id);
+            facts.ExecuteNonQuery();
+        }
+
+        using (var vec = _connection.CreateCommand())
+        {
+            vec.CommandText = "DELETE FROM capture_vectors WHERE capture_id = $id";
+            vec.Parameters.AddWithValue("$id", id);
+            vec.ExecuteNonQuery();
+        }
+
+        try
+        {
+            using var fts = _connection.CreateCommand();
+            fts.CommandText = "DELETE FROM captures_fts WHERE rowid = $id";
+            fts.Parameters.AddWithValue("$id", id);
+            fts.ExecuteNonQuery();
+        }
+        catch (SqliteException)
+        {
+        }
+
+        using var cmd = _connection.CreateCommand();
         cmd.CommandText = "DELETE FROM captures WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", id);
         return cmd.ExecuteNonQuery() > 0;
@@ -119,32 +168,89 @@ public sealed class VaultService : IDisposable
         return ReadCaptures(cmd);
     }
 
-    public IReadOnlyList<VaultRow> Search(string query, string? kind = null, int limit = 80)
+    public VaultRow? GetCapture(long id)
     {
         Ensure();
         using var cmd = _connection!.CreateCommand();
-        var like = "%" + query.Trim() + "%";
-        if (string.IsNullOrWhiteSpace(kind) || kind == "all")
+        cmd.CommandText = "SELECT id, created_utc, kind, text, IFNULL(tag,'') FROM captures WHERE id = $id LIMIT 1";
+        cmd.Parameters.AddWithValue("$id", id);
+        return ReadCaptures(cmd).FirstOrDefault();
+    }
+
+    public IReadOnlyList<TwinPassage> Retrieve(string query, int limit = 8)
+    {
+        Ensure();
+        var pool = FtsPool(query, 80);
+        if (pool.Count == 0)
         {
-            cmd.CommandText = "SELECT id, created_utc, kind, text, IFNULL(tag,'') FROM captures WHERE text LIKE $q OR tag LIKE $q OR kind LIKE $q ORDER BY id DESC LIMIT $n";
-        }
-        else
-        {
-            cmd.CommandText = "SELECT id, created_utc, kind, text, IFNULL(tag,'') FROM captures WHERE kind = $k AND (text LIKE $q OR tag LIKE $q) ORDER BY id DESC LIMIT $n";
-            cmd.Parameters.AddWithValue("$k", kind);
+            return [];
         }
 
-        cmd.Parameters.AddWithValue("$q", like);
-        cmd.Parameters.AddWithValue("$n", limit);
-        return ReadCaptures(cmd);
+        var queryVec = TwinEmbed.Vector(query);
+        var boost = new Dictionary<long, double>();
+        foreach (var row in pool)
+        {
+            var stored = GetVector(row.Id);
+            if (stored.Count == 0)
+            {
+                stored = TwinEmbed.Vector(row.Kind + " " + row.Tag + " " + row.Text);
+            }
+
+            var cos = TwinEmbed.Cosine(queryVec, stored);
+            if (cos >= 0.28)
+            {
+                boost[row.Id] = cos;
+            }
+        }
+
+        return TwinRetrieve.Rank(pool, query, limit, boost);
+    }
+
+    public IReadOnlyList<VaultRow> Search(string query, string? kind = null, int limit = 80)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return Recent(limit, kind);
+        }
+
+        var hits = Retrieve(query, Math.Clamp(limit, 8, 40));
+        IEnumerable<TwinPassage> filtered = hits;
+        if (!string.IsNullOrWhiteSpace(kind) && kind != "all")
+        {
+            filtered = hits.Where(h => string.Equals(h.Kind, kind, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return filtered
+            .Select(h => new VaultRow(h.Id, h.Created, h.Kind, h.Text, h.Tag))
+            .ToList();
+    }
+
+    public TwinPack BuildPack(string query, TwinCoreBlock core, bool grounded, string audience, int limit = 8)
+    {
+        var passages = Retrieve(query, limit);
+        var facts = TwinFacts.RelevantTo(ListFacts(), query);
+        return new TwinPack
+        {
+            Core = core,
+            Passages = passages,
+            Facts = facts,
+            CitationLine = TwinRetrieve.CitationLine(passages),
+            Grounded = grounded,
+            Audience = audience,
+        };
     }
 
     public string GroundedContext(int maxChars = 3500)
     {
-        var rows = Recent(60);
+        var rows = Recent(80);
         var builder = new System.Text.StringBuilder();
         foreach (var row in rows)
         {
+            if (!Allows(row))
+            {
+                continue;
+            }
+
             var line = $"[{row.Kind}{(string.IsNullOrWhiteSpace(row.Tag) ? "" : "/" + row.Tag)}] {row.Text.Trim()}";
             if (builder.Length + line.Length > maxChars)
             {
@@ -157,14 +263,16 @@ public sealed class VaultService : IDisposable
         return builder.ToString();
     }
 
-    public IReadOnlyList<VaultRow> CitationsFor(string query, int limit = 4)
+    public IReadOnlyList<VaultRow> CitationsFor(string query, int limit = 6)
     {
         if (string.IsNullOrWhiteSpace(query))
         {
             return [];
         }
 
-        return Search(query, null, limit);
+        return Retrieve(query, limit)
+            .Select(h => new VaultRow(h.Id, h.Created, h.Kind, h.Text, h.Tag))
+            .ToList();
     }
 
     public VaultStats Stats()
@@ -268,6 +376,11 @@ public sealed class VaultService : IDisposable
 
     public void AddLetter(string title, string body, bool sealedLetter, string forPerson = "", string trigger = "after_release")
     {
+        if (!CanWrite)
+        {
+            return;
+        }
+
         Ensure();
         using var cmd = _connection!.CreateCommand();
         cmd.CommandText = "INSERT INTO letters (title, body, sealed, created_utc, for_person, trigger_when) VALUES ($t, $b, $s, $c, $p, $w)";
@@ -304,6 +417,11 @@ public sealed class VaultService : IDisposable
 
     public void AddHeir(string name, string relation, bool consent)
     {
+        if (!CanWrite)
+        {
+            return;
+        }
+
         Ensure();
         using var cmd = _connection!.CreateCommand();
         cmd.CommandText = "INSERT INTO heirs (name, relation, consent, created_utc) VALUES ($n, $r, $c, $t)";
@@ -316,6 +434,11 @@ public sealed class VaultService : IDisposable
 
     public void AddSkill(string name, string url, string triggers)
     {
+        if (!CanWrite)
+        {
+            return;
+        }
+
         Ensure();
         using var cmd = _connection!.CreateCommand();
         cmd.CommandText = "INSERT INTO skills (name, webhook_url, triggers, enabled, created_utc) VALUES ($n, $u, $t, 1, $c)";
@@ -343,6 +466,11 @@ public sealed class VaultService : IDisposable
 
     public void DeleteSkill(long id)
     {
+        if (!CanWrite)
+        {
+            return;
+        }
+
         Ensure();
         using var cmd = _connection!.CreateCommand();
         cmd.CommandText = "DELETE FROM skills WHERE id = $i";
@@ -370,6 +498,70 @@ public sealed class VaultService : IDisposable
         return rows;
     }
 
+    public IReadOnlyList<TwinFact> ListFacts()
+    {
+        Ensure();
+        using var cmd = _connection!.CreateCommand();
+        cmd.CommandText = """
+            SELECT f.id, f.fact, f.kind, f.source_capture_id
+            FROM vault_facts f
+            INNER JOIN captures c ON c.id = f.source_capture_id
+            ORDER BY f.id DESC
+            """;
+        using var reader = cmd.ExecuteReader();
+        var facts = new List<TwinFact>();
+        while (reader.Read())
+        {
+            facts.Add(new TwinFact(reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3)));
+        }
+
+        return facts;
+    }
+
+    public int RebuildFacts()
+    {
+        if (!CanWrite)
+        {
+            return 0;
+        }
+
+        Ensure();
+        using (var wipe = _connection!.CreateCommand())
+        {
+            wipe.CommandText = "DELETE FROM vault_facts";
+            wipe.ExecuteNonQuery();
+        }
+
+        var proposed = TwinFacts.Propose(Recent(10_000));
+        var n = 0;
+        foreach (var (fact, kind, sourceId) in proposed)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "INSERT INTO vault_facts (fact, kind, source_capture_id) VALUES ($f, $k, $s)";
+            cmd.Parameters.AddWithValue("$f", fact);
+            cmd.Parameters.AddWithValue("$k", kind);
+            cmd.Parameters.AddWithValue("$s", sourceId);
+            cmd.ExecuteNonQuery();
+            n++;
+        }
+
+        return n;
+    }
+
+    public bool DeleteFact(long id)
+    {
+        if (id <= 0 || !CanWrite)
+        {
+            return false;
+        }
+
+        Ensure();
+        using var cmd = _connection!.CreateCommand();
+        cmd.CommandText = "DELETE FROM vault_facts WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
     public string ExportArchive()
     {
         Ensure();
@@ -379,12 +571,186 @@ public sealed class VaultService : IDisposable
         var captures = Recent(10_000);
         var letters = Letters();
         var heirs = Heirs();
+        var facts = ListFacts().Where(f => f.SourceCaptureId > 0).ToList();
         var json =
             $$"""
-            {"exported_utc":"{{DateTime.UtcNow:o}}","captures":[{{string.Join(",", captures.Select(c => $"{{\"id\":{c.Id},\"kind\":{System.Text.Json.JsonSerializer.Serialize(c.Kind)},\"tag\":{System.Text.Json.JsonSerializer.Serialize(c.Tag)},\"text\":{System.Text.Json.JsonSerializer.Serialize(c.Text)}}}"))}}],"letters":[{{string.Join(",", letters.Select(l => $"{{\"id\":{l.Id},\"title\":{System.Text.Json.JsonSerializer.Serialize(l.Title)},\"for\":{System.Text.Json.JsonSerializer.Serialize(l.ForPerson)},\"trigger\":{System.Text.Json.JsonSerializer.Serialize(l.Trigger)},\"sealed\":{l.Sealed.ToString().ToLowerInvariant()},\"body\":{System.Text.Json.JsonSerializer.Serialize(l.Body)}}}"))}}],"heirs":[{{string.Join(",", heirs.Select(h => $"{{\"id\":{h.Id},\"name\":{System.Text.Json.JsonSerializer.Serialize(h.Name)},\"relation\":{System.Text.Json.JsonSerializer.Serialize(h.Relation)},\"consent\":{h.Consent.ToString().ToLowerInvariant()}}}"))}}]}
+            {"exported_utc":"{{DateTime.UtcNow:o}}","captures":[{{string.Join(",", captures.Select(c => $"{{\"id\":{c.Id},\"kind\":{System.Text.Json.JsonSerializer.Serialize(c.Kind)},\"tag\":{System.Text.Json.JsonSerializer.Serialize(c.Tag)},\"text\":{System.Text.Json.JsonSerializer.Serialize(c.Text)}}}"))}}],"facts":[{{string.Join(",", facts.Select(f => $"{{\"id\":{f.Id},\"kind\":{System.Text.Json.JsonSerializer.Serialize(f.Kind)},\"source_capture_id\":{f.SourceCaptureId},\"fact\":{System.Text.Json.JsonSerializer.Serialize(f.Fact)}}}"))}}],"letters":[{{string.Join(",", letters.Select(l => $"{{\"id\":{l.Id},\"title\":{System.Text.Json.JsonSerializer.Serialize(l.Title)},\"for\":{System.Text.Json.JsonSerializer.Serialize(l.ForPerson)},\"trigger\":{System.Text.Json.JsonSerializer.Serialize(l.Trigger)},\"sealed\":{l.Sealed.ToString().ToLowerInvariant()},\"body\":{System.Text.Json.JsonSerializer.Serialize(l.Body)}}}"))}}],"heirs":[{{string.Join(",", heirs.Select(h => $"{{\"id\":{h.Id},\"name\":{System.Text.Json.JsonSerializer.Serialize(h.Name)},\"relation\":{System.Text.Json.JsonSerializer.Serialize(h.Relation)},\"consent\":{h.Consent.ToString().ToLowerInvariant()}}}"))}}]}
             """;
         File.WriteAllText(dest, json);
         return dest;
+    }
+
+    private void EnsureFts()
+    {
+        if (_connection is null)
+        {
+            return;
+        }
+
+        try
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                CREATE VIRTUAL TABLE IF NOT EXISTS captures_fts USING fts5(
+                  text, tag, kind, content='captures', content_rowid='id'
+                );
+                """;
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException)
+        {
+            return;
+        }
+
+        using var count = _connection.CreateCommand();
+        count.CommandText = "SELECT COUNT(*) FROM captures_fts";
+        long ftsCount;
+        try
+        {
+            ftsCount = Convert.ToInt64(count.ExecuteScalar() ?? 0L);
+        }
+        catch (SqliteException)
+        {
+            return;
+        }
+
+        using var cap = _connection.CreateCommand();
+        cap.CommandText = "SELECT COUNT(*) FROM captures";
+        var capCount = Convert.ToInt64(cap.ExecuteScalar() ?? 0L);
+        if (ftsCount == capCount)
+        {
+            return;
+        }
+
+        try
+        {
+            using var rebuild = _connection.CreateCommand();
+            rebuild.CommandText = "INSERT INTO captures_fts(captures_fts) VALUES('rebuild')";
+            rebuild.ExecuteNonQuery();
+        }
+        catch (SqliteException)
+        {
+        }
+    }
+
+    private List<VaultRow> FtsPool(string query, int limit)
+    {
+        var fts = TwinTokens.FtsQuery(query);
+        if (string.IsNullOrWhiteSpace(fts))
+        {
+            return Recent(limit).Where(Allows).ToList();
+        }
+
+        try
+        {
+            using var cmd = _connection!.CreateCommand();
+            cmd.CommandText = """
+                SELECT c.id, c.created_utc, c.kind, c.text, IFNULL(c.tag,'')
+                FROM captures_fts
+                JOIN captures c ON c.id = captures_fts.rowid
+                WHERE captures_fts MATCH $q
+                LIMIT $n
+                """;
+            cmd.Parameters.AddWithValue("$q", fts);
+            cmd.Parameters.AddWithValue("$n", limit);
+            return ReadCaptures(cmd).Where(Allows).ToList();
+        }
+        catch (SqliteException)
+        {
+            return Recent(Math.Min(400, limit * 5)).Where(Allows).ToList();
+        }
+    }
+
+    private void IndexCapture(long id, string kind, string text, string tag)
+    {
+        try
+        {
+            using var fts = _connection!.CreateCommand();
+            fts.CommandText = "INSERT INTO captures_fts(rowid, text, tag, kind) VALUES ($id, $text, $tag, $kind)";
+            fts.Parameters.AddWithValue("$id", id);
+            fts.Parameters.AddWithValue("$text", text);
+            fts.Parameters.AddWithValue("$tag", tag);
+            fts.Parameters.AddWithValue("$kind", kind);
+            fts.ExecuteNonQuery();
+        }
+        catch (SqliteException)
+        {
+        }
+
+        UpsertVector(id, kind + " " + tag + " " + text);
+    }
+
+    private void ReindexMissingVectors()
+    {
+        if (_connection is null)
+        {
+            return;
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT c.id, c.kind, c.text, IFNULL(c.tag,'')
+            FROM captures c
+            LEFT JOIN capture_vectors v ON v.capture_id = c.id AND v.model = $m
+            WHERE v.capture_id IS NULL
+            LIMIT 400
+            """;
+        cmd.Parameters.AddWithValue("$m", TwinEmbed.Model);
+        using var reader = cmd.ExecuteReader();
+        var pending = new List<(long Id, string Kind, string Text, string Tag)>();
+        while (reader.Read())
+        {
+            pending.Add((reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetString(3)));
+        }
+
+        foreach (var row in pending)
+        {
+            UpsertVector(row.Id, row.Kind + " " + row.Tag + " " + row.Text);
+        }
+    }
+
+    private void UpsertVector(long id, string text)
+    {
+        if (_connection is null)
+        {
+            return;
+        }
+
+        var json = TwinEmbed.Serialize(TwinEmbed.Vector(text));
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO capture_vectors (capture_id, model, vector_json)
+            VALUES ($id, $m, $j)
+            ON CONFLICT(capture_id) DO UPDATE SET model = $m, vector_json = $j
+            """;
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.AddWithValue("$m", TwinEmbed.Model);
+        cmd.Parameters.AddWithValue("$j", json);
+        cmd.ExecuteNonQuery();
+    }
+
+    private Dictionary<string, float> GetVector(long id)
+    {
+        if (_connection is null)
+        {
+            return new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT vector_json FROM capture_vectors WHERE capture_id = $id AND model = $m LIMIT 1";
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.AddWithValue("$m", TwinEmbed.Model);
+        var json = cmd.ExecuteScalar() as string;
+        return string.IsNullOrWhiteSpace(json)
+            ? new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase)
+            : TwinEmbed.Deserialize(json);
+    }
+
+    private bool Allows(VaultRow row)
+    {
+        var skip = (_settings.Current.SkipKinds ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return skip.Length == 0 || !skip.Contains(row.Kind, StringComparer.OrdinalIgnoreCase);
     }
 
     private static List<VaultRow> ReadCaptures(SqliteCommand cmd)

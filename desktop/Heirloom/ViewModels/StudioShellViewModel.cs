@@ -19,26 +19,37 @@ public partial class StudioShellViewModel : ObservableObject
         _host = host;
         Mixer = new MixerViewModel(host);
         Twin = new TwinViewModel(host, Mixer);
+        Assistant = new AssistantViewModel(host, Mixer);
         Models = new ModelsViewModel(host);
         FirstRun = new FirstRunViewModel(host);
+        FirstRun.RequestClose += (_, room) =>
+        {
+            ShowFirstRun = false;
+            if (!string.IsNullOrWhiteSpace(room))
+            {
+                OpenDocument(room);
+            }
+        };
         Archive = new ArchiveViewModel(host);
         Today = new TodayViewModel(host);
         Journal = new JournalViewModel(host);
         Interviewer = new InterviewerViewModel(host);
         Photos = new PhotosViewModel(host);
         Import = new ImportViewModel(host);
-        Sources = new SourcesViewModel();
+        Sources = new SourcesViewModel(host);
         Heirs = new ContinuityViewModel(host);
         Personality = new PersonalityViewModel(host);
         Abilities = new AbilitiesViewModel(host);
         Keys = new KeysViewModel(host);
-        Avatar = new AvatarViewModel();
+        Avatar = new AvatarViewModel(host);
         Settings = new SettingsViewModel(host);
         Glossary = new GlossaryViewModel();
         KitchenSink = new KitchenSinkViewModel();
         Coach = new VendorCoachViewModel(host);
         Skills = new SkillsViewModel(host);
         Library = new LibraryViewModel(host);
+        Phone = new PhoneViewModel(host);
+        Twin.Phone = Phone;
         Coach.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(VendorCoachViewModel.IsOpen) && !Coach.IsOpen)
@@ -54,6 +65,34 @@ public partial class StudioShellViewModel : ObservableObject
                 StatusLine = Twin.Status;
             }
         };
+        Assistant.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(AssistantViewModel.Status))
+            {
+                StatusLine = Assistant.Status;
+            }
+        };
+        Twin.Filed += (_, _) => ReloadVaultRooms();
+        Twin.VideoStudioRequested += (_, intent) => UiDispatch.Post(() => OpenVideoStudio(intent));
+        Assistant.VideoStudioRequested += (_, intent) => UiDispatch.Post(() => OpenVideoStudio(intent));
+        Settings.Saved += () =>
+        {
+            Keys.Refresh();
+            ReloadVaultRooms();
+        };
+        host.VaultPathChanged += () => UiDispatch.Post(() =>
+        {
+            Settings.LibraryPath = host.Settings.Current.LibraryPath;
+            FirstRun.LibraryPath = host.Settings.Current.LibraryPath;
+            ReloadVaultRooms();
+            StatusLine = "Vault is now " + host.Vault.RootPath;
+        });
+        host.AppModeChanged += () => UiDispatch.Post(() =>
+        {
+            Twin.ApplyAudience();
+            Phone.ApplyAudience();
+            Personality.ReloadFacts();
+        });
         Mixer.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(MixerViewModel.Status))
@@ -72,6 +111,7 @@ public partial class StudioShellViewModel : ObservableObject
 
     public MixerViewModel Mixer { get; }
     public TwinViewModel Twin { get; }
+    public AssistantViewModel Assistant { get; }
     public ModelsViewModel Models { get; }
     public FirstRunViewModel FirstRun { get; }
     public ArchiveViewModel Archive { get; }
@@ -92,13 +132,21 @@ public partial class StudioShellViewModel : ObservableObject
     public VendorCoachViewModel Coach { get; }
     public SkillsViewModel Skills { get; }
     public LibraryViewModel Library { get; }
+    public PhoneViewModel Phone { get; }
 
     public IReadOnlyList<DockItem> Dock { get; } =
     [
         Head("Sit"),
-        new("twin", "Twin", "\uE8BD"),
+        new("assistant", "Assist", "\uE99A"),
         new("today", "Today", "\uE706"),
         new("mixer", "Mixer", "\uE767"),
+        Head("Twin"),
+        new("twin", "Sitting", "\uE8BD"),
+        new("personality", "Portrait", "\uE8D4"),
+        new("abilities", "Abilities", "\uE945"),
+        new("skills", "Skills", "\uE90F"),
+        new("phone", "Phone", "\uE717"),
+        new("avatar", "Avatar", "\uE8B8"),
         Head("File"),
         new("archive", "Archive", "\uE8F1"),
         new("journal", "Journal", "\uE70B"),
@@ -108,11 +156,6 @@ public partial class StudioShellViewModel : ObservableObject
         Head("Keep"),
         new("library", "Library", "\uE8A5"),
         new("sources", "Sources", "\uE8B7"),
-        Head("Voice"),
-        new("personality", "Portrait", "\uE8D4"),
-        new("abilities", "Abilities", "\uE945"),
-        new("skills", "Skills", "\uE90F"),
-        new("avatar", "Avatar", "\uE8B8"),
         Head("Gift"),
         new("heirs", "Heirs", "\uE716"),
         new("letters", "Letters", "\uE715"),
@@ -150,8 +193,48 @@ public partial class StudioShellViewModel : ObservableObject
         _open.Add(id);
         ActiveDocumentId = id;
         StudioHelp.SetDocument(id);
+        switch (id)
+        {
+            case "archive":
+                Archive.Reload();
+                break;
+            case "library":
+                Library.Reload();
+                break;
+            case "journal":
+                Journal.Reload();
+                break;
+            case "photos":
+                Photos.Reload();
+                break;
+            case "skills":
+                Skills.Reload();
+                break;
+            case "phone":
+                _ = Phone.ReloadAsync();
+                break;
+            case "heirs":
+            case "letters":
+                Heirs.Reload();
+                break;
+            case "keys":
+                Keys.Refresh();
+                break;
+            case "avatar":
+                Avatar.Reload();
+                break;
+            case "models":
+            case "thismachine":
+                _ = Models.RefreshAsync();
+                break;
+            case "today":
+                _ = Today.LoadAsync();
+                break;
+        }
+
         StatusLine = id switch
         {
+            "assistant" => "Assist  ·  work on this PC",
             "twin" => "Twin  ·  grounded conversation",
             "mixer" => "Mixer  ·  Heirloom WASAPI session",
             "models" => "Models  ·  local brain",
@@ -160,6 +243,7 @@ public partial class StudioShellViewModel : ObservableObject
             "heirs" => "Heirs  ·  consent and lock",
             "letters" => "Sealed letters",
             "skills" => "Skills  ·  webhooks",
+            "phone" => "Phone  ·  family line",
             "library" => "Library  ·  this PC vault",
             "glossary" => "Glossary  ·  words this studio uses",
             "kitchensink" => "Control language  ·  Ferrari kit",
@@ -169,13 +253,24 @@ public partial class StudioShellViewModel : ObservableObject
         DocumentOpened?.Invoke(this, id);
     }
 
+    private void ReloadVaultRooms()
+    {
+        Archive.Reload();
+        Journal.Reload();
+        Library.Reload();
+        Photos.Reload();
+        Heirs.Reload();
+        Skills.Reload();
+        _ = Today.LoadAsync();
+    }
+
     [RelayCommand]
     public void CloseDocument(string id)
     {
         _open.Remove(id);
         if (ActiveDocumentId == id)
         {
-            ActiveDocumentId = _open.LastOrDefault() ?? "twin";
+            ActiveDocumentId = _open.LastOrDefault() ?? "assistant";
         }
 
         RefreshWindowLine();
@@ -190,7 +285,7 @@ public partial class StudioShellViewModel : ObservableObject
             CloseDocument(id);
         }
 
-        OpenDocument("twin");
+        OpenDocument("assistant");
     }
 
     [RelayCommand]
@@ -205,7 +300,7 @@ public partial class StudioShellViewModel : ObservableObject
         var list = _open.ToList();
         if (list.Count == 0)
         {
-            OpenDocument("twin");
+            OpenDocument("assistant");
             return;
         }
 
@@ -228,14 +323,32 @@ public partial class StudioShellViewModel : ObservableObject
     {
         var q = CommandQuery.Trim().ToLowerInvariant();
         CommandPaletteOpen = false;
+        if (q is "video" or "film" or "likeness" || q.Contains("video studio") || q.Contains("avatar"))
+        {
+            OpenDocument("avatar");
+            return;
+        }
+
         if (q.StartsWith("speak "))
         {
             await Twin.SpeakAsync(CommandQuery[6..]).ConfigureAwait(true);
             return;
         }
 
+        if (q.StartsWith("do "))
+        {
+            await Assistant.TalkAsync(CommandQuery[3..]).ConfigureAwait(true);
+            return;
+        }
+
         if (q.StartsWith("capture "))
         {
+            if (!_host.CanEdit)
+            {
+                StatusLine = "Heir mode. Filing is locked.";
+                return;
+            }
+
             _host.Vault.AddCapture("note", CommandQuery[8..]);
             Archive.Reload();
             return;
@@ -253,6 +366,7 @@ public partial class StudioShellViewModel : ObservableObject
     public void ReopenFirstRun()
     {
         Settings.ReopenSetup();
+        FirstRun.ResetToWelcome();
         ShowFirstRun = true;
     }
 
@@ -266,8 +380,16 @@ public partial class StudioShellViewModel : ObservableObject
     [RelayCommand]
     public void StartCoach()
     {
-        Coach.Start(FirstRun.VendorEmail);
+        Coach.Start(_host.Settings.Current.VendorEmail);
         ShowCoach = Coach.IsOpen;
+    }
+
+    private void OpenVideoStudio(VideoJobIntent intent)
+    {
+        var script = intent.UseLastReply ? Twin.LastOfferScript : intent.Script;
+        Avatar.ApplyTwinOffer(script, intent.PresetId);
+        OpenDocument("avatar");
+        StatusLine = intent.DoneLine;
     }
 
     private void RefreshWindowLine()

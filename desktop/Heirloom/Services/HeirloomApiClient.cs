@@ -19,12 +19,19 @@ public sealed class HeirloomApiClient
 
     public bool HasDeviceToken => !string.IsNullOrWhiteSpace(_credentials.DeviceToken);
     public bool HasSession => !string.IsNullOrWhiteSpace(_credentials.SessionToken);
+    public string LastFailure { get; private set; } = "";
 
     public Task<JsonElement?> GetAsync(string path, CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Get, path, null, useDevice: true, cancellationToken);
 
     public Task<JsonElement?> PostAsync(string path, object? body, CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Post, path, body, useDevice: true, cancellationToken);
+
+    public Task<JsonElement?> PutAsync(string path, object? body, CancellationToken cancellationToken = default) =>
+        SendAsync(HttpMethod.Put, path, body, useDevice: true, cancellationToken);
+
+    public Task<JsonElement?> DeleteAsync(string path, CancellationToken cancellationToken = default) =>
+        SendAsync(HttpMethod.Delete, path, null, useDevice: true, cancellationToken);
 
     public Task<JsonElement?> GetSessionAsync(string path, CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Get, path, null, useDevice: false, cancellationToken);
@@ -81,13 +88,21 @@ public sealed class HeirloomApiClient
             using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                LastFailure = "Cloud HTTP " + (int)response.StatusCode + " (binary).";
                 return null;
             }
 
+            LastFailure = "";
             return await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (OperationCanceledException)
         {
+            LastFailure = "Cloud request timed out.";
+            return null;
+        }
+        catch (Exception ex)
+        {
+            LastFailure = "Cloud unreachable: " + ex.Message;
             return null;
         }
     }
@@ -132,15 +147,28 @@ public sealed class HeirloomApiClient
             var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(text))
             {
+                LastFailure = string.IsNullOrWhiteSpace(text)
+                    ? "Cloud HTTP " + (int)response.StatusCode + " with an empty body."
+                    : "Cloud HTTP " + (int)response.StatusCode + ": " + Trim(text, 180);
                 return null;
             }
 
+            LastFailure = "";
             using var doc = JsonDocument.Parse(text);
             return doc.RootElement.Clone();
         }
-        catch
+        catch (OperationCanceledException)
         {
+            LastFailure = "Cloud request timed out.";
+            return null;
+        }
+        catch (Exception ex)
+        {
+            LastFailure = "Cloud unreachable: " + ex.Message;
             return null;
         }
     }
+
+    private static string Trim(string text, int max) =>
+        text.Length <= max ? text : text[..max] + "…";
 }

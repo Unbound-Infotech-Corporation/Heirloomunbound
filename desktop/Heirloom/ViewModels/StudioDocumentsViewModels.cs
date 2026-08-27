@@ -2,6 +2,9 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Heirloom.Services;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Media.Core;
 
 namespace Heirloom.ViewModels;
 
@@ -212,6 +215,7 @@ public partial class TodayViewModel : ObservableObject
     [ObservableProperty] private string _nextActionGlyph = "\uE8BD";
     [ObservableProperty] private string _nextActionAsset = "action-twin";
     [ObservableProperty] private string _nextWhy = "One true sentence is enough.";
+    public ObservableCollection<ArchiveEntry> Recent { get; } = [];
 
     public async Task LoadAsync()
     {
@@ -223,6 +227,11 @@ public partial class TodayViewModel : ObservableObject
         Streak = stats.Captures == 0
             ? "Nothing filed yet"
             : $"{stats.Captures} memories on this PC.";
+        Recent.Clear();
+        foreach (var row in _host.Vault.Recent(5))
+        {
+            Recent.Add(new ArchiveEntry(row.Kind, row.Text, row.Created, row.Kind, row.Tag));
+        }
         var result = await _host.Api.GetSessionAsync("/nudges/today").ConfigureAwait(true);
         if (result is { } json && json.TryGetProperty("body", out var body))
         {
@@ -327,7 +336,12 @@ public partial class InterviewerViewModel : ObservableObject
             new("love", "Love", "Who did you love, and what would they say you were like?"),
             new("hard", "Hard years", "What almost broke you, and what did you do anyway?"),
             new("beliefs", "Beliefs", "What do you refuse to pretend about?"),
+            new("humor", "Humor", "What made you laugh, and what jokes did you never tell?"),
+            new("speech", "How you spoke", "How did you actually talk — pace, swearing, nicknames, the phrases you repeated?"),
+            new("joys", "Joys", "What ordinary thing made a day worth it?"),
+            new("regrets", "Regrets", "What do you wish you had said, or not said, while there was time?"),
             new("advice", "Advice", "If they only remember one sentence from you, what is it?"),
+            new("instructions", "Family instructions", "What should they do with money, the house, the holidays, and each other — in your words, not a lawyer's?"),
             new("everyday", "Everyday", "What ordinary thing would you miss if it were gone?"),
         ];
         ApplyChapter();
@@ -381,16 +395,22 @@ public partial class InterviewerViewModel : ObservableObject
         var chapter = Chapters[_index];
         _host.Vault.AddCapture("interview", $"{chapter.Prompt}\n{Answer.Trim()}", chapter.Id);
         Answer = "";
-        Status = "Filed this chapter. The twin may cite it — it will not invent it.";
+        Status = "Filed " + chapter.Title + ". The twin may cite it — it will not invent it.";
         NextChapter();
     }
 
-    private void ApplyChapter()
+    public void ApplyChapter()
     {
         var chapter = Chapters[_index];
         ChapterTitle = chapter.Title;
         Prompt = chapter.Prompt;
-        Progress = $"Chapter {_index + 1} of {Chapters.Count}";
+        var filed = _host.Vault.Recent(80, "interview")
+            .Select(r => r.Tag)
+            .Where(t => t.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var already = filed.Contains(chapter.Id, StringComparer.OrdinalIgnoreCase) ? " · already filed" : "";
+        Progress = $"Chapter {_index + 1} of {Chapters.Count}{already}";
     }
 }
 
@@ -409,8 +429,13 @@ public partial class PhotosViewModel : ObservableObject
     [ObservableProperty] private string _who = "";
     [ObservableProperty] private string _when = "";
     [ObservableProperty] private string _caption = "";
+    [ObservableProperty] private string _photoPath = "";
+    [ObservableProperty] private string _photoLine = "No photograph filed.";
+    [ObservableProperty] private BitmapImage? _photoImage;
     [ObservableProperty] private string _question = "What happened just after this was taken?";
-    [ObservableProperty] private string _status = "Photo → story. Three facts beat a pretty guess.";
+    [ObservableProperty] private string _status = "File the photograph, then the three facts. A caption without the picture is still a guess.";
+
+    public bool HasPhoto => File.Exists(PhotoPath);
 
     public IReadOnlyList<string> Questions { get; } =
     [
@@ -427,17 +452,48 @@ public partial class PhotosViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void FileStory()
+    public async Task FilePhotoAsync()
     {
-        if (string.IsNullOrWhiteSpace(Caption) || !_host.CanEdit)
+        if (!_host.CanEdit)
         {
+            Status = "Heir mode. Filing is locked.";
             return;
         }
 
-        var body = $"Who: {Who}\nWhen: {When}\n{Question}\n{Caption.Trim()}";
-        _host.Vault.AddCapture("photo_story", body, Who);
+        var destDir = Path.Combine(_host.Vault.RootPath, "photos");
+        var path = await StudioPickers.CopyAsync([".jpg", ".jpeg", ".png", ".webp", ".heic"], destDir, DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"), pictures: true).ConfigureAwait(true);
+        if (path is null)
+        {
+            Status = "No photograph picked.";
+            return;
+        }
+
+        PhotoPath = path;
+        PhotoLine = Path.GetFileName(path);
+        PhotoImage = new BitmapImage(new Uri(path));
+        OnPropertyChanged(nameof(HasPhoto));
+        Status = "Photograph filed on this PC. Who, when, and what is true — then File story.";
+    }
+
+    [RelayCommand]
+    public void FileStory()
+    {
+        if (!_host.CanEdit)
+        {
+            Status = "Heir mode. Filing is locked.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Caption))
+        {
+            Status = "Write what is true in the picture, then File story.";
+            return;
+        }
+
+        var body = $"Photo: {(string.IsNullOrWhiteSpace(PhotoPath) ? "(none on disk)" : PhotoPath)}\nWho: {Who}\nWhen: {When}\n{Question}\n{Caption.Trim()}";
+        _host.Vault.AddCapture("photo_story", body, Who.Trim());
         Caption = "";
-        Status = "Story filed. The twin can retrieve this photo's truth.";
+        Status = "Story filed. Ask the twin about this day — it can retrieve it.";
         Reload();
     }
 
@@ -468,21 +524,63 @@ public partial class ImportViewModel : ObservableObject
     [RelayCommand]
     public void FilePaste()
     {
-        if (string.IsNullOrWhiteSpace(Draft) || !_host.CanEdit)
+        if (!_host.CanEdit)
         {
+            Status = "Heir mode. Filing is locked.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Draft))
+        {
+            Status = "Paste the life first, then File into vault.";
             return;
         }
 
         _host.Vault.AddCapture(Kind, Draft.Trim(), SourceLabel);
         Draft = "";
-        Status = "Filed into the local vault.";
+        Status = "Filed into the local vault. Open Archive or Ask the twin.";
+    }
+
+    [RelayCommand]
+    public async Task FileFromDiskAsync()
+    {
+        if (!_host.CanEdit)
+        {
+            Status = "Heir mode. Filing is locked.";
+            return;
+        }
+
+        var text = await StudioPickers.ReadTextAsync([".txt", ".md", ".json", ".csv", ".html"]).ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            Status = "No file picked, or it was empty.";
+            return;
+        }
+
+        Draft = text;
+        if (string.IsNullOrWhiteSpace(SourceLabel) || SourceLabel == "pasted")
+        {
+            SourceLabel = "disk";
+        }
+
+        Status = "Loaded from disk. File into vault to keep it.";
     }
 }
 
 public partial class SourcesViewModel : ObservableObject
 {
-    public SourcesViewModel()
+    private readonly AppHost _host;
+    private bool _ready;
+
+    public SourcesViewModel(AppHost host)
     {
+        _host = host;
+        AllowMail = host.Settings.Current.SourceAllowMail;
+        AllowPhotos = host.Settings.Current.SourceAllowPhotos;
+        AllowMessages = host.Settings.Current.SourceAllowMessages;
+        AllowFiles = host.Settings.Current.SourceAllowFiles;
+        _ready = true;
+        Status = Policy;
     }
 
     [ObservableProperty] private bool _allowMail;
@@ -501,6 +599,27 @@ public partial class SourcesViewModel : ObservableObject
             AllowMessages ? "messages" : null,
             "this PC vault",
         }.Where(s => s is not null));
+
+    partial void OnAllowMailChanged(bool value) => Persist();
+    partial void OnAllowPhotosChanged(bool value) => Persist();
+    partial void OnAllowMessagesChanged(bool value) => Persist();
+    partial void OnAllowFilesChanged(bool value) => Persist();
+
+    private void Persist()
+    {
+        if (!_ready)
+        {
+            return;
+        }
+
+        _host.Settings.Current.SourceAllowMail = AllowMail;
+        _host.Settings.Current.SourceAllowPhotos = AllowPhotos;
+        _host.Settings.Current.SourceAllowMessages = AllowMessages;
+        _host.Settings.Current.SourceAllowFiles = AllowFiles;
+        _host.Settings.Save();
+        Status = Policy + "  ·  filed on this PC.";
+        OnPropertyChanged(nameof(Policy));
+    }
 }
 
 public partial class ContinuityViewModel : ObservableObject
@@ -607,6 +726,7 @@ public partial class ContinuityViewModel : ObservableObject
         HeirMode = !HeirMode;
         _host.Settings.Save();
         OnPropertyChanged(nameof(CanEdit));
+        _host.RaiseAppModeChanged();
         ExecutorNote = HeirMode
             ? "Heir mode. Talk, listen, read. You cannot edit what they left."
             : "Owner studio. You are still writing the life model.";
@@ -623,12 +743,71 @@ public partial class PersonalityViewModel : ObservableObject
         Notes = host.Settings.Current.PersonalityNotes;
         Values = host.Settings.Current.ValuesNotes;
         Persona = host.Settings.Current.TwinPersona;
+        ReloadFacts();
     }
+
+    public ObservableCollection<ArchiveEntry> Facts { get; } = [];
 
     [ObservableProperty] private string _notes;
     [ObservableProperty] private string _values;
     [ObservableProperty] private string _persona;
     [ObservableProperty] private string _status = "Portrait the twin must not outrun.";
+    [ObservableProperty] private ArchiveEntry? _selectedFact;
+
+    [RelayCommand]
+    public void ReloadFacts()
+    {
+        Facts.Clear();
+        foreach (var fact in _host.Vault.ListFacts())
+        {
+            Facts.Add(new ArchiveEntry(
+                fact.Fact,
+                fact.Kind + " #" + fact.SourceCaptureId,
+                "source capture " + fact.SourceCaptureId,
+                fact.Kind,
+                fact.Id.ToString()));
+        }
+
+        if (Facts.Count == 0)
+        {
+            Status = "No fact index yet. Rebuild from the vault after you file interviews.";
+        }
+    }
+
+    [RelayCommand]
+    public void RebuildFacts()
+    {
+        if (!_host.CanEdit)
+        {
+            Status = "Heir mode. The index is locked.";
+            return;
+        }
+
+        var n = _host.Vault.RebuildFacts();
+        ReloadFacts();
+        Status = n == 0
+            ? "Nothing durable to index. File an interview or journal first."
+            : "Indexed " + n + " facts from filed captures. Each points at a source.";
+    }
+
+    [RelayCommand]
+    public void DeleteSelectedFact()
+    {
+        if (!_host.CanEdit)
+        {
+            Status = "Heir mode. The index is locked.";
+            return;
+        }
+
+        if (SelectedFact is null || !long.TryParse(SelectedFact.Tag, out var id) || !_host.Vault.DeleteFact(id))
+        {
+            Status = "Select a fact, then delete it. The source capture stays.";
+            return;
+        }
+
+        ReloadFacts();
+        Status = "Removed that index row. The source capture is still in the vault.";
+    }
 
     [RelayCommand]
     public void Save()
@@ -677,6 +856,12 @@ public partial class AbilitiesViewModel : ObservableObject
     [RelayCommand]
     public void Save()
     {
+        if (!_host.CanEdit)
+        {
+            Status = "Heir mode. Permissions stay as the owner left them.";
+            return;
+        }
+
         _host.Settings.Current.AllowPcControl = AllowPc;
         _host.Settings.Current.AllowSeeScreen = AllowSee;
         _host.Settings.Current.AllowSpeak = AllowSpeak;
@@ -702,20 +887,715 @@ public partial class KeysViewModel : ObservableObject
 
     public string SessionLine => HasSession ? "Owner session on this PC" : "No owner session";
     public string DeviceLine => HasDevice ? "Device paired" : "Not paired yet";
+
+    [RelayCommand]
+    public void Refresh()
+    {
+        HasSession = !string.IsNullOrWhiteSpace(_host.Credentials.SessionToken);
+        HasDevice = !string.IsNullOrWhiteSpace(_host.Credentials.DeviceToken);
+        OnPropertyChanged(nameof(SessionLine));
+        OnPropertyChanged(nameof(DeviceLine));
+    }
+
+    [RelayCommand]
+    public async Task TestAsync()
+    {
+        Refresh();
+        var reached = await _host.Api.GetSessionAsync("/health").ConfigureAwait(true)
+            ?? await _host.Api.GetAsync("/companion/winui").ConfigureAwait(true);
+        Hint = reached is null
+            ? "No answer from " + _host.Settings.Current.BackendUrl + ". Check the URL and tokens in Settings."
+            : "Reached " + _host.Settings.Current.BackendUrl + ".";
+        StatusLineFromHint();
+    }
+
+    private void StatusLineFromHint()
+    {
+        OnPropertyChanged(nameof(SessionLine));
+        OnPropertyChanged(nameof(DeviceLine));
+    }
+}
+
+public sealed class VideoShotRow
+{
+    public VideoShotRow(VideoShotPlan plan)
+    {
+        Plan = plan;
+        BeatLine = VideoCatalog.ShotKindLabel(plan.Kind) + "  ·  " + plan.Seconds + "s  ·  " + plan.Title;
+        ScriptLine = string.IsNullOrWhiteSpace(plan.Script) ? "No line on this beat." : plan.Script;
+        PhotoLine = string.IsNullOrWhiteSpace(plan.ImagePath)
+            ? (plan.Kind is VideoShotKind.PhotoHold or VideoShotKind.ImageToVideo
+                ? "Needs a photograph from Photos or this likeness room."
+                : "")
+            : Path.GetFileName(plan.ImagePath);
+        ModelLine = plan.ModelId switch
+        {
+            "latentsync" => "Talking likeness",
+            "ltx" => "LTX when present, else living still",
+            "wan22-i2v" or "wan22-5b" => "Wan when present, else living still",
+            _ => "Living still",
+        };
+    }
+
+    public VideoShotPlan Plan { get; }
+    public string BeatLine { get; }
+    public string ScriptLine { get; }
+    public string PhotoLine { get; }
+    public string ModelLine { get; }
+}
+
+public sealed class AvatarPhotoItem
+{
+    public AvatarPhotoItem(
+        string path,
+        BitmapImage image,
+        bool usable,
+        int shortSide,
+        string fit,
+        IRelayCommand<AvatarPhotoItem> removeCommand)
+    {
+        Path = path;
+        Image = image;
+        Usable = usable;
+        ShortSide = shortSide;
+        Fit = fit;
+        RemoveCommand = removeCommand;
+    }
+
+    public string Path { get; }
+    public BitmapImage Image { get; }
+    public bool Usable { get; }
+    public int ShortSide { get; }
+    public string Fit { get; }
+    public IRelayCommand<AvatarPhotoItem> RemoveCommand { get; }
 }
 
 public partial class AvatarViewModel : ObservableObject
 {
-    [ObservableProperty] private string _presence = "listening";
-    [ObservableProperty] private string _status = "Presence is the PTT, not a cartoon. Breathing when armed, waveform when capturing.";
+    private static readonly string[] PhotoTypes = [".jpg", ".jpeg", ".png", ".webp", ".bmp"];
+    private static readonly string[] VideoTypes = [".mp4", ".mov", ".mkv", ".webm", ".wmv"];
+    private readonly AppHost _host;
+    private CancellationTokenSource? _work;
 
-    public IReadOnlyList<string> Presences { get; } = ["listening", "thinking", "speaking", "rest"];
+    public AvatarViewModel(AppHost host)
+    {
+        _host = host;
+        AppPaths.EnsureDirectories();
+        SittingPath = host.Settings.Current.AvatarSittingPath ?? "";
+        GeneratedPath = host.Settings.Current.AvatarGeneratedPath ?? "";
+        FilmPath = host.Settings.Current.VideoFilmPath ?? "";
+        LineToSpeak = string.IsNullOrWhiteSpace(host.Settings.Current.AvatarLine)
+            ? "This is my voice, in this room."
+            : host.Settings.Current.AvatarLine;
+        SelectedPreset = VideoCatalog.ById(host.Settings.Current.VideoPresetId);
+        RefreshStatus();
+        RebuildShots();
+        _ = RefreshEnginesAsync();
+    }
+
+    public ObservableCollection<AvatarPhotoItem> Photos { get; } = [];
+    public ObservableCollection<VideoShotRow> Shots { get; } = [];
+    public IReadOnlyList<VideoPreset> Presets => VideoCatalog.Presets;
+    public IReadOnlyList<VideoModelChoice> Models => VideoCatalog.Models;
+
+    [ObservableProperty] private string _sittingPath = "";
+    [ObservableProperty] private string _generatedPath = "";
+    [ObservableProperty] private string _lineToSpeak = "";
+    [ObservableProperty] private string _status = "";
+    [ObservableProperty] private string _engineLine = "";
+    [ObservableProperty] private string _sittingLine = "No sitting clip filed.";
+    [ObservableProperty] private string _photoLine = "No photos yet.";
+    [ObservableProperty] private string _generatedLine = "No live version yet.";
+    [ObservableProperty] private bool _isBusy;
+    [ObservableProperty] private MediaSource? _sittingSource;
+    [ObservableProperty] private MediaSource? _generatedSource;
+    [ObservableProperty] private MediaSource? _filmSource;
+    [ObservableProperty] private string _filmPath = "";
+    [ObservableProperty] private string _filmLine = "No film yet.";
+    [ObservableProperty] private string _recommendLine = "";
+    [ObservableProperty] private string _shotCountLine = "No shots yet.";
+    [ObservableProperty] private VideoPreset _selectedPreset = VideoCatalog.Presets[0];
+    [ObservableProperty] private int _paneIndex;
+    [ObservableProperty] private bool _canOfferExport;
+
+    public bool HasPhotos => Photos.Count > 0;
+    public bool NeedsPhotos => Photos.Count == 0;
+    public bool HasUsablePhoto => Photos.Any(p => p.Usable);
+    public bool HasSitting => File.Exists(SittingPath);
+    public bool HasGenerated => File.Exists(GeneratedPath);
+    public bool NeedsLikeness => !HasGenerated;
+    public bool HasFilm => File.Exists(FilmPath);
+    public bool HasShots => Shots.Count > 0;
+    public Visibility LikenessVis => PaneIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility FilmVis => PaneIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility EnginesVis => PaneIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+
+    private IEnumerable<string> PhotoCandidates =>
+        Photos.OrderByDescending(p => p.Usable).ThenByDescending(p => p.ShortSide).Select(p => p.Path).Where(File.Exists);
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        GenerateCommand.NotifyCanExecuteChanged();
+        EnsureEngineCommand.NotifyCanExecuteChanged();
+        StopWorkCommand.NotifyCanExecuteChanged();
+        MakeFilmCommand.NotifyCanExecuteChanged();
+        ExportFilmCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnPaneIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(LikenessVis));
+        OnPropertyChanged(nameof(FilmVis));
+        OnPropertyChanged(nameof(EnginesVis));
+        if (value == 2)
+        {
+            _ = RefreshEnginesAsync();
+        }
+    }
+
+    partial void OnSelectedPresetChanged(VideoPreset value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        _host.Settings.Current.VideoPresetId = value.Id;
+        _host.Settings.Save();
+        if (string.IsNullOrWhiteSpace(LineToSpeak) || LineToSpeak == "This is my voice, in this room.")
+        {
+            LineToSpeak = value.DefaultScript;
+        }
+
+        RebuildShots();
+    }
+
+    partial void OnLineToSpeakChanged(string value)
+    {
+        _host.Settings.Current.AvatarLine = value ?? "";
+        GenerateCommand.NotifyCanExecuteChanged();
+        if (!IsBusy)
+        {
+            RebuildShots();
+        }
+    }
+
+    public void Reload()
+    {
+        RefreshStatus();
+        RebuildShots();
+        _ = RefreshEnginesAsync();
+    }
 
     [RelayCommand]
-    public void SetPresence(string value)
+    public async Task FilePhotosAsync()
     {
-        Presence = value;
-        Status = "Presence · " + value;
+        try
+        {
+            var destDir = Path.Combine(AppPaths.AvatarRoot, "photos");
+            var paths = await StudioPickers.CopyManyAsync(PhotoTypes, destDir, pictures: true).ConfigureAwait(true);
+            if (paths.Count == 0)
+            {
+                Status = "No photo picked. If a dialog did not open, try Add photos of you again.";
+                return;
+            }
+
+            foreach (var dest in paths)
+            {
+                if (Photos.Count >= 24)
+                {
+                    break;
+                }
+
+                Photos.Add(ItemFrom(dest));
+            }
+
+            PersistPhotos();
+            RefreshStatus();
+            var usable = Photos.Count(p => p.Usable);
+            Status = usable == 0
+                ? $"{Photos.Count} photo(s) filed, but none are a face-on original yet. See WHAT TO FILE — chat thumbs, group shots, and far landscapes will not lock a mouth."
+                : usable == Photos.Count
+                    ? $"{Photos.Count} photos filed. Write a line and Make live version."
+                    : $"{usable} of {Photos.Count} look large enough. Remove the others or add a head-and-shoulders original of you alone.";
+        }
+        catch (Exception ex)
+        {
+            Status = "Could not add photos: " + ex.Message;
+        }
+    }
+
+    [RelayCommand]
+    public void RemovePhoto(AvatarPhotoItem? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        Photos.Remove(item);
+        TryDeleteOwned(item.Path);
+        PersistPhotos();
+        RefreshStatus();
+    }
+
+    [RelayCommand]
+    public async Task FileSittingAsync()
+    {
+        SittingSource?.Dispose();
+        SittingSource = null;
+        var paths = await StudioPickers.CopyManyAsync(VideoTypes, AppPaths.AvatarRoot, pictures: false).ConfigureAwait(true);
+        if (paths.Count == 0)
+        {
+            RefreshStatus();
+            return;
+        }
+
+        SittingPath = paths[0];
+        _host.Settings.Current.AvatarSittingPath = SittingPath;
+        _host.Settings.Save();
+        RefreshStatus();
+    }
+
+    private bool CanGenerate() => !IsBusy;
+
+    [RelayCommand(CanExecute = nameof(CanGenerate))]
+    public async Task GenerateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(LineToSpeak))
+        {
+            Status = "Write the line the twin should speak, then Make live version.";
+            return;
+        }
+
+        _work?.Cancel();
+        _work = new CancellationTokenSource();
+        IsBusy = true;
+        var progress = new Progress<string>(msg => Status = msg);
+        try
+        {
+            var visual = await PickVisualAsync(progress, _work.Token).ConfigureAwait(true);
+            if (visual is null)
+            {
+                return;
+            }
+
+            var path = await _host.AvatarEngine.GenerateAsync(visual, LineToSpeak, progress, _work.Token).ConfigureAwait(true);
+            GeneratedPath = path;
+            _host.Settings.Current.AvatarGeneratedPath = path;
+            _host.Settings.Current.AvatarLine = LineToSpeak;
+            _host.Settings.Save();
+            RefreshStatus();
+            Status = HasSitting
+                ? "Live version filed from your sitting. Twin shows this face; Ask still speaks in Mixer and does not re-lipsync this take."
+                : "Live version filed from your photos. Twin shows this face; Ask still speaks in Mixer and does not re-lipsync this take.";
+        }
+        catch (OperationCanceledException)
+        {
+            Status = "Stopped.";
+        }
+        catch (Exception ex)
+        {
+            Status = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    public void ApplyTwinOffer(string script, string presetId)
+    {
+        PaneIndex = 1;
+        if (!string.IsNullOrWhiteSpace(script))
+        {
+            LineToSpeak = script.Trim();
+        }
+
+        SelectedPreset = VideoCatalog.ById(string.IsNullOrWhiteSpace(presetId) ? "answer" : presetId);
+        RebuildShots();
+        Status = "Film laid out from the Twin. Make film when you are ready. This does not file a memory.";
+    }
+
+    [RelayCommand]
+    public void ShowFilmPane() => PaneIndex = 1;
+
+    [RelayCommand]
+    public void ShowLikenessPane() => PaneIndex = 0;
+
+    [RelayCommand]
+    public void ShowEnginesPane() => PaneIndex = 2;
+
+    private bool CanMakeFilm() => !IsBusy && _host.CanEdit;
+
+    [RelayCommand(CanExecute = nameof(CanMakeFilm))]
+    public async Task MakeFilmAsync()
+    {
+        if (!_host.CanEdit)
+        {
+            Status = "Heir sitting cannot make a new film. Play what was already filed.";
+            return;
+        }
+
+        RebuildShots();
+        if (Shots.Count == 0)
+        {
+            Status = "Choose a preset first.";
+            return;
+        }
+
+        _work?.Cancel();
+        _work = new CancellationTokenSource();
+        IsBusy = true;
+        var progress = new Progress<string>(msg => Status = msg);
+        try
+        {
+            Status = "Opening the film…";
+            var visual = await PickVisualAsync(progress, _work.Token).ConfigureAwait(true);
+            if (visual is null && Shots.Any(s => s.Plan.Kind == VideoShotKind.TalkingHead))
+            {
+                return;
+            }
+
+            var path = await _host.VideoEngine.RenderFilmAsync(
+                Shots.Select(s => s.Plan).ToList(),
+                visual ?? "",
+                progress,
+                _work.Token).ConfigureAwait(true);
+            FilmPath = path;
+            _host.Settings.Current.VideoFilmPath = path;
+            _host.Settings.Save();
+            RefreshStatus();
+            PaneIndex = 1;
+            Status = "Done — the film is ready. Export copies it out of Heirloom.";
+        }
+        catch (OperationCanceledException)
+        {
+            Status = "Stopped.";
+        }
+        catch (Exception ex)
+        {
+            Status = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private bool CanExportFilm() => !IsBusy && HasFilm;
+
+    [RelayCommand(CanExecute = nameof(CanExportFilm))]
+    public async Task ExportFilmAsync()
+    {
+        if (!HasFilm)
+        {
+            Status = "Make the film first, then Export.";
+            return;
+        }
+
+        try
+        {
+            var dest = await StudioPickers.PickSaveMp4Async(SelectedPreset.Id + "-heirloom").ConfigureAwait(true);
+            if (string.IsNullOrWhiteSpace(dest))
+            {
+                Status = "Export cancelled.";
+                return;
+            }
+
+            File.Copy(FilmPath, dest, overwrite: true);
+            Status = "Copied the film to " + dest + ".";
+        }
+        catch (Exception ex)
+        {
+            Status = "Could not export: " + ex.Message;
+        }
+    }
+
+    private void RebuildShots()
+    {
+        var photos = PhotoCandidates.ToList();
+        foreach (var story in _host.Vault.Recent(20, "photo_story"))
+        {
+            foreach (var path in VideoCatalog.PhotoPathsFromStories([story.Text]))
+            {
+                if (!photos.Contains(path, StringComparer.OrdinalIgnoreCase))
+                {
+                    photos.Add(path);
+                }
+            }
+        }
+
+        var probe = _host.VideoEngine.Probe();
+        var plans = VideoCatalog.BuildTimeline(
+            SelectedPreset ?? VideoCatalog.Presets[0],
+            LineToSpeak,
+            photos,
+            probe.TalkingReady,
+            probe.LtxReady,
+            probe.WanReady);
+        Shots.Clear();
+        foreach (var plan in plans)
+        {
+            Shots.Add(new VideoShotRow(plan));
+        }
+
+        ShotCountLine = Shots.Count == 0
+            ? "No shots yet."
+            : Shots.Count + " shot" + (Shots.Count == 1 ? "" : "s") + " on this film.";
+        OnPropertyChanged(nameof(HasShots));
+        RecommendLine = probe.RecommendLine;
+    }
+
+    private async Task RefreshEnginesAsync()
+    {
+        try
+        {
+            var probe = await _host.VideoEngine.ProbeAsync(CancellationToken.None).ConfigureAwait(true);
+            RecommendLine = probe.RecommendLine;
+            EngineLine = probe.TalkingReady
+                ? "Talking likeness ready. " + probe.RecommendLine
+                : probe.RecommendLine;
+        }
+        catch
+        {
+            RecommendLine = VideoCatalog.RecommendLine(false, false, false, false, false);
+        }
+    }
+
+    private bool CanStopWork() => IsBusy;
+
+    [RelayCommand(CanExecute = nameof(CanStopWork))]
+    public void StopWork()
+    {
+        _work?.Cancel();
+        Status = "Stopping this take.";
+    }
+
+    private bool CanEnsureEngine() => !IsBusy;
+
+    [RelayCommand(CanExecute = nameof(CanEnsureEngine))]
+    public async Task EnsureEngineAsync()
+    {
+        _work?.Cancel();
+        _work = new CancellationTokenSource();
+        IsBusy = true;
+        var progress = new Progress<string>(msg => Status = msg);
+        try
+        {
+            await _host.AvatarEngine.EnsureAsync(progress, _work.Token).ConfigureAwait(true);
+            RefreshStatus();
+            Status = EngineLine;
+        }
+        catch (OperationCanceledException)
+        {
+            Status = "Stopped.";
+        }
+        catch (Exception ex)
+        {
+            Status = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private void RefreshStatus()
+    {
+        ReloadPhotosFromDisk();
+        OnPropertyChanged(nameof(HasPhotos));
+        OnPropertyChanged(nameof(NeedsPhotos));
+        OnPropertyChanged(nameof(HasUsablePhoto));
+        OnPropertyChanged(nameof(HasSitting));
+        OnPropertyChanged(nameof(HasGenerated));
+        OnPropertyChanged(nameof(NeedsLikeness));
+        OnPropertyChanged(nameof(HasFilm));
+        GenerateCommand.NotifyCanExecuteChanged();
+        StopWorkCommand.NotifyCanExecuteChanged();
+        MakeFilmCommand.NotifyCanExecuteChanged();
+        ExportFilmCommand.NotifyCanExecuteChanged();
+        PhotoLine = !HasPhotos
+            ? "No photos yet."
+            : HasUsablePhoto
+                ? $"{Photos.Count(p => p.Usable)} of {Photos.Count} look large enough. Remove tiny crops and group shots."
+                : $"{Photos.Count} filed — none are a face-on original yet.";
+        SittingLine = HasSitting
+            ? Path.GetFileName(SittingPath)
+            : "Stronger than stills: 1–2 minutes of you talking in a real room, face filling the frame, looking at the lens.";
+        GeneratedLine = HasGenerated ? Path.GetFileName(GeneratedPath) : "No live version yet.";
+        SittingSource?.Dispose();
+        SittingSource = HasSitting ? MediaSource.CreateFromUri(new Uri(SittingPath)) : null;
+        GeneratedSource?.Dispose();
+        GeneratedSource = HasGenerated ? MediaSource.CreateFromUri(new Uri(GeneratedPath)) : null;
+        FilmLine = HasFilm ? Path.GetFileName(FilmPath) : "No film yet.";
+        FilmSource?.Dispose();
+        FilmSource = HasFilm ? MediaSource.CreateFromUri(new Uri(FilmPath)) : null;
+        CanOfferExport = HasFilm;
+        var probe = _host.AvatarEngine.Probe();
+        EngineLine = probe.Engine + " — " + probe.Line;
+        if (IsBusy)
+        {
+            return;
+        }
+
+        Status = HasGenerated
+            ? "Live version is on file. Twin shows this face. Ask speaks in Mixer and does not re-lipsync this take."
+            : HasSitting || HasUsablePhoto
+                ? probe.Ready
+                    ? "Write a line and Make live version. That is the talking likeness."
+                    : "A usable picture is filed. Fetch engine once, then Make live version."
+                : HasPhotos
+                    ? "Those pictures will not lock a mouth. File a face-on camera original of you alone — head and shoulders filling the frame."
+                    : "File a face-on camera original of you alone. Head and shoulders, both eyes toward the lens, about 720px or more on the short side.";
+    }
+
+    private void ReloadPhotosFromDisk()
+    {
+        var stored = _host.Settings.Current.AvatarPhotoPaths ?? [];
+        if (stored.Count == 0 && File.Exists(_host.Settings.Current.AvatarPortraitPath))
+        {
+            stored = [_host.Settings.Current.AvatarPortraitPath];
+        }
+
+        var existing = stored.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var current = Photos.Select(p => p.Path).ToList();
+        if (current.Count == existing.Count && current.SequenceEqual(existing, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        Photos.Clear();
+        foreach (var path in existing)
+        {
+            Photos.Add(ItemFrom(path));
+        }
+    }
+
+    private async Task<string?> PickVisualAsync(IProgress<string> progress, CancellationToken cancellationToken)
+    {
+        var notes = new List<string>();
+        var ready = _host.AvatarEngine.Probe().Ready;
+        var ordered = new List<string>();
+        if (HasSitting)
+        {
+            ordered.Add(SittingPath);
+        }
+
+        foreach (var path in PhotoCandidates)
+        {
+            if (!ordered.Contains(path, StringComparer.OrdinalIgnoreCase))
+            {
+                ordered.Add(path);
+            }
+        }
+
+        if (ordered.Count == 0)
+        {
+            Status = "File a face-on camera original of you alone first — head and shoulders filling the frame. Chat thumbs and group shots will not work.";
+            return null;
+        }
+
+        foreach (var path in ordered)
+        {
+            var item = Photos.FirstOrDefault(p => string.Equals(p.Path, path, StringComparison.OrdinalIgnoreCase));
+            if (item is { Usable: false })
+            {
+                notes.Add(item.Fit);
+                continue;
+            }
+
+            if (!ready)
+            {
+                return path;
+            }
+
+            var check = await _host.AvatarEngine.CheckAsync(path, progress, cancellationToken).ConfigureAwait(true);
+            if (check.Ok)
+            {
+                return path;
+            }
+
+            notes.Add(check.Line);
+        }
+
+        Status = notes.Count == 0
+            ? "None of the filed pictures will lock a mouth. See WHAT TO FILE."
+            : string.Join(" ", notes.Take(3));
+        return null;
+    }
+
+    private AvatarPhotoItem ItemFrom(string path)
+    {
+        var (usable, shortSide, fit) = JudgePhoto(path);
+        return new AvatarPhotoItem(path, Thumb(path), usable, shortSide, fit, RemovePhotoCommand);
+    }
+
+    private static (bool Usable, int ShortSide, string Fit) JudgePhoto(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var image = System.Drawing.Image.FromStream(stream, useEmbeddedColorManagement: false, validateImageData: false);
+            var w = image.Width;
+            var h = image.Height;
+            var shortSide = Math.Min(w, h);
+            if (shortSide < 480)
+            {
+                return (false, shortSide, $"Too small ({w}×{h}). Need a camera original, about 720px or more on the short side — not a chat crop.");
+            }
+
+            if ((long)w * h < 400_000)
+            {
+                return (false, shortSide, $"{w}×{h}. Face is likely a speck. Head and shoulders should fill the frame — not a full-body landscape.");
+            }
+
+            if (shortSide < 720)
+            {
+                return (true, shortSide, $"{w}×{h}. Borderline. A larger original will lock the mouth better. You alone, looking at the lens.");
+            }
+
+            return (true, shortSide, $"{w}×{h}. Large enough if you are alone and looking at the camera.");
+        }
+        catch
+        {
+            return (false, 0, "Could not read this file as a photograph.");
+        }
+    }
+
+    private void PersistPhotos()
+    {
+        var paths = Photos.Select(p => p.Path).Where(File.Exists).ToList();
+        _host.Settings.Current.AvatarPhotoPaths = paths;
+        _host.Settings.Current.AvatarPortraitPath =
+            Photos.Where(p => p.Usable).Select(p => p.Path).FirstOrDefault()
+            ?? paths.FirstOrDefault()
+            ?? "";
+        _host.Settings.Save();
+    }
+
+    private static void TryDeleteOwned(string path)
+    {
+        try
+        {
+            var root = Path.GetFullPath(AppPaths.AvatarRoot);
+            var full = Path.GetFullPath(path);
+            if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(full))
+            {
+                File.Delete(full);
+            }
+        }
+        catch
+        {
+            // Leave an orphan copy rather than fail the studio.
+        }
+    }
+
+    private static BitmapImage Thumb(string path)
+    {
+        var image = new BitmapImage { DecodePixelWidth = 224 };
+        image.UriSource = new Uri(path);
+        return image;
     }
 }
 
@@ -847,12 +1727,23 @@ public partial class SettingsViewModel : ObservableObject
     public void Save()
     {
         _host.Settings.Current.BackendUrl = BackendUrl.Trim();
-        _host.Settings.Current.LibraryPath = LibraryPath.Trim();
         _host.Settings.Current.Autostart = Autostart;
         WriteChrome();
         _host.Settings.Save();
         ThemeService.Apply(_host.Settings.Current);
         AutostartService.Apply(Autostart);
+        var vault = LibraryPath.Trim();
+        if (vault.Length > 0 && !string.Equals(_host.Vault.RootPath, vault, StringComparison.OrdinalIgnoreCase))
+        {
+            _host.SetVaultPath(vault);
+            LibraryPath = _host.Vault.RootPath;
+        }
+        else
+        {
+            _host.Settings.Current.LibraryPath = vault;
+            _host.Settings.Save();
+        }
+
         if (!string.IsNullOrWhiteSpace(SessionToken))
         {
             _host.Auth.SetSessionToken(SessionToken);
@@ -862,6 +1753,24 @@ public partial class SettingsViewModel : ObservableObject
         {
             _host.Auth.SetDeviceToken(DeviceToken);
         }
+
+        Saved?.Invoke();
+    }
+
+    public event Action? Saved;
+
+    [RelayCommand]
+    public async Task BrowseVaultAsync()
+    {
+        var picked = await StudioPickers.PickFolderAsync("Choose the vault folder").ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(picked))
+        {
+            return;
+        }
+
+        _host.SetVaultPath(picked);
+        LibraryPath = _host.Vault.RootPath;
+        Saved?.Invoke();
     }
 
     [RelayCommand]
@@ -875,7 +1784,11 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void SignOut() => _host.Auth.SignOut();
+    public void SignOut()
+    {
+        _host.Auth.SignOut();
+        Saved?.Invoke();
+    }
 
     [RelayCommand]
     public void ReopenSetup()
@@ -973,6 +1886,7 @@ public partial class SkillsViewModel : ObservableObject
     [ObservableProperty] private string _url = "";
     [ObservableProperty] private string _triggers = "";
     [ObservableProperty] private string _status = "Webhooks the twin can fire — porch light, text, OBS scene.";
+    [ObservableProperty] private ArchiveEntry? _selected;
 
     [RelayCommand]
     public void Reload()
@@ -991,8 +1905,15 @@ public partial class SkillsViewModel : ObservableObject
     [RelayCommand]
     public void Add()
     {
-        if (string.IsNullOrWhiteSpace(Name) || string.IsNullOrWhiteSpace(Url) || !_host.CanEdit)
+        if (!_host.CanEdit)
         {
+            Status = "Heir mode. Skills are locked.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Name) || string.IsNullOrWhiteSpace(Url))
+        {
+            Status = "Name and webhook URL, then Add skill.";
             return;
         }
 
@@ -1012,8 +1933,9 @@ public partial class SkillsViewModel : ObservableObject
         }
 
         var skill = _host.Vault.Skills().FirstOrDefault(s => s.Id == skillId);
-        if (skill.Url.Length == 0)
+        if (string.IsNullOrWhiteSpace(skill.Url))
         {
+            Status = "No webhook on that skill.";
             return;
         }
 
@@ -1027,6 +1949,18 @@ public partial class SkillsViewModel : ObservableObject
         {
             Status = skill.Name + "  ·  " + ex.Message;
         }
+    }
+
+    [RelayCommand]
+    public async Task FireSelectedAsync()
+    {
+        if (Selected is null || string.IsNullOrWhiteSpace(Selected.Tag))
+        {
+            Status = "Pick a skill in the list, then Fire.";
+            return;
+        }
+
+        await InvokeAsync(Selected.Tag).ConfigureAwait(true);
     }
 }
 
@@ -1050,12 +1984,48 @@ public partial class LibraryViewModel : ObservableObject
     {
         Path = _host.Vault.RootPath;
         Items.Clear();
-        foreach (var row in _host.Vault.Recent(30))
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(Path).OrderByDescending(File.GetLastWriteTimeUtc).Take(40))
+            {
+                var name = System.IO.Path.GetFileName(file);
+                if (name.Equals("vault.db", StringComparison.OrdinalIgnoreCase) || name.EndsWith("-shm", StringComparison.OrdinalIgnoreCase) || name.EndsWith("-wal", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var info = new FileInfo(file);
+                Items.Add(new ArchiveEntry(name, info.Length + " bytes", info.LastWriteTime.ToString("g"), "file", name));
+            }
+        }
+        catch (Exception ex)
+        {
+            Status = ex.Message;
+        }
+
+        foreach (var row in _host.Vault.Recent(20))
         {
             Items.Add(new ArchiveEntry(row.Kind, row.Text, row.Created, row.Kind, row.Tag));
         }
 
         var stats = _host.Vault.Stats();
-        Status = $"{stats.Captures} memories on this PC  ·  {Path}";
+        Status = $"{stats.Captures} memories  ·  {Items.Count} rows  ·  {Path}";
     }
+
+    [RelayCommand]
+    public async Task ChangeFolderAsync()
+    {
+        var picked = await StudioPickers.PickFolderAsync("Choose the vault folder").ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(picked))
+        {
+            return;
+        }
+
+        _host.SetVaultPath(picked);
+        Reload();
+        Status = "Vault is now " + Path + ". The previous folder was left as it was.";
+    }
+
+    [RelayCommand]
+    public void OpenFolder() => StudioPickers.OpenFolder(Path);
 }

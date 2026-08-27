@@ -135,13 +135,10 @@ class TestTwinTools:
     def test_save_memory_tool(self, headers, conversation, db, user_ctx):
         res = send_twin_message(headers, conversation, "remember this: I hated the trip to Cabo because the food was bland")
         assert res["done"]
-        saves = [t for t in res["tools"] if t.get("name") == "save_memory" and t.get("phase") == "result"]
-        assert saves, f"save_memory tool never fired; tools={[t.get('name') for t in res['tools']]}"
-        # Verify DB row
+        saves = [t for t in res["tools"] if t.get("name") == "save_memory"]
+        assert not saves, f"Twin must not quietly file chat; tools={[t.get('name') for t in res['tools']]}"
         entry = db.entries.find_one({"user_id": user_ctx["user_id"], "source": "twin_tool"})
-        assert entry, "no entry with source=twin_tool for this user"
-        assert "twin-captured" in (entry.get("tags") or [])
-        assert "cabo" in (entry.get("content") or "").lower()
+        assert not entry, "Twin chat must not insert archive rows"
 
     def test_set_reminder_tool(self, headers, conversation, db, user_ctx):
         res = send_twin_message(headers, conversation, "remind me to call mom tomorrow at 9am")

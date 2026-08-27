@@ -48,6 +48,31 @@ public sealed class SpeakService : IDisposable
         }
     }
 
+    public async Task<string> SynthesizeToFileAsync(string text, string destWithoutExtension, CancellationToken cancellationToken = default)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(destWithoutExtension) ?? AppPaths.AvatarRoot);
+        var audio = await _api.PostForBytesAsync("/desktop/speak", new { text }, cancellationToken).ConfigureAwait(false);
+        if (audio is { Length: > 64 })
+        {
+            var mp3 = destWithoutExtension + ".mp3";
+            await File.WriteAllBytesAsync(mp3, audio, cancellationToken).ConfigureAwait(false);
+            LastVoice = "cloned";
+            return mp3;
+        }
+
+        _synth ??= new SpeechSynthesizer();
+        var stream = await _synth.SynthesizeTextToStreamAsync(text);
+        var wav = destWithoutExtension + ".wav";
+        var size = (uint)stream.Size;
+        using var reader = new DataReader(stream.GetInputStreamAt(0));
+        await reader.LoadAsync(size);
+        var buffer = new byte[size];
+        reader.ReadBytes(buffer);
+        await File.WriteAllBytesAsync(wav, buffer, cancellationToken).ConfigureAwait(false);
+        LastVoice = "windows-sapi";
+        return wav;
+    }
+
     private async Task<bool> PlayMpegAsync(byte[] audio)
     {
         try

@@ -168,16 +168,53 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     if len(text) > 2000:
         raise HTTPException(status_code=400, detail="Message too long")
 
-    cursor = db.entries.find({"user_id": owner["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(120)
-    entries = await cursor.to_list(length=120)
-    archive = "\n".join(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n" for e in entries)
+    from twin_pack import TwinPack, compile_twin_prompt, miss_reply, stance_line
+    from twin_runtime import archive_passages, citation_line, _fence_from_user
 
-    system = f"""You are {owner.get('name','the owner')}'s digital twin, speaking with their heir {heir.get('name','an heir')} ({heir.get('relationship','loved one')}).
-Be them. Speak in first person, warmly and personally. Be brief — 1-4 sentences unless asked for more.
-Do NOT take any actions. Do NOT invoke skills. This is a quiet conversation.
+    passages = await archive_passages(owner["user_id"], query_hint=text)
+    pack = TwinPack(
+        core={
+            "stance": stance_line("family"),
+            "portrait": "",
+            "values": "",
+            "fence": _fence_from_user(owner, None),
+        },
+        passages=passages,
+        facts=[],
+        citation_line=citation_line(passages),
+        grounded=True,
+        audience="heir",
+    )
+    if not passages:
+        reply_text = miss_reply(True)
+        session_id = payload.session_id or f"heir_{heir['heir_id']}"
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await db.conversations.update_one(
+            {"conversation_id": session_id, "user_id": owner["user_id"]},
+            {
+                "$setOnInsert": {
+                    "conversation_id": session_id,
+                    "user_id": owner["user_id"],
+                    "kind": "heir_portal",
+                    "heir_id": heir["heir_id"],
+                    "created_at": now_iso,
+                },
+                "$set": {"updated_at": now_iso},
+                "$push": {"messages": {"$each": [
+                    {"role": "user", "content": text, "ts": now_iso},
+                    {"role": "assistant", "content": reply_text, "ts": now_iso},
+                ]}},
+            },
+            upsert=True,
+        )
+        return {"reply": reply_text, "session_id": session_id, "citation_line": pack.citation_line}
 
-Your personality archive:
-{archive[:18000] or '(empty)'}"""
+    system = compile_twin_prompt(pack, owner.get("name", "the owner"))
+    system += (
+        f"\nYou are speaking with their heir {heir.get('name', 'an heir')} "
+        f"({heir.get('relationship', 'loved one')}). Be brief — 1-4 sentences unless asked for more. "
+        "Do NOT take any actions. Do NOT invoke skills."
+    )
 
     session_id = payload.session_id or f"heir_{heir['heir_id']}"
     chat = LlmChat(

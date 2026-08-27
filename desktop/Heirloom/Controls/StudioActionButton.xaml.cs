@@ -12,6 +12,7 @@ public sealed partial class StudioActionButton : UserControl
     public StudioActionButton()
     {
         InitializeComponent();
+        Apply();
         Loaded += (_, _) =>
         {
             ThemeService.Changed += OnThemeChanged;
@@ -122,9 +123,15 @@ public sealed partial class StudioActionButton : UserControl
             ? Visibility.Visible
             : Visibility.Collapsed;
         ToolTipService.SetToolTip(Inner, Label);
-        GlyphIcon.Foreground = Kind == "Primary"
-            ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["HeirloomInkBrush"]
-            : (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["HeirloomGoldBrush"];
+        var ink = Kind switch
+        {
+            "Primary" => (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["HeirloomInkBrush"],
+            "Danger" => (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["HeirloomDangerTextBrush"],
+            "Quiet" => (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["HeirloomTextSecondaryBrush"],
+            _ => (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["HeirloomGoldBrush"],
+        };
+        GlyphIcon.Foreground = ink;
+        Caption.Foreground = ink;
         PointerEntered -= OnHelpEnter;
         PointerExited -= OnHelpLeave;
         PointerEntered += OnHelpEnter;
@@ -142,5 +149,13 @@ public sealed partial class StudioActionButton : UserControl
     private void OnHelpLeave(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e) =>
         StudioHelp.Leave(HelpKey);
 
-    private void OnInnerClick(object sender, RoutedEventArgs e) => Click?.Invoke(this, e);
+    private void OnInnerClick(object sender, RoutedEventArgs e)
+    {
+        if (Inner.Command is null && Command is { } cmd && cmd.CanExecute(CommandParameter))
+        {
+            cmd.Execute(CommandParameter);
+        }
+
+        Click?.Invoke(this, e);
+    }
 }

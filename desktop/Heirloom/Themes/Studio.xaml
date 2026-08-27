@@ -31,13 +31,19 @@
     <SolidColorBrush x:Key="HeirloomInkBrush" Color="{StaticResource HeirloomInk}" />
     <SolidColorBrush x:Key="HeirloomGoldDeepBrush" Color="{StaticResource HeirloomGoldDeep}" />
     <SolidColorBrush x:Key="HeirloomGoldMutedBrush" Color="#26D4A373" />
-    <SolidColorBrush x:Key="HeirloomGlassBrush" Color="#CC1C1A18" />
-    <SolidColorBrush x:Key="HeirloomChromeBrush" Color="#991C1A18" />
-    <SolidColorBrush x:Key="HeirloomDockBrush" Color="#E11C1A18" />
-    <SolidColorBrush x:Key="HeirloomStatusBrush" Color="#E1121110" />
-    <SolidColorBrush x:Key="HeirloomMenuStripBrush" Color="#CC1C1A18" />
-    <SolidColorBrush x:Key="HeirloomOptionsStripBrush" Color="#991C1A18" />
-    <SolidColorBrush x:Key="HeirloomDocTitleBrush" Color="#E1262320" />
+    <SolidColorBrush x:Key="HeirloomGlassBrush" Color="#F21C1A18" />
+    <SolidColorBrush x:Key="HeirloomChromeBrush" Color="#E81C1A18" />
+    <SolidColorBrush x:Key="HeirloomDockBrush" Color="#F41C1A18" />
+    <SolidColorBrush x:Key="HeirloomStatusBrush" Color="#F0121110" />
+    <SolidColorBrush x:Key="HeirloomMenuStripBrush" Color="#E81C1A18" />
+    <SolidColorBrush x:Key="HeirloomOptionsStripBrush" Color="#CC121110" />
+    <SolidColorBrush x:Key="HeirloomDocTitleBrush" Color="#F0262320" />
+    <SolidColorBrush x:Key="HeirloomScrimBrush" Color="#B8121110" />
+    <SolidColorBrush x:Key="HeirloomYouBubbleBrush" Color="#22D4A373" />
+    <SolidColorBrush x:Key="HeirloomTwinBubbleBrush" Color="#E8262320" />
+    <SolidColorBrush x:Key="HeirloomDangerFillBrush" Color="#28A64D4D" />
+    <SolidColorBrush x:Key="HeirloomDangerTextBrush" Color="#FFF0C8C8" />
+    <SolidColorBrush x:Key="HeirloomMeterTrackBrush" Color="#CC36322E" />
 
     <FontFamily x:Key="HeirloomSerif">Sitka Display, Georgia, serif</FontFamily>
     <FontFamily x:Key="HeirloomSans">Segoe UI Variable, Segoe UI, sans-serif</FontFamily>
@@ -46,7 +52,7 @@
     <x:Double x:Key="StudioHairline">1</x:Double>
     <x:Double x:Key="StudioRadius">3</x:Double>
     <CornerRadius x:Key="StudioCorner">3</CornerRadius>
-    <Thickness x:Key="StudioButtonPadding">10,5,10,5</Thickness>
+    <Thickness x:Key="StudioButtonPadding">10,6,10,6</Thickness>
 
     <LinearGradientBrush x:Key="StudioGoldFill" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0" Color="#FFE8C49A" />
@@ -82,20 +88,38 @@
         <Setter Property="FontSize" Value="12" />
     </Style>
     <Style x:Key="StudioCaption" TargetType="TextBlock" BasedOn="{StaticResource StudioMuted}">
-        <Setter Property="CharacterSpacing" Value="80" />
+        <Setter Property="CharacterSpacing" Value="40" />
         <Setter Property="FontSize" Value="11" />
+    </Style>
+    <Style x:Key="StudioOverline" TargetType="TextBlock" BasedOn="{StaticResource StudioCaption}">
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="CharacterSpacing" Value="140" />
+        <Setter Property="Foreground" Value="{StaticResource HeirloomTextMutedBrush}" />
+    </Style>
+    <Style x:Key="StudioRole" TargetType="TextBlock" BasedOn="{StaticResource StudioCaption}">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="CharacterSpacing" Value="20" />
+        <Setter Property="Foreground" Value="{StaticResource HeirloomTextMutedBrush}" />
     </Style>
     <Style x:Key="StudioWordmark" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource HeirloomSerif}" />
         <Setter Property="FontSize" Value="22" />
         <Setter Property="FontWeight" Value="SemiLight" />
         <Setter Property="Foreground" Value="{StaticResource HeirloomTextBrush}" />
-        <Setter Property="CharacterSpacing" Value="-10" />
+        <Setter Property="CharacterSpacing" Value="-20" />
     </Style>
     <Style x:Key="StudioDocumentTitle" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource HeirloomSerif}" />
-        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontFamily" Value="{StaticResource HeirloomSans}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{StaticResource HeirloomTextBrush}" />
+    </Style>
+    <Style x:Key="StudioEmpty" TargetType="TextBlock" BasedOn="{StaticResource StudioMuted}">
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="TextAlignment" Value="Center" />
+        <Setter Property="MaxWidth" Value="320" />
     </Style>
 
     <ControlTemplate x:Key="StudioButtonPrimaryTemplate" TargetType="Button">
@@ -106,7 +130,7 @@
             <Border
                 x:Name="Rim"
                 Background="{StaticResource HeirloomGoldDeepBrush}"
-                BorderBrush="#FF5C3F1E"
+                BorderBrush="{StaticResource HeirloomGoldDeepBrush}"
                 BorderThickness="1"
                 CornerRadius="{StaticResource StudioCorner}">
                 <Border
@@ -118,13 +142,13 @@
                     CornerRadius="{StaticResource StudioCorner}">
                     <ContentPresenter
                         x:Name="Content"
-                        Margin="{StaticResource StudioButtonPadding}"
+                        Margin="{TemplateBinding Padding}"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Content="{TemplateBinding Content}"
                         ContentTemplate="{TemplateBinding ContentTemplate}"
                         FontFamily="{StaticResource HeirloomSans}"
-                        FontSize="13"
+                        FontSize="{TemplateBinding FontSize}"
                         FontWeight="SemiBold"
                         Foreground="{StaticResource HeirloomInkBrush}" />
                 </Border>
@@ -277,8 +301,16 @@
     </ControlTemplate>
 
     <ControlTemplate x:Key="StudioButtonQuietTemplate" TargetType="Button">
-        <Grid x:Name="Root">
-            <Border x:Name="Face" Background="Transparent" CornerRadius="{StaticResource StudioCorner}">
+        <Grid x:Name="Root" RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+                <ScaleTransform x:Name="PressScale" ScaleX="1" ScaleY="1" />
+            </Grid.RenderTransform>
+            <Border
+                x:Name="Face"
+                Background="Transparent"
+                BorderBrush="Transparent"
+                BorderThickness="1"
+                CornerRadius="{StaticResource StudioCorner}">
                 <ContentPresenter
                     Margin="6,4"
                     HorizontalAlignment="Center"
@@ -298,25 +330,120 @@
                             </ObjectAnimationUsingKeyFrames>
                         </Storyboard>
                     </VisualState>
-                    <VisualState x:Name="Pressed" />
+                    <VisualState x:Name="Pressed">
+                        <Storyboard>
+                            <DoubleAnimation
+                                Storyboard.TargetName="PressScale"
+                                Storyboard.TargetProperty="ScaleX"
+                                To="0.985"
+                                Duration="0:0:0.08" />
+                            <DoubleAnimation
+                                Storyboard.TargetName="PressScale"
+                                Storyboard.TargetProperty="ScaleY"
+                                To="0.985"
+                                Duration="0:0:0.08" />
+                        </Storyboard>
+                    </VisualState>
                     <VisualState x:Name="Disabled">
                         <Storyboard>
                             <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" To="0.38" Duration="0" />
                         </Storyboard>
                     </VisualState>
                 </VisualStateGroup>
+                <VisualStateGroup x:Name="FocusStates">
+                    <VisualState x:Name="Focused">
+                        <Storyboard>
+                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Face" Storyboard.TargetProperty="BorderBrush">
+                                <DiscreteObjectKeyFrame KeyTime="0" Value="{StaticResource HeirloomGoldBrush}" />
+                            </ObjectAnimationUsingKeyFrames>
+                        </Storyboard>
+                    </VisualState>
+                    <VisualState x:Name="Unfocused" />
+                    <VisualState x:Name="PointerFocused" />
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+        </Grid>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="StudioButtonCloseTemplate" TargetType="Button">
+        <Grid x:Name="Root" RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+                <ScaleTransform x:Name="PressScale" ScaleX="1" ScaleY="1" />
+            </Grid.RenderTransform>
+            <Border
+                x:Name="Face"
+                Background="Transparent"
+                BorderBrush="Transparent"
+                BorderThickness="1"
+                CornerRadius="{StaticResource StudioCorner}">
+                <ContentPresenter
+                    Margin="6,4"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Content="{TemplateBinding Content}"
+                    FontFamily="{StaticResource HeirloomSans}"
+                    FontSize="12"
+                    Foreground="{StaticResource HeirloomTextSecondaryBrush}" />
+            </Border>
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal" />
+                    <VisualState x:Name="PointerOver">
+                        <Storyboard>
+                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Face" Storyboard.TargetProperty="Background">
+                                <DiscreteObjectKeyFrame KeyTime="0" Value="{StaticResource HeirloomDangerFillBrush}" />
+                            </ObjectAnimationUsingKeyFrames>
+                        </Storyboard>
+                    </VisualState>
+                    <VisualState x:Name="Pressed">
+                        <Storyboard>
+                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Face" Storyboard.TargetProperty="Background">
+                                <DiscreteObjectKeyFrame KeyTime="0" Value="{StaticResource HeirloomDangerFillBrush}" />
+                            </ObjectAnimationUsingKeyFrames>
+                            <DoubleAnimation
+                                Storyboard.TargetName="PressScale"
+                                Storyboard.TargetProperty="ScaleX"
+                                To="0.985"
+                                Duration="0:0:0.08" />
+                            <DoubleAnimation
+                                Storyboard.TargetName="PressScale"
+                                Storyboard.TargetProperty="ScaleY"
+                                To="0.985"
+                                Duration="0:0:0.08" />
+                        </Storyboard>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                        <Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" To="0.38" Duration="0" />
+                        </Storyboard>
+                    </VisualState>
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="FocusStates">
+                    <VisualState x:Name="Focused">
+                        <Storyboard>
+                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Face" Storyboard.TargetProperty="BorderBrush">
+                                <DiscreteObjectKeyFrame KeyTime="0" Value="{StaticResource HeirloomDangerBrush}" />
+                            </ObjectAnimationUsingKeyFrames>
+                        </Storyboard>
+                    </VisualState>
+                    <VisualState x:Name="Unfocused" />
+                    <VisualState x:Name="PointerFocused" />
+                </VisualStateGroup>
             </VisualStateManager.VisualStateGroups>
         </Grid>
     </ControlTemplate>
 
     <ControlTemplate x:Key="StudioButtonDangerTemplate" TargetType="Button">
-        <Grid x:Name="Root">
+        <Grid x:Name="Root" RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+                <ScaleTransform x:Name="PressScale" ScaleX="1" ScaleY="1" />
+            </Grid.RenderTransform>
             <Border
                 x:Name="Rim"
                 BorderBrush="{StaticResource HeirloomDangerBrush}"
                 BorderThickness="1"
                 CornerRadius="{StaticResource StudioCorner}">
-                <Border Background="#22A64D4D" BorderBrush="{StaticResource StudioInnerHighlight}" BorderThickness="1,1,1,0" CornerRadius="{StaticResource StudioCorner}">
+                <Border Background="{StaticResource HeirloomDangerFillBrush}" BorderBrush="{StaticResource StudioInnerHighlight}" BorderThickness="1,1,1,0" CornerRadius="{StaticResource StudioCorner}">
                     <ContentPresenter
                         Margin="{StaticResource StudioButtonPadding}"
                         HorizontalAlignment="Center"
@@ -325,7 +452,7 @@
                         FontFamily="{StaticResource HeirloomSans}"
                         FontSize="13"
                         FontWeight="SemiBold"
-                        Foreground="#FFF0C8C8" />
+                        Foreground="{StaticResource HeirloomDangerTextBrush}" />
                 </Border>
             </Border>
             <VisualStateManager.VisualStateGroups>
@@ -334,16 +461,114 @@
                     <VisualState x:Name="PointerOver">
                         <Storyboard>
                             <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Rim" Storyboard.TargetProperty="Background">
-                                <DiscreteObjectKeyFrame KeyTime="0" Value="#33A64D4D" />
+                                <DiscreteObjectKeyFrame KeyTime="0" Value="{StaticResource HeirloomDangerFillBrush}" />
                             </ObjectAnimationUsingKeyFrames>
                         </Storyboard>
                     </VisualState>
-                    <VisualState x:Name="Pressed" />
+                    <VisualState x:Name="Pressed">
+                        <Storyboard>
+                            <DoubleAnimation
+                                Storyboard.TargetName="PressScale"
+                                Storyboard.TargetProperty="ScaleX"
+                                To="0.985"
+                                Duration="0:0:0.08" />
+                            <DoubleAnimation
+                                Storyboard.TargetName="PressScale"
+                                Storyboard.TargetProperty="ScaleY"
+                                To="0.985"
+                                Duration="0:0:0.08" />
+                        </Storyboard>
+                    </VisualState>
                     <VisualState x:Name="Disabled">
                         <Storyboard>
                             <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" To="0.38" Duration="0" />
                         </Storyboard>
                     </VisualState>
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="FocusStates">
+                    <VisualState x:Name="Focused">
+                        <Storyboard>
+                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Rim" Storyboard.TargetProperty="BorderThickness">
+                                <DiscreteObjectKeyFrame KeyTime="0">
+                                    <DiscreteObjectKeyFrame.Value>
+                                        <Thickness>2</Thickness>
+                                    </DiscreteObjectKeyFrame.Value>
+                                </DiscreteObjectKeyFrame>
+                            </ObjectAnimationUsingKeyFrames>
+                        </Storyboard>
+                    </VisualState>
+                    <VisualState x:Name="Unfocused" />
+                    <VisualState x:Name="PointerFocused" />
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+        </Grid>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="StudioButtonArmedTemplate" TargetType="Button">
+        <Grid x:Name="Root" RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+                <ScaleTransform x:Name="PressScale" ScaleX="1" ScaleY="1" />
+            </Grid.RenderTransform>
+            <Border
+                x:Name="Rim"
+                Background="{StaticResource HeirloomBgElevatedBrush}"
+                BorderBrush="{StaticResource HeirloomGoldBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource StudioCorner}">
+                <ContentPresenter
+                    Margin="{StaticResource StudioButtonPadding}"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Content="{TemplateBinding Content}"
+                    FontFamily="{StaticResource HeirloomSans}"
+                    FontSize="13"
+                    FontWeight="SemiBold"
+                    Foreground="{StaticResource HeirloomGoldBrush}" />
+            </Border>
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal" />
+                    <VisualState x:Name="PointerOver">
+                        <Storyboard>
+                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Rim" Storyboard.TargetProperty="BorderBrush">
+                                <DiscreteObjectKeyFrame KeyTime="0" Value="{StaticResource HeirloomGoldHoverBrush}" />
+                            </ObjectAnimationUsingKeyFrames>
+                        </Storyboard>
+                    </VisualState>
+                    <VisualState x:Name="Pressed">
+                        <Storyboard>
+                            <DoubleAnimation
+                                Storyboard.TargetName="PressScale"
+                                Storyboard.TargetProperty="ScaleX"
+                                To="0.985"
+                                Duration="0:0:0.08" />
+                            <DoubleAnimation
+                                Storyboard.TargetName="PressScale"
+                                Storyboard.TargetProperty="ScaleY"
+                                To="0.985"
+                                Duration="0:0:0.08" />
+                        </Storyboard>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                        <Storyboard>
+                            <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" To="0.38" Duration="0" />
+                        </Storyboard>
+                    </VisualState>
+                </VisualStateGroup>
+                <VisualStateGroup x:Name="FocusStates">
+                    <VisualState x:Name="Focused">
+                        <Storyboard>
+                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Rim" Storyboard.TargetProperty="BorderThickness">
+                                <DiscreteObjectKeyFrame KeyTime="0">
+                                    <DiscreteObjectKeyFrame.Value>
+                                        <Thickness>2</Thickness>
+                                    </DiscreteObjectKeyFrame.Value>
+                                </DiscreteObjectKeyFrame>
+                            </ObjectAnimationUsingKeyFrames>
+                        </Storyboard>
+                    </VisualState>
+                    <VisualState x:Name="Unfocused" />
+                    <VisualState x:Name="PointerFocused" />
                 </VisualStateGroup>
             </VisualStateManager.VisualStateGroups>
         </Grid>
@@ -352,6 +577,8 @@
     <Style x:Key="StudioButtonPrimary" TargetType="Button">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource HeirloomInkBrush}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Padding" Value="{StaticResource StudioButtonPadding}" />
         <Setter Property="UseSystemFocusVisuals" Value="False" />
         <Setter Property="Template" Value="{StaticResource StudioButtonPrimaryTemplate}" />
     </Style>
@@ -365,10 +592,20 @@
         <Setter Property="UseSystemFocusVisuals" Value="False" />
         <Setter Property="Template" Value="{StaticResource StudioButtonQuietTemplate}" />
     </Style>
+    <Style x:Key="StudioButtonClose" TargetType="Button" BasedOn="{StaticResource StudioButtonQuiet}">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="40" />
+        <Setter Property="Template" Value="{StaticResource StudioButtonCloseTemplate}" />
+    </Style>
     <Style x:Key="StudioButtonDanger" TargetType="Button">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="UseSystemFocusVisuals" Value="False" />
         <Setter Property="Template" Value="{StaticResource StudioButtonDangerTemplate}" />
+    </Style>
+    <Style x:Key="StudioButtonArmed" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="UseSystemFocusVisuals" Value="False" />
+        <Setter Property="Template" Value="{StaticResource StudioButtonArmedTemplate}" />
     </Style>
     <Style x:Key="StudioButtonIcon" TargetType="Button" BasedOn="{StaticResource StudioButtonQuiet}">
         <Setter Property="Width" Value="36" />
@@ -378,8 +615,6 @@
 
     <Style x:Key="StudioSlider" TargetType="Slider">
         <Setter Property="Foreground" Value="{StaticResource HeirloomGoldBrush}" />
-        <Setter Property="Minimum" Value="0" />
-        <Setter Property="Maximum" Value="100" />
     </Style>
 
     <Style TargetType="MenuBar">
@@ -392,6 +627,10 @@
         <Setter Property="Foreground" Value="{StaticResource HeirloomTextBrush}" />
         <Setter Property="Background" Value="{StaticResource HeirloomBgElevatedBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource HeirloomBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Padding" Value="10,8,10,8" />
+        <Setter Property="MinHeight" Value="36" />
         <Setter Property="FontFamily" Value="{StaticResource HeirloomSans}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="SelectionHighlightColor" Value="{StaticResource HeirloomGoldMutedBrush}" />
@@ -400,6 +639,9 @@
         <Setter Property="Foreground" Value="{StaticResource HeirloomTextBrush}" />
         <Setter Property="Background" Value="{StaticResource HeirloomBgElevatedBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource HeirloomBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="MinHeight" Value="32" />
         <Setter Property="FontFamily" Value="{StaticResource HeirloomSans}" />
         <Setter Property="FontSize" Value="13" />
     </Style>
@@ -409,5 +651,79 @@
         <Setter Property="FontSize" Value="12" />
         <Setter Property="OnContent" Value="" />
         <Setter Property="OffContent" Value="" />
+        <Setter Property="MinWidth" Value="40" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style x:Key="StudioMeter" TargetType="ProgressBar">
+        <Setter Property="Height" Value="3" />
+        <Setter Property="Foreground" Value="{StaticResource HeirloomGoldBrush}" />
+        <Setter Property="Background" Value="{StaticResource HeirloomMeterTrackBrush}" />
+    </Style>
+    <Style x:Key="StudioChatItem" TargetType="ListViewItem">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style x:Key="StudioDockItem" TargetType="ListViewItem">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style x:Key="StudioTileItem" TargetType="GridViewItem">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0,0,8,8" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style x:Key="StudioChatList" TargetType="ListView">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="16,12" />
+        <Setter Property="SelectionMode" Value="None" />
+        <Setter Property="IsItemClickEnabled" Value="False" />
+        <Setter Property="ItemContainerStyle" Value="{StaticResource StudioChatItem}" />
+    </Style>
+    <Style x:Key="StudioPlainList" TargetType="ListView">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="SelectionMode" Value="None" />
+        <Setter Property="ItemContainerStyle" Value="{StaticResource StudioChatItem}" />
+    </Style>
+    <Style x:Key="StudioComposer" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource HeirloomBgElevatedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HeirloomBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Padding" Value="6" />
+    </Style>
+    <Style x:Key="StudioComposerField" TargetType="TextBox">
+        <Setter Property="Foreground" Value="{StaticResource HeirloomTextBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="4,6" />
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="FontFamily" Value="{StaticResource HeirloomSans}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style x:Key="StudioCard" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource HeirloomBgSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HeirloomBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Padding" Value="12,10" />
+    </Style>
+    <Style x:Key="StudioPending" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource HeirloomYouBubbleBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HeirloomGoldDeepBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Padding" Value="12,10" />
     </Style>
 </ResourceDictionary>

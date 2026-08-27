@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using Heirloom.Controls;
 using Heirloom.Services;
 using Heirloom.ViewModels;
@@ -53,6 +54,8 @@ public sealed partial class MainPage : Page
             window.Visibility = ViewModel.IsOpen(window.DocumentId) ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        ViewModel.Assistant.Lines.CollectionChanged += (_, e) => ScrollLatest(AssistChatList, e);
+        ViewModel.Twin.Lines.CollectionChanged += (_, e) => ScrollLatest(TwinChatList, e);
         await Task.Delay(900);
         ViewModel.DismissSplash();
         AddAccelerator(Windows.System.VirtualKey.K, Windows.System.VirtualKeyModifiers.Control, () => ViewModel.TogglePalette());
@@ -106,6 +109,10 @@ public sealed partial class MainPage : Page
         if (focus)
         {
             Canvas.SetZIndex(window, ++_z);
+            foreach (var doc in Documents())
+            {
+                doc.IsActive = doc == window;
+            }
         }
     }
 
@@ -293,25 +300,32 @@ public sealed partial class MainPage : Page
             Canvas.SetZIndex(window, ++_z);
             ViewModel.ActiveDocumentId = window.DocumentId;
             StudioHelp.SetDocument(window.DocumentId);
+            foreach (var doc in Documents())
+            {
+                doc.IsActive = doc == window;
+            }
         }
     }
 
     private void OnQuit(object sender, RoutedEventArgs e) => Application.Current.Exit();
 
-    private void PttPressed(object sender, RoutedEventArgs e) => ViewModel.Twin.BeginPtt();
+    private void TwinPttPressed(object sender, RoutedEventArgs e) => ViewModel.Twin.BeginPtt();
 
-    private async void PttReleased(object sender, RoutedEventArgs e) => await ViewModel.Twin.EndPttAsync();
+    private async void TwinPttReleased(object sender, RoutedEventArgs e) => await ViewModel.Twin.EndPttAsync();
 
-    private void SkipSetup(object sender, RoutedEventArgs e)
+    private void AssistPttPressed(object sender, RoutedEventArgs e) => ViewModel.Assistant.BeginPtt();
+
+    private async void AssistPttReleased(object sender, RoutedEventArgs e) => await ViewModel.Assistant.EndPttAsync();
+
+    private static void ScrollLatest(ListView list, NotifyCollectionChangedEventArgs e)
     {
-        ViewModel.FirstRun.Skip();
-        ViewModel.ShowFirstRun = false;
+        if (list.Items.Count == 0)
+        {
+            return;
+        }
+
+        var item = e.NewItems is { Count: > 0 } ? e.NewItems[^1] : list.Items[^1];
+        list.ScrollIntoView(item);
     }
 
-    private async void FinishSetup(object sender, RoutedEventArgs e)
-    {
-        await ViewModel.FirstRun.FinishAsync();
-        ViewModel.ShowFirstRun = false;
-        ViewModel.StartCoach();
-    }
 }
