@@ -5,7 +5,13 @@ import ast
 from pathlib import Path
 
 import abilities as ab
-from twin_runtime import build_assistant_system, build_twin_system, history_turns, tools_for_turn
+from twin_runtime import (
+    PC_ABILITY_IDS,
+    build_assistant_system,
+    build_twin_system,
+    history_turns,
+    tools_for_turn,
+)
 from twin_pack import TwinPack, TwinPassage, compile_twin_prompt, miss_reply
 from owner_pairing import (
     assist_pairing_block,
@@ -102,6 +108,27 @@ def test_twin_turn_strips_save_memory():
     assert "search_archive" not in packed
 
 
+def test_twin_turn_strips_pc_control_tools():
+    names = tools_for_turn(
+        "twin", {"web", "pc_control", "screen_vision", "terminal", "smart_home"},
+    )
+    assert "open_on_pc" not in names
+    assert "see_screen" not in names
+    assert "run_command" not in names
+    assert "type_text" not in names
+    assert "web_search" in names
+    assert "search_archive" in names
+    assert "run_skill" in names
+    assist = tools_for_turn(
+        "assistant", {"web", "pc_control", "screen_vision", "terminal"},
+    )
+    assert "open_on_pc" in assist
+    assert "see_screen" in assist
+    assert "run_command" in assist
+    assert "save_memory" in assist
+    assert PC_ABILITY_IDS == {"pc_control", "screen_vision", "terminal"}
+
+
 def test_phone_turn_strips_pc_and_save_unless_owner():
     names = tools_for_turn("twin", {"web", "smart_home", "pc_control"}, source="phone")
     assert "save_memory" not in names
@@ -167,9 +194,12 @@ def test_compile_twin_prompt_owner_includes_pairing():
 def test_web_twin_uses_shared_builder_as_owner():
     path = Path(__file__).resolve().parents[1] / "routers" / "twin.py"
     src = path.read_text(encoding="utf-8")
-    assert "from twin_runtime import build_twin_system" in src
+    assert "from twin_runtime import PC_ABILITY_IDS, build_twin_system, tools_for_turn" in src
     assert 'audience="owner"' in src
     assert "def _build_twin_system" not in src
+    assert "tools_for_turn(\"twin\", twin_ids)" in src
+    assert "enabled_tool_names" not in src
+    assert "PC_ABILITY_IDS" in src
 
 
 def test_assist_planner_string_pairs_like_teammate():

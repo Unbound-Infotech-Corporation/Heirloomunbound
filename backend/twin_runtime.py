@@ -85,7 +85,9 @@ Skills they listed (call `run_skill` only when they clearly ask):
 """
 
 
-_PC_ABILITY_IDS = frozenset({"pc_control", "screen_vision", "terminal"})
+# Assist may use these. Twin / heir / caller must not — heirs inherit Twin, not the copilot.
+PC_ABILITY_IDS = frozenset({"pc_control", "screen_vision", "terminal"})
+_PC_ABILITY_IDS = PC_ABILITY_IDS
 
 
 def build_twin_system(
@@ -305,8 +307,12 @@ def tools_for_turn(
     source: str = "web",
     caller_is_owner: bool = False,
 ) -> set[str]:
-    names = ab.tool_names_for_abilities(enabled_ids)
-    if (role or "twin").strip().lower() != "assistant":
+    role_key = (role or "twin").strip().lower()
+    ids = set(enabled_ids)
+    if role_key != "assistant":
+        ids -= PC_ABILITY_IDS
+    names = ab.tool_names_for_abilities(ids)
+    if role_key != "assistant":
         names.discard("save_memory")
         if has_client_pack:
             names.discard("search_archive")
