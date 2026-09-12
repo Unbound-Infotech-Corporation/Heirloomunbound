@@ -278,6 +278,15 @@ public static class TwinPrompt
             builder.Append("Prefer CORE and PASSAGES. Do not invent facts about their life. If nothing matches, say so.\n");
         }
 
+        if (!heir)
+        {
+            builder.Append("HOW WE WORK (owner sitting):\n");
+            builder.Append("- Be useful in their voice: capture, remind, search the archive, and close loops.\n");
+            builder.Append("- Decide sensible defaults. Do the useful vault work without dumping menus.\n");
+            builder.Append("- Close the loop in 1–3 sentences when you filed, reminded, or found something.\n");
+            builder.Append("- If they need the computer, say so plainly so Assist can Do. Never invent PC actions or biography.\n");
+        }
+
         builder.Append("PERSONA REGISTER:\n").Append(pack.Core.Stance).Append('\n');
         if (!string.IsNullOrWhiteSpace(pack.Core.Portrait))
         {

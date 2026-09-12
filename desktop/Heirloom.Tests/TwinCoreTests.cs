@@ -23,6 +23,32 @@ public class TwinRetrieveTests
     }
 
     [Fact]
+    public void Owner_system_includes_pairing_heir_does_not()
+    {
+        var owner = new TwinPack
+        {
+            Core = TwinPrompt.CoreFrom("family", "", ""),
+            Passages = [new TwinPassage(2, "interview", "childhood", "2020-04-12", "I grew up on a farm in Vermont.", 4)],
+            Grounded = true,
+            Audience = "owner",
+        };
+        var heir = new TwinPack
+        {
+            Core = TwinPrompt.CoreFrom("family", "", ""),
+            Passages = owner.Passages,
+            Grounded = true,
+            Audience = "heir",
+        };
+        var ownerSystem = TwinPrompt.System(owner, "Alex");
+        var heirSystem = TwinPrompt.System(heir, "Alex");
+        Assert.Contains("HOW WE WORK (owner sitting)", ownerSystem, StringComparison.Ordinal);
+        Assert.Contains("Assist can Do", ownerSystem, StringComparison.Ordinal);
+        Assert.DoesNotContain("HOW WE WORK", heirSystem, StringComparison.Ordinal);
+        Assert.DoesNotContain("Assist can Do", heirSystem, StringComparison.Ordinal);
+        Assert.Contains("speaking with an heir", heirSystem, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Unfiled_question_is_a_named_miss()
     {
         var rows = new[]

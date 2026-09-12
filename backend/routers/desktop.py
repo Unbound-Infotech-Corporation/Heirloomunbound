@@ -69,6 +69,7 @@ class ChatReq(BaseModel):
     mode: Optional[str] = Field(None, max_length=24)
     grounded: Optional[bool] = None
     persona: Optional[str] = Field(None, max_length=24)
+    audience: Optional[str] = Field(None, max_length=16)
     twin_pack: Optional[dict] = None
 
 
@@ -124,6 +125,12 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     kind = "companion_assistant" if mode == "assistant" else "companion_twin"
 
     conv = await ensure_conversation(user["user_id"], kind=kind)
+    pack_audience = ""
+    if isinstance(body.twin_pack, dict):
+        pack_audience = str(body.twin_pack.get("audience") or "").strip()
+    audience = (body.audience or pack_audience or "owner").strip().lower() or "owner"
+    if audience not in {"owner", "heir", "caller"}:
+        audience = "owner"
     try:
         result = await run_twin_turn(
             user,
@@ -136,6 +143,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
             twin_pack=body.twin_pack,
             grounded=body.grounded,
             persona_hint=body.persona,
+            audience=audience,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

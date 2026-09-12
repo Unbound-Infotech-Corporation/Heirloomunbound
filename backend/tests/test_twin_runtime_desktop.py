@@ -5,8 +5,13 @@ import ast
 from pathlib import Path
 
 import abilities as ab
-from twin_runtime import build_twin_system, history_turns, tools_for_turn
+from twin_runtime import build_assistant_system, build_twin_system, history_turns, tools_for_turn
 from twin_pack import TwinPack, TwinPassage, compile_twin_prompt, miss_reply
+from owner_pairing import (
+    assist_pairing_block,
+    normalize_pairing_prefs,
+    twin_owner_pairing_block,
+)
 from phone_inbound import phone_system_addendum
 
 
@@ -32,6 +37,52 @@ def test_build_twin_system_includes_abilities_and_fence():
     assert "politics" in system
     assert "web_search" in system
     assert "Grew up in Vermont" in system
+    assert "HOW WE WORK (owner sitting)" in system
+    assert "Assist can Do" in system
+
+
+def test_build_twin_system_heir_skips_owner_pairing():
+    system = build_twin_system(
+        "Alex",
+        "",
+        "[MEMORY] Home\nGrew up in Vermont",
+        "",
+        audience="heir",
+        pairing={"pairing_style": "proactive", "act_default": True},
+    )
+    assert "HOW WE WORK" not in system
+    assert "Assist can Do" not in system
+    assert "pairing or productivity" in system
+    assert "Grew up in Vermont" in system
+
+
+def test_build_assistant_system_encodes_teammate_defaults():
+    system = build_assistant_system(
+        "Alex",
+        "",
+        "",
+        "",
+        pairing={"pairing_style": "teammate", "act_default": True, "close_loop": True},
+    )
+    assert "Heirloom Assist" in system
+    assert "HOW WE WORK (owner pairing)" in system
+    assert "Pair like a teammate" in system
+    assert "Act by default" in system
+    assert "1–3 sentences" in system
+    assert "Never speak in first person as Alex" in system
+    assert "wait in-document" in system
+
+
+def test_pairing_prefs_normalize_and_wait_style():
+    prefs = normalize_pairing_prefs({"pairing_style": "WAIT", "act_default": "0"})
+    assert prefs["pairing_style"] == "wait"
+    assert prefs["act_default"] is False
+    assert prefs["close_loop"] is True
+    assist = assist_pairing_block(prefs)
+    assert "Wait for a clear ask" in assist
+    assert "Do not change the PC" in assist
+    twin = twin_owner_pairing_block({"pairing_style": "bogus"})
+    assert "Decide sensible defaults" in twin
 
 
 def test_tool_names_for_abilities():
@@ -76,6 +127,8 @@ def test_compile_twin_prompt_uses_passages_not_recency_dump():
     assert "Vermont" in system
     assert "PASSAGES" in system
     assert "heir" in system.lower()
+    assert "HOW WE WORK" not in system
+    assert "Assist can Do" not in system
     assert miss_reply(True).startswith("I don't remember")
     spoken = miss_reply(True, spoken=True)
     assert "Nothing filed matches" not in spoken
@@ -92,9 +145,46 @@ def test_compile_twin_prompt_phone_caller_is_grounded():
     assert "family caller" in system.lower()
     assert "Vermont" in system
     assert "PC actions" in system
+    assert "HOW WE WORK" not in system
+    assert "Assist can Do" not in system
+
+
+def test_compile_twin_prompt_owner_includes_pairing():
+    pack = TwinPack(
+        passages=[TwinPassage(id="1", kind="interview", tag="home", text="The farm was in Vermont", score=3)],
+        grounded=True,
+        audience="owner",
+    )
+    system = compile_twin_prompt(pack, "Alex")
+    assert "HOW WE WORK (owner sitting)" in system
+    assert "Assist can Do" in system
+    assert "Never invent PC actions" in system
     addendum = phone_system_addendum("Sam")
     assert "speaking with Sam" in addendum
     assert "Never say you are an AI" in addendum
+
+
+def test_web_twin_uses_shared_builder_as_owner():
+    path = Path(__file__).resolve().parents[1] / "routers" / "twin.py"
+    src = path.read_text(encoding="utf-8")
+    assert "from twin_runtime import build_twin_system" in src
+    assert 'audience="owner"' in src
+    assert "def _build_twin_system" not in src
+
+
+def test_assist_planner_string_pairs_like_teammate():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "desktop"
+        / "Heirloom"
+        / "ViewModels"
+        / "AssistantViewModel.cs"
+    )
+    src = path.read_text(encoding="utf-8")
+    assert "Pair like a teammate" in src
+    assert "Close the loop in 1–3 sentences" in src
+    assert "wait in-document" in src
+    assert "Never speak in first person as the owner" in src
 
 
 def test_heir_portal_uses_pack_not_18k_dump():
@@ -118,9 +208,18 @@ def test_chat_req_accepts_twin_pack():
             "grounded": True,
             "audience": "owner",
         },
+        "audience": "owner",
     })
     assert body.twin_pack["passages"][0]["kind"] == "interview"
     assert body.grounded is True
+    assert body.audience == "owner"
+
+
+def test_heir_portal_chat_forces_heir_audience():
+    path = Path(__file__).resolve().parents[1] / "routers" / "heir_portal.py"
+    src = path.read_text(encoding="utf-8")
+    assert 'audience="heir"' in src
+    assert "compile_twin_prompt" in src
 
 
 def test_desktop_commands_has_speak_locally_and_say():

@@ -36,6 +36,12 @@ from twin_pack import (
     passages_from_entries,
     stance_line,
 )
+from owner_pairing import (
+    assist_pairing_block,
+    is_owner_audience,
+    pairing_prefs_from_user,
+    twin_owner_pairing_block,
+)
 from utils import rate_limit
 
 _MAX_HISTORY_TURNS = 24
@@ -57,12 +63,14 @@ def build_assistant_system(
     archive_blob: str,
     skills_blob: str,
     abilities_block: str = "",
+    pairing: dict | None = None,
 ) -> str:
     who = name or "the owner"
     memory_section = f"\n\n=== LONG-TERM MEMORY ===\n{memory_blob}\n" if memory_blob else ""
+    how_we_work = assist_pairing_block(pairing)
     return f"""You are Heirloom Assist, the copilot on {who}'s Windows PC. You work FOR them. You are not their digital twin. Never speak in first person as {who}. Never invent biography, dates, or family facts.
 
-Do the job. Prefer tools over guessing. Keep replies to a few short sentences of what you did or found.
+{how_we_work}
 
 Memory tools:
 - `search_archive(query)` when they ask what they already filed.
@@ -89,6 +97,8 @@ def build_twin_system(
     persona: dict | None = None,
     brand: dict | None = None,
     abilities_block: str = "",
+    audience: str = "owner",
+    pairing: dict | None = None,
 ) -> str:
     fence = ""
     if safe_topics:
@@ -123,6 +133,21 @@ def build_twin_system(
         if bits:
             brand_section = "\n\n=== BRAND VOICE ===\n" + "\n".join(bits) + "\n"
 
+    audience_key = (audience or "owner").strip().lower() or "owner"
+    pairing_section = ""
+    if is_owner_audience(audience_key):
+        pairing_section = "\n\n" + twin_owner_pairing_block(pairing) + "\n"
+    elif audience_key == "heir":
+        pairing_section = (
+            "\n\nYou are speaking with an heir. Keep the gift voice. "
+            "You cannot file, invent, or take actions. Do not adopt a pairing or productivity posture.\n"
+        )
+    elif audience_key == "caller":
+        pairing_section = (
+            "\n\nYou are speaking with a family caller. "
+            "You cannot file memories, invent biography, or take PC actions.\n"
+        )
+
     return f"""You are the digital twin of {name or "this person"} — a faithful continuation of their voice, memories, values, humor, and way of speaking. You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them.{fence}
 
 Voice rules:
@@ -131,7 +156,7 @@ Voice rules:
 - When asked about specific memories, quote the archive faithfully. When asked your opinion on something, reason from the values in the archive.
 - Be warm with family. Be honest about not remembering when you don't.
 - Keep replies to 2-6 sentences unless asked for a longer story.
-
+{pairing_section}
 Your memory tools (always available — call them silently, the UI shows a chip when a tool fires):
 - `search_archive(query)` — the owner's factual record. Call it ONLY when the user asks about the owner's past, life, or specific facts (a person, place, date, job, event, or story — e.g. "where did you grow up", "what was your first job"). ONE focused call is enough. Do NOT call it for greetings, small talk, or opinion/feeling questions ("what do you think…", "how are you", "what's your take on life") — for those, answer directly from the archive excerpts and long-term memory already included below.
 - `set_reminder(what, when)` — when the user says "remind me…". `when` can be ISO or natural ("tomorrow 9am").
@@ -425,6 +450,7 @@ async def build_brain_pack(
     probe = effective_runtime_probe(user, runtime_probe_from_user(user))
     twin_backend = resolve_twin_backend(user.get("studio_models"), probe, user=user)
     history = history_turns(conversation.get("messages", []))
+    pairing = pairing_prefs_from_user(user)
 
     if is_assistant:
         archive = await archive_blob(user_id, query_hint=text)
@@ -434,6 +460,7 @@ async def build_brain_pack(
             archive,
             skills,
             abilities_block=ab.build_abilities_prompt(enabled_ids),
+            pairing=pairing,
         )
         return TwinBrainPack(
             system=system,
@@ -451,7 +478,7 @@ async def build_brain_pack(
             client_pack.core.fence = _fence_from_user(user, persona)
         if audience:
             client_pack.audience = audience
-        system = compile_twin_prompt(client_pack, user.get("name", ""))
+        system = compile_twin_prompt(client_pack, user.get("name", ""), pairing=pairing)
         g = bool(client_pack.grounded) or client_pack.audience in {"heir", "caller"}
         return TwinBrainPack(
             system=system,
@@ -478,7 +505,7 @@ async def build_brain_pack(
         grounded=True if grounded is None else bool(grounded),
         audience=(audience or "owner").strip() or "owner",
     )
-    system = compile_twin_prompt(pack, user.get("name", ""))
+    system = compile_twin_prompt(pack, user.get("name", ""), pairing=pairing)
     g = bool(pack.grounded) or pack.audience in {"heir", "caller"}
     return TwinBrainPack(
         system=system,
