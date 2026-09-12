@@ -2,7 +2,7 @@
 
 Make Assist and Twin feel like a pairing teammate for the **owner** — decide sensible defaults, do the work, close the loop with a short result — without collapsing Assist vs Twin, and without giving heirs PC tools or a productivity posture.
 
-This document is the roadmap. **Slice 2 is the only code shipped in the first pass** (prefs + prompt wiring). Slices 1, 3, and 4 are UI / follow-on rails.
+This document is the roadmap. **Slice 2** (prefs + prompts) shipped first. **Slice 1** is the owner teammate chat (this pass). Slices 3 and 4 remain follow-on rails.
 
 ## Goal
 
@@ -27,6 +27,8 @@ Heir and released sessions stay a **gift voice**. They do not inherit pairing st
 
 Do not invent PC actions in Twin prompts. Do not speak as the owner from Assist.
 
+The owner **Sit** surface is one composer. It does not collapse the products: each turn is classified to Assist, Twin, or both. Quiet chips (`Do` / `As you` / `Do + As you`) show which leg ran. Heirs never see Sit / owner mode.
+
 ## Usefulness gaps (why this rail exists)
 
 Today the split is correct and still easy to feel unfinished:
@@ -36,19 +38,37 @@ Today the split is correct and still easy to feel unfinished:
 - There is no persisted “how we work” for the owner, so every turn re-asks posture.
 - Heir portal must never pick up owner pairing text if we add it.
 
-Slice 2 bakes the posture into prefs + prompts. Later slices make the rails visible.
+Slice 2 bakes the posture into prefs + prompts. Slice 1 makes one owner chat that routes without a mode picker.
 
 ## Slices
 
-### Slice 1 — Owner rails (UI chrome)
+### Slice 1 — Owner rails (one teammate chat)
 
-Not in this pass.
+**This pass.** Heuristic v1 (keyword / intent). Optional cheap LLM later.
 
-Dock / document chrome that makes **Assist = Do** and **Twin = Ask** obvious on the owner studio. Today pairing strip, gold verbs, and inspector copy. Must not collapse the two products or expose Assist to heirs.
+| Surface | Status |
+|---|---|
+| Classifier `classify_owner_turn` → `assist` \| `twin` \| `both` | Done |
+| `POST /api/desktop/chat` `mode=owner` | Done |
+| `GET/POST /api/owner/conversation` + `/api/owner/chat` (session auth) | Done |
+| Response `rail` / `rail_chip` / `rail_legs` | Done (`Do` / `As you` / `Do + As you`) |
+| Web `/owner` — one composer + quiet chip | Done. `/twin` stays Twin-only. |
+| Both-leg order | Twin / memory first, then Assist. One persisted receipt. |
+| Heir fence | `resolve_chat_mode` forces twin when `audience` is heir/caller or `heir_surface`. Portal never calls owner rail. |
+| PC tools | `tools_for_turn` / `tools_for_owner_leg` — only the Assist leg. |
+| WinUI Owner document | **Follow-up.** Assist + Twin docks stay. Glossary has Sit. Native document would be a second chrome pass. |
+
+Heuristics (v1):
+
+- **Do / Assist** — open/launch a named app or the browser, screen, volume, sleep/shutdown/restart, find file, clipboard, terminal/command, type/click, “on this PC”.
+- **As you / Twin** — remember/recall (not “remember to &lt;do&gt;” alone), file/capture, what did I, remind me, growing up / family / archive.
+- **Both** — both signals, or “remember to &lt;do&gt;”.
+- Unclear → Twin (safer; no PC tools).
+- “Open up about …” is Ask, not Do.
 
 ### Slice 2 — How we work (prefs + prompts)
 
-**This pass.**
+**Shipped.**
 
 Owner prefs on the existing user document (`GET /api/auth/me`, `PUT /api/auth/me/preferences`):
 
@@ -72,7 +92,7 @@ WinUI Settings **How we work** is deferred if the XAML surface is crowded; web S
 
 Not in this pass.
 
-Visible result of the last Do / Ask: short chips, last-did strip, Confirm-in-document polish. No dumped menus. Assist still confirms destructive tools in the document.
+Visible result of the last Do / Ask: last-did strip, Confirm-in-document polish. No dumped menus. Assist still confirms destructive tools in the document. Slice 1 chips are the first quiet receipt.
 
 ### Slice 4 — Memory of work + heir fence audit
 
@@ -88,16 +108,18 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 - [x] Heir portal compiles with `audience=heir` and cannot receive owner pairing text.
 - [x] Assist vs Twin roles are unchanged (no PC tools on Twin; Assist never first-person as the owner).
 - [x] Confirm-in-document for destructive Assist tools is unchanged.
-- [ ] Slice 1 UI rails (dock / Today strip) — deferred.
-- [ ] Slice 3 close-loop chips — deferred.
+- [x] Slice 1 owner Sit (web + `mode=owner`) with heuristic routing and chips.
+- [x] Heir / caller cannot enter `mode=owner`; PC tools only on the Assist leg.
+- [ ] Slice 1 WinUI Owner document — deferred (Assist + Twin docks remain).
+- [ ] Slice 3 close-loop strip beyond chips — deferred.
 - [ ] Slice 4 cross-session memory + full heir-fence audit pass — deferred.
 - [ ] WinUI Settings → How we work — deferred (web Settings ships in Slice 2).
 
 ## Ship order
 
-1. **Slice 2** — prefs + prompts (this document’s first code). Behavior changes even before chrome.
-2. **Slice 1** — owner rails so the studio *looks* like the split it already is.
+1. **Slice 2** — prefs + prompts (shipped).
+2. **Slice 1** — owner Sit so one composer routes Do vs Ask (this pass).
 3. **Slice 3** — close-loop surfaces so a Do leaves a visible result.
 4. **Slice 4** — remember + heir-fence audit once the prompts have settled.
 
-Do not ship Slice 1/3/4 UI until Slice 2 is in and heir paths stay gift-only.
+Do not give heirs owner mode, pairing productivity, or PC tools.

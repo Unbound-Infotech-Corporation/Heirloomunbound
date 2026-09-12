@@ -13,6 +13,7 @@ import Library from "@/pages/Library";
 import Photos from "@/pages/Photos";
 import Import from "@/pages/Import";
 import Twin from "@/pages/Twin";
+import Owner from "@/pages/Owner";
 import TwinLive from "@/pages/TwinLive";
 import AvatarStudio from "@/pages/AvatarStudio";
 import SetupKeys from "@/pages/SetupKeys";
@@ -94,6 +95,7 @@ function AppRouter() {
         <Route path="/library" element={<Library />} />
         <Route path="/photos" element={<Photos />} />
         <Route path="/import" element={<Import />} />
+        <Route path="/owner" element={<Owner />} />
         <Route path="/twin" element={<Twin />} />
         <Route path="/mixer" element={<AudioMixer />} />
         <Route path="/models" element={<ModelsStudio />} />

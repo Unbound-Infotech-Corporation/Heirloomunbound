@@ -392,6 +392,8 @@ async def ensure_conversation(
         prefix = "phone"
     elif kind == "companion_assistant":
         prefix = "assist"
+    elif kind == "companion_owner":
+        prefix = "owner"
     elif kind == "twin":
         prefix = "twin"
     else:
@@ -778,6 +780,9 @@ async def _persist_pair(
     source: str,
     action: Optional[dict] = None,
     tool_trace: Optional[list[dict]] = None,
+    rail: Optional[str] = None,
+    rail_chip: Optional[str] = None,
+    rail_legs: Optional[list[str]] = None,
 ) -> None:
     user_turn: dict[str, Any] = {
         "role": "user", "content": user_text, "ts": ts, "source": source,
@@ -789,6 +794,12 @@ async def _persist_pair(
         assistant_turn["action"] = action
     if tool_trace:
         assistant_turn["tool_trace"] = tool_trace
+    if rail:
+        assistant_turn["rail"] = rail
+    if rail_chip:
+        assistant_turn["rail_chip"] = rail_chip
+    if rail_legs:
+        assistant_turn["rail_legs"] = list(rail_legs)
     await db.conversations.update_one(
         {"conversation_id": conversation_id, "user_id": user_id},
         {

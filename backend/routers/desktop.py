@@ -112,39 +112,59 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
 
     mode=twin (default): grounded sitting — no PC control tools.
     mode=assistant: copilot that may use PC / screen / terminal abilities.
+    mode=owner: one teammate chat — classifies each turn to Assist and/or Twin.
+    Heir/caller audience cannot enter owner mode (forced to twin).
     """
+    from owner_rail import owner_response_fields, resolve_chat_mode, run_owner_turn
     from twin_runtime import ensure_conversation, run_twin_turn
 
     user = ctx["user"]
     if user.get("account_status") == "refunded":
         raise HTTPException(status_code=403, detail="account_inactive")
 
-    mode = (body.mode or "twin").strip().lower()
-    if mode not in ("twin", "assistant"):
-        mode = "twin"
-    kind = "companion_assistant" if mode == "assistant" else "companion_twin"
-
-    conv = await ensure_conversation(user["user_id"], kind=kind)
     pack_audience = ""
     if isinstance(body.twin_pack, dict):
         pack_audience = str(body.twin_pack.get("audience") or "").strip()
     audience = (body.audience or pack_audience or "owner").strip().lower() or "owner"
     if audience not in {"owner", "heir", "caller"}:
         audience = "owner"
+    mode = resolve_chat_mode(body.mode, audience=audience)
+    if mode == "owner":
+        kind = "companion_owner"
+    elif mode == "assistant":
+        kind = "companion_assistant"
+    else:
+        kind = "companion_twin"
+
+    conv = await ensure_conversation(user["user_id"], kind=kind)
     try:
-        result = await run_twin_turn(
-            user,
-            body.text,
-            conversation=conv,
-            source="desktop" if mode == "twin" else "desktop_assistant",
-            persist=True,
-            summarise=True,
-            role=mode,
-            twin_pack=body.twin_pack,
-            grounded=body.grounded,
-            persona_hint=body.persona,
-            audience=audience,
-        )
+        if mode == "owner":
+            result = await run_owner_turn(
+                user,
+                body.text,
+                conversation=conv,
+                source="desktop_owner",
+                persist=True,
+                summarise=True,
+                twin_pack=body.twin_pack,
+                grounded=body.grounded,
+                persona_hint=body.persona,
+                audience=audience,
+            )
+        else:
+            result = await run_twin_turn(
+                user,
+                body.text,
+                conversation=conv,
+                source="desktop" if mode == "twin" else "desktop_assistant",
+                persist=True,
+                summarise=True,
+                role=mode,
+                twin_pack=body.twin_pack,
+                grounded=body.grounded,
+                persona_hint=body.persona,
+                audience=audience,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -162,6 +182,8 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     }
     if result.action:
         out["action"] = result.action
+    if mode == "owner":
+        out.update(owner_response_fields(result))
     return out
 
 

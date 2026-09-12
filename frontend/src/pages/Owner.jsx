@@ -1,0 +1,212 @@
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { ArrowRight, Loader2, Sparkles } from "lucide-react";
+import { api } from "../lib/api";
+
+const CHIP = {
+  Do: { label: "Do", hint: "Assist on this PC" },
+  "As you": { label: "As you", hint: "Twin from the vault" },
+  "Do + As you": { label: "Do + As you", hint: "Both legs this turn" },
+};
+
+function RailChip({ chip, testid }) {
+  const meta = CHIP[chip] || { label: chip || "As you", hint: "" };
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] tracking-wide uppercase rounded-sm"
+      data-testid={testid}
+      title={meta.hint}
+      style={{
+        border: "1px solid var(--border-default)",
+        color: "var(--text-muted)",
+        background: "transparent",
+      }}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+export default function Owner() {
+  const [conv, setConv] = useState(null);
+  const [pending, setPending] = useState(false);
+  const [input, setInput] = useState("");
+  const [lastChip, setLastChip] = useState("");
+  const feedRef = useRef(null);
+
+  useEffect(() => {
+    api.get("/owner/conversation").then(({ data }) => setConv(data)).catch(() => {
+      setConv({ conversation_id: "", messages: [] });
+    });
+  }, []);
+
+  useEffect(() => {
+    feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
+  }, [conv, pending]);
+
+  const send = async (text) => {
+    if (!text.trim() || pending) return;
+    const myMsg = { role: "user", content: text, ts: new Date().toISOString() };
+    setConv((c) => ({ ...(c || {}), messages: [...(c?.messages || []), myMsg] }));
+    setInput("");
+    setPending(true);
+    try {
+      const { data } = await api.post("/owner/chat", { text });
+      setLastChip(data.rail_chip || "");
+      setConv((c) => ({
+        ...(c || {}),
+        conversation_id: data.conversation_id || c?.conversation_id,
+        messages: [
+          ...(c?.messages || []),
+          {
+            role: "assistant",
+            content: data.reply,
+            ts: data.ts || new Date().toISOString(),
+            rail: data.rail,
+            rail_chip: data.rail_chip,
+            rail_legs: data.rail_legs,
+            tool_trace: data.tool_trace,
+            action: data.action,
+          },
+        ],
+      }));
+    } catch (err) {
+      setConv((c) => ({
+        ...(c || {}),
+        messages: [
+          ...(c?.messages || []),
+          {
+            role: "assistant",
+            content: err.response?.data?.detail || "I couldn't take that turn just now.",
+            ts: new Date().toISOString(),
+            rail_chip: "",
+          },
+        ],
+      }));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const messages = conv?.messages || [];
+
+  return (
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl" data-testid="owner-root">
+      <header className="mb-10 flex justify-between items-end gap-6">
+        <div>
+          <div className="overline mb-3">sit</div>
+          <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">
+            One teammate.
+          </h1>
+          <p className="mt-3 text-base max-w-xl" style={{ color: "var(--text-secondary)" }}>
+            Ask or do — we route it. Quiet chips, no mode picker. Twin stays the gift voice;
+            Assist still confirms the destructive work in the document.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastChip ? <RailChip chip={lastChip} testid="owner-last-chip" /> : null}
+        </div>
+      </header>
+
+      <div className="flex flex-wrap gap-3 mb-8 text-xs" style={{ color: "var(--text-muted)" }}>
+        <Link to="/twin" className="hover:text-[var(--accent)]" data-testid="owner-link-twin">
+          Twin sitting →
+        </Link>
+        <Link to="/companion" className="hover:text-[var(--accent)]" data-testid="owner-link-companion">
+          Work on this PC →
+        </Link>
+      </div>
+
+      <div ref={feedRef} className="space-y-10 mb-10 max-h-[58vh] overflow-y-auto pr-2" data-testid="owner-feed">
+        {messages.length === 0 && !pending && (
+          <div className="surface p-8" data-testid="owner-empty-prompt">
+            <div className="overline mb-3">try saying</div>
+            <ul className="space-y-3">
+              {[
+                "What did you love most about being a father?",
+                "Open the browser and go to YouTube",
+                "Remember the dentist Thursday and open my calendar",
+              ].map((q) => (
+                <li key={q}>
+                  <button
+                    type="button"
+                    onClick={() => send(q)}
+                    className="font-serif text-lg text-left hover:text-[var(--accent)] transition-colors"
+                    data-testid="owner-prompt"
+                  >
+                    {q}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={`${m.ts || i}-${i}`} data-testid={`owner-msg-${i}`}>
+            {m.role === "assistant" ? (
+              <div className="border-l-2 pl-6" style={{ borderColor: "var(--accent)" }}>
+                <div className="overline mb-2 flex items-center gap-3">
+                  <span>teammate</span>
+                  {m.rail_chip ? <RailChip chip={m.rail_chip} testid={`owner-chip-${i}`} /> : null}
+                </div>
+                <p className="font-serif text-xl lg:text-2xl leading-snug" style={{ color: "var(--text-primary)" }}>
+                  {m.content}
+                </p>
+              </div>
+            ) : (
+              <div>
+                <div className="overline mb-2">you</div>
+                <p className="text-base leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                  {m.content}
+                </p>
+              </div>
+            )}
+          </div>
+        ))}
+        {pending && (
+          <div className="border-l-2 pl-6" style={{ borderColor: "var(--accent)" }}>
+            <div className="overline mb-2">teammate</div>
+            <p className="inline-flex items-center gap-2 text-sm" style={{ color: "var(--text-muted)" }}>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> routing…
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="surface p-4 sticky bottom-6">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              send(input);
+            }
+          }}
+          rows={3}
+          placeholder="Ask or do. (⌘/Ctrl + Enter to send)"
+          data-testid="owner-input"
+          className="w-full bg-transparent border-none outline-none resize-none text-base leading-relaxed"
+          style={{ color: "var(--text-primary)" }}
+        />
+        <div className="flex justify-between items-center mt-2 pt-2 border-t" style={{ borderColor: "var(--border-default)" }}>
+          <div className="overline flex items-center gap-2">
+            <Sparkles className="h-3 w-3" />
+            {pending ? "thinking…" : "no mode picker"}
+          </div>
+          <button
+            type="button"
+            onClick={() => send(input)}
+            disabled={pending || !input.trim()}
+            data-testid="owner-send"
+            className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium rounded-sm disabled:opacity-50"
+            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+          >
+            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+            Send
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
