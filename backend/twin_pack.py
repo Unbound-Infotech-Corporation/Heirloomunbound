@@ -9,6 +9,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from owner_pairing import is_owner_audience, twin_owner_pairing_block
+
 
 class TwinCore(BaseModel):
     stance: str = ""
@@ -83,7 +85,7 @@ def miss_reply(grounded: bool = True, *, spoken: bool = False) -> str:
     return "Nothing filed matches this. I will not treat a guess as a memory."
 
 
-def compile_twin_prompt(pack: TwinPack, name: str = "") -> str:
+def compile_twin_prompt(pack: TwinPack, name: str = "", pairing: dict | None = None) -> str:
     who = name or "this person"
     audience = (pack.audience or "owner").strip().lower()
     heir = audience == "heir"
@@ -108,6 +110,8 @@ def compile_twin_prompt(pack: TwinPack, name: str = "") -> str:
         )
     else:
         lines.append("Prefer CORE and PASSAGES. Do not invent facts about their life. If nothing matches, say so.")
+    if is_owner_audience(audience):
+        lines.append(twin_owner_pairing_block(pairing))
     lines.append("PERSONA REGISTER:")
     lines.append(pack.core.stance or "Speak as family would remember them: warm, plain, and close.")
     if pack.core.portrait.strip():

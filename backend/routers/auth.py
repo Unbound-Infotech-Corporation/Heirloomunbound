@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from deps import db, get_current_user
+from owner_pairing import PAIRING_STYLES, pairing_prefs_from_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -94,6 +95,7 @@ async def me(user: dict = Depends(get_current_user)):
         "brand_signoff": user.get("brand_signoff") or "",
         "active_persona_id": user.get("active_persona_id") or None,
         "tour_completed": bool(user.get("tour_completed", False)),
+        **pairing_prefs_from_user(user),
     }
 
 
@@ -113,6 +115,10 @@ class PreferencesUpdate(BaseModel):
     brand_name: Optional[str] = None
     brand_tagline: Optional[str] = None
     brand_signoff: Optional[str] = None  # e.g. "— Aaron, Unbound Infotech"
+    pairing_style: Optional[str] = None  # teammate | wait | proactive
+    act_default: Optional[bool] = None
+    close_loop: Optional[bool] = None
+    remember_prefs: Optional[bool] = None
 
 
 @router.put("/me/preferences")
@@ -138,6 +144,20 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
         update["brand_tagline"] = payload.brand_tagline.strip()[:200]
     if payload.brand_signoff is not None:
         update["brand_signoff"] = payload.brand_signoff.strip()[:160]
+    if payload.pairing_style is not None:
+        style = payload.pairing_style.strip().lower()
+        if style not in PAIRING_STYLES:
+            raise HTTPException(
+                status_code=400,
+                detail="pairing_style must be teammate, wait, or proactive",
+            )
+        update["pairing_style"] = style
+    if payload.act_default is not None:
+        update["act_default"] = bool(payload.act_default)
+    if payload.close_loop is not None:
+        update["close_loop"] = bool(payload.close_loop)
+    if payload.remember_prefs is not None:
+        update["remember_prefs"] = bool(payload.remember_prefs)
     if not update:
         raise HTTPException(status_code=400, detail="No preferences provided")
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
@@ -149,6 +169,7 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
         "brand_name": refreshed.get("brand_name") or "",
         "brand_tagline": refreshed.get("brand_tagline") or "",
         "brand_signoff": refreshed.get("brand_signoff") or "",
+        **pairing_prefs_from_user(refreshed),
     }
 
 

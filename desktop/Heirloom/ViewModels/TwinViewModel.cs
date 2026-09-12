@@ -525,7 +525,7 @@ public partial class TwinViewModel : ObservableObject
             cloudTimeout.CancelAfter(TimeSpan.FromSeconds(25));
             var cloud = await _host.Api.PostAsync(
                 "/desktop/chat",
-                new { text, mode = "twin", grounded, persona = Persona, twin_pack = pack.ToWire() },
+                new { text, mode = "twin", grounded, persona = Persona, audience, twin_pack = pack.ToWire() },
                 cloudTimeout.Token).ConfigureAwait(true);
             if (cloud is { } json && json.TryGetProperty("reply", out var r))
             {

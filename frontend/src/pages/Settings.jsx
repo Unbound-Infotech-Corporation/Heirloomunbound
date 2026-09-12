@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { CheckCircle2, Handshake, Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -33,6 +33,12 @@ export default function Settings() {
   const [musicProviders, setMusicProviders] = useState([]);
   const [brand, setBrand] = useState({ brand_name: "", brand_tagline: "", brand_signoff: "" });
   const [ttsLang, setTtsLang] = useState("auto");
+  const [pairing, setPairing] = useState({
+    pairing_style: "teammate",
+    act_default: true,
+    close_loop: true,
+    remember_prefs: true,
+  });
   const [personas, setPersonas] = useState([]);
   const [activePersonaId, setActivePersonaId] = useState(null);
   const [newPersona, setNewPersona] = useState({ name: "", description: "", system_addendum: "" });
@@ -71,6 +77,22 @@ export default function Settings() {
     });
     setTtsLang(data.tts_language || "auto");
     setActivePersonaId(data.active_persona_id || null);
+    setPairing({
+      pairing_style: data.pairing_style || "teammate",
+      act_default: data.act_default !== false,
+      close_loop: data.close_loop !== false,
+      remember_prefs: data.remember_prefs !== false,
+    });
+  };
+
+  const savePairing = async (next) => {
+    setPairing(next);
+    try {
+      await api.put("/auth/me/preferences", next);
+      toast.success("How we work saved");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
   };
   const loadPersonas = async () => {
     try {
@@ -260,6 +282,64 @@ export default function Settings() {
           <Row label="Name" value={user?.name || "—"} />
           <Row label="Email" value={user?.email || "—"} />
           <Row label="User ID" value={user?.user_id || "—"} mono />
+        </div>
+      </section>
+
+      <section className="surface p-7 mb-6" data-testid="how-we-work-section">
+        <div className="overline mb-2 flex items-center gap-2">
+          <Handshake className="h-3.5 w-3.5" /> how we work
+        </div>
+        <h2 className="font-serif text-2xl mb-2">Pairing style for Assist and your Twin</h2>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Owner sessions only. Heirs keep the gift voice — this never applies to a released sitting.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-5">
+          {[
+            ["teammate", "Teammate", "Decide defaults and do the job."],
+            ["wait", "Wait", "Propose the next step and wait."],
+            ["proactive", "Proactive", "Take the next obvious safe step."],
+          ].map(([id, label, hint]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => savePairing({ ...pairing, pairing_style: id })}
+              data-testid={`pairing-style-${id}`}
+              className="px-4 py-3 text-sm rounded-sm text-left transition-colors"
+              style={{
+                background: pairing.pairing_style === id ? "var(--accent)" : "var(--bg-base)",
+                color: pairing.pairing_style === id ? "var(--text-inverse)" : "var(--text-primary)",
+                border: pairing.pairing_style === id ? "1px solid var(--accent)" : "1px solid var(--border-default)",
+              }}
+            >
+              <div>{label}</div>
+              <div className="text-xs mt-1" style={{ opacity: 0.8 }}>{hint}</div>
+            </button>
+          ))}
+        </div>
+        <div className="space-y-3">
+          {[
+            ["act_default", "Act by default", "Do the work unless you asked to wait or Confirm is required."],
+            ["close_loop", "Close the loop", "After acting, report in one to three sentences."],
+            ["remember_prefs", "Remember this", "Keep this style until you change it."],
+          ].map(([key, label, hint]) => (
+            <label
+              key={key}
+              className="flex items-center justify-between px-4 py-3 rounded-sm cursor-pointer"
+              style={{ border: "1px solid var(--border-default)" }}
+              data-testid={`pairing-toggle-${key}`}
+            >
+              <span>
+                <span className="text-sm block" style={{ color: "var(--text-primary)" }}>{label}</span>
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>{hint}</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={!!pairing[key]}
+                onChange={() => savePairing({ ...pairing, [key]: !pairing[key] })}
+                className="h-4 w-4"
+              />
+            </label>
+          ))}
         </div>
       </section>
 
