@@ -102,7 +102,7 @@ public static class StudioLexicon
             => "File",
         "library" or "sources" or "group-keep" or "vault"
             => "Keep",
-        "heirs" or "letters" or "group-gift" or "heir"
+        "heirs" or "letters" or "group-gift" or "heir" or "first-gift"
             => "Gift",
         "models" or "thismachine" or "keys" or "settings" or "glossary" or "kitchensink" or "group-studio"
             or "dock" or "chrome" or "inspector" or "chunking" or "defaults" or "working-memory" or "schema" or "now"
@@ -233,7 +233,11 @@ public static class StudioLexicon
             T("letters", "Letters", "document",
                 "Sealed notes that open later — not chat.",
                 "A letter is for a named person at a named time. Seal letter stores it. This is not the Twin; it is a bequest.",
-                "heirs", "vault"),
+                "heirs", "vault", "first-gift"),
+            T("first-gift", "First gift", "action",
+                "Not a chatbot. A gift.",
+                "After Getting started, write a sealed letter for your children. To: My children. Opens when an heir is released. The page stays blank — prompts only, no invented life.",
+                "letters", "heirs", "setup"),
             T("keys", "Keys", "document",
                 "Whether this PC is signed in and paired.",
                 "Session token is browser login. Device token is the companion pairing in Credential Locker. Paste them in Settings. Never put keys in the vault as ordinary notes.",
@@ -492,8 +496,8 @@ public static class StudioLexicon
                 "twin", "assistant", "personality"),
             T("group-gift", "Gift", "chrome",
                 "What an heir receives: Heirs and Letters.",
-                "Consent, lock, and sealed notes. This is the posthumous product, not a game.",
-                "heirs", "letters"),
+                "Consent, lock, and sealed notes. The first gift is a sealed letter, not a chatbot. This is the posthumous product, not a game.",
+                "heirs", "letters", "first-gift"),
             T("group-studio", "Studio", "chrome",
                 "Machine and chrome: Models, This PC, Keys, Settings, Glossary, Controls.",
                 "Provision, pairing, look, and the word list. Not daily memory work.",

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Monitor, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
 import { api, streamSSE } from "../lib/api";
+import FirstGiftInvite from "../components/FirstGiftInvite";
 
 const TOOL_META = {
   search_archive: { label: "searching your archive", icon: Search },
@@ -282,6 +283,10 @@ export default function Twin() {
         </label>
         </div>
       </header>
+
+      <div className="mb-10" data-testid="twin-first-gift">
+        <FirstGiftInvite compact />
+      </div>
 
       {abilities.length > 0 && (
         <div className="flex items-center flex-wrap gap-2 mb-8" data-testid="twin-abilities-bar">

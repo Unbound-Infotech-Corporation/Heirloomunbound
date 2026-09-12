@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Lock, Mail, Plus, Sparkles, Trash2, Unlock } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../lib/api";
+import { FIRST_GIFT, FIRST_GIFT_TAGLINE, firstGiftDraft, isFirstGiftSearch } from "../lib/firstGift";
 
 const TRIGGERS = [
   { key: "on_release", label: "When this heir is released" },
@@ -20,6 +22,8 @@ const emptyDraft = {
 };
 
 export default function Letters() {
+  const [searchParams] = useSearchParams();
+  const giftMode = isFirstGiftSearch(searchParams);
   const [letters, setLetters] = useState([]);
   const [heirs, setHeirs] = useState([]);
   const [draft, setDraft] = useState(emptyDraft);
@@ -63,6 +67,13 @@ export default function Letters() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (!giftMode) return;
+    setEditingId(null);
+    setDraft(firstGiftDraft());
+    setShowNew(true);
+  }, [giftMode]);
 
   const resetForm = () => {
     setDraft(emptyDraft);
@@ -153,6 +164,11 @@ export default function Letters() {
           <p className="mt-3 text-base max-w-2xl" style={{ color: "var(--text-secondary)" }}>
             Compose a letter today. Seal it. It stays private until the trigger you choose — a date, an age, or the day your heir is released.
           </p>
+          {giftMode ? (
+            <p className="mt-3 font-serif text-xl" style={{ color: "var(--accent)" }} data-testid="first-gift-letters-banner">
+              {FIRST_GIFT_TAGLINE}
+            </p>
+          ) : null}
         </div>
         <button
           onClick={() => {
@@ -247,7 +263,7 @@ export default function Letters() {
           <input
             value={draft.title}
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-            placeholder="Title — e.g. For your 18th birthday"
+            placeholder={giftMode ? FIRST_GIFT.titlePlaceholder : "Title — e.g. For your 18th birthday"}
             data-testid="letter-title"
             className="w-full px-3 py-2 text-sm rounded-sm"
             style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
@@ -255,7 +271,7 @@ export default function Letters() {
           <textarea
             value={draft.body}
             onChange={(e) => setDraft({ ...draft, body: e.target.value })}
-            placeholder="The letter itself…"
+            placeholder={giftMode ? FIRST_GIFT.bodyPlaceholder : "The letter itself…"}
             rows={10}
             data-testid="letter-body"
             className="w-full px-3 py-2 text-sm rounded-sm leading-relaxed font-serif"
@@ -285,7 +301,7 @@ export default function Letters() {
               <input
                 value={draft.recipient_name}
                 onChange={(e) => setDraft({ ...draft, recipient_name: e.target.value })}
-                placeholder="e.g. 'My son, Elias'"
+                placeholder={giftMode ? FIRST_GIFT.recipientName : "e.g. 'My son, Elias'"}
                 data-testid="letter-recipient-name"
                 className="w-full px-3 py-2 text-sm rounded-sm"
                 style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}

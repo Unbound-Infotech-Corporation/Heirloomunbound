@@ -22,14 +22,6 @@ public partial class StudioShellViewModel : ObservableObject
         Assistant = new AssistantViewModel(host, Mixer);
         Models = new ModelsViewModel(host);
         FirstRun = new FirstRunViewModel(host);
-        FirstRun.RequestClose += (_, room) =>
-        {
-            ShowFirstRun = false;
-            if (!string.IsNullOrWhiteSpace(room))
-            {
-                OpenDocument(room);
-            }
-        };
         Archive = new ArchiveViewModel(host);
         Today = new TodayViewModel(host);
         Journal = new JournalViewModel(host);
@@ -38,6 +30,18 @@ public partial class StudioShellViewModel : ObservableObject
         Import = new ImportViewModel(host);
         Sources = new SourcesViewModel(host);
         Heirs = new ContinuityViewModel(host);
+        FirstRun.RequestClose += (_, room) =>
+        {
+            ShowFirstRun = false;
+            if (!string.IsNullOrWhiteSpace(room))
+            {
+                OpenDocument(room);
+                if (room == "letters")
+                {
+                    Heirs.ApplyFirstGiftPresets();
+                }
+            }
+        };
         Personality = new PersonalityViewModel(host);
         Abilities = new AbilitiesViewModel(host);
         Keys = new KeysViewModel(host);

@@ -173,6 +173,9 @@ public partial class FirstRunViewModel : ObservableObject
     [RelayCommand]
     public void MakeLikeness() => FinishInto("avatar");
 
+    [RelayCommand]
+    public void WriteFirstGift() => FinishInto("letters");
+
     private bool CanGetReady() => !IsBusy;
     private bool CanStop() => IsBusy;
     private bool CanSkip() => !IsBusy && Phase == "welcome";

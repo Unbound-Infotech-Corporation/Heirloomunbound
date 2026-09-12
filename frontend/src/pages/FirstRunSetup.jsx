@@ -314,6 +314,18 @@ export default function FirstRunSetup() {
           >
             Enter studio
           </button>
+          <button
+            type="button"
+            className="studio-btn studio-btn-primary mt-3"
+            disabled={busy}
+            onClick={() => navigate("/first-gift")}
+            data-testid="setup-first-gift"
+          >
+            Write the first gift
+          </button>
+          <p className="text-xs mt-3" style={{ color: "#888" }}>
+            Not a chatbot. A gift. A sealed letter for later — after you sit with your Twin.
+          </p>
         </StudioPanel>
       ) : null}
 

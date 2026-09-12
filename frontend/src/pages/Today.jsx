@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AlarmClock, ArrowRight, BookmarkPlus, Calendar, CheckCircle2, Circle, Clock, Feather, Flame, MessageCircle, Sparkles, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import FirstGiftInvite from "../components/FirstGiftInvite";
 
 const GREETINGS = ["Good morning", "Good afternoon", "Good evening"];
 const REFLECTIONS = [
@@ -109,6 +110,10 @@ export default function Today() {
         <StatPill icon={Clock} label="due today" value={total} tid="today-due" />
         <StatPill icon={Sparkles} label="captured" value={stats?.total_entries ?? 0} tid="today-entries" />
       </section>
+
+      <div className="mb-12" data-testid="today-first-gift">
+        <FirstGiftInvite compact />
+      </div>
 
       {/* From your twin — daily nudge */}
       {nudge && nudge.status !== "dismissed" && (

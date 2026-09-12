@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, BookOpen, MessageCircleHeart, Sparkles, Users, X } from "lucide-react";
+import { ArrowRight, BookOpen, Mail, MessageCircleHeart, Sparkles, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -30,12 +30,12 @@ const STEPS = [
     target: "/twin",
   },
   {
-    Icon: Users,
+    Icon: Mail,
     overline: "step 4 of 4",
-    title: "Leave it for them.",
-    body: "Add the people you love as heirs and write sealed letters that reach them one day. This is the part that lasts.",
-    cta: "Set up an heir",
-    target: "/heirs",
+    title: "Leave a first gift.",
+    body: "Not a chatbot. A gift. Write a sealed letter for your children — or anyone you love — that opens later. This is the part that lasts.",
+    cta: "Write the first gift",
+    target: "/first-gift",
   },
 ];
 

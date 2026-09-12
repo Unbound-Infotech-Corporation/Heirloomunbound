@@ -649,6 +649,15 @@ public partial class ContinuityViewModel : ObservableObject
 
     public bool CanEdit => !HeirMode;
 
+    public void ApplyFirstGiftPresets()
+    {
+        LetterTitle = "";
+        LetterBody = "";
+        LetterFor = "My children";
+        LetterTrigger = "after_release";
+        ExecutorNote = "Not a chatbot. A gift. Write in your own words — nothing is filled in for you.";
+    }
+
     [RelayCommand]
     public void Reload()
     {

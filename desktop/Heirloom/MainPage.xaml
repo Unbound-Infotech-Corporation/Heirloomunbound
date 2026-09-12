@@ -1591,9 +1591,9 @@
                             </StackPanel>
                             <StackPanel Spacing="4">
                                 <TextBlock Style="{StaticResource StudioOverline}" Text="For" />
-                                <TextBox IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" PlaceholderText="Who this is for" Text="{x:Bind ViewModel.Heirs.LetterFor, Mode=TwoWay}" />
+                                <TextBox IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" PlaceholderText="My children" Text="{x:Bind ViewModel.Heirs.LetterFor, Mode=TwoWay}" />
                             </StackPanel>
-                            <TextBox AcceptsReturn="True" Height="90" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" PlaceholderText="For after I'm gone…" Text="{x:Bind ViewModel.Heirs.LetterBody, Mode=TwoWay}" />
+                            <TextBox AcceptsReturn="True" Height="90" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" PlaceholderText="What do you want them to know, later?" Text="{x:Bind ViewModel.Heirs.LetterBody, Mode=TwoWay}" />
                             <Button Command="{x:Bind ViewModel.Heirs.AddLetterCommand}" Content="Seal letter" IsEnabled="{x:Bind ViewModel.Heirs.CanEdit, Mode=OneWay}" Style="{StaticResource StudioButtonPrimary}" />
                         </StackPanel>
                         <ListView
@@ -2446,6 +2446,13 @@
                                 HorizontalAlignment="Stretch"
                                 Command="{x:Bind ViewModel.FirstRun.MakeLikenessCommand}"
                                 Content="Make a likeness"
+                                Style="{StaticResource StudioButtonSecondary}" />
+                            <Button
+                                MinHeight="44"
+                                HorizontalAlignment="Stretch"
+                                AutomationProperties.Name="Write the first gift"
+                                Command="{x:Bind ViewModel.FirstRun.WriteFirstGiftCommand}"
+                                Content="Write the first gift"
                                 Style="{StaticResource StudioButtonSecondary}" />
                             <Button
                                 HorizontalAlignment="Left"
