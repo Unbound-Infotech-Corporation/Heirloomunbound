@@ -100,6 +100,23 @@ def test_heir_portal_never_accepts_owner_mode():
     assert "classify_owner_turn" not in src
     assert 'audience="heir"' in src
     assert "pc_control" not in src
+    portal = (
+        Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages" / "HeirPortal.jsx"
+    ).read_text(encoding="utf-8")
+    assert "/owner" not in portal
+    assert "/twin/chat" in portal
+
+
+def test_owner_page_is_one_composer_with_chips():
+    src = (
+        Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages" / "Owner.jsx"
+    ).read_text(encoding="utf-8")
+    assert "Do + As you" in src
+    assert "no mode picker" in src
+    assert 'data-testid="owner-input"' in src
+    assert "/owner/chat" in src
+    assert "mode picker" in src
+    assert "select" not in src.lower() or "mode=" not in src
 
 
 def test_web_twin_route_stays_twin_only():
