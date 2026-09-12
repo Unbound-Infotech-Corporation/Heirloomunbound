@@ -25,6 +25,7 @@ import Companion from "@/pages/Companion";
 import Heirs from "@/pages/Heirs";
 import HeirPortal from "@/pages/HeirPortal";
 import Letters from "@/pages/Letters";
+import FirstGift from "@/pages/FirstGift";
 import MagicLink from "@/pages/MagicLink";
 import Personality from "@/pages/Personality";
 import Buy from "@/pages/Buy";
@@ -103,6 +104,7 @@ function AppRouter() {
         <Route path="/companion" element={<Companion />} />
         <Route path="/heirs" element={<Heirs />} />
         <Route path="/letters" element={<Letters />} />
+        <Route path="/first-gift" element={<FirstGift />} />
         <Route path="/personality" element={<Personality />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/avatar-studio" element={<AvatarStudio />} />

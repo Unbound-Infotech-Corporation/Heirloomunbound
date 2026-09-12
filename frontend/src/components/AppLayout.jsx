@@ -78,6 +78,7 @@ const WINDOW_TITLES = {
   "/companion": "Local PC",
   "/heirs": "Heirs",
   "/letters": "Sealed Letters",
+  "/first-gift": "First Gift",
   "/settings": "Settings",
   "/avatar-studio": "Avatar Studio",
   "/setup/keys": "API Keys",

@@ -11,6 +11,7 @@ function commonWindow(navigate) {
       { label: "Today", onClick: go(navigate, "/today") },
       { label: "Archive", onClick: go(navigate, "/dashboard") },
       { label: "Twin", onClick: go(navigate, "/twin"), hint: "conversation" },
+      { label: "First gift", onClick: go(navigate, "/first-gift"), hint: "sealed letter" },
       { label: "Mixer", onClick: go(navigate, "/mixer"), hint: "audio I/O" },
       { label: "Models", onClick: go(navigate, "/models"), hint: "provision" },
       { sep: true },
@@ -70,6 +71,7 @@ const ROUTE_MENUS = {
       items: [
         { label: "Refresh", onClick: () => window.location.reload() },
         { label: "Open twin", onClick: go(ctx.navigate, "/twin") },
+        { label: "Write the first gift", onClick: go(ctx.navigate, "/first-gift") },
         { label: "Voice journal", onClick: go(ctx.navigate, "/journal") },
       ],
     },
@@ -94,6 +96,7 @@ const ROUTE_MENUS = {
       label: "Twin",
       items: [
         { label: "New conversation", onClick: () => window.location.reload() },
+        { label: "Write the first gift…", onClick: go(ctx.navigate, "/first-gift") },
         { label: "Avatar studio…", onClick: go(ctx.navigate, "/avatar-studio") },
         { label: "Abilities", onClick: go(ctx.navigate, "/abilities") },
         { label: "Portrait", onClick: go(ctx.navigate, "/personality") },
@@ -192,6 +195,30 @@ const ROUTE_MENUS = {
     audioMenu(ctx.navigate),
     commonWindow(ctx.navigate),
   ],
+  "/letters": (ctx) => [
+    {
+      label: "Letters",
+      items: [
+        { label: "Write the first gift…", onClick: go(ctx.navigate, "/first-gift") },
+        { label: "New sealed letter", onClick: go(ctx.navigate, "/letters?gift=1") },
+        { label: "Heirs", onClick: go(ctx.navigate, "/heirs") },
+      ],
+    },
+    editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
+    commonWindow(ctx.navigate),
+  ],
+  "/first-gift": (ctx) => [
+    {
+      label: "Gift",
+      items: [
+        { label: "Write mine", onClick: go(ctx.navigate, "/letters?gift=1") },
+        { label: "Sealed letters", onClick: go(ctx.navigate, "/letters") },
+        { label: "Sit with Twin", onClick: go(ctx.navigate, "/twin") },
+      ],
+    },
+    editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
+    commonWindow(ctx.navigate),
+  ],
   "/settings": (ctx) => [
     {
       label: "Settings",
@@ -199,6 +226,7 @@ const ROUTE_MENUS = {
         { label: "Credentials", onClick: go(ctx.navigate, "/models"), hint: "inside each feature tab" },
         { label: "Heirs", onClick: go(ctx.navigate, "/heirs") },
         { label: "Sealed letters", onClick: go(ctx.navigate, "/letters") },
+        { label: "First gift…", onClick: go(ctx.navigate, "/first-gift") },
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
@@ -234,6 +262,7 @@ export function getAppMenubarItems(ctx) {
         { label: "Settings…", onClick: go(ctx.navigate, "/settings") },
         { label: "Models / credentials", onClick: go(ctx.navigate, "/models") },
         { label: "First-run setup…", onClick: go(ctx.navigate, "/setup") },
+        { label: "First gift…", onClick: go(ctx.navigate, "/first-gift") },
       ],
     },
     {
