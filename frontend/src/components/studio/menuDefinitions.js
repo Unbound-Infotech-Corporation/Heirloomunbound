@@ -10,6 +10,7 @@ function commonWindow(navigate) {
     items: [
       { label: "Today", onClick: go(navigate, "/today") },
       { label: "Archive", onClick: go(navigate, "/dashboard") },
+      { label: "Sit", onClick: go(navigate, "/owner"), hint: "one teammate" },
       { label: "Twin", onClick: go(navigate, "/twin"), hint: "conversation" },
       { label: "First gift", onClick: go(navigate, "/first-gift"), hint: "sealed letter" },
       { label: "Mixer", onClick: go(navigate, "/mixer"), hint: "audio I/O" },
@@ -70,6 +71,7 @@ const ROUTE_MENUS = {
       label: "Today",
       items: [
         { label: "Refresh", onClick: () => window.location.reload() },
+        { label: "Sit", onClick: go(ctx.navigate, "/owner") },
         { label: "Open twin", onClick: go(ctx.navigate, "/twin") },
         { label: "Write the first gift", onClick: go(ctx.navigate, "/first-gift") },
         { label: "Voice journal", onClick: go(ctx.navigate, "/journal") },
@@ -86,6 +88,18 @@ const ROUTE_MENUS = {
         { label: "Import…", onClick: go(ctx.navigate, "/import") },
         { label: "Sources", onClick: go(ctx.navigate, "/sources") },
         { label: "Library", onClick: go(ctx.navigate, "/library") },
+      ],
+    },
+    editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
+    commonWindow(ctx.navigate),
+  ],
+  "/owner": (ctx) => [
+    {
+      label: "Sit",
+      items: [
+        { label: "Twin sitting…", onClick: go(ctx.navigate, "/twin") },
+        { label: "Local PC…", onClick: go(ctx.navigate, "/companion") },
+        { label: "Abilities", onClick: go(ctx.navigate, "/abilities") },
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),

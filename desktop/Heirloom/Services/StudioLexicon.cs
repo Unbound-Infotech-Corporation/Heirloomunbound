@@ -156,8 +156,12 @@ public static class StudioLexicon
         {
             T("heirloom", "Heirloom", "term",
                 "The studio on this PC: a daily assistant, and a twin you can gift.",
-                "Heirloom Unbound is a digital-twin and legacy archive. Assist works on this Windows PC today. Twin is the grounded sitting heirs inherit. The Windows app is the owner studio. The web app is public and heir-facing.",
-                "assistant", "twin", "vault", "heirs"),
+                "Heirloom Unbound is a digital-twin and legacy archive. Assist works on this Windows PC today. Twin is the grounded sitting heirs inherit. The Windows app is the owner studio. The web app is public and heir-facing. Owner Sit (web) is one teammate chat that routes Do vs Ask under the hood.",
+                "assistant", "twin", "vault", "heirs", "owner-rail"),
+            T("owner-rail", "Sit (owner rail)", "term",
+                "One owner composer. The server picks Do or As you. Not a mode picker.",
+                "On the web, Sit posts mode=owner. Assist still does the PC work; Twin still speaks from the vault. Quiet chips: Do, As you, Do + As you. Heirs stay Twin-only. The WinUI Assist and Twin documents stay separate rooms until an Owner document lands.",
+                "assistant", "twin", "heirs"),
             T("assistant", "Assist", "document",
                 "The copilot that uses this PC. Not the Twin. Never speaks as you.",
                 "Assist opens apps and sites (YouTube, Gmail, Google search in your usual browser), finds files in Desktop/Documents/Downloads/vault, reads and files notes, searches the archive, reads the clipboard, sees the screen if you allow it, and runs skills you listed. Clicks and typing on a page use a separate Heirloom window that may not be signed in. Status names the step: Opening browser…, Navigating to YouTube…, then Done — YouTube is open. Shell, typing into another window, sleep, shutdown, restart, and buying/paying/deleting wait for Confirm in this document — nothing pops. Direct orders work even when local models are quiet: “open a browser and go to YouTube”, “Search YouTube for …”, “Open Google and search for …”, “go to github.com”, “open a new tab and go to YouTube”, “open notepad”, “system status”. Heir mode cannot drive the PC.",
@@ -611,6 +615,9 @@ public static class StudioLexicon
         map["action-twin"] = map["twin"];
         map["action-assistant"] = map["assistant"];
         map["action-assist"] = map["assistant"];
+        map["sit"] = map["owner-rail"];
+        map["owner"] = map["owner-rail"];
+        map["owner-sit"] = map["owner-rail"];
         map["action-interview"] = map["interviewer"];
         map["action-journal"] = map["journal"];
         map["action-sources"] = map["sources"];

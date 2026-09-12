@@ -24,7 +24,7 @@ Read UnboundCursor keep/reject: `GET http://127.0.0.1:7733/library` or `F:/Unbou
 
 Dock: Sit = Assist, Today, Mixer. Twin group = Sitting, Portrait, Abilities, Skills, Avatar.
 
-Cloud chat: `backend/routers/desktop.py` `ChatReq.mode`; `backend/twin_runtime.py` `role=`. Twin strips `pc_control` / `screen_vision` / `terminal`.
+Cloud chat: `backend/routers/desktop.py` `ChatReq.mode` (`twin` | `assistant` | `owner`). `mode=owner` classifies each turn (Do / As you / both). Twin strips `pc_control` / `screen_vision` / `terminal`. Web Sit: `/owner`. WinUI still uses Assist + Twin docks (owner document follow-up).
 
 Tool catalog: [tools.md](tools.md).
 

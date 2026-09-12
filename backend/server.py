@@ -57,6 +57,7 @@ from routers import (
     nudges,
     oauth,
     onboarding,
+    owner,
     personality,
     personas,
     phone,
@@ -175,6 +176,7 @@ api_router.include_router(avatar.router)
 api_router.include_router(email_router.router)
 api_router.include_router(oauth.router)
 api_router.include_router(desktop.router)
+api_router.include_router(owner.router)
 api_router.include_router(vault.router)
 api_router.include_router(live.router)
 api_router.include_router(avatar_studio.router)
