@@ -23,7 +23,7 @@ from twin_tools import TOOL_SCHEMAS, execute_tool
 from utils import rate_limit
 import abilities as ab
 from owner_pairing import pairing_prefs_from_user
-from twin_runtime import build_twin_system
+from twin_runtime import PC_ABILITY_IDS, build_twin_system, tools_for_turn
 
 router = APIRouter(prefix="/twin", tags=["twin"])
 
@@ -134,9 +134,10 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Which abilities has the owner turned on? Gates short-circuits + tool set.
+    # Twin may use music / smart home / web. PC control stays on Assist.
     enabled_ids = await ab.enabled_ability_ids(user["user_id"])
-    enabled_tools = await ab.enabled_tool_names(user["user_id"])
-    enabled_tools.discard("save_memory")
+    twin_ids = {aid for aid in enabled_ids if aid not in PC_ABILITY_IDS}
+    enabled_tools = tools_for_turn("twin", twin_ids)
 
     # ---- Music intent short-circuit (only if the Music ability is on) ----
     music_query = detect_music_intent(payload.message) if "music" in enabled_ids else None
@@ -256,7 +257,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     }
     if not any(brand.values()):
         brand = None
-    abilities_block = ab.build_abilities_prompt(enabled_ids)
+    abilities_block = ab.build_abilities_prompt(twin_ids)
     # Web /twin/* is owner-auth only. Heirs use the portal, which compiles with audience=heir.
     system = build_twin_system(
         user.get("name", ""), memory_blob, archive, skills, merged_safe,
