@@ -88,6 +88,20 @@ Audience is threaded through desktop and web twin chat so the heir portal cannot
 
 WinUI Settings **How we work** is deferred if the XAML surface is crowded; web Settings exposes the prefs. Local Assist planner copy still encodes the default teammate / act / close-loop posture.
 
+### Memory Studio v1 (web)
+
+**Shipped on web.** Owner-only page at `/memory` (Memory Studio) consolidates what the Twin holds — no invented biography, no second store:
+
+| Section | Source |
+|---|---|
+| What I hold onto | `GET/DELETE /api/memory/facts` — removable identity facts with provenance (`kind`, `source_entry_id`) |
+| How we work | `GET /api/auth/me` + `PUT /api/auth/me/preferences` — same pairing prefs as Settings |
+| Safe topics | same preferences API — fence still applies to heir chats |
+
+Nav from Sit, Twin, Settings, Portrait, and the studio dock. Heirs never see this page: `/heir/:token` stays outside `AppLayout`, and the portal does not call `/memory/facts` or owner preferences.
+
+WinUI Memory document is **deferred** (same as Settings → How we work). Assist vs Twin split is unchanged.
+
 ### Slice 3 — Close-loop surfaces
 
 Not in this pass.
@@ -114,6 +128,8 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 - [ ] Slice 3 close-loop strip beyond chips — deferred.
 - [ ] Slice 4 cross-session memory + full heir-fence audit pass — deferred.
 - [ ] WinUI Settings → How we work — deferred (web Settings ships in Slice 2).
+- [x] Memory Studio v1 on web (`/memory`) — facts, pairing, fence; heirs excluded.
+- [ ] WinUI Memory Studio document — deferred (web `/memory` is the owner edit surface).
 
 ## Ship order
 

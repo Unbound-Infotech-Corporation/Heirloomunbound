@@ -112,6 +112,9 @@ export default function Owner() {
         <Link to="/twin" className="hover:text-[var(--accent)]" data-testid="owner-link-twin">
           Twin sitting →
         </Link>
+        <Link to="/memory" className="hover:text-[var(--accent)]" data-testid="owner-link-memory">
+          Memory Studio →
+        </Link>
         <Link to="/companion" className="hover:text-[var(--accent)]" data-testid="owner-link-companion">
           Work on this PC →
         </Link>

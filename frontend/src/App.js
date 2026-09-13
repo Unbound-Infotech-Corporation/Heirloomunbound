@@ -29,6 +29,7 @@ import Letters from "@/pages/Letters";
 import FirstGift from "@/pages/FirstGift";
 import MagicLink from "@/pages/MagicLink";
 import Personality from "@/pages/Personality";
+import Memory from "@/pages/Memory";
 import Buy from "@/pages/Buy";
 import BuySuccess from "@/pages/BuySuccess";
 import Today from "@/pages/Today";
@@ -108,6 +109,8 @@ function AppRouter() {
         <Route path="/letters" element={<Letters />} />
         <Route path="/first-gift" element={<FirstGift />} />
         <Route path="/personality" element={<Personality />} />
+        <Route path="/memory" element={<Memory />} />
+        <Route path="/studio/memory" element={<Navigate to="/memory" replace />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/avatar-studio" element={<AvatarStudio />} />
         <Route path="/setup/keys" element={<SetupKeys />} />

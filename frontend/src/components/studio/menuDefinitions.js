@@ -12,6 +12,7 @@ function commonWindow(navigate) {
       { label: "Archive", onClick: go(navigate, "/dashboard") },
       { label: "Sit", onClick: go(navigate, "/owner"), hint: "one teammate" },
       { label: "Twin", onClick: go(navigate, "/twin"), hint: "conversation" },
+      { label: "Memory Studio", onClick: go(navigate, "/memory"), hint: "what the Twin holds" },
       { label: "First gift", onClick: go(navigate, "/first-gift"), hint: "sealed letter" },
       { label: "Mixer", onClick: go(navigate, "/mixer"), hint: "audio I/O" },
       { label: "Models", onClick: go(navigate, "/models"), hint: "provision" },
@@ -98,8 +99,24 @@ const ROUTE_MENUS = {
       label: "Sit",
       items: [
         { label: "Twin sitting…", onClick: go(ctx.navigate, "/twin") },
+        { label: "Memory Studio…", onClick: go(ctx.navigate, "/memory") },
         { label: "Local PC…", onClick: go(ctx.navigate, "/companion") },
         { label: "Abilities", onClick: go(ctx.navigate, "/abilities") },
+      ],
+    },
+    editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
+    commonWindow(ctx.navigate),
+  ],
+  "/memory": (ctx) => [
+    {
+      label: "Memory",
+      items: [
+        { label: "What I hold onto", onClick: go(ctx.navigate, "/memory") },
+        { label: "How we work", onClick: go(ctx.navigate, "/memory#how-we-work") },
+        { label: "Safe topics", onClick: go(ctx.navigate, "/memory#safe-topics") },
+        { sep: true },
+        { label: "Portrait", onClick: go(ctx.navigate, "/personality") },
+        { label: "Settings…", onClick: go(ctx.navigate, "/settings") },
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
@@ -114,6 +131,7 @@ const ROUTE_MENUS = {
         { label: "Avatar studio…", onClick: go(ctx.navigate, "/avatar-studio") },
         { label: "Abilities", onClick: go(ctx.navigate, "/abilities") },
         { label: "Portrait", onClick: go(ctx.navigate, "/personality") },
+        { label: "Memory Studio…", onClick: go(ctx.navigate, "/memory") },
       ],
     },
     audioMenu(ctx.navigate),
@@ -238,6 +256,7 @@ const ROUTE_MENUS = {
       label: "Settings",
       items: [
         { label: "Credentials", onClick: go(ctx.navigate, "/models"), hint: "inside each feature tab" },
+        { label: "Memory Studio…", onClick: go(ctx.navigate, "/memory") },
         { label: "Heirs", onClick: go(ctx.navigate, "/heirs") },
         { label: "Sealed letters", onClick: go(ctx.navigate, "/letters") },
         { label: "First gift…", onClick: go(ctx.navigate, "/first-gift") },
@@ -274,6 +293,7 @@ export function getAppMenubarItems(ctx) {
       label: "Edit",
       items: [
         { label: "Settings…", onClick: go(ctx.navigate, "/settings") },
+        { label: "Memory Studio…", onClick: go(ctx.navigate, "/memory") },
         { label: "Models / credentials", onClick: go(ctx.navigate, "/models") },
         { label: "First-run setup…", onClick: go(ctx.navigate, "/setup") },
         { label: "First gift…", onClick: go(ctx.navigate, "/first-gift") },
