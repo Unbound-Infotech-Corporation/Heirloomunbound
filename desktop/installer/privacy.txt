@@ -1,0 +1,16 @@
+Heirloom Unbound · Privacy
+
+Local models downloaded during Setup stay on this computer. The vault
+(your stories) lives in the folder you choose — Documents\HeirloomVault
+by default, or a second disk on a Dedicated PC.
+
+Heirloom Unbound does not upload local weights. Cloud vendors
+(ElevenLabs, D-ID, fal) are optional and only receive what you paste
+after you create those accounts yourself.
+
+A Dedicated PC may start with Windows and warm local engines. Live room
+listen defaults toward on for that role and remains togglable.
+
+Unsigned Setup.exe: Windows SmartScreen may warn on first run. Choose
+More info → Run anyway. Reputation accumulates with installs; we do not
+pretend this build is code-signed.
