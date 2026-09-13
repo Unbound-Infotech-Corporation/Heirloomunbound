@@ -36,6 +36,7 @@ from twin_pack import (
     passages_from_entries,
     stance_line,
 )
+from heir_guards import can_reuse_conversation
 from owner_pairing import (
     assist_pairing_block,
     is_owner_audience,
@@ -46,6 +47,8 @@ from utils import rate_limit
 
 _MAX_HISTORY_TURNS = 24
 _ARCHIVE_CONTENT_CHARS = 900
+# Writes / home control — owner sitting only. Heirs inherit Twin talk, not Do.
+HEIR_FORBIDDEN_TOOLS = frozenset({"save_memory", "set_reminder", "run_skill"})
 _STOP_WORDS = frozenset({
     "the", "a", "an", "of", "in", "on", "to", "for", "was", "is", "are",
     "what", "where", "when", "who", "why", "how", "my", "me", "i", "did",
@@ -307,8 +310,11 @@ def tools_for_turn(
     has_client_pack: bool = False,
     source: str = "web",
     caller_is_owner: bool = False,
+    audience: str | None = None,
 ) -> set[str]:
     role_key = (role or "twin").strip().lower()
+    if audience is not None and not is_owner_audience(audience):
+        role_key = "twin"
     ids = set(enabled_ids)
     if role_key != "assistant":
         ids -= PC_ABILITY_IDS
@@ -324,6 +330,8 @@ def tools_for_turn(
                   "find_file", "see_screen", "run_command"}
         if not caller_is_owner:
             names.discard("run_skill")
+    if audience is not None and not is_owner_audience(audience):
+        names -= HEIR_FORBIDDEN_TOOLS
     return names
 
 
@@ -367,22 +375,36 @@ async def ensure_conversation(
     conversation_id: Optional[str] = None,
 ) -> dict:
     """Load an existing conversation or create one for the given kind."""
-    if conversation_id:
+    requested_id = (conversation_id or "").strip() or None
+    if requested_id:
         conv = await db.conversations.find_one(
-            {"conversation_id": conversation_id, "user_id": user_id}, {"_id": 0}
+            {"conversation_id": requested_id, "user_id": user_id}, {"_id": 0}
         )
-        if conv:
+        if conv and can_reuse_conversation(
+            requested_kind=kind,
+            existing_kind=conv.get("kind"),
+            conversation_id=requested_id,
+        ):
             return conv
-        conv = {
-            "conversation_id": conversation_id,
-            "user_id": user_id,
-            "kind": kind or "twin",
-            "messages": [],
-            "created_at": _now_iso(),
-            "updated_at": _now_iso(),
-        }
-        await db.conversations.insert_one(dict(conv))
-        return conv
+        if conv:
+            requested_id = None
+        elif not can_reuse_conversation(
+            requested_kind=kind,
+            existing_kind=kind,
+            conversation_id=requested_id,
+        ):
+            requested_id = None
+        if requested_id:
+            conv = {
+                "conversation_id": requested_id,
+                "user_id": user_id,
+                "kind": kind or "twin",
+                "messages": [],
+                "created_at": _now_iso(),
+                "updated_at": _now_iso(),
+            }
+            await db.conversations.insert_one(dict(conv))
+            return conv
     if kind:
         conv = await db.conversations.find_one(
             {"user_id": user_id, "kind": kind}, {"_id": 0}
@@ -432,6 +454,9 @@ async def build_brain_pack(
         raise ValueError("Empty message")
 
     enabled_ids = await ab.enabled_ability_ids(user_id)
+    audience_key = (audience or "owner").strip().lower() or "owner"
+    if not is_owner_audience(audience_key):
+        role = "twin"
     if (role or "twin").strip().lower() != "assistant":
         enabled_ids = {aid for aid in enabled_ids if aid not in _PC_ABILITY_IDS}
 
@@ -563,6 +588,10 @@ async def run_twin_turn(
             grounded = True
 
     enabled_ids = await ab.enabled_ability_ids(user_id)
+    audience_key = (audience or "owner").strip().lower() or "owner"
+    owner_sitting = is_owner_audience(audience_key)
+    if not owner_sitting:
+        role = "twin"
     if (role or "twin").strip().lower() != "assistant":
         enabled_ids = {aid for aid in enabled_ids if aid not in _PC_ABILITY_IDS}
     enabled_tools = tools_for_turn(
@@ -571,10 +600,15 @@ async def run_twin_turn(
         has_client_pack=twin_pack is not None,
         source=source,
         caller_is_owner=caller_is_owner,
+        audience=audience_key,
     )
 
-    # Music short-circuit — never on a PSTN call.
-    music_query = None if phone else (detect_music_intent(text) if "music" in enabled_ids else None)
+    # Music short-circuit — never on a PSTN call, never for heir/caller.
+    music_query = (
+        None
+        if phone or not owner_sitting
+        else (detect_music_intent(text) if "music" in enabled_ids else None)
+    )
     if music_query:
         await rate_limit(user_id, "twin", max_calls=20, per_seconds=60)
         result = await play_for_user(user_id, music_query)
@@ -605,9 +639,9 @@ async def run_twin_turn(
             receipt=receipt,
         )
 
-    # Skill short-circuit — owner cell only on a phone call.
+    # Skill short-circuit — owner sitting only; owner cell only on a phone call.
     matched_skill = None
-    if (not phone) or caller_is_owner:
+    if owner_sitting and ((not phone) or caller_is_owner):
         matched_skill = (
             await match_skill_trigger(user_id, text) if "smart_home" in enabled_ids else None
         )
@@ -736,7 +770,9 @@ async def run_twin_turn(
             if resp.finish_reason != "tool_calls" or not resp.tool_calls:
                 break
             for tc in resp.tool_calls:
-                result = await execute_tool(tc.name, user_id, tc.arguments or {})
+                result = await execute_tool(
+                    tc.name, user_id, tc.arguments or {}, audience=audience_key
+                )
                 chat.add_tool_result(tc.id, result.get("summary", ""))
                 tool_trace.append({
                     "id": tc.id,

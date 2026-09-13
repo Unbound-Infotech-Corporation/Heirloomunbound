@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from deps import db, get_current_user
+from heir_guards import sanitize_heir_patch
 
 router = APIRouter(prefix="/heirs", tags=["heirs"])
 
@@ -86,7 +87,7 @@ async def list_heirs(user: dict = Depends(get_current_user)):
 
 @router.patch("/{heir_id}")
 async def update_heir(heir_id: str, payload: HeirUpdate, user: dict = Depends(get_current_user)):
-    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    update = sanitize_heir_patch(payload.model_dump())
     if not update:
         raise HTTPException(status_code=400, detail="No fields to update")
     res = await db.heirs.update_one(

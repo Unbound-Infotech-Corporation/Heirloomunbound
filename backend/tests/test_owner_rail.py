@@ -89,7 +89,24 @@ def test_owner_mode_refused_for_heir_and_caller():
     assert resolve_chat_mode("owner", audience="owner", heir_surface=True) == "twin"
     assert resolve_chat_mode("bogus", audience="owner") == "twin"
     assert resolve_chat_mode("assistant", audience="owner") == "assistant"
+    assert resolve_chat_mode("assistant", audience="heir") == "twin"
+    assert resolve_chat_mode("assistant", audience="caller") == "twin"
+    assert resolve_chat_mode("assistant", audience="owner", heir_surface=True) == "twin"
     assert resolve_chat_mode(None) == "twin"
+    assert resolve_chat_mode(None, audience="heir") == "twin"
+
+
+def test_first_gift_deep_link_does_not_seed_sample_body():
+    letters = (
+        Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages" / "Letters.jsx"
+    ).read_text(encoding="utf-8")
+    gift = (
+        Path(__file__).resolve().parents[2] / "frontend" / "src" / "lib" / "firstGift.js"
+    ).read_text(encoding="utf-8")
+    assert "firstGiftDraft()" in letters
+    assert "FIRST_GIFT_SAMPLE" not in letters
+    assert "body: \"\"" in gift
+    assert "FIRST_GIFT_SAMPLE" in gift
 
 
 def test_heir_portal_never_accepts_owner_mode():
@@ -144,6 +161,7 @@ def test_desktop_router_calls_owner_rail():
     assert "run_owner_turn" in src
     assert 'kind = "companion_owner"' in src
     assert "owner_response_fields" in src
+    assert "cannot enter owner or assistant mode" in src
 
 
 def test_desktop_chat_req_accepts_owner_mode():
@@ -157,6 +175,8 @@ def test_desktop_chat_req_accepts_owner_mode():
     assert resolve_chat_mode(body.mode, audience=body.audience) == "owner"
     heir = ChatReq.model_validate({"text": "open Chrome", "mode": "owner", "audience": "heir"})
     assert resolve_chat_mode(heir.mode, audience=heir.audience) == "twin"
+    assist_heir = ChatReq.model_validate({"text": "open Chrome", "mode": "assistant", "audience": "heir"})
+    assert resolve_chat_mode(assist_heir.mode, audience=assist_heir.audience) == "twin"
     assert pydantic.__name__ == "pydantic"
 
 

@@ -113,7 +113,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     mode=twin (default): grounded sitting — no PC control tools.
     mode=assistant: copilot that may use PC / screen / terminal abilities.
     mode=owner: one teammate chat — classifies each turn to Assist and/or Twin.
-    Heir/caller audience cannot enter owner mode (forced to twin).
+    Heir/caller audience cannot enter owner or assistant mode (forced to twin).
     Assist / owner Do legs include a structured `receipt` (plan → did /
     failed / waiting for Confirm). Twin-only replies omit it.
     """
@@ -124,10 +124,8 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     if user.get("account_status") == "refunded":
         raise HTTPException(status_code=403, detail="account_inactive")
 
-    pack_audience = ""
-    if isinstance(body.twin_pack, dict):
-        pack_audience = str(body.twin_pack.get("audience") or "").strip()
-    audience = (body.audience or pack_audience or "owner").strip().lower() or "owner"
+    # Never trust twin_pack.audience for authorization — body.audience only.
+    audience = (body.audience or "owner").strip().lower() or "owner"
     if audience not in {"owner", "heir", "caller"}:
         audience = "owner"
     mode = resolve_chat_mode(body.mode, audience=audience)
@@ -300,10 +298,15 @@ class CaptureReq(BaseModel):
     content: str = Field(..., min_length=1, max_length=8000)
     type: str = "note"  # note | memory | belief | story
     tags: list[str] = Field(default_factory=list)
+    audience: Optional[str] = Field(None, max_length=16)
 
 
 @router.post("/capture")
 async def desktop_capture(body: CaptureReq, ctx: dict = Depends(get_device_user)):
+    from owner_pairing import is_owner_audience
+
+    if not is_owner_audience(body.audience or "owner"):
+        raise HTTPException(status_code=403, detail="Capture stays with the owner")
     user = ctx["user"]
     entry = {
         "entry_id": f"ent_{uuid.uuid4().hex[:12]}",
@@ -339,6 +342,7 @@ async def desktop_memories(ctx: dict = Depends(get_device_user), limit: int = 20
 # ---------------- Brain pack (local Ollama on the dedicated PC) ----------------
 class BrainPackReq(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
+    audience: Optional[str] = Field(None, max_length=16)
 
 
 def _brain_pack_ollama_url(user: dict) -> str | None:
@@ -357,7 +361,9 @@ async def desktop_brain_pack(body: BrainPackReq, ctx: dict = Depends(get_device_
         raise HTTPException(status_code=403, detail="account_inactive")
     conv = await ensure_conversation(user["user_id"], kind="companion_twin")
     try:
-        pack = await build_brain_pack(user, body.text, conversation=conv)
+        pack = await build_brain_pack(
+            user, body.text, conversation=conv, audience=body.audience
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {

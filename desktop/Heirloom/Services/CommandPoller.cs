@@ -133,7 +133,8 @@ public sealed class CommandPoller : IDisposable
         try
         {
                 if (kind is "shell" or "open_app" or "open_url" or "browse" or "type_text" or "find_file" or "power" or "media_key"
-                    or "clipboard_get" or "clipboard_set" or "windows" or "list_dir" or "read_file")
+                    or "clipboard_get" or "clipboard_set" or "windows" or "list_dir" or "read_file"
+                    or "set_volume" or "notify" or "system_status" or "provision_models")
             {
                 if (string.Equals(_settings.Current.AppMode, "heir", StringComparison.OrdinalIgnoreCase))
                 {

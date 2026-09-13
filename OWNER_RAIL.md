@@ -54,7 +54,7 @@ Slice 2 bakes the posture into prefs + prompts. Slice 1 makes one owner chat tha
 | Response `rail` / `rail_chip` / `rail_legs` | Done (`Do` / `As you` / `Do + As you`) |
 | Web `/owner` — one composer + quiet chip | Done. `/twin` stays Twin-only. |
 | Both-leg order | Twin / memory first, then Assist. One persisted receipt. |
-| Heir fence | `resolve_chat_mode` forces twin when `audience` is heir/caller or `heir_surface`. Portal never calls owner rail. |
+| Heir fence | `resolve_chat_mode` forces twin when `audience` is heir/caller or `heir_surface` — including a requested `assistant` mode. Portal never calls owner rail. |
 | PC tools | `tools_for_turn` / `tools_for_owner_leg` — only the Assist leg. |
 | WinUI Owner document | **Follow-up.** Assist + Twin docks stay. Glossary has Sit. Native document would be a second chrome pass. |
 

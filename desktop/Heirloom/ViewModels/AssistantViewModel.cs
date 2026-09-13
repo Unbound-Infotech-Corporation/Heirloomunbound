@@ -178,10 +178,23 @@ public partial class AssistantViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(text))
         {
             using var stt = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            var cloud = await _host.Api.PostMultipartAsync("/companion/voice", "ptt.wav", wav, cancellationToken: stt.Token).ConfigureAwait(true);
-            if (cloud is { } json && json.TryGetProperty("transcript", out var t))
+            var fields = new Dictionary<string, string>
             {
-                text = t.GetString();
+                ["stt_only"] = "true",
+                ["save_to_archive"] = "false",
+                ["audience"] = _host.CanEdit ? "owner" : "heir",
+            };
+            var cloud = await _host.Api.PostMultipartAsync("/companion/voice", "ptt.wav", wav, fields: fields, cancellationToken: stt.Token).ConfigureAwait(true);
+            if (cloud is { } json)
+            {
+                if (json.TryGetProperty("transcript", out var t))
+                {
+                    text = t.GetString();
+                }
+                else if (json.TryGetProperty("user_text", out var u))
+                {
+                    text = u.GetString();
+                }
             }
         }
 
@@ -300,6 +313,16 @@ public partial class AssistantViewModel : ObservableObject
 
     public async Task TalkAsync(string text)
     {
+        if (!_host.CanEdit)
+        {
+            Lines.Add(new ChatLine("you", text));
+            const string heir = "Heir mode. Assist stays with the owner — this sitting cannot drive the PC.";
+            Lines.Add(new ChatLine("assist", heir));
+            Status = heir;
+            ClearNow();
+            return;
+        }
+
         Lines.Add(new ChatLine("you", text));
         lock (_jobGate)
         {
@@ -862,7 +885,8 @@ Confirm is required for buying, paying, deleting, or typing a password.
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(25));
-        var cloud = await _host.Api.PostAsync("/desktop/chat", new { text = payload, mode = "assistant" }, timeout.Token).ConfigureAwait(true);
+        var audience = _host.CanEdit ? "owner" : "heir";
+        var cloud = await _host.Api.PostAsync("/desktop/chat", new { text = payload, mode = "assistant", audience }, timeout.Token).ConfigureAwait(true);
         string? reply = null;
         if (cloud is { } json)
         {

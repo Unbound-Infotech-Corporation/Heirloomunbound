@@ -346,10 +346,23 @@ public partial class TwinViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(text))
         {
             using var stt = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            var cloud = await _host.Api.PostMultipartAsync("/companion/voice", "ptt.wav", wav, cancellationToken: stt.Token).ConfigureAwait(true);
-            if (cloud is { } json && json.TryGetProperty("transcript", out var t))
+            var fields = new Dictionary<string, string>
             {
-                text = t.GetString();
+                ["stt_only"] = "true",
+                ["save_to_archive"] = "false",
+                ["audience"] = CanEdit ? "owner" : "heir",
+            };
+            var cloud = await _host.Api.PostMultipartAsync("/companion/voice", "ptt.wav", wav, fields: fields, cancellationToken: stt.Token).ConfigureAwait(true);
+            if (cloud is { } json)
+            {
+                if (json.TryGetProperty("transcript", out var t))
+                {
+                    text = t.GetString();
+                }
+                else if (json.TryGetProperty("user_text", out var u))
+                {
+                    text = u.GetString();
+                }
             }
         }
 
@@ -703,7 +716,7 @@ public partial class TwinViewModel : ObservableObject
         if (!CanEdit)
         {
             ClearNow();
-            var heir = "Heir mode. This sitting cannot open the browser. That stays with Assist on the owner’s PC.";
+            var heir = "Heir mode. This sitting cannot open the browser. That stays with the owner on Assist.";
             Lines.Add(new ChatLine("work", heir));
             Status = heir;
             AvatarState = "listening";

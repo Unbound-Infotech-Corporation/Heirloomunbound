@@ -39,12 +39,26 @@ public sealed class HeirloomApiClient
     public Task<JsonElement?> PostSessionAsync(string path, object? body, CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Post, path, body, useDevice: false, cancellationToken);
 
-    public async Task<JsonElement?> PostMultipartAsync(string path, string fileName, byte[] bytes, string fieldName = "audio", CancellationToken cancellationToken = default)
+    public async Task<JsonElement?> PostMultipartAsync(
+        string path,
+        string fileName,
+        byte[] bytes,
+        string fieldName = "audio",
+        IReadOnlyDictionary<string, string>? fields = null,
+        CancellationToken cancellationToken = default)
     {
         using var content = new MultipartFormDataContent();
         var file = new ByteArrayContent(bytes);
         file.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
         content.Add(file, fieldName, fileName);
+        if (fields is not null)
+        {
+            foreach (var pair in fields)
+            {
+                content.Add(new StringContent(pair.Value), pair.Key);
+            }
+        }
+
         return await SendContentAsync(HttpMethod.Post, path, content, useDevice: true, cancellationToken).ConfigureAwait(false);
     }
 

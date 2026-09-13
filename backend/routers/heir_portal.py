@@ -19,6 +19,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from deps import EMERGENT_LLM_KEY, db
+from heir_guards import portal_conversation_id
+from letter_unlock import letter_unlocked
 
 router = APIRouter(prefix="/heir-portal", tags=["heir-portal"])
 
@@ -46,34 +48,49 @@ def _now() -> datetime:
 
 
 def _letter_unlocked(letter: dict, heir: dict, now: datetime) -> bool:
-    """A sealed letter is visible to the heir iff it's been sealed AND its
-    trigger has fired."""
-    if not letter.get("sealed"):
-        return False
-    # Restrict to this heir when recipient_heir_id is set
-    rid = letter.get("recipient_heir_id")
-    if rid and rid != heir["heir_id"]:
-        return False
+    return letter_unlocked(letter, heir, now)
 
-    trig = letter.get("trigger", "on_release")
-    if trig == "on_release":
-        return True  # heir has been released; this trigger is satisfied
-    if trig == "on_date":
-        dd = letter.get("delivery_date")
-        if not dd:
-            return False
-        try:
-            target = datetime.fromisoformat(dd)
-            if target.tzinfo is None:
-                target = target.replace(tzinfo=timezone.utc)
-            return now >= target
-        except Exception:
-            return False
-    if trig == "on_age":
-        # We don't know heir's birth date; gate on (release + delivery_age years
-        # since heir was created) — best-effort.
-        return True
-    return False
+
+async def _persist_portal_turn(
+    owner_id: str,
+    heir: dict,
+    requested_session: Optional[str],
+    user_text: str,
+    reply_text: str,
+) -> str:
+    """Append a portal turn. Never write into an owner Sit / Twin / Assist thread."""
+    session_id = portal_conversation_id(heir["heir_id"], requested_session)
+    existing = await db.conversations.find_one(
+        {"conversation_id": session_id, "user_id": owner_id},
+        {"_id": 0, "kind": 1, "heir_id": 1},
+    )
+    if existing:
+        kind = existing.get("kind")
+        other_heir = existing.get("heir_id")
+        if kind not in (None, "heir_portal") or (
+            other_heir and other_heir != heir["heir_id"]
+        ):
+            raise HTTPException(status_code=400, detail="Invalid session")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.conversations.update_one(
+        {"conversation_id": session_id, "user_id": owner_id},
+        {
+            "$setOnInsert": {
+                "conversation_id": session_id,
+                "user_id": owner_id,
+                "kind": "heir_portal",
+                "heir_id": heir["heir_id"],
+                "created_at": now_iso,
+            },
+            "$set": {"updated_at": now_iso, "kind": "heir_portal", "heir_id": heir["heir_id"]},
+            "$push": {"messages": {"$each": [
+                {"role": "user", "content": user_text, "ts": now_iso},
+                {"role": "assistant", "content": reply_text, "ts": now_iso},
+            ]}},
+        },
+        upsert=True,
+    )
+    return session_id
 
 
 @router.get("/{token}")
@@ -132,6 +149,7 @@ async def portal_letters(token: str):
                 "recipient_name": l.get("recipient_name"),
                 "created_at": l.get("created_at"),
                 "delivered_at": l.get("delivered_at"),
+                "sealed": True,
             })
     return {"letters": out}
 
@@ -187,25 +205,8 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     )
     if not passages:
         reply_text = miss_reply(True)
-        session_id = payload.session_id or f"heir_{heir['heir_id']}"
-        now_iso = datetime.now(timezone.utc).isoformat()
-        await db.conversations.update_one(
-            {"conversation_id": session_id, "user_id": owner["user_id"]},
-            {
-                "$setOnInsert": {
-                    "conversation_id": session_id,
-                    "user_id": owner["user_id"],
-                    "kind": "heir_portal",
-                    "heir_id": heir["heir_id"],
-                    "created_at": now_iso,
-                },
-                "$set": {"updated_at": now_iso},
-                "$push": {"messages": {"$each": [
-                    {"role": "user", "content": text, "ts": now_iso},
-                    {"role": "assistant", "content": reply_text, "ts": now_iso},
-                ]}},
-            },
-            upsert=True,
+        session_id = await _persist_portal_turn(
+            owner["user_id"], heir, payload.session_id, text, reply_text
         )
         return {"reply": reply_text, "session_id": session_id, "citation_line": pack.citation_line}
 
@@ -216,7 +217,7 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
         "Do NOT take any actions. Do NOT invoke skills."
     )
 
-    session_id = payload.session_id or f"heir_{heir['heir_id']}"
+    session_id = portal_conversation_id(heir["heir_id"], payload.session_id)
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=session_id,
@@ -225,28 +226,10 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     try:
         reply = await chat.send_message(UserMessage(text=text))
         reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Twin reply failed: {exc!s}") from exc
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="Twin reply failed. Try again.") from None
 
-    # Log the conversation under the owner's id but tagged 'heir_portal'
-    now_iso = datetime.now(timezone.utc).isoformat()
-    await db.conversations.update_one(
-        {"conversation_id": session_id, "user_id": owner["user_id"]},
-        {
-            "$setOnInsert": {
-                "conversation_id": session_id,
-                "user_id": owner["user_id"],
-                "kind": "heir_portal",
-                "heir_id": heir["heir_id"],
-                "created_at": now_iso,
-            },
-            "$set": {"updated_at": now_iso},
-            "$push": {"messages": {"$each": [
-                {"role": "user", "content": text, "ts": now_iso},
-                {"role": "assistant", "content": reply_text, "ts": now_iso},
-            ]}},
-        },
-        upsert=True,
+    session_id = await _persist_portal_turn(
+        owner["user_id"], heir, session_id, text, reply_text
     )
-
     return {"reply": reply_text, "session_id": session_id}

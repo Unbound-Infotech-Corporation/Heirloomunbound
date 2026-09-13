@@ -233,9 +233,11 @@ class TestHeirPortal:
         data = r.json()
         letters = data if isinstance(data, list) else data.get("letters", [])
         assert isinstance(letters, list)
-        # Only sealed + trigger fired should appear
+        # Only sealed + trigger-fired letters appear (API now echoes sealed=True)
         for l in letters:
             assert l.get("sealed") is True
+            assert l.get("body") is not None
+            assert l.get("trigger") in (None, "on_release", "on_date", "on_age")
 
     def test_portal_entries(self):
         tok = TestHeirRelease.release_token
