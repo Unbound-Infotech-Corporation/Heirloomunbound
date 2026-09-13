@@ -47,6 +47,7 @@ from studio_compute import (
 from studio_coach_vision import COACH_STEPS, classify_vendor_screen, observe_result
 from studio_setup import (
     clamp_setup,
+    provision_features,
     setup_catalog,
     space_profile,
     vendor_handoff,
@@ -639,10 +640,18 @@ async def provision_models(payload: ProvisionReq, user: dict = Depends(get_studi
 # ---------- First-run setup (desktop + web) ----------
 class FirstRunUpdate(BaseModel):
     space_profile: Optional[str] = None
+    install_profile: Optional[str] = None
     vendor_email: Optional[str] = None
     prefer_local: Optional[bool] = None
     phone_features: Optional[list[str]] = None
     complete: Optional[bool] = None
+    dedicated_consent: Optional[bool] = None
+    vault_drive: Optional[str] = None
+    start_with_windows: Optional[bool] = None
+    power_plan_consent: Optional[bool] = None
+    warm_engines: Optional[bool] = None
+    live_listen_default: Optional[bool] = None
+    branding_dedicated: Optional[bool] = None
 
 
 def _pair_origin(request: Request) -> str:
@@ -759,7 +768,7 @@ async def complete_first_run(user: dict = Depends(get_studio_user)):
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": sets})
     provision = None
     try:
-        provision = await _queue_provision(user, list(profile["provision_features"]))
+        provision = await _queue_provision(user, provision_features(setup["space_profile"]))
     except HTTPException as exc:
         if exc.status_code != 409:
             raise

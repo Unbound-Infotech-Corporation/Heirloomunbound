@@ -26,7 +26,11 @@ def test_local_handoffs_cover_three_vendors():
 
 
 def test_provision_features_match_disk_profiles():
-    assert provision_features("lite") == ["stt"]
+    assert provision_features("lite") == ["stt", "tts"]
+    assert provision_features("small") == ["stt", "tts"]
     assert "twin" in provision_features("full")
+    assert "twin" in provision_features("medium")
     assert "vision" in provision_features("max")
-    assert provision_features("unknown") == provision_features("full")
+    assert "latentsync" in provision_features("large")
+    assert "machine_role" in provision_features("dedicated")
+    assert provision_features("unknown") == provision_features("medium")
