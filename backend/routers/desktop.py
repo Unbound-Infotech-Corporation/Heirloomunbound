@@ -113,7 +113,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     mode=twin (default): grounded sitting — no PC control tools.
     mode=assistant: copilot that may use PC / screen / terminal abilities.
     mode=owner: one teammate chat — classifies each turn to Assist and/or Twin.
-    Heir/caller audience cannot enter owner mode (forced to twin).
+    Heir/caller audience cannot enter owner or assistant mode (forced to twin).
     Assist / owner Do legs include a structured `receipt` (plan → did /
     failed / waiting for Confirm). Twin-only replies omit it.
     """

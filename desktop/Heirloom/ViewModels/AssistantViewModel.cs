@@ -300,6 +300,16 @@ public partial class AssistantViewModel : ObservableObject
 
     public async Task TalkAsync(string text)
     {
+        if (!_host.CanEdit)
+        {
+            Lines.Add(new ChatLine("you", text));
+            const string heir = "Heir mode. Assist stays with the owner — this sitting cannot drive the PC.";
+            Lines.Add(new ChatLine("assist", heir));
+            Status = heir;
+            ClearNow();
+            return;
+        }
+
         Lines.Add(new ChatLine("you", text));
         lock (_jobGate)
         {
@@ -862,7 +872,8 @@ Confirm is required for buying, paying, deleting, or typing a password.
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(25));
-        var cloud = await _host.Api.PostAsync("/desktop/chat", new { text = payload, mode = "assistant" }, timeout.Token).ConfigureAwait(true);
+        var audience = _host.CanEdit ? "owner" : "heir";
+        var cloud = await _host.Api.PostAsync("/desktop/chat", new { text = payload, mode = "assistant", audience }, timeout.Token).ConfigureAwait(true);
         string? reply = null;
         if (cloud is { } json)
         {

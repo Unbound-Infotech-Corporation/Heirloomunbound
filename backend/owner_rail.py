@@ -195,13 +195,13 @@ def resolve_chat_mode(
 ) -> str:
     """Map a requested chat mode onto twin | assistant | owner.
 
-    Unknown modes fall back to twin. Owner rail is refused on heir/caller
-    surfaces so they stay Twin-only with no PC tools.
+    Unknown modes fall back to twin. Heir / caller / heir-surface requests
+    stay Twin-only — no Assist, no owner rail, no PC tools.
     """
     key = (mode or "twin").strip().lower()
     if key not in VALID_CHAT_MODES:
         key = "twin"
-    if key == "owner" and not owner_mode_allowed(audience=audience, heir_surface=heir_surface):
+    if not owner_mode_allowed(audience=audience, heir_surface=heir_surface):
         return "twin"
     return key
 

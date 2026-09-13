@@ -703,7 +703,7 @@ public partial class TwinViewModel : ObservableObject
         if (!CanEdit)
         {
             ClearNow();
-            var heir = "Heir mode. This sitting cannot open the browser. That stays with Assist on the owner’s PC.";
+            var heir = "Heir mode. This sitting cannot open the browser. That stays with the owner on Assist.";
             Lines.Add(new ChatLine("work", heir));
             Status = heir;
             AvatarState = "listening";

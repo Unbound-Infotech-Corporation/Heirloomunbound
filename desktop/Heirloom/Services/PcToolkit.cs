@@ -137,6 +137,11 @@ public sealed class PcToolkit : IDisposable
 
     public ToolResult SetVolume(string level)
     {
+        if (!AllowPc)
+        {
+            return new ToolResult(false, "Use this PC is off.");
+        }
+
         if (!int.TryParse(Regex.Replace(level ?? "", @"[^\d]", ""), out var vol))
         {
             return new ToolResult(false, "Need a volume 0–100.");
@@ -410,6 +415,11 @@ public sealed class PcToolkit : IDisposable
 
     public ToolResult SystemStatus()
     {
+        if (!AllowPc)
+        {
+            return new ToolResult(false, "Use this PC is off.");
+        }
+
         var drive = DriveInfo.GetDrives().FirstOrDefault(d => d.IsReady && d.Name.StartsWith("C", StringComparison.OrdinalIgnoreCase));
         var f = DriveInfo.GetDrives().FirstOrDefault(d => d.IsReady && d.Name.StartsWith("F", StringComparison.OrdinalIgnoreCase));
         var bits = new List<string>

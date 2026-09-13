@@ -142,6 +142,17 @@ def test_phone_turn_strips_pc_and_save_unless_owner():
     assert "run_skill" in owner
     assist = tools_for_turn("assistant", {"web"})
     assert "save_memory" in assist
+    leaked = tools_for_turn(
+        "assistant",
+        {"web", "pc_control", "screen_vision", "terminal"},
+        audience="heir",
+    )
+    assert "open_on_pc" not in leaked
+    assert "see_screen" not in leaked
+    assert "run_command" not in leaked
+    assert "save_memory" not in leaked
+    caller = tools_for_turn("assistant", {"web", "pc_control"}, audience="caller")
+    assert "open_on_pc" not in caller
 
 
 def test_compile_twin_prompt_uses_passages_not_recency_dump():
@@ -243,6 +254,24 @@ def test_chat_req_accepts_twin_pack():
     assert body.twin_pack["passages"][0]["kind"] == "interview"
     assert body.grounded is True
     assert body.audience == "owner"
+
+
+def test_winui_assist_fences_heir_mode():
+    root = Path(__file__).resolve().parents[2] / "desktop" / "Heirloom"
+    assist = (root / "ViewModels" / "AssistantViewModel.cs").read_text(encoding="utf-8")
+    assert "if (!_host.CanEdit)" in assist
+    assert 'mode = "assistant", audience' in assist or "mode = \"assistant\", audience" in assist
+    assert 'var audience = _host.CanEdit ? "owner" : "heir"' in assist
+    shell = (root / "ViewModels" / "StudioShellViewModel.cs").read_text(encoding="utf-8")
+    assert 'id == "assistant" && !_host.CanEdit' in shell
+    assert "Heir mode. Assist stays with the owner." in shell
+    poller = (root / "Services" / "CommandPoller.cs").read_text(encoding="utf-8")
+    assert 'or "set_volume" or "notify" or "system_status"' in poller
+    toolkit = (root / "Services" / "PcToolkit.cs").read_text(encoding="utf-8")
+    vol_idx = toolkit.index("public ToolResult SetVolume")
+    status_idx = toolkit.index("public ToolResult SystemStatus")
+    assert "if (!AllowPc)" in toolkit[vol_idx:vol_idx + 220]
+    assert "if (!AllowPc)" in toolkit[status_idx:status_idx + 220]
 
 
 def test_heir_portal_chat_forces_heir_audience():

@@ -317,7 +317,7 @@ export default function HeirPortal() {
                   style={{ color: "var(--text-muted)" }}
                 >
                   Begin a conversation. Their twin will reply as best it can,
-                  grounded in everything they archived.
+                  grounded in what they filed — it will not invent.
                 </p>
               )}
               {chat.map((m, i) => (

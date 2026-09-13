@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from deps import EMERGENT_LLM_KEY, db
+from letter_unlock import letter_unlocked
 
 router = APIRouter(prefix="/heir-portal", tags=["heir-portal"])
 
@@ -46,34 +47,7 @@ def _now() -> datetime:
 
 
 def _letter_unlocked(letter: dict, heir: dict, now: datetime) -> bool:
-    """A sealed letter is visible to the heir iff it's been sealed AND its
-    trigger has fired."""
-    if not letter.get("sealed"):
-        return False
-    # Restrict to this heir when recipient_heir_id is set
-    rid = letter.get("recipient_heir_id")
-    if rid and rid != heir["heir_id"]:
-        return False
-
-    trig = letter.get("trigger", "on_release")
-    if trig == "on_release":
-        return True  # heir has been released; this trigger is satisfied
-    if trig == "on_date":
-        dd = letter.get("delivery_date")
-        if not dd:
-            return False
-        try:
-            target = datetime.fromisoformat(dd)
-            if target.tzinfo is None:
-                target = target.replace(tzinfo=timezone.utc)
-            return now >= target
-        except Exception:
-            return False
-    if trig == "on_age":
-        # We don't know heir's birth date; gate on (release + delivery_age years
-        # since heir was created) — best-effort.
-        return True
-    return False
+    return letter_unlocked(letter, heir, now)
 
 
 @router.get("/{token}")
@@ -132,6 +106,7 @@ async def portal_letters(token: str):
                 "recipient_name": l.get("recipient_name"),
                 "created_at": l.get("created_at"),
                 "delivered_at": l.get("delivered_at"),
+                "sealed": True,
             })
     return {"letters": out}
 

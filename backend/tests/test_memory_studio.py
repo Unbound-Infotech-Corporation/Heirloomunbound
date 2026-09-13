@@ -26,6 +26,11 @@ def test_heir_portal_has_no_memory_studio():
     assert "/auth/me/preferences" not in portal
     assert "Memory Studio" not in portal
     assert "nav-memory" not in portal
+    assert "/nudges" not in portal
+    assert "/reminders" not in portal
+    assert "/owner" not in portal
+    assert "pairing_style" not in portal
+    assert "How we work" not in portal
 
 
 def test_sit_twin_settings_link_to_memory_studio():
@@ -52,6 +57,14 @@ def test_memory_page_reuses_existing_endpoints():
     assert "biography" not in page.lower()
     assert 'data-testid="memory-facts-empty"' in page or "HeldFactsList" in page
     assert 'data-testid="memory-studio-root"' in page
+
+
+def test_owner_only_routers_use_session_auth():
+    for rel in ("routers/memory.py", "routers/nudges.py", "routers/reminders.py", "routers/owner.py"):
+        src = (ROOT / "backend" / rel).read_text(encoding="utf-8")
+        assert "Depends(get_current_user)" in src, rel
+        assert "heir-portal" not in src
+        assert "release_token" not in src
 
 
 def test_memory_router_still_scopes_facts_to_session_user():

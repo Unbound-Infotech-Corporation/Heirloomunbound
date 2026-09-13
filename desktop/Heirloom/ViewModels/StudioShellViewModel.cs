@@ -194,6 +194,12 @@ public partial class StudioShellViewModel : ObservableObject
             return;
         }
 
+        if (id == "assistant" && !_host.CanEdit)
+        {
+            StatusLine = "Heir mode. Assist stays with the owner.";
+            return;
+        }
+
         _open.Add(id);
         ActiveDocumentId = id;
         StudioHelp.SetDocument(id);
@@ -274,7 +280,7 @@ public partial class StudioShellViewModel : ObservableObject
         _open.Remove(id);
         if (ActiveDocumentId == id)
         {
-            ActiveDocumentId = _open.LastOrDefault() ?? "assistant";
+            ActiveDocumentId = _open.LastOrDefault() ?? (_host.CanEdit ? "assistant" : "twin");
         }
 
         RefreshWindowLine();
@@ -289,7 +295,7 @@ public partial class StudioShellViewModel : ObservableObject
             CloseDocument(id);
         }
 
-        OpenDocument("assistant");
+        OpenDocument(_host.CanEdit ? "assistant" : "twin");
     }
 
     [RelayCommand]
@@ -304,7 +310,7 @@ public partial class StudioShellViewModel : ObservableObject
         var list = _open.ToList();
         if (list.Count == 0)
         {
-            OpenDocument("assistant");
+            OpenDocument(_host.CanEdit ? "assistant" : "twin");
             return;
         }
 
@@ -341,6 +347,12 @@ public partial class StudioShellViewModel : ObservableObject
 
         if (q.StartsWith("do "))
         {
+            if (!_host.CanEdit)
+            {
+                StatusLine = "Heir mode. Assist stays with the owner.";
+                return;
+            }
+
             await Assistant.TalkAsync(CommandQuery[3..]).ConfigureAwait(true);
             return;
         }

@@ -307,8 +307,11 @@ def tools_for_turn(
     has_client_pack: bool = False,
     source: str = "web",
     caller_is_owner: bool = False,
+    audience: str | None = None,
 ) -> set[str]:
     role_key = (role or "twin").strip().lower()
+    if audience is not None and not is_owner_audience(audience):
+        role_key = "twin"
     ids = set(enabled_ids)
     if role_key != "assistant":
         ids -= PC_ABILITY_IDS
@@ -432,6 +435,9 @@ async def build_brain_pack(
         raise ValueError("Empty message")
 
     enabled_ids = await ab.enabled_ability_ids(user_id)
+    audience_key = (audience or "owner").strip().lower() or "owner"
+    if not is_owner_audience(audience_key):
+        role = "twin"
     if (role or "twin").strip().lower() != "assistant":
         enabled_ids = {aid for aid in enabled_ids if aid not in _PC_ABILITY_IDS}
 
@@ -563,6 +569,9 @@ async def run_twin_turn(
             grounded = True
 
     enabled_ids = await ab.enabled_ability_ids(user_id)
+    audience_key = (audience or "owner").strip().lower() or "owner"
+    if not is_owner_audience(audience_key):
+        role = "twin"
     if (role or "twin").strip().lower() != "assistant":
         enabled_ids = {aid for aid in enabled_ids if aid not in _PC_ABILITY_IDS}
     enabled_tools = tools_for_turn(
@@ -571,6 +580,7 @@ async def run_twin_turn(
         has_client_pack=twin_pack is not None,
         source=source,
         caller_is_owner=caller_is_owner,
+        audience=audience_key,
     )
 
     # Music short-circuit — never on a PSTN call.
