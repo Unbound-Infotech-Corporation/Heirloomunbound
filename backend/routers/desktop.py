@@ -114,6 +114,8 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     mode=assistant: copilot that may use PC / screen / terminal abilities.
     mode=owner: one teammate chat — classifies each turn to Assist and/or Twin.
     Heir/caller audience cannot enter owner mode (forced to twin).
+    Assist / owner Do legs include a structured `receipt` (plan → did /
+    failed / waiting for Confirm). Twin-only replies omit it.
     """
     from owner_rail import owner_response_fields, resolve_chat_mode, run_owner_turn
     from twin_runtime import ensure_conversation, run_twin_turn
@@ -184,6 +186,9 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
         out["action"] = result.action
     if mode == "owner":
         out.update(owner_response_fields(result))
+    elif getattr(result, "receipt", None):
+        # Assist-only: reviewable receipt. Twin-only stays a reply.
+        out["receipt"] = result.receipt
     return out
 
 

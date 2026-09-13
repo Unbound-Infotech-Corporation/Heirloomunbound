@@ -2,6 +2,9 @@
 
 One owner teammate chat classifies each turn to Assist (Do / PC) and/or
 Twin (Ask / vault). Heir and caller surfaces must never enter this mode.
+
+Assist / Do legs attach a structured receipt (plan → did / failed /
+waiting for Confirm). Twin / Ask legs stay a reply only.
 """
 from __future__ import annotations
 
@@ -121,6 +124,9 @@ class OwnerTurnResult:
     rail: str = ROUTE_TWIN
     rail_chip: str = CHIP_AS_YOU
     rail_legs: list[str] = field(default_factory=lambda: [ROUTE_TWIN])
+    twin_reply: str = ""
+    assist_reply: str = ""
+    receipt: Optional[dict] = None
 
 
 def _norm(text: str) -> str:
@@ -224,11 +230,18 @@ def merge_owner_replies(twin_reply: str, assist_reply: str) -> str:
 
 
 def owner_response_fields(result: OwnerTurnResult) -> dict[str, Any]:
-    return {
+    out: dict[str, Any] = {
         "rail": result.rail,
         "rail_chip": result.rail_chip,
         "rail_legs": list(result.rail_legs),
     }
+    if result.twin_reply:
+        out["twin_reply"] = result.twin_reply
+    if result.assist_reply:
+        out["assist_reply"] = result.assist_reply
+    if result.receipt:
+        out["receipt"] = result.receipt
+    return out
 
 
 async def run_owner_turn(
@@ -297,10 +310,9 @@ async def run_owner_turn(
             audience="owner",
         )
 
-    reply = merge_owner_replies(
-        twin_res.reply if twin_res else "",
-        assist_res.reply if assist_res else "",
-    )
+    twin_reply = (twin_res.reply if twin_res else "") or ""
+    assist_reply = (assist_res.reply if assist_res else "") or ""
+    reply = merge_owner_replies(twin_reply, assist_reply)
     tool_trace: list[dict] = []
     if twin_res:
         for row in twin_res.tool_trace:
@@ -308,6 +320,13 @@ async def run_owner_turn(
     if assist_res:
         for row in assist_res.tool_trace:
             tool_trace.append({**row, "leg": ROUTE_ASSIST})
+
+    receipt = None
+    if decision.assist:
+        from assist_receipt import build_assist_receipt
+
+        assist_trace = list(assist_res.tool_trace) if assist_res else []
+        receipt = build_assist_receipt(assist_trace, reply=assist_reply, include=True)
 
     action = None
     if assist_res and assist_res.action:
@@ -342,6 +361,9 @@ async def run_owner_turn(
             rail=decision.route,
             rail_chip=decision.chip,
             rail_legs=list(decision.legs),
+            receipt=receipt,
+            twin_reply=twin_reply.strip() or None,
+            assist_reply=assist_reply.strip() or None,
         )
         if summarise:
             try:
@@ -359,4 +381,7 @@ async def run_owner_turn(
         rail=decision.route,
         rail_chip=decision.chip,
         rail_legs=list(decision.legs),
+        twin_reply=twin_reply.strip(),
+        assist_reply=assist_reply.strip(),
+        receipt=receipt,
     )
