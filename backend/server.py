@@ -67,6 +67,7 @@ from routers import (
     social_import,
     sources,
     studio,
+    support,
     twin,
     user_keys,
     vault,
@@ -193,6 +194,7 @@ api_router.include_router(live.router)
 api_router.include_router(avatar_studio.router)
 api_router.include_router(user_keys.router)
 api_router.include_router(studio.router)
+api_router.include_router(support.router)
 
 app.include_router(api_router)
 

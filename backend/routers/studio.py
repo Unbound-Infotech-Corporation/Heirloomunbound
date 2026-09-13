@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from deps import db, get_current_user
 from model_router import (
     effective_model_map,
+    resolve_avatar_backend,
     resolve_stt_backend,
     resolve_tts_backend,
     resolve_twin_backend,
@@ -128,6 +129,10 @@ async def put_audio(payload: AudioUpdate, user: dict = Depends(get_studio_user))
 class RemoteCompute(BaseModel):
     label: Optional[str] = None
     ollama_url: Optional[str] = None
+    voicebox_url: Optional[str] = None
+    qwen3_tts_url: Optional[str] = None
+    latentsync_url: Optional[str] = None
+    musetalk_url: Optional[str] = None
 
 
 class ComputeUpdate(BaseModel):
@@ -237,14 +242,21 @@ def _probe_cloud(user: dict) -> dict[str, dict]:
 
 
 def _companion_probe(device: dict | None) -> dict:
+    empty = {
+        "gpu": None,
+        "ollama": None,
+        "whisper": None,
+        "piper": None,
+        "voicebox": None,
+        "qwen3_tts": None,
+        "latentsync": None,
+        "musetalk": None,
+    }
     if not device:
         return {
             "connected": False,
-            "gpu": None,
-            "ollama": None,
-            "whisper": None,
-            "piper": None,
-            "detail": "No companion PC has checked in. Open Heirloom on the dedicated machine.",
+            **empty,
+            "detail": "No companion PC has checked in. Open Heirloom Unbound on the dedicated machine.",
         }
     last = device.get("last_seen") or device.get("last_heartbeat") or ""
     probe = device.get("runtime_probe") or {}
@@ -252,10 +264,15 @@ def _companion_probe(device: dict | None) -> dict:
         "connected": True,
         "name": device.get("name") or "PC",
         "last_seen": last,
+        **empty,
         "gpu": probe.get("gpu"),
         "ollama": probe.get("ollama"),
         "whisper": probe.get("whisper"),
         "piper": probe.get("piper"),
+        "voicebox": probe.get("voicebox"),
+        "qwen3_tts": probe.get("qwen3_tts"),
+        "latentsync": probe.get("latentsync"),
+        "musetalk": probe.get("musetalk"),
         "detail": probe.get("detail") or "Companion online.",
     }
 
@@ -324,6 +341,12 @@ def _feature_readiness(
                 detail = "ElevenLabs key OK — clone a voice in Settings → Voice"
             else:
                 detail = f"Ready ({src} key, voice cloned)"
+        elif effective == "voicebox":
+            ready = bool((companion.get("voicebox") or {}).get("ready"))
+            detail = (companion.get("voicebox") or {}).get("detail") or "Start Voicebox on this PC, then Probe"
+        elif effective == "qwen3_tts":
+            ready = bool((companion.get("qwen3_tts") or {}).get("ready"))
+            detail = (companion.get("qwen3_tts") or {}).get("detail") or "Start Qwen3-TTS (OpenAI-compatible) on this PC, then Probe"
         elif effective == "local_piper":
             ready = bool((companion.get("piper") or {}).get("ready"))
             detail = (companion.get("piper") or {}).get("detail") or "Provision Piper on the dedicated PC"
@@ -347,8 +370,18 @@ def _feature_readiness(
             ready = _llm_available()
             detail = "Claude vision via hosted key" if ready else "No hosted vision key"
     elif feature_id == "avatar":
-        effective = chosen_backend if chosen_backend != "auto" else ("did" if _user_key_configured(user, "did")[0] else "waveform")
-        if effective == "did":
+        effective = resolve_avatar_backend(
+            {feature_id: chosen_backend, **eff},
+            probe,
+            has_did=_user_key_configured(user, "did")[0],
+        )
+        if effective == "latentsync":
+            ready = bool((companion.get("latentsync") or {}).get("ready"))
+            detail = (companion.get("latentsync") or {}).get("detail") or "Start LatentSync on this PC, then Probe"
+        elif effective == "musetalk":
+            ready = bool((companion.get("musetalk") or {}).get("ready"))
+            detail = (companion.get("musetalk") or {}).get("detail") or "Start MuseTalk on this PC, then Probe"
+        elif effective == "did":
             ready, src = _user_key_configured(user, "did")
             detail = f"D-ID ready ({src})" if ready else "Add D-ID key below"
         else:
@@ -384,8 +417,18 @@ def _feature_readiness(
         "ready": ready,
         "detail": detail,
         "credential": credential,
-        "needs_companion": chosen_backend in {"local_whisper", "local_piper", "ollama", "auto"}
-        and feature_id in {"stt", "tts", "twin", "vision"},
+        "needs_companion": chosen_backend
+        in {
+            "local_whisper",
+            "local_piper",
+            "ollama",
+            "voicebox",
+            "qwen3_tts",
+            "latentsync",
+            "musetalk",
+            "auto",
+        }
+        and feature_id in {"stt", "tts", "twin", "vision", "avatar"},
     }
 
 
@@ -414,6 +457,18 @@ async def get_models(user: dict = Depends(get_studio_user)):
             elif b["id"] == "local_piper":
                 avail = bool((companion.get("piper") or {}).get("ready"))
                 detail = (companion.get("piper") or {}).get("detail") or "needs provision on the PC"
+            elif b["id"] == "voicebox":
+                avail = bool((companion.get("voicebox") or {}).get("ready"))
+                detail = (companion.get("voicebox") or {}).get("detail") or "install Voicebox MSI/Docker, then Probe"
+            elif b["id"] == "qwen3_tts":
+                avail = bool((companion.get("qwen3_tts") or {}).get("ready"))
+                detail = (companion.get("qwen3_tts") or {}).get("detail") or "install Qwen3-TTS (pip/Docker), then Probe"
+            elif b["id"] == "latentsync":
+                avail = bool((companion.get("latentsync") or {}).get("ready"))
+                detail = (companion.get("latentsync") or {}).get("detail") or "start LatentSync, then Probe"
+            elif b["id"] == "musetalk":
+                avail = bool((companion.get("musetalk") or {}).get("ready"))
+                detail = (companion.get("musetalk") or {}).get("detail") or "start MuseTalk, then Probe"
             elif b["id"] == "ollama":
                 avail = bool((companion.get("ollama") or {}).get("ready"))
                 detail = (companion.get("ollama") or {}).get("detail") or "Ollama not detected"

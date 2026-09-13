@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Optional
+from typing import Optional
 
 from studio_defaults import clamp_model_map, default_model_map
 
@@ -73,27 +73,97 @@ def resolve_twin_backend(
     return "ollama" if local else "cloud_claude"
 
 
+def _tts_fallback(
+    probe: Optional[dict],
+    *,
+    has_voice_clone: bool,
+    skip: set[str] | None = None,
+) -> str:
+    """Auto-order chain used by Auto and by explicit picks that are not ready."""
+    ignore = skip or set()
+    if "voicebox" not in ignore and _probe_ready(probe, "voicebox"):
+        return "voicebox"
+    if "qwen3_tts" not in ignore and _probe_ready(probe, "qwen3_tts"):
+        return "qwen3_tts"
+    if "elevenlabs" not in ignore and has_voice_clone:
+        return "elevenlabs"
+    if "local_piper" not in ignore and _probe_ready(probe, "piper"):
+        return "local_piper"
+    return "openai_tts"
+
+
 def resolve_tts_backend(
     model_map: dict | None,
     probe: Optional[dict] = None,
     *,
     has_voice_clone: bool = False,
 ) -> str:
-    """Returns one of: elevenlabs, openai_tts, local_piper."""
+    """Returns one of: voicebox, qwen3_tts, elevenlabs, openai_tts, local_piper.
+
+    Auto order: Voicebox → Qwen3-TTS → ElevenLabs (if clone keyed) → Piper → OpenAI.
+    Explicit picks fall back along the same chain when the probe is not ready.
+    """
     chosen = clamp_model_map(model_map)
     pick = chosen.get("tts", "auto")
-    piper = _probe_ready(probe, "piper")
+    if pick == "voicebox":
+        return "voicebox" if _probe_ready(probe, "voicebox") else _tts_fallback(
+            probe, has_voice_clone=has_voice_clone, skip={"voicebox"}
+        )
+    if pick == "qwen3_tts":
+        return "qwen3_tts" if _probe_ready(probe, "qwen3_tts") else _tts_fallback(
+            probe, has_voice_clone=has_voice_clone, skip={"qwen3_tts"}
+        )
     if pick == "elevenlabs":
-        return "elevenlabs" if has_voice_clone else "openai_tts"
+        return "elevenlabs" if has_voice_clone else _tts_fallback(
+            probe, has_voice_clone=False, skip={"elevenlabs"}
+        )
     if pick == "openai_tts":
         return "openai_tts"
     if pick == "local_piper":
-        return "local_piper" if piper else ("elevenlabs" if has_voice_clone else "openai_tts")
-    if has_voice_clone:
-        return "elevenlabs"
-    if piper:
-        return "local_piper"
-    return "openai_tts"
+        return "local_piper" if _probe_ready(probe, "piper") else _tts_fallback(
+            probe, has_voice_clone=has_voice_clone, skip={"local_piper"}
+        )
+    return _tts_fallback(probe, has_voice_clone=has_voice_clone)
+
+
+def resolve_avatar_backend(
+    model_map: dict | None,
+    probe: Optional[dict] = None,
+    *,
+    has_did: bool = False,
+) -> str:
+    """Returns one of: latentsync, musetalk, waveform, did.
+
+    Auto order: LatentSync → MuseTalk → waveform → D-ID.
+    Explicit local picks fall back when the probe is not ready.
+    """
+    chosen = clamp_model_map(model_map)
+    pick = chosen.get("avatar", "auto")
+    latentsync = _probe_ready(probe, "latentsync")
+    musetalk = _probe_ready(probe, "musetalk")
+    if pick == "latentsync":
+        if latentsync:
+            return "latentsync"
+        if musetalk:
+            return "musetalk"
+        return "waveform"
+    if pick == "musetalk":
+        if musetalk:
+            return "musetalk"
+        if latentsync:
+            return "latentsync"
+        return "waveform"
+    if pick == "did":
+        return "did" if has_did else "waveform"
+    if pick == "waveform":
+        return "waveform"
+    if latentsync:
+        return "latentsync"
+    if musetalk:
+        return "musetalk"
+    if has_did:
+        return "did"
+    return "waveform"
 
 
 def effective_model_map(user: dict, probe: Optional[dict] = None) -> dict[str, str]:
@@ -103,9 +173,13 @@ def effective_model_map(user: dict, probe: Optional[dict] = None) -> dict[str, s
         (user.get("elevenlabs_voice_id") or "").strip()
         and ((user.get("elevenlabs_api_key") or "").strip() or os.environ.get("ELEVENLABS_API_KEY"))
     )
+    has_did = bool(
+        (user.get("d_id_api_key") or "").strip() or os.environ.get("D_ID_API_KEY")
+    )
     return {
         "stt": resolve_stt_backend(raw, probe),
         "twin": resolve_twin_backend(raw, probe, user=user),
         "tts": resolve_tts_backend(raw, probe, has_voice_clone=has_clone),
-        **{k: raw.get(k, v) for k, v in default_model_map().items() if k not in ("stt", "twin", "tts")},
+        "avatar": resolve_avatar_backend(raw, probe, has_did=has_did),
+        **{k: raw.get(k, v) for k, v in default_model_map().items() if k not in ("stt", "twin", "tts", "avatar")},
     }

@@ -283,6 +283,10 @@ class RuntimeProbe(BaseModel):
     ollama: Optional[dict] = None
     whisper: Optional[dict] = None
     piper: Optional[dict] = None
+    voicebox: Optional[dict] = None
+    qwen3_tts: Optional[dict] = None
+    latentsync: Optional[dict] = None
+    musetalk: Optional[dict] = None
     audio_devices: Optional[list] = None
     detail: str = ""
 

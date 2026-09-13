@@ -238,3 +238,37 @@ async def send_letter_email(
             f"— {owner_name or 'Someone who loved you'} asked Heirloom to deliver this to you today."
         ),
     )
+
+
+async def send_support_ticket_email(
+    *,
+    ticket_id: str,
+    subject: str,
+    body: str,
+    reply_to: str,
+    snapshot_text: str,
+) -> dict:
+    """Forward a Heirloom Unbound Terminal ticket to the support inbox."""
+    inbox = (os.environ.get("SUPPORT_INBOX") or "support@heirloom.app").strip()
+    safe_subject = (subject or f"Heirloom Unbound {ticket_id}")[:180]
+    inner = f"""
+<p style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#7a6f5e;margin:0 0 6px 0;">heirloom unbound · terminal ticket</p>
+<p style="font-family:Georgia,serif;font-size:22px;font-weight:300;line-height:1.35;margin:0 0 14px 0;color:{_TEXT_PRIMARY};">
+  {ticket_id}
+</p>
+<p style="font-family:Georgia,serif;font-size:16px;line-height:1.55;margin:0 0 18px 0;color:{_TEXT_SECONDARY};">
+  {(body or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace(chr(10), "<br>")}
+</p>
+<p style="font-family:Arial,sans-serif;font-size:13px;line-height:1.55;margin:0 0 12px 0;color:#7a6f5e;">
+  Reply-to: {reply_to or "unknown"}
+</p>
+<pre style="font-family:'Courier New',monospace;font-size:11px;line-height:1.45;white-space:pre-wrap;color:{_TEXT_SECONDARY};border-top:1px solid {_BORDER};padding-top:16px;">
+{(snapshot_text or "")[:12000]}
+</pre>
+"""
+    return await _send(
+        to=inbox,
+        subject=f"[{ticket_id}] {safe_subject}",
+        html=_wrap(inner, preheader=f"Heirloom Unbound ticket {ticket_id}"),
+        text=f"{ticket_id}\n\n{body}\n\nFrom: {reply_to}\n\n{snapshot_text[:8000]}",
+    )
