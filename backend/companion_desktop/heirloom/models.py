@@ -218,36 +218,63 @@ def _pip_install(pkg: str, progress: Optional[ProgressFn] = None) -> str:
     return out[-200:]
 
 
-def provision(features: list[str] | None = None, progress: Optional[ProgressFn] = None) -> dict[str, Any]:
-    """Idempotent. Safe to run on every boot; only downloads what's missing."""
-    wanted = set(features or ["stt", "tts", "twin", "vision"])
+def provision(
+    features: list[str] | None = None,
+    progress: Optional[ProgressFn] = None,
+    profile_id: str | None = None,
+) -> dict[str, Any]:
+    """Idempotent. Safe to run on every boot; only downloads what's missing.
+
+    Engine listeners (Voicebox / Qwen3-TTS / LatentSync) coach on failure and
+    never abort the whole install. Small completes on CPU without Ollama.
+    """
+    from .space_profiles import normalize_profile_id, provision_features, provision_manifest, space_profile
+
+    profile_id = normalize_profile_id(profile_id) if profile_id else None
+    if profile_id:
+        wanted = set(features or provision_features(profile_id))
+        whisper_name = space_profile(profile_id).get("whisper") or "base"
+        manifest = provision_manifest(profile_id)
+    else:
+        wanted = set(features or ["stt", "tts", "twin", "vision"])
+        whisper_name = "base"
+        manifest = {"id": None, "gpu_required": False, "abort_on_engine_failure": False}
+
     log: list[str] = []
+    fatal: Optional[str] = None
 
     def note(msg: str) -> None:
         log.append(msg)
         if progress:
             progress(msg)
 
+    if profile_id:
+        note(f"Heirloom Unbound · {space_profile(profile_id)['label']} · resume-safe downloads")
+        note("No Pinokio. Official Hugging Face / Ollama / MSI / Docker / pip only.")
+
     if "stt" in wanted:
         w = probe_whisper()
         if not w.get("imported"):
             note("Installing faster-whisper for local speech-to-text…")
-            _pip_install("faster-whisper", progress)
+            try:
+                _pip_install("faster-whisper", progress)
+            except Exception as exc:  # noqa: BLE001
+                note(f"faster-whisper install failed (not fatal): {exc}")
         else:
             note("faster-whisper already installed.")
-        # Touch the model so the first utterance isn't a 400MB stall.
         try:
             from faster_whisper import WhisperModel
 
-            note("Warming Whisper base (downloads once, then cached)…")
+            note(f"Warming Whisper {whisper_name} (downloads once, then cached)…")
             device = "cuda" if probe_gpu().get("ready") else "cpu"
             compute = "float16" if device == "cuda" else "int8"
-            WhisperModel("base", device=device, compute_type=compute)
-            note(f"Whisper base ready on {device}.")
+            WhisperModel(whisper_name, device=device, compute_type=compute)
+            note(f"Whisper {whisper_name} ready on {device}.")
         except Exception as exc:  # noqa: BLE001
             note(f"Whisper warmup skipped: {exc}")
 
-    if "twin" in wanted or "vision" in wanted:
+    needs_mind = "twin" in wanted or "vision" in wanted
+    if needs_mind:
         ol = probe_ollama()
         if ol.get("ready"):
             models = ol.get("models") or []
@@ -259,39 +286,64 @@ def provision(features: list[str] | None = None, progress: Optional[ProgressFn] 
                 _run(["ollama", "pull", "llava"], timeout=3600)
             note("Ollama models checked.")
         else:
-            note("Ollama not running — cloud Claude stays in charge until you start it.")
+            if profile_id == "small":
+                note("Small install: Ollama is not required. Twin stays cloud Auto.")
+            else:
+                note("Ollama not running — cloud Claude stays in charge until you start it.")
 
-    if "tts" in wanted or "avatar" in wanted:
+    wants_engines = bool(
+        wanted & {"tts", "avatar", "voicebox", "qwen3_tts", "latentsync", "voice_clone"}
+    )
+    if wants_engines:
         for line in coach_install_lines():
             note(line)
             try:
                 log_info("companion", line)
             except Exception:
                 pass
-        vb = probe_voicebox(engine_urls()["voicebox_url"])
-        q3 = probe_qwen3_tts(engine_urls()["qwen3_tts_url"])
-        if vb.get("ready"):
-            note("Voicebox is listening — Auto TTS will prefer it.")
-        else:
-            note("Voicebox not detected. Install the MSI/Docker, start the server, then Probe.")
-            try:
-                log_warn("tts", vb.get("detail") or "Voicebox not ready")
-            except Exception:
-                pass
-        if q3.get("ready"):
-            note("Qwen3-TTS is listening.")
-        else:
-            note("Qwen3-TTS not detected. Install via pip or Docker, then Probe.")
+        urls = engine_urls()
+        vb = probe_voicebox(urls["voicebox_url"])
+        q3 = probe_qwen3_tts(urls["qwen3_tts_url"])
+        ls = probe_latentsync(urls["latentsync_url"])
+        if "voicebox" in wanted or "voice_clone" in wanted or "tts" in wanted:
+            if vb.get("ready"):
+                note("Voicebox is listening — Auto TTS will prefer it.")
+            else:
+                note("Voicebox not detected. Install the official MSI or Docker, start it, then Probe. Setup continues.")
+                try:
+                    log_warn("tts", vb.get("detail") or "Voicebox not ready")
+                except Exception:
+                    pass
+        if "qwen3_tts" in wanted or "voice_clone" in wanted or "tts" in wanted:
+            if q3.get("ready"):
+                note("Qwen3-TTS is listening.")
+            else:
+                note("Qwen3-TTS not detected. Install via pip or Docker, then Probe. Setup continues.")
+        if "latentsync" in wanted or "avatar" in wanted:
+            if ls.get("ready"):
+                note("LatentSync is listening.")
+            else:
+                note("LatentSync not detected. Start the local HTTP engine, then Probe. Setup continues.")
         p = probe_piper()
         if p.get("ready"):
             note("Piper already on PATH.")
         else:
             note("Piper not installed; it stays a fallback after local clone engines.")
 
+    if "machine_role" in wanted and profile_id == "dedicated":
+        note("Dedicated PC role: install_profile will be written by the dedicated module.")
+
     probe = full_probe()
     settings = config.load_settings()
     settings["runtime_probe"] = probe
     settings["last_provision_log"] = log
+    if profile_id:
+        settings["space_profile"] = profile_id
+        settings["install_profile"] = profile_id
+        settings["disk_profile"] = profile_id
+        settings["provision_manifest"] = {k: manifest.get(k) for k in ("id", "whisper", "features", "warm_engines")}
     config.save_settings(settings)
     probe["log"] = log
+    if fatal:
+        probe["error"] = fatal
     return probe

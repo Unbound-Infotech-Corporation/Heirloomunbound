@@ -25,10 +25,25 @@ INBOX_DOMAINS = {
     "aol.com": ("AOL Mail", "https://mail.aol.com/"),
 }
 
+# Backward aliases live in space_profiles. Keep a snapshot for older zips.
 PROFILE_FEATURES = {
-    "lite": ("stt",),
-    "full": ("stt", "tts", "twin"),
-    "max": ("stt", "tts", "twin", "vision"),
+    "small": ("stt", "tts"),
+    "medium": ("stt", "tts", "twin", "voice_clone"),
+    "large": ("stt", "tts", "twin", "vision", "voicebox", "qwen3_tts", "latentsync", "avatar"),
+    "dedicated": (
+        "stt",
+        "tts",
+        "twin",
+        "vision",
+        "voicebox",
+        "qwen3_tts",
+        "latentsync",
+        "avatar",
+        "machine_role",
+    ),
+    "lite": ("stt", "tts"),
+    "full": ("stt", "tts", "twin", "voice_clone"),
+    "max": ("stt", "tts", "twin", "vision", "voicebox", "qwen3_tts", "latentsync", "avatar"),
 }
 
 _SERVICES = (
@@ -186,4 +201,9 @@ def local_handoffs(email: str = "") -> list[dict]:
 
 
 def provision_features(profile_id: str) -> list[str]:
-    return list(PROFILE_FEATURES.get(profile_id) or PROFILE_FEATURES["full"])
+    try:
+        from .space_profiles import provision_features as _features
+
+        return _features(profile_id)
+    except Exception:
+        return list(PROFILE_FEATURES.get(profile_id) or PROFILE_FEATURES["medium"])
