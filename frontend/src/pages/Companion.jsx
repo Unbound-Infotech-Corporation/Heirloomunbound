@@ -142,7 +142,7 @@ export default function Companion() {
           Your hands on the machine.
         </h1>
         <p className="mt-3 text-base max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          Heirloom on Windows is a native WinUI studio — Adobe chrome, a dedicated Volume Mixer session, local Whisper and Ollama, a vault meant to outlive you. A second PC that only runs this is the ultimate rig; most people run it on the machine they already have. 50 GB is the serious floor.
+          Heirloom Unbound on Windows is a native WinUI studio — Adobe chrome, a dedicated Volume Mixer session, local Whisper and Ollama, a vault meant to outlive you. Install sizes: Small 5–12 GB, Medium 40–70 GB, Large 100–160 GB, Dedicated PC 200 GB+ (this machine exists for the twin).
         </p>
       </header>
 

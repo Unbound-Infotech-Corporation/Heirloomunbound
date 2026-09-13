@@ -9,8 +9,14 @@ public sealed class AppSettings
     public string BackendUrl { get; set; } = "https://voice-clone-hub-20.emergent.host";
     public bool SetupComplete { get; set; }
     public bool SetupSkipped { get; set; }
-    public string DiskProfile { get; set; } = "full";
+    public string DiskProfile { get; set; } = "medium";
+    public string InstallProfile { get; set; } = "medium";
     public string MachineRole { get; set; } = "daily";
+    public bool DedicatedConsent { get; set; }
+    public bool StartWithWindows { get; set; }
+    public bool PowerPlanConsent { get; set; }
+    public bool WarmEngines { get; set; }
+    public bool BrandingDedicated { get; set; }
     public string LibraryPath { get; set; } = "";
     public string ComputeTarget { get; set; } = "local";
     public string AppMode { get; set; } = "owner";

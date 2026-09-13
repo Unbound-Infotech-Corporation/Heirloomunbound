@@ -32,6 +32,13 @@ def _schedule_midnight_maintenance(window: MainWindow) -> None:
                 Maintenance().run_async()
             except Exception as exc:  # noqa: BLE001
                 print(f"[scheduler] maintenance failed: {exc}")
+            try:
+                if config.load_settings().get("install_profile") == "dedicated":
+                    from .dedicated import overnight_maintenance_stub
+
+                    overnight_maintenance_stub()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[scheduler] dedicated overnight stub: {exc}")
         _arm()
 
     def _arm():
@@ -48,8 +55,8 @@ def _schedule_midnight_maintenance(window: MainWindow) -> None:
 def main() -> int:
     set_app_identity()
     app = QApplication(sys.argv)
-    app.setApplicationName("Heirloom")
-    app.setApplicationDisplayName("Heirloom")
+    app.setApplicationName("Heirloom Unbound")
+    app.setApplicationDisplayName("Heirloom Unbound")
     app.setOrganizationName("Unbound Infotech")
     app.setQuitOnLastWindowClosed(False)  # tray keeps us alive
 
@@ -72,6 +79,13 @@ def main() -> int:
 
     def _after_splash() -> None:
         settings = config.load_settings()
+        if settings.get("install_profile") == "dedicated" or settings.get("warm_engines"):
+            try:
+                from .dedicated import warm_engine_probes
+
+                warm_engine_probes()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[dedicated] warm probes skipped: {exc}")
         if not settings.get("setup_complete") and not settings.get("setup_skipped"):
             from .ui.setup_wizard import FirstRunWizard
 

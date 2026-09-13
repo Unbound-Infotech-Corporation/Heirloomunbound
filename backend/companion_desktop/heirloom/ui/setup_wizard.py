@@ -16,10 +16,12 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QRadioButton,
     QStackedWidget,
@@ -29,11 +31,13 @@ from PySide6.QtWidgets import (
 
 from .. import api, config
 from ..models import provision
+from ..space_profiles import recommend_profile, space_profile
 from ..vendor_handoffs import local_handoffs, provision_features
 from ..vault import vault_root
 from . import PALETTE, QSS
 
-PAGES = ("welcome", "space", "email", "phone", "finish", "cloud")
+PAGES = ("welcome", "space", "dedicated", "email", "phone", "finish", "cloud")
+_RADIO_ORDER = ("small", "medium", "large", "dedicated")
 
 
 def _free_gb(path) -> Optional[float]:
@@ -48,16 +52,17 @@ class _ProvisionThread(QThread):
     line = Signal(str)
     done = Signal(dict)
 
-    def __init__(self, features: list[str], parent=None):
+    def __init__(self, features: list[str], profile_id: str = "medium", parent=None):
         super().__init__(parent)
         self._features = features
+        self._profile_id = profile_id
 
     def run(self) -> None:
         def note(msg: str) -> None:
             self.line.emit(msg)
 
         try:
-            probe = provision(self._features, progress=note)
+            probe = provision(self._features, progress=note, profile_id=self._profile_id)
             self.done.emit(probe if isinstance(probe, dict) else {"log": [str(probe)]})
         except Exception as exc:  # noqa: BLE001
             self.done.emit({"error": str(exc)})
@@ -67,12 +72,12 @@ class FirstRunWizard(QDialog):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setStyleSheet(QSS)
-        self.setWindowTitle("Heirloom · First-run setup")
+        self.setWindowTitle("Heirloom Unbound · First-run setup")
         self.setModal(True)
-        self.resize(720, 640)
+        self.resize(760, 680)
         self._page = 0
         self._email = ""
-        self._profile = "full"
+        self._profile = "medium"
         self._phone_feats = ["twin", "capture", "journal", "reminders"]
         self._pair_code = ""
         self._prov: Optional[_ProvisionThread] = None
@@ -87,9 +92,9 @@ class FirstRunWizard(QDialog):
     def _build(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 24, 28, 24)
-        over = QLabel("FIRST USE · THIS PC")
+        over = QLabel("HEIRLOOM UNBOUND · FIRST USE")
         over.setProperty("class", "overline")
-        title = QLabel("Set up Heirloom once")
+        title = QLabel("Set up Heirloom Unbound once")
         title.setObjectName("brand")
         root.addWidget(over)
         root.addWidget(title)
@@ -97,6 +102,7 @@ class FirstRunWizard(QDialog):
         self.stack = QStackedWidget()
         self.stack.addWidget(self._page_welcome())
         self.stack.addWidget(self._page_space())
+        self.stack.addWidget(self._page_dedicated())
         self.stack.addWidget(self._page_email())
         self.stack.addWidget(self._page_phone())
         self.stack.addWidget(self._page_finish())
@@ -129,15 +135,17 @@ class FirstRunWizard(QDialog):
         w = QWidget()
         lay = QVBoxLayout(w)
         free = _free_gb(vault_root())
+        rec = recommend_profile(free) if free is not None else "medium"
+        rec_label = space_profile(rec)["label"]
         free_txt = f"{free:.0f} GB free on this drive." if free is not None else "Could not read free disk."
         lay.addWidget(self._body(
-            "Full power (local Whisper, Ollama twin, Piper, vault) uses about "
-            f"20–50 GB. {free_txt}\n\n"
-            "We run as much as possible on this PC for privacy and speed.\n\n"
-            "Cloud vendors (ElevenLabs, D-ID, fal) come after local models download, "
-            "so screen vision is ready. Heirloom opens official pages and watches the "
-            "screen. You click Create account and I'm not a robot — it cannot sign up "
-            "on those sites or read keys off the screen."
+            "Heirloom Unbound Setup feels like a studio installer: pick an install "
+            f"size, then we download models onto this PC. {free_txt} Suggested: {rec_label}.\n\n"
+            "Small (~5–12 GB) works without a GPU. Large is 100–160 GB of local goods. "
+            "Dedicated PC consecrates this machine for the twin.\n\n"
+            "Local models stay on this computer. Cloud vendors (ElevenLabs, D-ID, fal) "
+            "come after downloads. You click Create account and I'm not a robot — "
+            "Heirloom Unbound cannot sign up on those sites or read keys off the screen."
         ))
         lay.addStretch(1)
         return w
@@ -145,17 +153,76 @@ class FirstRunWizard(QDialog):
     def _page_space(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.addWidget(self._body("How much of this machine should Heirloom use?"))
+        lay.addWidget(self._body("Choose an Heirloom Unbound install size. Downloads resume if they pause."))
         self._space_group = QButtonGroup(self)
-        self._space_full = QRadioButton("Full local (recommended) · 20–35 GB · Whisper + Ollama llama3.1")
-        self._space_max = QRadioButton("Maximum · 40–50 GB · also llava vision + keep every recording")
-        self._space_lite = QRadioButton("Lite · 3–8 GB · Whisper only, cloud twin fallback")
-        self._space_full.setChecked(True)
-        for i, btn in enumerate((self._space_lite, self._space_full, self._space_max)):
+        radios = {
+            "small": "Small · 5–12 GB · Whisper + Piper + lite vault. Twin/TTS/avatar stay cloud Auto. No GPU.",
+            "medium": "Medium · 40–70 GB · Small + Ollama llama3.1 + one voice-clone path (Qwen3-TTS 0.6B or Voicebox).",
+            "large": "Large · 100–160 GB · Whisper large-v3, stronger twin + vision, Voicebox AND Qwen3-TTS 1.7B, LatentSync.",
+            "dedicated": "Dedicated PC · 200 GB+ · Everything in Large, plus this machine exists for Heirloom Unbound.",
+        }
+        self._space_btns: dict[str, QRadioButton] = {}
+        for i, pid in enumerate(_RADIO_ORDER):
+            btn = QRadioButton(radios[pid])
+            btn.setWordWrap(True)
+            if pid == "medium":
+                btn.setChecked(True)
             self._space_group.addButton(btn, i)
+            self._space_btns[pid] = btn
             lay.addWidget(btn)
         lay.addStretch(1)
         return w
+
+    def _page_dedicated(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.addWidget(self._body(
+            "This PC exists for Heirloom Unbound. The twin lives here: models stay "
+            "warm, the vault prefers a second disk, and Windows can start Heirloom "
+            "Unbound when you sign in. You can still turn live listen off later."
+        ))
+        self._ded_consent = QCheckBox("This PC exists for Heirloom Unbound")
+        self._ded_consent.setChecked(True)
+        lay.addWidget(self._ded_consent)
+
+        lay.addWidget(self._body("Vault / data drive (a second disk is recommended)."))
+        drive_row = QHBoxLayout()
+        self._vault_drive = QLineEdit()
+        self._vault_drive.setPlaceholderText(str(vault_root()))
+        browse = QPushButton("Browse…")
+        browse.setObjectName("ghost")
+        browse.clicked.connect(self._browse_vault)
+        drive_row.addWidget(self._vault_drive, 1)
+        drive_row.addWidget(browse)
+        lay.addLayout(drive_row)
+
+        self._ded_startup = QCheckBox("Start Heirloom Unbound with Windows (this user)")
+        self._ded_startup.setChecked(True)
+        lay.addWidget(self._ded_startup)
+        lay.addWidget(self._body(
+            "Optional always-on service: Task Scheduler can keep Heirloom Unbound "
+            "warm when nobody is signed in. Setup does not install a Windows service."
+        ))
+        self._ded_power = QCheckBox("Apply the high-performance power plan (I consent — do not silently fight IT policy)")
+        self._ded_power.setChecked(False)
+        lay.addWidget(self._ded_power)
+        self._ded_warm = QCheckBox("Warm Ollama, Voicebox, Qwen3-TTS, and LatentSync listeners")
+        self._ded_warm.setChecked(True)
+        lay.addWidget(self._ded_warm)
+        self._ded_listen = QCheckBox("Default standing routines and live room listen toward on (still togglable)")
+        self._ded_listen.setChecked(True)
+        lay.addWidget(self._ded_listen)
+        self._ded_brand = QCheckBox("Optional desktop / lock mark: Heirloom Unbound · Dedicated")
+        self._ded_brand.setChecked(False)
+        lay.addWidget(self._ded_brand)
+        lay.addWidget(self._body("Overnight maintenance will re-check models so this dedicated PC stays current."))
+        lay.addStretch(1)
+        return w
+
+    def _browse_vault(self) -> None:
+        picked = QFileDialog.getExistingDirectory(self, "Heirloom Unbound vault drive", self._vault_drive.text() or str(vault_root()))
+        if picked:
+            self._vault_drive.setText(picked)
 
     def _page_email(self) -> QWidget:
         w = QWidget()
@@ -227,20 +294,56 @@ class FirstRunWizard(QDialog):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.addWidget(self._body(
-            "Download local models for your disk profile first. After that, the vendor "
-            "guide can watch the screen. Keep this window open while files download."
+            "Download local models for your Heirloom Unbound install size. "
+            "Partial downloads resume. An engine that fails gets a coach line — "
+            "Setup does not abort unless the app itself cannot be written."
         ))
-        self.finish_log = QLabel("Waiting to start…")
-        self.finish_log.setWordWrap(True)
-        lay.addWidget(self.finish_log)
+        self.finish_log = QPlainTextEdit()
+        self.finish_log.setReadOnly(True)
+        self.finish_log.setPlainText("Waiting to start…")
+        self.finish_log.setStyleSheet(
+            f"font-family: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace; "
+            f"font-size: 12px; color: {PALETTE['text_secondary']}; "
+            f"background: {PALETTE['bg_elevated']};"
+        )
+        lay.addWidget(self.finish_log, 1)
         lay.addStretch(1)
         return w
+
+    def _log_line(self, msg: str) -> None:
+        cur = self.finish_log.toPlainText().strip()
+        if cur in {"", "Waiting to start…"}:
+            self.finish_log.setPlainText(msg)
+        else:
+            self.finish_log.appendPlainText(msg)
+        self.finish_log.verticalScrollBar().setValue(self.finish_log.verticalScrollBar().maximum())
+
+    def _page_visible(self, page_id: str) -> bool:
+        if page_id == "dedicated":
+            return self._profile_id() == "dedicated"
+        return True
+
+    def _step(self, delta: int) -> None:
+        idx = self._page
+        while True:
+            idx += delta
+            if idx < 0 or idx >= len(PAGES):
+                return
+            if self._page_visible(PAGES[idx]):
+                self._page = idx
+                self.stack.setCurrentIndex(self._page)
+                self._sync_nav()
+                if PAGES[self._page] == "cloud":
+                    self._start_coach()
+                return
 
     def _sync_nav(self) -> None:
         page_id = PAGES[self._page]
         self.back_btn.setEnabled(self._page > 0 and not self._downloading)
         self.next_btn.setEnabled(not self._downloading)
-        if page_id == "finish" and not self._provisioned:
+        if page_id == "dedicated":
+            self.next_btn.setText("Consecrate this PC")
+        elif page_id == "finish" and not self._provisioned:
             self.next_btn.setText("Download models")
         elif page_id == "cloud":
             self.next_btn.setText("Done")
@@ -249,18 +352,34 @@ class FirstRunWizard(QDialog):
 
     def _profile_id(self) -> str:
         checked = self._space_group.checkedId()
-        return {0: "lite", 1: "full", 2: "max"}.get(checked, "full")
+        if 0 <= checked < len(_RADIO_ORDER):
+            return _RADIO_ORDER[checked]
+        return "medium"
 
     def _collect_phone(self) -> list[str]:
         return [fid for fid, box in self._feat_boxes.items() if box.isChecked()]
 
     def _persist(self, extra: Optional[dict] = None) -> None:
+        pid = self._profile_id()
         body = {
-            "space_profile": self._profile_id(),
+            "space_profile": pid,
+            "install_profile": pid,
             "vendor_email": self.email_input.text().strip(),
             "prefer_local": True,
             "phone_features": self._collect_phone(),
         }
+        if pid == "dedicated" and hasattr(self, "_ded_consent"):
+            body.update(
+                {
+                    "dedicated_consent": self._ded_consent.isChecked(),
+                    "vault_drive": self._vault_drive.text().strip(),
+                    "start_with_windows": self._ded_startup.isChecked(),
+                    "power_plan_consent": self._ded_power.isChecked(),
+                    "warm_engines": self._ded_warm.isChecked(),
+                    "live_listen_default": self._ded_listen.isChecked(),
+                    "branding_dedicated": self._ded_brand.isChecked(),
+                }
+            )
         if extra:
             body.update(extra)
         api.put_async("/studio/first-run", body)
@@ -346,12 +465,17 @@ class FirstRunWizard(QDialog):
 
     def _back(self) -> None:
         if self._page > 0:
-            self._page -= 1
-            self.stack.setCurrentIndex(self._page)
-            self._sync_nav()
+            self._step(-1)
 
     def _next(self) -> None:
         page_id = PAGES[self._page]
+        if page_id == "dedicated" and not self._ded_consent.isChecked():
+            QMessageBox.information(
+                self,
+                "Heirloom Unbound",
+                "Dedicated PC needs the consent that this computer exists for Heirloom Unbound.",
+            )
+            return
         if page_id == "finish":
             if self._provisioned:
                 self._goto_page("cloud")
@@ -362,11 +486,9 @@ class FirstRunWizard(QDialog):
             self._complete_setup()
             return
         self._persist()
-        self._page += 1
-        self.stack.setCurrentIndex(self._page)
-        self._sync_nav()
-        if PAGES[self._page] == "cloud":
-            self._start_coach()
+        if page_id == "dedicated":
+            self._apply_dedicated()
+        self._step(1)
 
     def _goto_page(self, page_id: str) -> None:
         if page_id not in PAGES:
@@ -394,26 +516,37 @@ class FirstRunWizard(QDialog):
             on_err=self._complete_missing,
         )
 
+    def _apply_dedicated(self) -> None:
+        try:
+            from ..dedicated import apply_machine_role
+
+            apply_machine_role(
+                consent=self._ded_consent.isChecked(),
+                vault_drive=self._vault_drive.text().strip(),
+                start_with_windows=self._ded_startup.isChecked(),
+                power_plan_consent=self._ded_power.isChecked(),
+                warm_engines=self._ded_warm.isChecked(),
+                live_listen=self._ded_listen.isChecked(),
+                branding=self._ded_brand.isChecked(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Dedicated PC", str(exc))
+
     def _complete_missing(self, _msg: str) -> None:
         """Local models still install when /api/studio/first-run is not on this cloud."""
         self._cloud_offline = True
-        self.finish_log.setText(
-            "Cloud has no first-run API yet. Downloading local models on this PC anyway…"
-        )
+        self._log_line("Cloud has no first-run API yet. Downloading local models on this PC anyway…")
         self._on_complete_ok(
             {"space_profile": {"provision_features": provision_features(self._profile_id())}}
         )
 
 
     def _on_complete_ok(self, data: dict) -> None:
-        features = ((data or {}).get("space_profile") or {}).get("provision_features") or [
-            "stt",
-            "tts",
-            "twin",
-        ]
-        self.finish_log.setText("Downloading local models…")
-        self._prov = _ProvisionThread(list(features), self)
-        self._prov.line.connect(lambda m: self.finish_log.setText(m))
+        pid = self._profile_id()
+        features = ((data or {}).get("space_profile") or {}).get("provision_features") or provision_features(pid)
+        self._log_line(f"Downloading Heirloom Unbound · {space_profile(pid)['label']}…")
+        self._prov = _ProvisionThread(list(features), pid, self)
+        self._prov.line.connect(self._log_line)
         self._prov.done.connect(self._on_provisioned)
         self._prov.start()
 
@@ -428,8 +561,14 @@ class FirstRunWizard(QDialog):
                 f"A download failed:\n{err}\n\nThe vendor guide still opens. "
                 "Screen watch uses cloud vision when local llava is missing.",
             )
+            self._log_line(f"coach: {err}")
         else:
-            self.finish_log.setText("Models ready. Opening the vendor guide…")
+            self._log_line("Models ready. Opening the vendor guide…")
+        if self._profile_id() == "dedicated":
+            s = config.load_settings()
+            s["install_profile"] = "dedicated"
+            config.save_settings(s)
+            self._log_line("install_profile: dedicated")
         self._goto_page("cloud")
 
     def _complete_setup(self) -> None:
@@ -437,5 +576,10 @@ class FirstRunWizard(QDialog):
         s = config.load_settings()
         s["setup_complete"] = True
         s["setup_skipped"] = False
+        pid = self._profile_id()
+        s["space_profile"] = pid
+        s["install_profile"] = pid
+        if pid == "dedicated":
+            s["machine_role"] = "dedicated"
         config.save_settings(s)
         self.accept()

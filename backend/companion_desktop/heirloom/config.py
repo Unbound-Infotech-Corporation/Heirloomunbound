@@ -57,6 +57,18 @@ _DEFAULTS: Dict[str, Any] = {
     "last_maintenance_at": None,
     "setup_complete": False,
     "setup_skipped": False,
+    "space_profile": "medium",
+    "install_profile": "medium",
+    "disk_profile": "medium",
+    "machine_role": "daily",
+    "dedicated_consent": False,
+    "vault_drive": None,
+    "start_with_windows": False,
+    "power_plan_consent": False,
+    "warm_engines": False,
+    "live_listen_default": False,
+    "branding_dedicated": False,
+    "standing_routines_default": False,
 }
 
 

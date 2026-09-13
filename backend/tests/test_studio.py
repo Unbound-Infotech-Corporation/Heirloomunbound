@@ -178,12 +178,13 @@ def test_engine_probes_refused_without_crash():
 
 def test_clamp_setup_space_and_email():
     out = clamp_setup({"space_profile": "max", "vendor_email": "YOU@Example.COM", "phone_features": ["twin", "live_listen"]})
-    assert out["space_profile"] == "max"
+    assert out["space_profile"] == "large"
+    assert out["install_profile"] == "large"
     assert out["vendor_email"] == "you@example.com"
     assert "live_listen" not in out["phone_features"]
     assert "twin" in out["phone_features"]
     junk = clamp_setup({"space_profile": "huge", "vendor_email": "not-an-email"})
-    assert junk["space_profile"] == "full"
+    assert junk["space_profile"] == "medium"
     assert junk["vendor_email"] == ""
 
 
@@ -404,7 +405,8 @@ def test_first_run_and_phone_pair(studio_user):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["settings"]["complete"] is False
-    assert body["catalog"]["full_power_gb"]["min"] == 20
+    assert body["catalog"]["full_power_gb"]["min"] == 100
+    assert [p["id"] for p in body["catalog"]["space_profiles"]] == ["small", "medium", "large", "dedicated"]
     assert "vendor_signup_policy" in body["catalog"]
     assert "watch" in body["catalog"]["vendor_signup_policy"].lower()
     assert "handoffs" in body
@@ -417,7 +419,8 @@ def test_first_run_and_phone_pair(studio_user):
         timeout=15,
     )
     assert r.status_code == 200, r.text
-    assert r.json()["settings"]["space_profile"] == "lite"
+    assert r.json()["settings"]["space_profile"] == "small"
+    assert r.json()["settings"]["install_profile"] == "small"
     assert r.json()["settings"]["vendor_email"] == "setup@example.com"
 
     r = requests.get(f"{API}/studio/first-run/handoff/elevenlabs", headers=h, timeout=15)

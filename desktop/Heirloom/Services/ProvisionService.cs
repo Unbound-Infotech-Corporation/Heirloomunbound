@@ -1,54 +1,7 @@
 using System.Diagnostics;
+using System.Linq;
 
 namespace Heirloom.Services;
-
-public sealed record DiskProfile(
-    string Id,
-    string Label,
-    int GbMin,
-    int GbMax,
-    string Summary,
-    IReadOnlyList<string> Includes,
-    IReadOnlyList<string> ProvisionFeatures);
-
-public static class DiskProfiles
-{
-    public static IReadOnlyList<DiskProfile> All { get; } =
-    [
-        new(
-            "lite",
-            "Lite",
-            3,
-            8,
-            "Local Whisper for journals. Twin and voice can use cloud fallbacks.",
-            ["faster-whisper / Whisper.net base", "Vault: daily summaries only", "Cloud twin/TTS if you add keys"],
-            ["stt"]),
-        new(
-            "full",
-            "Full local",
-            20,
-            35,
-            "Whisper + Ollama + local speech on this PC. Cloud keys are optional extras.",
-            ["Whisper.net base", "Ollama + llama3.1 (~5–8 GB)", "Vault: transcripts forever, audio 30 days"],
-            ["stt", "tts", "twin"]),
-        new(
-            "studio",
-            "Studio (recommended serious)",
-            40,
-            80,
-            "50 GB is the serious floor: twin, speech, vault headroom. Not the ceiling.",
-            ["Whisper + Ollama llama3.1 + vision optional", "Keep recordings", "Headroom for a larger instruct model"],
-            ["stt", "tts", "twin", "vision"]),
-        new(
-            "dedicated",
-            "Dedicated / custom",
-            50,
-            0,
-            "No 50 GB cap. Point Heirloom at a drive and pull whatever this machine can hold.",
-            ["User-chosen Ollama models", "Keep every recording", "Meant for a second PC that only runs Heirloom"],
-            ["stt", "tts", "twin", "vision"]),
-    ];
-}
 
 public sealed class ProvisionService
 {
@@ -77,19 +30,55 @@ public sealed class ProvisionService
         CancellationToken cancellationToken = default)
     {
         IProgress<string> mapped = new Progress<string>(m => progress.Report(SetupCopy.FriendlyLine(m)));
-        mapped.Report("Getting this computer ready");
+        mapped.Report("Heirloom Unbound · " + profile.Label);
+        mapped.Report("No Pinokio. Official downloads only. Engine failure coaches and continues.");
         Directory.CreateDirectory(AppPaths.ModelsRoot);
 
         if (profile.ProvisionFeatures.Contains("stt"))
         {
-            await _whisper.DownloadAndEnsureAsync(mapped, cancellationToken).ConfigureAwait(false);
-            mapped.Report(_whisper.Status);
+            try
+            {
+                await _whisper.DownloadAndEnsureAsync(mapped, cancellationToken).ConfigureAwait(false);
+                mapped.Report(_whisper.Status);
+            }
+            catch (Exception ex)
+            {
+                mapped.Report(SetupCopy.HumanFault(ex, "getting hearing ready", cancellationToken));
+                if (profile.Id == "small")
+                {
+                    LastMessage = mapped is null ? "Hearing paused" : LastMessage;
+                }
+            }
         }
 
         var needsMind = profile.ProvisionFeatures.Contains("twin") || profile.ProvisionFeatures.Contains("vision");
         if (needsMind)
         {
-            await EnsureMindAsync(allowInstall, pullVision: profile.ProvisionFeatures.Contains("vision"), mapped, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await EnsureMindAsync(allowInstall, pullVision: profile.ProvisionFeatures.Contains("vision"), mapped, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                mapped.Report(SetupCopy.HumanFault(ex, "getting the talking mind ready", cancellationToken));
+            }
+        }
+        else
+        {
+            mapped.Report("Small install: the talking mind stays a cloud Auto fallback. Ollama is not required.");
+        }
+
+        if (profile.ProvisionFeatures.Any(f => f is "voicebox" or "qwen3_tts" or "latentsync" or "voice_clone" or "avatar"))
+        {
+            mapped.Report("Voicebox: official MSI or Docker, then Probe. Setup continues if it is not listening.");
+            mapped.Report("Qwen3-TTS: pip or Docker, OpenAI-compatible /v1/models. Setup continues if it is not listening.");
+            mapped.Report("LatentSync: start the local HTTP engine. MuseTalk only when the license allows. Never Pinokio.");
+        }
+
+        if (profile.MachineRole)
+        {
+            mapped.Report("Dedicated PC: write install_profile so Models Studio and Terminal know this role.");
+            mapped.Report(DedicatedRole.OvernightMaintenanceHint());
         }
 
         LastMessage = "Finished";

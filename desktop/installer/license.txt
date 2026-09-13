@@ -1,0 +1,13 @@
+Heirloom Unbound
+Copyright Unbound Infotech Corporation
+
+This software is licensed to you for use with Heirloom Unbound on computers
+you control. Local models, vault recordings, and likeness engines stay on
+this PC unless you choose a cloud fallback.
+
+You are responsible for third-party model and engine licenses (Ollama,
+Whisper, Voicebox, Qwen3-TTS, LatentSync, MuseTalk, Piper). Heirloom Unbound
+does not use Pinokio and does not install engines that require a license you
+have not accepted.
+
+THE SOFTWARE IS PROVIDED AS-IS, WITHOUT WARRANTY OF ANY KIND.
