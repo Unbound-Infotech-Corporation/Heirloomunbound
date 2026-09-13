@@ -1,10 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { api } from "./api";
 import { clearSentryUser, setSentryUser } from "@/instrument";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
+  const location = useLocation();
+  const onHeirPortal = location.pathname.startsWith("/heir/");
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -34,8 +37,14 @@ export function AuthProvider({ children }) {
       setLoading(false);
       return;
     }
+    // Gift view: do not load the owner session into this page.
+    if (onHeirPortal) {
+      applyUser(null);
+      setLoading(false);
+      return;
+    }
     checkAuth();
-  }, [checkAuth]);
+  }, [checkAuth, onHeirPortal, applyUser]);
 
   const logout = useCallback(async () => {
     try {
