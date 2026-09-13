@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Loader2, Sparkles } from "lucide-react";
+import AssistReceipt from "../components/studio/AssistReceipt";
+import { shouldShowReceipt, splitOwnerLegs } from "../lib/assistReceipt";
 import { api } from "../lib/api";
 
 const CHIP = {
@@ -67,6 +69,9 @@ export default function Owner() {
             rail_legs: data.rail_legs,
             tool_trace: data.tool_trace,
             action: data.action,
+            receipt: data.receipt,
+            twin_reply: data.twin_reply,
+            assist_reply: data.assist_reply,
           },
         ],
       }));
@@ -152,9 +157,7 @@ export default function Owner() {
                   <span>teammate</span>
                   {m.rail_chip ? <RailChip chip={m.rail_chip} testid={`owner-chip-${i}`} /> : null}
                 </div>
-                <p className="font-serif text-xl lg:text-2xl leading-snug" style={{ color: "var(--text-primary)" }}>
-                  {m.content}
-                </p>
+                <OwnerAssistantBody message={m} index={i} />
               </div>
             ) : (
               <div>
@@ -211,5 +214,45 @@ export default function Owner() {
         </div>
       </div>
     </div>
+  );
+}
+
+function OwnerAssistantBody({ message, index }) {
+  const rail = String(message.rail || "").toLowerCase();
+  const { twinReply, assistReply } = splitOwnerLegs(message);
+  const showReceipt = shouldShowReceipt(message);
+  const both = rail === "both" || (twinReply && (assistReply || showReceipt));
+
+  if (both) {
+    return (
+      <div className="space-y-6" data-testid={`owner-both-${index}`}>
+        {twinReply ? (
+          <div data-testid={`owner-twin-leg-${index}`}>
+            <div className="overline mb-2">as you</div>
+            <p className="font-serif text-xl lg:text-2xl leading-snug" style={{ color: "var(--text-primary)" }}>
+              {twinReply}
+            </p>
+          </div>
+        ) : null}
+        <div data-testid={`owner-assist-leg-${index}`}>
+          <div className="overline mb-2">do</div>
+          {assistReply ? (
+            <p className="font-serif text-xl lg:text-2xl leading-snug" style={{ color: "var(--text-primary)" }}>
+              {assistReply}
+            </p>
+          ) : null}
+          {showReceipt ? <AssistReceipt receipt={message.receipt} testid={`assist-receipt-${index}`} /> : null}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <p className="font-serif text-xl lg:text-2xl leading-snug" style={{ color: "var(--text-primary)" }}>
+        {message.content}
+      </p>
+      {showReceipt ? <AssistReceipt receipt={message.receipt} testid={`assist-receipt-${index}`} /> : null}
+    </>
   );
 }

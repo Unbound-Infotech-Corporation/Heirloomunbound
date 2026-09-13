@@ -6,4 +6,5 @@ export { default as StudioPanel } from "./StudioPanel";
 export { default as StudioFieldRow } from "./StudioFieldRow";
 export { default as StudioTabs } from "./StudioTabs";
 export { default as StudioWorkspace } from "./StudioWorkspace";
+export { default as AssistReceipt } from "./AssistReceipt";
 export { getWindowMenus, getAppMenubarItems } from "./menuDefinitions";

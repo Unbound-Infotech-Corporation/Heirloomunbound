@@ -287,6 +287,7 @@ class TwinTurnResult:
     conversation_id: str = ""
     ts: str = ""
     backend: str = "cloud_claude"
+    receipt: Optional[dict] = None
 
 
 @dataclass
@@ -593,13 +594,15 @@ async def run_twin_turn(
             "queued": result["queued"],
         }
         ts = _now_iso()
+        receipt = _receipt_for_role(role, None, reply=reply)
         if persist:
             await _persist_pair(
                 user_id, conversation_id, text, reply, ts,
-                source=source, action=action,
+                source=source, action=action, receipt=receipt,
             )
         return TwinTurnResult(
             reply=reply, action=action, conversation_id=conversation_id, ts=ts,
+            receipt=receipt,
         )
 
     # Skill short-circuit — owner cell only on a phone call.
@@ -625,13 +628,15 @@ async def run_twin_turn(
             "status": result.get("status", 0),
         }
         ts = _now_iso()
+        receipt = _receipt_for_role(role, None, reply=reply)
         if persist:
             await _persist_pair(
                 user_id, conversation_id, text, reply, ts,
-                source=source, action=action,
+                source=source, action=action, receipt=receipt,
             )
         return TwinTurnResult(
             reply=reply, action=action, conversation_id=conversation_id, ts=ts,
+            receipt=receipt,
         )
 
     await rate_limit(user_id, "twin", max_calls=20, per_seconds=60)
@@ -649,16 +654,18 @@ async def run_twin_turn(
     if pack.grounded_miss:
         reply = miss_reply(True, spoken=phone)
         ts = _now_iso()
+        receipt = _receipt_for_role(role, None, reply=reply)
         if persist:
             await _persist_pair(
                 user_id, conversation_id, text, reply, ts,
-                source=source,
+                source=source, receipt=receipt,
             )
         return TwinTurnResult(
             reply=reply,
             conversation_id=conversation_id,
             ts=ts,
             backend="grounded_miss",
+            receipt=receipt,
         )
 
     system = pack.system
@@ -687,10 +694,11 @@ async def run_twin_turn(
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError(f"Local twin (Ollama) failed: {exc!s}") from exc
             ts = _now_iso()
+            receipt = _receipt_for_role(role, tool_trace, reply=reply)
             if persist:
                 await _persist_pair(
                     user_id, conversation_id, text, reply, ts,
-                    source=source, tool_trace=tool_trace,
+                    source=source, tool_trace=tool_trace, receipt=receipt,
                 )
                 if summarise:
                     try:
@@ -703,6 +711,7 @@ async def run_twin_turn(
                 conversation_id=conversation_id,
                 ts=ts,
                 backend=backend_used,
+                receipt=receipt,
             )
 
     initial_messages = [{"role": "system", "content": system}]
@@ -734,6 +743,7 @@ async def run_twin_turn(
                     "name": tc.name,
                     "args": tc.arguments,
                     "ui": result.get("ui") or {},
+                    "summary": (result.get("summary") or "")[:280],
                     "ts": _now_iso(),
                 })
             resp = await chat.send_message_with_tools()
@@ -743,10 +753,11 @@ async def run_twin_turn(
     backend_used = "cloud_claude"
 
     ts = _now_iso()
+    receipt = _receipt_for_role(role, tool_trace, reply=reply)
     if persist:
         await _persist_pair(
             user_id, conversation_id, text, reply, ts,
-            source=source, tool_trace=tool_trace,
+            source=source, tool_trace=tool_trace, receipt=receipt,
         )
         if summarise:
             try:
@@ -760,6 +771,7 @@ async def run_twin_turn(
         conversation_id=conversation_id,
         ts=ts,
         backend=backend_used,
+        receipt=receipt,
     )
 
 
@@ -768,6 +780,17 @@ async def _safe_summarise(user_id: str, conversation_id: str) -> None:
         await maybe_summarise_episode(user_id, conversation_id)
     except Exception:  # noqa: BLE001
         pass
+
+
+def _receipt_for_role(
+    role: str,
+    tool_trace: Optional[list[dict]],
+    *,
+    reply: str = "",
+) -> Optional[dict]:
+    from assist_receipt import receipt_for_role
+
+    return receipt_for_role(role, tool_trace, reply=reply)
 
 
 async def _persist_pair(
@@ -783,6 +806,9 @@ async def _persist_pair(
     rail: Optional[str] = None,
     rail_chip: Optional[str] = None,
     rail_legs: Optional[list[str]] = None,
+    receipt: Optional[dict] = None,
+    twin_reply: Optional[str] = None,
+    assist_reply: Optional[str] = None,
 ) -> None:
     user_turn: dict[str, Any] = {
         "role": "user", "content": user_text, "ts": ts, "source": source,
@@ -800,6 +826,12 @@ async def _persist_pair(
         assistant_turn["rail_chip"] = rail_chip
     if rail_legs:
         assistant_turn["rail_legs"] = list(rail_legs)
+    if receipt:
+        assistant_turn["receipt"] = receipt
+    if twin_reply:
+        assistant_turn["twin_reply"] = twin_reply
+    if assist_reply:
+        assistant_turn["assist_reply"] = assist_reply
     await db.conversations.update_one(
         {"conversation_id": conversation_id, "user_id": user_id},
         {

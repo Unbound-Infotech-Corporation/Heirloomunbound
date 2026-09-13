@@ -39,7 +39,11 @@ async def get_owner_conversation(user: dict = Depends(get_current_user), limit: 
 
 @router.post("/chat")
 async def owner_chat(body: OwnerChatReq, user: dict = Depends(get_current_user)):
-    """Owner-only teammate turn. Always audience=owner; never an heir surface."""
+    """Owner-only teammate turn. Always audience=owner; never an heir surface.
+
+    Assist / Do legs include `receipt`. Both-leg turns also return
+    `twin_reply` and `assist_reply` so Sit can keep Ask and Do separate.
+    """
     if user.get("account_status") == "refunded":
         raise HTTPException(status_code=403, detail="account_inactive")
 

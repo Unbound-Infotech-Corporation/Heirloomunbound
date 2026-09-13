@@ -117,6 +117,9 @@ def test_owner_page_is_one_composer_with_chips():
     assert "/owner/chat" in src
     assert "mode picker" in src
     assert "select" not in src.lower() or "mode=" not in src
+    assert "AssistReceipt" in src
+    assert "owner-twin-leg" in src
+    assert "owner-assist-leg" in src
 
 
 def test_web_twin_route_stays_twin_only():

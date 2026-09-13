@@ -104,9 +104,16 @@ WinUI Memory document is **deferred** (same as Settings → How we work). Assist
 
 ### Slice 3 — Close-loop surfaces
 
-Not in this pass.
+**This pass (web Sit / Assist receipts).** Twin-only turns stay a reply. Assist and the owner-rail Do leg attach a structured `receipt`: steps attempted, tool names, success/fail, and a one-line summary. Sit shows Plan (optional, multi-step or Confirm) → Did / Failed / Waiting for Confirm under the Do message. Both-leg turns keep Twin (`as you`) and Assist (`do` + receipt) visually separate. Confirm stays in-document — no MessageBox. WinUI Owner document is still deferred; Assist cloud fallback reads `receipt` into the Did strip.
 
-Visible result of the last Do / Ask: last-did strip, Confirm-in-document polish. No dumped menus. Assist still confirms destructive tools in the document. Slice 1 chips are the first quiet receipt.
+| Surface | Status |
+|---|---|
+| `receipt` on Assist + owner Do responses | Done |
+| Sit timeline chips (Plan / Did / Failed / Waiting for Confirm) | Done |
+| Both-leg Twin reply vs Assist receipt | Done |
+| Twin-only `/twin` + heir portal | Unchanged |
+| Confirm-in-document | Unchanged (no MessageBox) |
+| WinUI Owner document | **Follow-up.** Assist + Twin docks stay. |
 
 ### Slice 4 — Memory of work + heir fence audit
 
@@ -125,7 +132,7 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 - [x] Slice 1 owner Sit (web + `mode=owner`) with heuristic routing and chips.
 - [x] Heir / caller cannot enter `mode=owner`; PC tools only on the Assist leg.
 - [ ] Slice 1 WinUI Owner document — deferred (Assist + Twin docks remain).
-- [ ] Slice 3 close-loop strip beyond chips — deferred.
+- [x] Slice 3 Assist receipts + Sit plan/did chips (web). WinUI Owner document still deferred.
 - [ ] Slice 4 cross-session memory + full heir-fence audit pass — deferred.
 - [ ] WinUI Settings → How we work — deferred (web Settings ships in Slice 2).
 - [x] Memory Studio v1 on web (`/memory`) — facts, pairing, fence; heirs excluded.
@@ -135,7 +142,7 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 
 1. **Slice 2** — prefs + prompts (shipped).
 2. **Slice 1** — owner Sit so one composer routes Do vs Ask (this pass).
-3. **Slice 3** — close-loop surfaces so a Do leaves a visible result.
+3. **Slice 3** — close-loop receipts so a Do leaves a visible result (web Sit shipped; WinUI Owner document still follow-up).
 4. **Slice 4** — remember + heir-fence audit once the prompts have settled.
 
 Do not give heirs owner mode, pairing productivity, or PC tools.
