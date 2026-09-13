@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   BookOpen,
+  Brain,
   Camera,
   Cpu,
   Database,
@@ -47,6 +48,7 @@ const navItems = [
   { to: "/import", label: "Import", icon: Upload, tid: "nav-import" },
   { to: "/owner", label: "Sit", icon: MessageCircle, tid: "nav-owner" },
   { to: "/twin", label: "Talk to twin", icon: Sparkles, tid: "nav-twin" },
+  { to: "/memory", label: "Memory", icon: Brain, tid: "nav-memory" },
   { to: "/mixer", label: "Mixer", icon: Volume2, tid: "nav-mixer" },
   { to: "/models", label: "Models", icon: Cpu, tid: "nav-models" },
   { to: "/setup", label: "First-run setup", icon: SlidersHorizontal, tid: "nav-setup" },
@@ -72,6 +74,7 @@ const WINDOW_TITLES = {
   "/import": "Import",
   "/owner": "Sit",
   "/twin": "Twin",
+  "/memory": "Memory Studio",
   "/mixer": "Mixer",
   "/models": "Models",
   "/setup": "First-run setup",

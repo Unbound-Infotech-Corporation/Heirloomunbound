@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Handshake, Languages, Loader2, Music, Palette, ShieldOff, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { CheckCircle2, Languages, Loader2, Music, Palette, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import HowWeWorkFields from "../components/memory/HowWeWorkFields";
+import SafeTopicsFields from "../components/memory/SafeTopicsFields";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { nextSafeTopics, pairingFromMe, pairingPayload } from "../lib/memoryStudio";
 
 const WIDGETS = [
   { key: "reflection", label: "Daily reflection prompt" },
@@ -77,18 +81,14 @@ export default function Settings() {
     });
     setTtsLang(data.tts_language || "auto");
     setActivePersonaId(data.active_persona_id || null);
-    setPairing({
-      pairing_style: data.pairing_style || "teammate",
-      act_default: data.act_default !== false,
-      close_loop: data.close_loop !== false,
-      remember_prefs: data.remember_prefs !== false,
-    });
+    setPairing(pairingFromMe(data));
   };
 
   const savePairing = async (next) => {
-    setPairing(next);
+    const payload = pairingPayload(next);
+    setPairing(payload);
     try {
-      await api.put("/auth/me/preferences", next);
+      await api.put("/auth/me/preferences", payload);
       toast.success("How we work saved");
     } catch (e) {
       toast.error(e.response?.data?.detail || e.message);
@@ -198,7 +198,7 @@ export default function Settings() {
   const addTopic = async () => {
     const t = newTopic.trim();
     if (!t) return;
-    const next = Array.from(new Set([...safeTopics, t])).slice(0, 25);
+    const next = nextSafeTopics(safeTopics, t);
     setSafeTopics(next);
     setNewTopic("");
     await api.put("/auth/me/preferences", { safe_topics: next });
@@ -285,63 +285,22 @@ export default function Settings() {
         </div>
       </section>
 
-      <section className="surface p-7 mb-6" data-testid="how-we-work-section">
-        <div className="overline mb-2 flex items-center gap-2">
-          <Handshake className="h-3.5 w-3.5" /> how we work
+      <Link
+        to="/memory"
+        data-testid="settings-memory-studio-link"
+        className="surface p-5 mb-6 flex items-center justify-between gap-4 hover:opacity-90 transition-opacity"
+        style={{ border: "1px solid var(--accent)" }}
+      >
+        <div>
+          <div className="overline mb-1" style={{ color: "var(--accent)" }}>memory studio</div>
+          <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+            See and edit what the Twin holds — facts, pairing, safe-topic fence.
+          </p>
         </div>
-        <h2 className="font-serif text-2xl mb-2">Pairing style for Assist and your Twin</h2>
-        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          Owner sessions only. Heirs keep the gift voice — this never applies to a released sitting.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-5">
-          {[
-            ["teammate", "Teammate", "Decide defaults and do the job."],
-            ["wait", "Wait", "Propose the next step and wait."],
-            ["proactive", "Proactive", "Take the next obvious safe step."],
-          ].map(([id, label, hint]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => savePairing({ ...pairing, pairing_style: id })}
-              data-testid={`pairing-style-${id}`}
-              className="px-4 py-3 text-sm rounded-sm text-left transition-colors"
-              style={{
-                background: pairing.pairing_style === id ? "var(--accent)" : "var(--bg-base)",
-                color: pairing.pairing_style === id ? "var(--text-inverse)" : "var(--text-primary)",
-                border: pairing.pairing_style === id ? "1px solid var(--accent)" : "1px solid var(--border-default)",
-              }}
-            >
-              <div>{label}</div>
-              <div className="text-xs mt-1" style={{ opacity: 0.8 }}>{hint}</div>
-            </button>
-          ))}
-        </div>
-        <div className="space-y-3">
-          {[
-            ["act_default", "Act by default", "Do the work unless you asked to wait or Confirm is required."],
-            ["close_loop", "Close the loop", "After acting, report in one to three sentences."],
-            ["remember_prefs", "Remember this", "Keep this style until you change it."],
-          ].map(([key, label, hint]) => (
-            <label
-              key={key}
-              className="flex items-center justify-between px-4 py-3 rounded-sm cursor-pointer"
-              style={{ border: "1px solid var(--border-default)" }}
-              data-testid={`pairing-toggle-${key}`}
-            >
-              <span>
-                <span className="text-sm block" style={{ color: "var(--text-primary)" }}>{label}</span>
-                <span className="text-xs" style={{ color: "var(--text-muted)" }}>{hint}</span>
-              </span>
-              <input
-                type="checkbox"
-                checked={!!pairing[key]}
-                onChange={() => savePairing({ ...pairing, [key]: !pairing[key] })}
-                className="h-4 w-4"
-              />
-            </label>
-          ))}
-        </div>
-      </section>
+        <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
+      </Link>
+
+      <HowWeWorkFields pairing={pairing} onChange={savePairing} />
 
       {/* BYO keys quick-link — full setup wizard */}
       <a
@@ -624,56 +583,13 @@ export default function Settings() {
         </div>
       </section>
 
-      {/* Safe Topics — twin won't engage on these */}
-      <section className="surface p-7 mb-6" data-testid="safe-topics-section">
-        <div className="overline mb-2 flex items-center gap-2">
-          <ShieldOff className="h-3.5 w-3.5" /> safe-topic fence
-        </div>
-        <h2 className="font-serif text-2xl mb-2">What your twin won&apos;t talk about</h2>
-        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-          Add topics your twin should politely decline — politics, religion, business secrets, anything personal. Applied to all chats, including the heir portal.
-        </p>
-        <div className="flex flex-wrap gap-2 mb-4" data-testid="safe-topics-list">
-          {safeTopics.length === 0 && (
-            <span className="text-sm italic" style={{ color: "var(--text-muted)" }}>
-              No fenced topics. Your twin will engage freely.
-            </span>
-          )}
-          {safeTopics.map((t) => (
-            <span
-              key={t}
-              className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-sm"
-              style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
-              data-testid={`safe-topic-${t}`}
-            >
-              {t}
-              <button onClick={() => removeTopic(t)} className="opacity-60 hover:opacity-100">
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <input
-            value={newTopic}
-            onChange={(e) => setNewTopic(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addTopic()}
-            placeholder="Add a topic — e.g. 'politics', 'my divorce', 'work salaries'"
-            data-testid="safe-topic-input"
-            className="flex-1 px-3 py-2 text-sm rounded-sm"
-            style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
-          />
-          <button
-            onClick={addTopic}
-            disabled={!newTopic.trim()}
-            data-testid="safe-topic-add"
-            className="px-4 py-2 text-sm rounded-sm disabled:opacity-50"
-            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
-          >
-            Add
-          </button>
-        </div>
-      </section>
+      <SafeTopicsFields
+        topics={safeTopics}
+        newTopic={newTopic}
+        onNewTopicChange={setNewTopic}
+        onAdd={addTopic}
+        onRemove={removeTopic}
+      />
 
       <section className="surface p-7 mb-6" data-testid="elevenlabs-section">
         <div className="flex items-center justify-between mb-4">

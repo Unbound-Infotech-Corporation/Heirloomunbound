@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { ArrowRight, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Monitor, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
 import { api, streamSSE } from "../lib/api";
 import FirstGiftInvite from "../components/FirstGiftInvite";
@@ -248,6 +249,14 @@ export default function Twin() {
           <p className="mt-3 text-base max-w-xl" style={{ color: "var(--text-secondary)" }}>
             Your twin draws from everything you&apos;ve put into the archive. The more you&apos;ve added, the truer it sounds.
           </p>
+          <Link
+            to="/memory"
+            className="inline-block mt-3 text-xs hover:text-[var(--accent)]"
+            style={{ color: "var(--accent)" }}
+            data-testid="twin-link-memory"
+          >
+            Memory Studio — what I hold onto →
+          </Link>
         </div>
         <div className="flex items-center gap-3">
         <button
