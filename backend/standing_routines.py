@@ -7,8 +7,12 @@ Twin voice only: grounded in archive / reminders / letters, never invented.
 """
 from __future__ import annotations
 
+import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 ROUTINE_KINDS = ("morning_brief", "weekly_biographer", "sealed_letter_nudge")
 
@@ -441,3 +445,105 @@ async def gather_routine_snapshot(db: Any, user_id: str, now: datetime) -> dict[
         "entry_titles": titled,
         "entry_tags": [e.get("tags") or [] for e in titled],
     }
+
+
+async def persist_routine_nudge(db: Any, user_id: str, kind: str, payload: dict[str, Any], now: datetime) -> dict[str, Any]:
+    date_key = period_key(kind, now)
+    existing = await db.nudges.find_one(
+        {"user_id": user_id, "kind": kind, "date_key": date_key}, {"_id": 0}
+    )
+    if existing:
+        return existing
+    nudge_id = f"nud_{uuid.uuid4().hex[:12]}"
+    doc: dict[str, Any] = {
+        "nudge_id": nudge_id,
+        "user_id": user_id,
+        "date_key": date_key,
+        "kind": kind,
+        "source": "routine",
+        **payload,
+        "status": "open",
+        "created_at": now.isoformat(),
+    }
+    await db.nudges.insert_one(dict(doc))
+    doc.pop("_id", None)
+    return doc
+
+
+async def mark_routine_checked(db: Any, user_id: str, kind: str, now: datetime) -> None:
+    await db.users.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                f"standing_routines.{kind}.last_run": period_key(kind, now),
+                f"standing_routines.{kind}.last_run_at": now.isoformat(),
+            }
+        },
+    )
+
+
+async def run_due_routines(
+    db: Any,
+    user: dict,
+    *,
+    now: datetime | None = None,
+    audience: str = "owner",
+    heir_surface: bool = False,
+) -> dict[str, Any]:
+    """Fire enabled, due routines. Skip empty mornings without writing a nudge."""
+    now = now or datetime.now(timezone.utc)
+    if not routines_allowed(audience=audience, heir_surface=heir_surface):
+        return {"fired": [], "skipped": [{"kind": "*", "reason": "heir_fence"}], "quiet": True}
+
+    state = routines_from_user(user)
+    pending = due_kinds(state, now)
+    if not pending:
+        already = await db.nudges.find(
+            {
+                "user_id": user["user_id"],
+                "source": "routine",
+                "status": "open",
+                "date_key": {"$in": [period_key(k, now) for k in ROUTINE_KINDS]},
+            },
+            {"_id": 0},
+        ).to_list(length=12)
+        return {"fired": already, "skipped": [], "quiet": not already}
+
+    snapshot = await gather_routine_snapshot(db, user["user_id"], now)
+    fired: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    for kind in pending:
+        payload = compose_routine(kind, snapshot, name=user.get("name") or "")
+        await mark_routine_checked(db, user["user_id"], kind, now)
+        if not payload:
+            skipped.append({"kind": kind, "reason": skip_reason(kind, snapshot)})
+            continue
+        fired.append(await persist_routine_nudge(db, user["user_id"], kind, payload, now))
+
+    return {"fired": fired, "skipped": skipped, "quiet": not fired}
+
+
+async def run_routines_for_enabled_users(db: Any, *, limit: int = 80) -> dict[str, Any]:
+    """Background sweep — owners who opted in. Heirs are not in this query."""
+    cursor = db.users.find(
+        {
+            "$or": [
+                {"standing_routines.morning_brief.enabled": True},
+                {"standing_routines.weekly_biographer.enabled": True},
+                {"standing_routines.sealed_letter_nudge.enabled": True},
+            ]
+        },
+        {"_id": 0},
+    ).limit(limit)
+    users = await cursor.to_list(length=limit)
+    fired = 0
+    skipped = 0
+    for user in users:
+        try:
+            result = await run_due_routines(db, user, audience="owner", heir_surface=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("standing routine sweep failed for %s: %s", user.get("user_id"), exc)
+            continue
+        fired += len(result.get("fired") or [])
+        skipped += len(result.get("skipped") or [])
+    return {"users": len(users), "fired": fired, "skipped": skipped}

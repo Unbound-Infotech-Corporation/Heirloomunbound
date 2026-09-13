@@ -18,6 +18,7 @@ from standing_routines import (
     routines_allowed,
     routines_from_user,
     routines_public,
+    run_due_routines,
     skip_reason,
 )
 
@@ -187,13 +188,14 @@ def test_memory_and_settings_expose_toggles():
 def test_today_stays_quiet_on_empty_morning():
     today = (ROOT / "frontend" / "src" / "pages" / "Today.jsx").read_text(encoding="utf-8")
     assert "shouldShowNudge" in today
-    assert "quiet" in today
+    helpers = (ROOT / "frontend" / "src" / "lib" / "standingRoutines.js").read_text(encoding="utf-8")
+    assert "nudge.quiet" in helpers
 
 
 def test_run_due_routines_empty_morning_writes_no_nudge(monkeypatch):
     import asyncio
 
-    import routers.nudges as nudges
+    import standing_routines as sr
 
     inserted: list[dict] = []
     updates: list[tuple] = []
@@ -223,15 +225,14 @@ def test_run_due_routines_empty_morning_writes_no_nudge(monkeypatch):
         users = _Users()
         nudges = _Nudges()
 
-    monkeypatch.setattr(nudges, "gather_routine_snapshot", fake_gather)
-    monkeypatch.setattr(nudges, "db", _DB())
+    monkeypatch.setattr(sr, "gather_routine_snapshot", fake_gather)
 
     user = {
         "user_id": "owner_1",
         "name": "Ada",
         "standing_routines": {"morning_brief": {"enabled": True, "last_run": None}},
     }
-    result = asyncio.run(nudges.run_due_routines(user, now=NOW, audience="owner"))
+    result = asyncio.run(run_due_routines(_DB(), user, now=NOW, audience="owner"))
     assert result["quiet"] is True
     assert result["fired"] == []
     assert result["skipped"] == [{"kind": "morning_brief", "reason": "empty"}]
@@ -242,7 +243,7 @@ def test_run_due_routines_empty_morning_writes_no_nudge(monkeypatch):
 def test_run_due_routines_heir_fence_is_silent(monkeypatch):
     import asyncio
 
-    import routers.nudges as nudges
+    import standing_routines as sr
 
     called = {"gather": False}
 
@@ -250,24 +251,24 @@ def test_run_due_routines_heir_fence_is_silent(monkeypatch):
         called["gather"] = True
         return {"overdue": [{"text": "secret"}]}
 
-    monkeypatch.setattr(nudges, "gather_routine_snapshot", fake_gather)
+    monkeypatch.setattr(sr, "gather_routine_snapshot", fake_gather)
     user = {
         "user_id": "owner_1",
         "standing_routines": {"morning_brief": {"enabled": True}},
     }
-    result = asyncio.run(nudges.run_due_routines(user, now=NOW, audience="heir"))
+    result = asyncio.run(run_due_routines(object(), user, now=NOW, audience="heir"))
     assert result["quiet"] is True
     assert result["skipped"][0]["reason"] == "heir_fence"
     assert called["gather"] is False
 
-    portal = asyncio.run(nudges.run_due_routines(user, now=NOW, heir_surface=True))
+    portal = asyncio.run(run_due_routines(object(), user, now=NOW, heir_surface=True))
     assert portal["skipped"][0]["reason"] == "heir_fence"
 
 
 def test_run_due_routines_fires_grounded_morning(monkeypatch):
     import asyncio
 
-    import routers.nudges as nudges
+    import standing_routines as sr
 
     inserted: list[dict] = []
 
@@ -296,14 +297,13 @@ def test_run_due_routines_fires_grounded_morning(monkeypatch):
         users = _Users()
         nudges = _Nudges()
 
-    monkeypatch.setattr(nudges, "gather_routine_snapshot", fake_gather)
-    monkeypatch.setattr(nudges, "db", _DB())
+    monkeypatch.setattr(sr, "gather_routine_snapshot", fake_gather)
 
     user = {
         "user_id": "owner_1",
         "standing_routines": {"morning_brief": {"enabled": True}},
     }
-    result = asyncio.run(nudges.run_due_routines(user, now=NOW))
+    result = asyncio.run(run_due_routines(_DB(), user, now=NOW))
     assert result["quiet"] is False
     assert len(result["fired"]) == 1
     assert result["fired"][0]["kind"] == "morning_brief"
@@ -313,7 +313,8 @@ def test_run_due_routines_fires_grounded_morning(monkeypatch):
 
 def test_nudges_router_reuses_collection_not_a_new_platform():
     src = (ROOT / "backend" / "routers" / "nudges.py").read_text(encoding="utf-8")
+    core = (ROOT / "backend" / "standing_routines.py").read_text(encoding="utf-8")
     assert "run_due_routines" in src
     assert '"/routines/check"' in src
-    assert "source\": \"routine\"" in src or 'source": "routine"' in src
-    assert "heir_fence" in src
+    assert 'source": "routine"' in core
+    assert "heir_fence" in core
