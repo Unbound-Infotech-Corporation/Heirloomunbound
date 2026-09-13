@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from deps import db, get_current_user
 from owner_pairing import PAIRING_STYLES, pairing_prefs_from_user
+from standing_routines import routines_public
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -96,6 +97,7 @@ async def me(user: dict = Depends(get_current_user)):
         "active_persona_id": user.get("active_persona_id") or None,
         "tour_completed": bool(user.get("tour_completed", False)),
         **pairing_prefs_from_user(user),
+        **routines_public(user),
     }
 
 

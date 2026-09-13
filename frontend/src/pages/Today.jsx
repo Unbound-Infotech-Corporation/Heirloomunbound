@@ -4,6 +4,7 @@ import { AlarmClock, ArrowRight, BookmarkPlus, Calendar, CheckCircle2, Circle, C
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import FirstGiftInvite from "../components/FirstGiftInvite";
+import { routineActionHref, shouldShowNudge } from "../lib/standingRoutines";
 
 const GREETINGS = ["Good morning", "Good afternoon", "Good evening"];
 const REFLECTIONS = [
@@ -36,6 +37,7 @@ export default function Today() {
   const [journals, setJournals] = useState([]);
   const [lastTwin, setLastTwin] = useState(null);
   const [nudge, setNudge] = useState(null);
+  const [routineNudges, setRoutineNudges] = useState([]);
   const [widgets, setWidgets] = useState({
     reflection: true,
     reminders: true,
@@ -58,7 +60,11 @@ export default function Today() {
 
   useEffect(() => {
     load();
-    api.get("/nudges/today").then(({ data }) => setNudge(data)).catch(() => {});
+    api.get("/nudges/today").then(({ data }) => {
+      setNudge(shouldShowNudge(data) ? data : null);
+      const extras = (data?.routines || []).filter((n) => shouldShowNudge(n));
+      setRoutineNudges(extras);
+    }).catch(() => {});
   }, []);
 
   const dismissNudge = async () => {
@@ -115,49 +121,32 @@ export default function Today() {
         <FirstGiftInvite compact />
       </div>
 
-      {/* From your twin — daily nudge */}
-      {nudge && nudge.status !== "dismissed" && (
-        <section
-          className="surface p-7 mb-12 relative"
-          style={{ borderLeft: "3px solid var(--accent)" }}
-          data-testid="today-nudge"
-        >
-          <button
-            onClick={dismissNudge}
-            data-testid="nudge-dismiss"
-            className="absolute top-4 right-4 p-1"
-            title="Dismiss"
-          >
-            <X className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
-          </button>
-          <div className="overline mb-2 flex items-center gap-2">
-            <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} /> from your twin
-          </div>
-          <h2
-            className="font-serif text-2xl lg:text-3xl mb-3"
-            style={{ color: "var(--text-primary)" }}
-            data-testid="nudge-title"
-          >
-            {nudge.title}
-          </h2>
-          <p
-            className="font-serif text-lg leading-relaxed mb-5 max-w-3xl"
-            style={{ color: "var(--text-secondary)" }}
-            data-testid="nudge-body"
-          >
-            {nudge.body}
-          </p>
-          <Link
-            to={`/interviewer?topic=${encodeURIComponent(nudge.action_prompt || nudge.title)}&key=nudge_${nudge.nudge_id}`}
-            onClick={actOnNudge}
-            data-testid="nudge-act"
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-sm"
-            style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
-          >
-            Answer this <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </section>
+      {/* From your twin — daily nudge or standing routine. Quiet mornings render nothing. */}
+      {shouldShowNudge(nudge) && (
+        <TwinNudgeCard
+          nudge={nudge}
+          onDismiss={dismissNudge}
+          onAct={actOnNudge}
+          testId="today-nudge"
+          legacyIds
+        />
       )}
+      {routineNudges.map((r) => (
+        <TwinNudgeCard
+          key={r.nudge_id}
+          nudge={r}
+          onDismiss={async () => {
+            if (!r.nudge_id) return;
+            await api.patch(`/nudges/${r.nudge_id}`, { status: "dismissed" });
+            setRoutineNudges((arr) => arr.filter((x) => x.nudge_id !== r.nudge_id));
+          }}
+          onAct={async () => {
+            if (!r.nudge_id) return;
+            await api.patch(`/nudges/${r.nudge_id}`, { status: "acted" });
+          }}
+          testId={`today-routine-${r.kind || r.nudge_id}`}
+        />
+      ))}
 
       {/* Reflection */}
       {widgets.reflection && (
@@ -306,6 +295,64 @@ export default function Today() {
         </section>
       )}
     </div>
+  );
+}
+
+function TwinNudgeCard({ nudge, onDismiss, onAct, testId, legacyIds }) {
+  const href = routineActionHref(nudge);
+  const label = nudge.action_label || (nudge.source === "routine" ? "Open" : "Answer this");
+  const overline = nudge.kind === "morning_brief"
+    ? "morning brief"
+    : nudge.kind === "weekly_biographer"
+    ? "weekly biographer"
+    : nudge.kind === "sealed_letter_nudge"
+    ? "sealed letter"
+    : "from your twin";
+  const dismissId = legacyIds ? "nudge-dismiss" : `${testId}-dismiss`;
+  const titleId = legacyIds ? "nudge-title" : `${testId}-title`;
+  const bodyId = legacyIds ? "nudge-body" : `${testId}-body`;
+  const actId = legacyIds ? "nudge-act" : `${testId}-act`;
+  return (
+    <section
+      className="surface p-7 mb-12 relative"
+      style={{ borderLeft: "3px solid var(--accent)" }}
+      data-testid={testId}
+    >
+      <button
+        onClick={onDismiss}
+        data-testid={dismissId}
+        className="absolute top-4 right-4 p-1"
+        title="Dismiss"
+      >
+        <X className="h-4 w-4" style={{ color: "var(--text-muted)" }} />
+      </button>
+      <div className="overline mb-2 flex items-center gap-2">
+        <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} /> {overline}
+      </div>
+      <h2
+        className="font-serif text-2xl lg:text-3xl mb-3"
+        style={{ color: "var(--text-primary)" }}
+        data-testid={titleId}
+      >
+        {nudge.title}
+      </h2>
+      <p
+        className="font-serif text-lg leading-relaxed mb-5 max-w-3xl"
+        style={{ color: "var(--text-secondary)" }}
+        data-testid={bodyId}
+      >
+        {nudge.body}
+      </p>
+      <Link
+        to={href}
+        onClick={onAct}
+        data-testid={actId}
+        className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-sm"
+        style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+      >
+        {label} <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
+    </section>
   );
 }
 

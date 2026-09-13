@@ -5,6 +5,9 @@ Once per day, the twin generates a short, personal nudge — drawn from the
 archive — that invites action: a journaling prompt, a memory to revisit, or a
 small task. Stored per (user_id, UTC date) for idempotency. The user can act
 on it (which deep-links to /interviewer with the prompt baked in) or dismiss it.
+
+Standing routines (opt-in) reuse this collection: morning_brief, weekly_biographer,
+and sealed_letter_nudge. Empty mornings persist last_run and create no document.
 """
 import json
 import re
@@ -17,6 +20,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from deps import EMERGENT_LLM_KEY, db, get_current_user
+from standing_routines import (
+    apply_enabled_updates,
+    routines_from_user,
+    routines_public,
+    run_due_routines,
+)
 
 router = APIRouter(prefix="/nudges", tags=["nudges"])
 
@@ -111,14 +120,66 @@ async def _generate_nudge(user_id: str, user_name: str) -> dict:
     return parsed
 
 
+@router.get("/routines")
+async def get_routines(user: dict = Depends(get_current_user)):
+    return routines_public(user)
+
+
+class RoutinesUpdate(BaseModel):
+    morning_brief: Optional[bool] = None
+    weekly_biographer: Optional[bool] = None
+    sealed_letter_nudge: Optional[bool] = None
+
+
+@router.put("/routines")
+async def update_routines(payload: RoutinesUpdate, user: dict = Depends(get_current_user)):
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No routines provided")
+    current = routines_from_user(user)
+    next_state = apply_enabled_updates(current, updates)
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"standing_routines": next_state}},
+    )
+    refreshed = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return routines_public(refreshed)
+
+
+@router.post("/routines/check")
+async def check_routines(user: dict = Depends(get_current_user)):
+    """Owner-only fire of due standing routines. Empty mornings return quiet."""
+    return await run_due_routines(db, user, audience="owner", heir_surface=False)
+
+
 @router.get("/today")
 async def todays_nudge(user: dict = Depends(get_current_user)):
     date_key = _today_key()
+    routine_result = await run_due_routines(db, user, audience="owner", heir_surface=False)
+    fired = list(routine_result.get("fired") or [])
+    state = routines_from_user(user)
+    morning_on = bool(state["morning_brief"]["enabled"])
+
+    if morning_on:
+        morning = next((n for n in fired if n.get("kind") == "morning_brief"), None)
+        others = [n for n in fired if n.get("nudge_id") != (morning or {}).get("nudge_id")]
+        if morning:
+            return {**morning, "quiet": False, "routines": others}
+        return {
+            "quiet": True,
+            "status": "skipped",
+            "kind": "morning_brief",
+            "source": "routine",
+            "routines": others,
+            "skipped": routine_result.get("skipped") or [],
+        }
+
     existing = await db.nudges.find_one(
-        {"user_id": user["user_id"], "date_key": date_key}, {"_id": 0}
+        {"user_id": user["user_id"], "date_key": date_key, "source": {"$ne": "routine"}},
+        {"_id": 0},
     )
     if existing:
-        return existing
+        return {**existing, "quiet": False, "routines": fired}
 
     n = await _generate_nudge(user["user_id"], user.get("name", ""))
     nudge_id = f"nud_{uuid.uuid4().hex[:12]}"
@@ -126,13 +187,14 @@ async def todays_nudge(user: dict = Depends(get_current_user)):
         "nudge_id": nudge_id,
         "user_id": user["user_id"],
         "date_key": date_key,
+        "kind": "daily",
         **n,
         "status": "open",
         "created_at": _now().isoformat(),
     }
     await db.nudges.insert_one(dict(doc))
     doc.pop("_id", None)
-    return doc
+    return {**doc, "quiet": False, "routines": fired}
 
 
 class StatusUpdate(BaseModel):

@@ -89,6 +89,8 @@ export function heirPortalMustExclude(src) {
     !text.includes(MEMORY_STUDIO_PATH) &&
     !text.includes("/studio/memory") &&
     !text.includes("/auth/me/preferences") &&
-    !text.includes("/memory/facts")
+    !text.includes("/memory/facts") &&
+    !text.includes("/nudges/routines") &&
+    !text.includes("standing_routines")
   );
 }

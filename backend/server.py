@@ -98,6 +98,17 @@ async def _startup():
 
     app.state.letter_task = asyncio.create_task(_letter_delivery_loop())
 
+    async def _standing_routines_loop():
+        from standing_routines import run_routines_for_enabled_users
+        while True:
+            try:
+                await run_routines_for_enabled_users(db)
+            except Exception as exc:  # noqa: BLE001
+                logging.getLogger("server").warning("standing routines loop error: %s", exc)
+            await asyncio.sleep(1800)  # every 30 minutes
+
+    app.state.routines_task = asyncio.create_task(_standing_routines_loop())
+
 
 api_router = APIRouter(prefix="/api")
 

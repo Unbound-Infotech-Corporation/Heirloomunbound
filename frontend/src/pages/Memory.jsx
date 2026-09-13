@@ -5,8 +5,10 @@ import { toast } from "sonner";
 import HeldFactsList from "../components/memory/HeldFactsList";
 import HowWeWorkFields from "../components/memory/HowWeWorkFields";
 import SafeTopicsFields from "../components/memory/SafeTopicsFields";
+import StandingRoutinesFields from "../components/memory/StandingRoutinesFields";
 import { api } from "../lib/api";
 import { MEMORY_COPY, nextSafeTopics, pairingFromMe, pairingPayload } from "../lib/memoryStudio";
+import { routinesFromMe, routinesPayload } from "../lib/standingRoutines";
 
 export default function Memory() {
   const [facts, setFacts] = useState([]);
@@ -17,6 +19,7 @@ export default function Memory() {
   const [safeTopics, setSafeTopics] = useState([]);
   const [newTopic, setNewTopic] = useState("");
   const [pairing, setPairing] = useState(pairingFromMe(null));
+  const [routines, setRoutines] = useState(routinesFromMe(null));
 
   const loadFacts = async () => {
     setFactsLoading(true);
@@ -39,6 +42,7 @@ export default function Memory() {
       const { data } = await api.get("/auth/me");
       setSafeTopics(data.safe_topics || []);
       setPairing(pairingFromMe(data));
+      setRoutines(routinesFromMe(data));
     } catch (e) {
       setPrefsError(e.response?.data?.detail || MEMORY_COPY.prefsError);
     } finally {
@@ -67,6 +71,17 @@ export default function Memory() {
     try {
       await api.put("/auth/me/preferences", payload);
       toast.success("How we work saved");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  };
+
+  const saveRoutines = async (next) => {
+    const payload = routinesPayload(next);
+    setRoutines(payload);
+    try {
+      await api.put("/nudges/routines", payload);
+      toast.success("Standing routines saved");
     } catch (e) {
       toast.error(e.response?.data?.detail || e.message);
     }
@@ -103,7 +118,7 @@ export default function Memory() {
           What the Twin holds.
         </h1>
         <p className="mt-3 text-base max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          Identity facts, how you pair, and the safe-topic fence — visible, editable, with provenance.
+          Identity facts, how you pair, standing routines, and the safe-topic fence — visible, editable, with provenance.
           Portrait stays a reading of the archive. This page is the edit surface.
         </p>
       </header>
@@ -151,6 +166,7 @@ export default function Memory() {
       ) : (
         <>
           <HowWeWorkFields pairing={pairing} onChange={savePairing} />
+          <StandingRoutinesFields routines={routines} onChange={saveRoutines} />
           <SafeTopicsFields
             topics={safeTopics}
             newTopic={newTopic}
