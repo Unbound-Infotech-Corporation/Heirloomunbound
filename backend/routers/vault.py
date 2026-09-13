@@ -148,6 +148,7 @@ async def vault_compact(body: CompactReq, ctx: dict = Depends(get_device_user)):
 class IngestReq(BaseModel):
     facts: List[dict]
     date: Optional[str] = None
+    audience: Optional[str] = None
 
 
 @router.post("/facts/ingest")
@@ -155,6 +156,10 @@ async def vault_ingest_facts(body: IngestReq, ctx: dict = Depends(get_device_use
     """Persist compaction-extracted facts into `memory_facts` so the Twin
     reads them in every future conversation. Idempotent: skips facts that
     already exist verbatim for this user."""
+    from owner_pairing import is_owner_audience
+
+    if not is_owner_audience(body.audience or "owner"):
+        raise HTTPException(status_code=403, detail="Memory ingest stays with the owner")
     user_id = ctx["user"]["user_id"]
     if not body.facts:
         return {"inserted": 0, "skipped": 0}

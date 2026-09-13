@@ -25,6 +25,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from deps import EMERGENT_LLM_KEY, db
+from owner_pairing import is_owner_audience
 
 # ---------------- Tool schemas ---------------- #
 
@@ -862,8 +863,34 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
 }
 
 
-async def execute_tool(name: str, user_id: str, args: dict) -> dict:
+OWNER_ONLY_TOOLS = frozenset({
+    "save_memory",
+    "set_reminder",
+    "run_skill",
+    "open_on_pc",
+    "control_media",
+    "set_volume",
+    "power_action",
+    "notify_on_pc",
+    "type_text",
+    "clipboard",
+    "system_status",
+    "find_file",
+    "see_screen",
+    "run_command",
+})
+
+
+async def execute_tool(
+    name: str,
+    user_id: str,
+    args: dict,
+    *,
+    audience: str | None = None,
+) -> dict:
     """Public entrypoint. Returns {summary, ui?} — never raises."""
+    if audience is not None and not is_owner_audience(audience) and name in OWNER_ONLY_TOOLS:
+        return {"summary": "That stays with the owner.", "ui": {"error": "heir_forbidden"}}
     fn = TOOL_EXECUTORS.get(name)
     if fn is None:
         return {"summary": f"Unknown tool '{name}'.", "ui": {"error": "unknown_tool"}}

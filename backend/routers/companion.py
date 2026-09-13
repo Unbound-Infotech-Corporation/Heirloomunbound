@@ -389,11 +389,17 @@ async def companion_voice(
     audio: UploadFile = File(...),
     save_to_archive: bool = Form(False),
     transcript: str = Form(""),
+    stt_only: bool = Form(False),
+    audience: str = Form("owner"),
     ctx: dict = Depends(get_device_user),
 ):
-    """Companion uploads audio. We transcribe, send to Twin, and return text reply."""
+    """Companion uploads audio. Transcribe, then Twin — unless STT-only or heir."""
+    from owner_pairing import is_owner_audience
+
     user = ctx["user"]
     spoken = (transcript or "").strip()
+    stt_backend = "client" if spoken else "none"
+    owner_sitting = is_owner_audience(audience)
 
     if not spoken:
         raw = await audio.read()
@@ -423,7 +429,23 @@ async def companion_voice(
             spoken = (getattr(result, "text", "") or "").strip()
 
     if not spoken:
-        return {"user_text": "", "reply": "", "skill_invocations": [], "stt_backend": "none"}
+        return {
+            "user_text": "",
+            "transcript": "",
+            "reply": "",
+            "skill_invocations": [],
+            "stt_backend": stt_backend or "none",
+        }
+
+    # WinUI PTT uses this as cloud STT, then TalkAsync. Do not run a twin turn.
+    if stt_only or not owner_sitting:
+        return {
+            "user_text": spoken,
+            "transcript": spoken,
+            "reply": "",
+            "skill_invocations": [],
+            "stt_backend": stt_backend,
+        }
 
     # 2) Get or create a "companion" twin conversation + run full twin brain
     from twin_runtime import ensure_conversation, run_twin_turn
@@ -440,6 +462,7 @@ async def companion_voice(
             source="companion",
             persist=True,
             summarise=True,
+            audience=audience,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -454,7 +477,7 @@ async def companion_voice(
 
     now_iso = turn.ts or datetime.now(timezone.utc).isoformat()
 
-    if save_to_archive:
+    if save_to_archive and owner_sitting:
         await db.entries.insert_one({
             "entry_id": f"ent_{uuid.uuid4().hex[:12]}",
             "user_id": user["user_id"],
@@ -469,6 +492,7 @@ async def companion_voice(
 
     return {
         "user_text": spoken,
+        "transcript": spoken,
         "reply": spoken_reply,
         "actions": invoked,
         "tool_trace": turn.tool_trace,
