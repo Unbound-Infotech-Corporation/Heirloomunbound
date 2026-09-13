@@ -871,14 +871,7 @@ Confirm is required for buying, paying, deleting, or typing a password.
                 reply = r.GetString();
             }
 
-            if (json.TryGetProperty("tool_trace", out var trace) && trace.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var item in trace.EnumerateArray())
-                {
-                    var name = item.TryGetProperty("name", out var n) ? n.GetString() : "tool";
-                    RememberDid(DateTime.Now.ToString("HH:mm:ss") + "  " + name);
-                }
-            }
+            RememberCloudReceipt(json);
         }
 
         reply ??= SilenceCopy(observations);
@@ -939,6 +932,46 @@ Confirm is required for buying, paying, deleting, or typing a password.
         RememberDid(line);
         Lines.Add(new ChatLine("work", tool + (result.Ok ? "" : " failed") + " — " + Trim(result.Detail.Replace('\n', ' '), 160)));
     }
+
+    private void RememberCloudReceipt(JsonElement json)
+    {
+        if (json.TryGetProperty("receipt", out var receipt) && receipt.ValueKind == JsonValueKind.Object)
+        {
+            var status = receipt.TryGetProperty("status", out var st) ? st.GetString() : "did";
+            var summary = receipt.TryGetProperty("summary", out var sm) ? sm.GetString() : "";
+            var stamp = DateTime.Now.ToString("HH:mm:ss");
+            RememberDid(stamp + "  " + CloudReceiptLabel(status) + (string.IsNullOrWhiteSpace(summary) ? "" : "  " + summary));
+            if (receipt.TryGetProperty("steps", out var steps) && steps.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in steps.EnumerateArray())
+                {
+                    var name = item.TryGetProperty("label", out var lab) && lab.ValueKind == JsonValueKind.String
+                        ? lab.GetString()
+                        : item.TryGetProperty("name", out var n) ? n.GetString() : "tool";
+                    RememberDid(stamp + "  " + name);
+                }
+            }
+
+            return;
+        }
+
+        if (json.TryGetProperty("tool_trace", out var trace) && trace.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in trace.EnumerateArray())
+            {
+                var name = item.TryGetProperty("name", out var n) ? n.GetString() : "tool";
+                RememberDid(DateTime.Now.ToString("HH:mm:ss") + "  " + name);
+            }
+        }
+    }
+
+    private static string CloudReceiptLabel(string? status) => status switch
+    {
+        "failed" => "Failed",
+        "waiting_confirm" => "Waiting for Confirm",
+        "planned" => "Plan",
+        _ => "Did",
+    };
 
     private void RememberDid(string line)
     {
