@@ -118,18 +118,19 @@ export default function FirstRunSetup() {
 
   const catalog = data.catalog || {};
   const settings = data.settings || {};
-  const profileId = settings.space_profile || "full";
-  const gb = catalog.full_power_gb || { min: 20, max: 50 };
+  const profileId = settings.space_profile || "medium";
+  const gb = catalog.full_power_gb || { min: 100, max: 160 };
+  const gbLabel = (p) => (p.gb_max ? `${p.gb_min}–${p.gb_max} GB` : `${p.gb_min} GB+`);
 
   return (
     <div className="px-6 py-6 max-w-3xl" data-testid="first-run-root">
-      <p className="overline mb-2">First use · dedicated PC</p>
+      <p className="overline mb-2">Heirloom Unbound · first use</p>
       <h1 className="font-serif text-3xl mb-2" style={{ color: "var(--text-primary)" }}>
-        Set up Heirloom once
+        Set up Heirloom Unbound once
       </h1>
       <p className="text-sm mb-6" style={{ color: "var(--text-muted)", lineHeight: 1.5 }}>
-        After this, every feature is a dropdown. We prefer local models on this machine for
-        security and speed. Full power uses about {gb.min}–{gb.max} GB.
+        After this, every feature is a dropdown. Local models stay on this PC. Large is about{" "}
+        {gb.min}–{gb.max} GB. Dedicated PC is 200 GB+ and consecrates this machine for the twin.
       </p>
 
       <ol className="studio-setup-steps" data-testid="setup-steps">
@@ -145,7 +146,7 @@ export default function FirstRunSetup() {
       {step === 0 ? (
         <StudioPanel title="What this first run does" defaultOpen>
           <ul className="text-sm space-y-2" style={{ color: "#ccc", lineHeight: 1.45 }}>
-            <li>Reserve disk for local Whisper / Ollama / Piper / vault (20–50 GB if you want full power).</li>
+            <li>Reserve disk for Heirloom Unbound: Small 5–12 GB, Medium 40–70 GB, Large 100–160 GB, or Dedicated PC 200 GB+.</li>
             <li>Save the email you will use on vendor sites (ElevenLabs, D-ID, fal).</li>
             <li>Pair your phone. Heavy inference stays on this PC.</li>
             <li>Download local models first so screen vision is ready.</li>
@@ -159,9 +160,9 @@ export default function FirstRunSetup() {
       ) : null}
 
       {step === 1 ? (
-        <StudioPanel title="Space allocation" defaultOpen>
+        <StudioPanel title="Install size" defaultOpen>
           <p className="text-xs mb-3" style={{ color: "#999" }}>
-            Local-first. Pick how much this PC should keep. You can change this later in Settings.
+            Heirloom Unbound. Pick how much this PC should keep. You can change this later in Models.
           </p>
           <div className="studio-compute-modes">
             {(catalog.space_profiles || []).map((p) => (
@@ -170,16 +171,30 @@ export default function FirstRunSetup() {
                   type="radio"
                   name="space"
                   checked={profileId === p.id}
-                  onChange={() => save({ space_profile: p.id, prefer_local: true })}
+                  onChange={() =>
+                    save({
+                      space_profile: p.id,
+                      install_profile: p.id,
+                      prefer_local: true,
+                      dedicated_consent: p.id === "dedicated",
+                    })
+                  }
                   data-testid={`setup-space-${p.id}`}
                 />
                 <span className="studio-compute-mode-label">
-                  {p.label} · {p.gb_min}–{p.gb_max} GB
+                  {p.label} · {gbLabel(p)}
                 </span>
                 <span className="studio-compute-mode-hint">{p.summary}</span>
               </label>
             ))}
           </div>
+          {profileId === "dedicated" ? (
+            <p className="text-xs mt-3" style={{ color: "#c9b8a4" }} data-testid="setup-dedicated-consent">
+              Dedicated PC: this computer exists for Heirloom Unbound. Prefer a second vault
+              disk, start with Windows, and warm local engines. High-performance power plan
+              needs explicit consent on the Windows app — we do not silently fight IT policy.
+            </p>
+          ) : null}
         </StudioPanel>
       ) : null}
 
