@@ -40,6 +40,8 @@ from .mica import apply as apply_mica
 from .mixer_panel import MixerPanel
 from .models_panel import ModelsPanel
 from .panels import QuickCapture, RecentMemories
+from .terminal_panel import TerminalPanel
+from .voice_panel import VoicePanel
 from .settings_dialog import SettingsDialog
 from .titlebar import TitleBar
 
@@ -54,7 +56,7 @@ class MainWindow(QMainWindow):
         self._palette: Optional[CommandPalette] = None
         self._mica_applied = False
 
-        self.setWindowTitle("Heirloom")
+        self.setWindowTitle("Heirloom Unbound")
         self.resize(1280, 800)
         self.setMinimumSize(960, 620)
 
@@ -119,6 +121,8 @@ class MainWindow(QMainWindow):
         self.quickcap = QuickCapture()
         self.mixer_panel = MixerPanel(self.mixer_session)
         self.models_panel = ModelsPanel()
+        self.voice_panel = VoicePanel()
+        self.terminal_panel = TerminalPanel()
 
         twin_body = QWidget()
         twin_split = QSplitter(Qt.Vertical)
@@ -135,14 +139,21 @@ class MainWindow(QMainWindow):
         self.win_capture = FeatureWindow("Capture", self.quickcap, parent=self.mdi)
         self.win_mixer = FeatureWindow("Mixer", self.mixer_panel, parent=self.mdi)
         self.win_models = FeatureWindow("Models", self.models_panel, parent=self.mdi)
+        self.win_voice = FeatureWindow("Voice", self.voice_panel, parent=self.mdi)
+        self.win_terminal = FeatureWindow("Terminal", self.terminal_panel, parent=self.mdi)
         for w in (self.win_twin, self.win_archive, self.win_capture, self.win_mixer, self.win_models):
             self.mdi.addSubWindow(w)
             w.show()
+        for w in (self.win_voice, self.win_terminal):
+            self.mdi.addSubWindow(w)
+            w.hide()
         self.win_twin.resize(760, 620)
         self.win_archive.resize(280, 520)
         self.win_capture.resize(300, 420)
         self.win_mixer.resize(420, 640)
         self.win_models.resize(460, 560)
+        self.win_voice.resize(720, 420)
+        self.win_terminal.resize(780, 520)
         self._install_window_menus()
         self.mdi.tileSubWindows()
 
@@ -193,11 +204,7 @@ class MainWindow(QMainWindow):
                 ),
                 (
                     "Window",
-                    [
-                        ("Maximize Twin", self.win_twin.showMaximized, ""),
-                        ("Tile all", self.mdi.tileSubWindows, ""),
-                        ("Cascade", self.mdi.cascadeSubWindows, ""),
-                    ],
+                    self._window_menu_items(),
                 ),
             ]
         )
@@ -235,6 +242,7 @@ class MainWindow(QMainWindow):
                         ("48 kHz", lambda: self._set_sample_rate(48000), ""),
                     ],
                 ),
+                ("Window", self._window_menu_items()),
             ]
         )
         self.win_models.rebuild_menus(
@@ -253,6 +261,38 @@ class MainWindow(QMainWindow):
                         ("Set all to Auto", lambda: self.models_panel.map_changed.emit({}), ""),
                     ],
                 ),
+                ("Window", self._window_menu_items()),
+            ]
+        )
+        self.win_voice.rebuild_menus(
+            [
+                (
+                    "Voice",
+                    [
+                        ("Probe engines", self.voice_panel.probe_now, ""),
+                        ("Test phrase", self.voice_panel.test_phrase, ""),
+                        ("Prefer Voicebox", lambda: self.voice_panel.prefer("voicebox"), ""),
+                        ("Prefer Qwen3-TTS", lambda: self.voice_panel.prefer("qwen3_tts"), ""),
+                        ("---", None, ""),
+                        ("Open docs / coach", self.voice_panel.open_coach, ""),
+                    ],
+                ),
+                ("Window", self._window_menu_items()),
+            ]
+        )
+        self.win_terminal.rebuild_menus(
+            [
+                (
+                    "Terminal",
+                    [
+                        ("Pause / resume", self.terminal_panel.toggle_pause, ""),
+                        ("Clear", self.terminal_panel.clear_view, ""),
+                        ("Copy", self.terminal_panel.copy_visible, ""),
+                        ("Send ticket", self.terminal_panel.send_ticket, ""),
+                        ("Reveal log folder", self.terminal_panel.reveal_folder, ""),
+                    ],
+                ),
+                ("Window", self._window_menu_items()),
             ]
         )
         self.win_archive.rebuild_menus(
@@ -263,7 +303,8 @@ class MainWindow(QMainWindow):
                         ("Refresh", self.memories.refresh, ""),
                         ("Compact vault now", lambda: Maintenance().run_async(), ""),
                     ],
-                )
+                ),
+                ("Window", self._window_menu_items()),
             ]
         )
         self.win_capture.rebuild_menus(
@@ -273,9 +314,27 @@ class MainWindow(QMainWindow):
                     [
                         ("Focus capture", lambda: self.win_capture.showNormal() or self.win_capture.raise_(), ""),
                     ],
-                )
+                ),
+                ("Window", self._window_menu_items()),
             ]
         )
+
+    def _window_menu_items(self):
+        return [
+            ("Voice", lambda: self._show_feature(self.win_voice), ""),
+            ("Terminal", lambda: self._show_feature(self.win_terminal), ""),
+            ("Models", lambda: self._show_feature(self.win_models), ""),
+            ("Mixer", lambda: self._show_feature(self.win_mixer), ""),
+            ("---", None, ""),
+            ("Tile all", self.mdi.tileSubWindows, ""),
+            ("Cascade", self.mdi.cascadeSubWindows, ""),
+        ]
+
+    def _show_feature(self, window) -> None:
+        window.show()
+        window.showNormal()
+        window.raise_()
+        self.mdi.setActiveSubWindow(window)
 
     def _nudge_volume(self, delta: int) -> None:
         current = int(self._audio_settings.get("output_volume") or 80)
@@ -323,6 +382,7 @@ class MainWindow(QMainWindow):
         self.live.error.connect(lambda msg: self._update_status(f"live: {msg}"))
         self.mixer_panel.settings_changed.connect(self._on_mixer_changed)
         self.mixer_panel.live_listen_toggled.connect(self._on_live_listen)
+        self.voice_panel.map_changed.connect(self._on_model_map)
 
         # Global shortcuts
         for seq in ("Ctrl+K", "Ctrl+P"):
@@ -432,6 +492,7 @@ class MainWindow(QMainWindow):
         self._user = data or {}
         name = data.get("name") or data.get("email") or "your archive"
         self.titlebar.set_user_name(f"{name}'s twin")
+        self.terminal_panel.set_context(email=str(data.get("email") or ""))
         self.avatar.set_portrait_url(data.get("avatar_source_url"))
         api.get_async(
             "/desktop/conversation?limit=1",
@@ -452,6 +513,7 @@ class MainWindow(QMainWindow):
         configured = bool((data or {}).get("configured"))
         self._settings["voice_configured"] = configured
         config.save_settings(self._settings)
+        self.voice_panel.set_voice_clone(configured)
         if configured:
             name = (data or {}).get("voice_name") or "cloned voice"
             self._update_status(f"voice ready · {name}")
@@ -542,6 +604,8 @@ class MainWindow(QMainWindow):
         if isinstance(model_map, dict):
             self._model_map = model_map
             self.models_panel.apply_remote_map(model_map)
+            self.voice_panel.apply_remote_map(model_map)
+            self.terminal_panel.set_context(model_map=model_map)
 
     def _on_room_speech_started(self) -> None:
         if self._room_greeted or not self._audio_settings.get("live_listen"):
@@ -792,7 +856,19 @@ class MainWindow(QMainWindow):
                 id="models",
                 label="Models window",
                 hint="Provision Whisper / Ollama on this PC",
-                action=lambda: (self.win_models.show(), self.win_models.raise_()),
+                action=lambda: self._show_feature(self.win_models),
+            ),
+            Command(
+                id="voice",
+                label="Voice window",
+                hint="Probe Voicebox / Qwen3-TTS and test a phrase",
+                action=lambda: self._show_feature(self.win_voice),
+            ),
+            Command(
+                id="terminal",
+                label="Terminal window",
+                hint="Studio log and Send ticket",
+                action=lambda: self._show_feature(self.win_terminal),
             ),
             Command(
                 id="settings",

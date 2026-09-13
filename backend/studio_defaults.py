@@ -38,9 +38,11 @@ FEATURE_MODELS = (
     {
         "id": "tts",
         "label": "Speech synthesis",
-        "purpose": "The twin's spoken voice. Windows mixer volume applies here.",
+        "purpose": "The twin's spoken voice. Local clone engines (Voicebox, Qwen3-TTS) first when ready; Windows mixer volume applies here.",
         "backends": (
-            {"id": "auto", "label": "Auto (cloned ElevenLabs if keyed, else OpenAI)"},
+            {"id": "auto", "label": "Auto (Voicebox / Qwen3-TTS on this PC if ready, else cloned ElevenLabs, else Piper / OpenAI)"},
+            {"id": "voicebox", "label": "Voicebox on this PC"},
+            {"id": "qwen3_tts", "label": "Qwen3-TTS on this PC"},
             {"id": "elevenlabs", "label": "ElevenLabs cloned voice"},
             {"id": "openai_tts", "label": "OpenAI TTS"},
             {"id": "local_piper", "label": "Local Piper (this PC)"},
@@ -75,9 +77,11 @@ FEATURE_MODELS = (
     {
         "id": "avatar",
         "label": "Talking head",
-        "purpose": "Face + voice playback. Waveform needs no third-party key.",
+        "purpose": "Face + voice playback. Local LatentSync lipsync first when the engine is listening; waveform needs no third-party key.",
         "backends": (
-            {"id": "auto", "label": "Auto (D-ID if keyed, else waveform)"},
+            {"id": "auto", "label": "Auto (LatentSync / MuseTalk on this PC if ready, else waveform, else D-ID)"},
+            {"id": "latentsync", "label": "LatentSync on this PC"},
+            {"id": "musetalk", "label": "MuseTalk on this PC"},
             {"id": "did", "label": "D-ID talking head"},
             {"id": "waveform", "label": "Portrait + waveform (local)"},
         ),
@@ -168,12 +172,22 @@ def clamp_model_map(raw: dict | None) -> dict[str, str]:
 # - local: the companion PC that most recently checked in (typical dedicated box)
 # - network: a specific registered companion device elsewhere on the LAN
 # - server: Ollama on a remote URL; Whisper/Piper still use the chosen PC
+# Local HTTP engines install standalone (Voicebox MSI/Docker, Qwen3-TTS pip/Docker,
+# LatentSync/MuseTalk). Heirloom Unbound probes them like Ollama — no Pinokio.
+ENGINE_URL_DEFAULTS: dict[str, str] = {
+    "ollama_url": "http://127.0.0.1:11434",
+    "voicebox_url": "http://127.0.0.1:17493",
+    "qwen3_tts_url": "http://127.0.0.1:8001",
+    "latentsync_url": "http://127.0.0.1:7860",
+    "musetalk_url": "http://127.0.0.1:7861",
+}
+
 COMPUTE_DEFAULTS: dict = {
     "mode": "local",  # local | network | server
     "device_id": None,  # companion_devices.device_id when mode=network
     "remote": {
         "label": "",
-        "ollama_url": "http://127.0.0.1:11434",
+        **ENGINE_URL_DEFAULTS,
     },
 }
 
@@ -194,10 +208,26 @@ def clamp_compute(raw: dict | None) -> dict:
         remote = raw.get("remote")
         if isinstance(remote, dict):
             label = str(remote.get("label") or "").strip()[:120]
-            url = str(remote.get("ollama_url") or COMPUTE_DEFAULTS["remote"]["ollama_url"]).strip()
-            if not url.startswith(("http://", "https://")):
-                url = COMPUTE_DEFAULTS["remote"]["ollama_url"]
-            src["remote"] = {"label": label, "ollama_url": url[:512]}
+            merged_remote = {"label": label}
+            for key, default in ENGINE_URL_DEFAULTS.items():
+                url = str(remote.get(key) or default).strip()
+                if not url.startswith(("http://", "https://")):
+                    url = default
+                merged_remote[key] = url[:512]
+            src["remote"] = merged_remote
     if src["mode"] != "network":
         src["device_id"] = None
     return src
+
+
+def engine_url(compute: dict | None, key: str) -> str:
+    """Return a clamped local-engine URL from studio_compute or the default."""
+    defaults = ENGINE_URL_DEFAULTS
+    if key not in defaults:
+        return ""
+    remote = (compute or {}).get("remote") if isinstance(compute, dict) else None
+    if isinstance(remote, dict):
+        url = str(remote.get(key) or defaults[key]).strip()
+        if url.startswith(("http://", "https://")):
+            return url.rstrip("/")[:512]
+    return defaults[key].rstrip("/")

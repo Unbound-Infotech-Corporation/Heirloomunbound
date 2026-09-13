@@ -51,12 +51,26 @@ class ModelsPanel(QWidget):
         self.ollama_label = QLabel("—")
         self.whisper_label = QLabel("—")
         self.piper_label = QLabel("—")
-        for lab in (self.gpu_label, self.ollama_label, self.whisper_label, self.piper_label):
+        self.voicebox_label = QLabel("—")
+        self.qwen3_label = QLabel("—")
+        self.latentsync_label = QLabel("—")
+        for lab in (
+            self.gpu_label,
+            self.ollama_label,
+            self.whisper_label,
+            self.piper_label,
+            self.voicebox_label,
+            self.qwen3_label,
+            self.latentsync_label,
+        ):
             lab.setWordWrap(True)
         probe_form.addRow("GPU", self.gpu_label)
         probe_form.addRow("Ollama", self.ollama_label)
         probe_form.addRow("Whisper", self.whisper_label)
         probe_form.addRow("Piper", self.piper_label)
+        probe_form.addRow("Voicebox", self.voicebox_label)
+        probe_form.addRow("Qwen3-TTS", self.qwen3_label)
+        probe_form.addRow("LatentSync", self.latentsync_label)
         root.addWidget(probe)
 
         routing = QGroupBox("Feature backends")
@@ -82,9 +96,10 @@ class ModelsPanel(QWidget):
         self.log.setMaximumHeight(180)
         root.addWidget(self.log)
         hint = QLabel(
-            "Provision installs faster-whisper, warms the base model, and pulls "
-            "llama3.1 / llava from Ollama when that daemon is running. Cloud keys "
-            "are optional fallbacks — local backends do not need a paste-keys wizard."
+            "Provision installs faster-whisper and pulls Ollama models when that daemon "
+            "is running. Voicebox, Qwen3-TTS, and LatentSync install standalone "
+            "(MSI / Docker / pip) — Heirloom Unbound never downloads those installers. "
+            "Start the engine, then Probe."
         )
         hint.setWordWrap(True)
         root.addWidget(hint)
@@ -107,6 +122,9 @@ class ModelsPanel(QWidget):
         self.ollama_label.setText((probe.get("ollama") or {}).get("detail") or "not running")
         self.whisper_label.setText((probe.get("whisper") or {}).get("detail") or "not installed")
         self.piper_label.setText((probe.get("piper") or {}).get("detail") or "not on PATH")
+        self.voicebox_label.setText((probe.get("voicebox") or {}).get("detail") or "not listening")
+        self.qwen3_label.setText((probe.get("qwen3_tts") or {}).get("detail") or "not listening")
+        self.latentsync_label.setText((probe.get("latentsync") or {}).get("detail") or "not listening")
 
     def _on_catalog(self, data: dict) -> None:
         self._map = dict((data or {}).get("map") or {})
@@ -166,7 +184,7 @@ class ModelsPanel(QWidget):
         wanted = [
             fid
             for fid, backend in self.collect_map().items()
-            if backend in {"auto", "local_whisper", "local_piper", "ollama"}
+            if backend in {"auto", "local_whisper", "local_piper", "ollama", "voicebox", "qwen3_tts", "latentsync"}
         ] or ["stt", "tts", "twin", "vision"]
         self._job = _ProvisionJob(wanted, self)
         self._job.line.connect(self._append)
@@ -194,3 +212,9 @@ class ModelsPanel(QWidget):
         if not msg:
             return
         self.log.appendPlainText(str(msg))
+        try:
+            from heirloom.studio_log import info as log_info
+
+            log_info("companion", str(msg))
+        except Exception:
+            pass

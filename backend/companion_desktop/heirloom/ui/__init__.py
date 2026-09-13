@@ -368,4 +368,44 @@ QCheckBox {{
     color: {PALETTE['text_secondary']};
     spacing: 8px;
 }}
+
+QPushButton#toolbar {{
+    min-height: 36px;
+    padding: 8px 14px;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+}}
+QPushButton#chip {{
+    background: #121110;
+    border: 1px solid #36322E;
+    border-radius: 2px;
+    padding: 3px 8px;
+    font-family: 'IBM Plex Mono', 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 10px;
+    color: {PALETTE['text_secondary']};
+}}
+QPushButton#chip:checked {{
+    border-color: #D4A373;
+    color: #D4A373;
+    background: rgba(212, 163, 115, 0.12);
+}}
+QLabel#statuschip {{
+    background: #121110;
+    border: 1px solid #36322E;
+    border-radius: 2px;
+    padding: 4px 10px;
+    font-family: 'IBM Plex Mono', 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 10px;
+    color: {PALETTE['text_secondary']};
+}}
+QLabel#statuschip[ready="true"] {{
+    border-color: #D4A373;
+    color: #D4A373;
+}}
+QPlainTextEdit#terminal_log {{
+    font-family: 'IBM Plex Mono', 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 11px;
+    background: #121110;
+    border: 1px solid #36322E;
+}}
 """

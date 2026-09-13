@@ -1,3 +1,9 @@
+# Heirloom Unbound — living status
+
+## Models Studio local voice (this pass)
+
+Standalone engines only — **no Pinokio**. Companion probes Voicebox (`:17493`), Qwen3-TTS (`:8001` `/v1/models`), and LatentSync (`:7860`) like Ollama. Auto TTS: Voicebox → Qwen3-TTS → ElevenLabs clone → Piper → OpenAI. Window → Voice and Window → Terminal (Send ticket `HU-…`, redacted bundle). Provision coach never curls installers.
+
 # Heirloom Assist / Twin — living status
 
 Last inspected: 20 Aug 2026, 05:40 local.

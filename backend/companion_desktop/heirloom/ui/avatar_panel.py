@@ -341,7 +341,14 @@ class AvatarPanel(QFrame):
                 "Authorization": f"Bearer {config.DEVICE_TOKEN}",
                 "Content-Type": "application/json",
             }
+            import time as _time
+
+            from ..studio_log import info as _log_info
+
+            t0 = _time.perf_counter()
             r = _r.post(url, json={"text": text[:4000]}, headers=headers, timeout=60)
+            ms = int((_time.perf_counter() - t0) * 1000)
+            _log_info("tts", f"desktop/speak · {ms}ms · HTTP {r.status_code}", ms=ms)
             if r.status_code == 400:
                 # Voice not configured → bubble up via a sentinel so the UI
                 # can fall back to the silent pulse without an error toast.

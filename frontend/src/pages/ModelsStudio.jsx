@@ -122,6 +122,12 @@ export default function ModelsStudio() {
                 <dd>{companion.whisper?.detail || "—"}</dd>
                 <dt>Piper</dt>
                 <dd>{companion.piper?.detail || "—"}</dd>
+                <dt>Voicebox</dt>
+                <dd>{companion.voicebox?.detail || "—"}</dd>
+                <dt>Qwen3-TTS</dt>
+                <dd>{companion.qwen3_tts?.detail || "—"}</dd>
+                <dt>LatentSync</dt>
+                <dd>{companion.latentsync?.detail || "—"}</dd>
               </dl>
               <p className="text-xs mt-3" style={{ color: "#777", lineHeight: 1.4 }}>
                 {companion.detail ||

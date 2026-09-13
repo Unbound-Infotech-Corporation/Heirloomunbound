@@ -5,7 +5,9 @@ import pytest
 
 from model_router import (
     effective_model_map,
+    resolve_avatar_backend,
     resolve_stt_backend,
+    resolve_tts_backend,
     resolve_twin_backend,
 )
 from twin_runtime import _score_entry, build_brain_pack, history_turns
@@ -23,6 +25,29 @@ def test_resolve_twin_ollama_when_probe_ready():
     assert resolve_twin_backend({"twin": "auto"}, probe) == "ollama"
     assert resolve_twin_backend({"twin": "ollama"}, probe) == "ollama"
     assert resolve_twin_backend({"twin": "cloud_claude"}, probe) == "cloud_claude"
+
+
+def test_resolve_tts_auto_prefers_voicebox():
+    probe = {"voicebox": {"ready": True, "url": "http://127.0.0.1:17493"}, "qwen3_tts": {"ready": True}}
+    assert resolve_tts_backend({"tts": "auto"}, probe, has_voice_clone=True) == "voicebox"
+    down = {"voicebox": {"ready": False}, "qwen3_tts": {"ready": True}}
+    assert resolve_tts_backend({"tts": "auto"}, down, has_voice_clone=True) == "qwen3_tts"
+    none = {"voicebox": {"ready": False}, "qwen3_tts": {"ready": False}, "piper": {"ready": True}}
+    assert resolve_tts_backend({"tts": "auto"}, none, has_voice_clone=True) == "elevenlabs"
+    assert resolve_tts_backend({"tts": "auto"}, none, has_voice_clone=False) == "local_piper"
+    assert resolve_tts_backend({"tts": "voicebox"}, none, has_voice_clone=False) == "local_piper"
+    assert resolve_tts_backend({"tts": "openai_tts"}, probe, has_voice_clone=True) == "openai_tts"
+
+
+def test_resolve_avatar_auto_prefers_latentsync():
+    probe = {"latentsync": {"ready": True}, "musetalk": {"ready": True}}
+    assert resolve_avatar_backend({"avatar": "auto"}, probe, has_did=True) == "latentsync"
+    down = {"latentsync": {"ready": False}, "musetalk": {"ready": True}}
+    assert resolve_avatar_backend({"avatar": "auto"}, down, has_did=True) == "musetalk"
+    none = {}
+    assert resolve_avatar_backend({"avatar": "auto"}, none, has_did=True) == "did"
+    assert resolve_avatar_backend({"avatar": "auto"}, none, has_did=False) == "waveform"
+    assert resolve_avatar_backend({"avatar": "latentsync"}, none, has_did=True) == "waveform"
 
 
 def test_effective_model_map_includes_clone():

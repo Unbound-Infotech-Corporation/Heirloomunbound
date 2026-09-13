@@ -16,7 +16,9 @@ from pymongo import MongoClient
 load_dotenv(Path(__file__).parent.parent / ".env")
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from engine_probes import probe_qwen3_tts, probe_voicebox
 from studio_defaults import clamp_audio, clamp_model_map, clamp_compute, default_model_map
+from support_ticket import build_ticket_snapshot, redact_text
 from studio_setup import clamp_setup, inbox_for_email, vendor_handoff
 from studio_coach_vision import (
     next_step_for_scene,
@@ -97,6 +99,17 @@ def test_clamp_model_map_rejects_unknown():
     assert "zzz" not in out
 
 
+def test_clamp_model_map_accepts_local_voice_backends():
+    out = clamp_model_map(
+        {"tts": "voicebox", "avatar": "latentsync", "twin": "ollama"}
+    )
+    assert out["tts"] == "voicebox"
+    assert out["avatar"] == "latentsync"
+    qwen = clamp_model_map({"tts": "qwen3_tts", "avatar": "musetalk"})
+    assert qwen["tts"] == "qwen3_tts"
+    assert qwen["avatar"] == "musetalk"
+
+
 def test_clamp_compute_modes():
     out = clamp_compute({"mode": "network", "device_id": "dev_abc"})
     assert out["mode"] == "network"
@@ -112,6 +125,55 @@ def test_clamp_compute_modes():
     assert server["remote"]["ollama_url"] == "http://10.0.0.5:11434"
     bad = clamp_compute({"remote": {"ollama_url": "ftp://nope"}})
     assert bad["remote"]["ollama_url"].startswith("http://127.0.0.1")
+    engines = clamp_compute(
+        {
+            "mode": "local",
+            "remote": {
+                "voicebox_url": "http://127.0.0.1:17493",
+                "qwen3_tts_url": "http://10.0.0.8:8001",
+                "latentsync_url": "ftp://bad",
+            },
+        }
+    )
+    assert engines["remote"]["voicebox_url"] == "http://127.0.0.1:17493"
+    assert engines["remote"]["qwen3_tts_url"] == "http://10.0.0.8:8001"
+    assert engines["remote"]["latentsync_url"].startswith("http://127.0.0.1:7860")
+
+
+def test_ticket_redaction_strips_secrets():
+    raw = "here is sk_live_abcdefghijklmnop and Authorization: Bearer abc.def.ghi"
+    cleaned = redact_text(raw)
+    assert "sk_live_abcdefghijklmnop" not in cleaned
+    assert "Bearer abc.def.ghi" not in cleaned
+    assert "[redacted]" in cleaned
+    snap = build_ticket_snapshot(
+        os_name="Linux",
+        build_id="dev",
+        companion_version="0.5.0",
+        probe={
+            "voicebox": {"ready": False, "url": "http://127.0.0.1:17493", "detail": "refused"},
+            "elevenlabs_api_key": "sk_should_not_appear",
+            "journal": "grandma's story",
+        },
+        model_map={"tts": "auto"},
+        compute={"mode": "local", "remote": {"voicebox_url": "http://127.0.0.1:17493"}},
+        log_lines=["Authorization: Bearer secret-token-value", "probe ok"],
+    )
+    blob = str(snap)
+    assert "sk_should_not_appear" not in blob
+    assert "grandma" not in blob
+    assert "secret-token-value" not in blob
+    assert snap["probe"]["voicebox"]["url"] == "http://127.0.0.1:17493"
+    assert snap["product"] == "Heirloom Unbound"
+
+
+def test_engine_probes_refused_without_crash():
+    vb = probe_voicebox("http://127.0.0.1:1")
+    q3 = probe_qwen3_tts("http://127.0.0.1:1")
+    assert vb["ready"] is False
+    assert q3["ready"] is False
+    assert "url" in vb and "detail" in vb
+    assert "url" in q3 and "detail" in q3
 
 
 def test_clamp_setup_space_and_email():
