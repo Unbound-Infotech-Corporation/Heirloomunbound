@@ -4,20 +4,20 @@ import { usePageMeta } from "../lib/usePageMeta";
 
 export default function Support() {
   usePageMeta({
-    title: "Support — Heirloom",
-    description: "Reach the humans behind Heirloom. We answer every email personally.",
+    title: "Support — Heirloom Unbound",
+    description: "Reach the humans behind Heirloom Unbound. We answer every email personally.",
   });
   return (
     <div className="min-h-screen px-6 lg:px-12 py-16" style={{ background: "var(--bg-base)" }}>
       <div className="max-w-2xl mx-auto">
         <Link to="/" className="text-xs font-mono uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-          ← back to Heirloom
+          ← back to Heirloom Unbound
         </Link>
         <h1 className="font-serif text-5xl font-light tracking-tight mt-6 mb-6" style={{ color: "var(--text-primary)" }}>
           We answer every email.
         </h1>
         <p className="text-base mb-12 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-          Heirloom is a small product made by a small team. Real humans read each message; we usually respond within a
+          Heirloom Unbound is a small product made by a small team. Real humans read each message; we usually respond within a
           working day. Whether you are stuck on setup, have a feature request, or want a refund, we want to hear from you.
         </p>
 
@@ -68,6 +68,10 @@ export default function Support() {
               </p>
               <ul className="text-sm list-disc ml-5 space-y-1" style={{ color: "var(--text-secondary)" }}>
                 <li>Windows companion not appearing in the tray? — see <Link to="/companion" style={{ color: "var(--accent)" }}>Companion setup</Link>.</li>
+                <li data-testid="support-terminal-ticket">
+                  Local Voicebox / Qwen3-TTS path? Open the companion <strong>Window → Terminal</strong>, then{" "}
+                  <strong>Send ticket</strong> — it attaches a redacted probe snapshot (no keys, no journal).
+                </li>
                 <li>Refund request? — see <Link to="/refunds" style={{ color: "var(--accent)" }}>Refund policy</Link>.</li>
                 <li>Want to delete your account? — Settings → Danger Zone.</li>
                 <li>How is my data protected? — <Link to="/privacy" style={{ color: "var(--accent)" }}>Privacy policy</Link>.</li>
@@ -78,7 +82,7 @@ export default function Support() {
 
         <div className="mt-16 pt-8 border-t" style={{ borderColor: "var(--border-default)" }}>
           <Link to="/" className="text-sm" style={{ color: "var(--accent)" }}>
-            ← Heirloom home
+            ← Heirloom Unbound home
           </Link>
         </div>
       </div>

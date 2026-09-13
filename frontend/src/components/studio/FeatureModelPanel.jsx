@@ -5,7 +5,16 @@ import { api } from "../../lib/api";
 import StudioFieldRow from "./StudioFieldRow";
 import StudioPanel from "./StudioPanel";
 
-const LOCAL_BACKENDS = new Set(["local_whisper", "local_piper", "ollama", "auto"]);
+const LOCAL_BACKENDS = new Set([
+  "local_whisper",
+  "local_piper",
+  "ollama",
+  "voicebox",
+  "qwen3_tts",
+  "latentsync",
+  "musetalk",
+  "auto",
+]);
 
 /**
  * One feature window: backend dropdown, inline credential (only when needed),
@@ -25,7 +34,7 @@ export default function FeatureModelPanel({ feature, onRefresh }) {
   const selectedBackend = (feature.backends || []).find((b) => b.id === selected);
   const needsLocal =
     LOCAL_BACKENDS.has(selected) &&
-    ["stt", "tts", "twin", "vision"].includes(feature.id);
+    ["stt", "tts", "twin", "vision", "avatar"].includes(feature.id);
 
   const setBackend = async (backend) => {
     setBusy("backend");
