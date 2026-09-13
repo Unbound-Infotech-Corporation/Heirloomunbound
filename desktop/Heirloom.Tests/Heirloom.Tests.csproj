@@ -21,6 +21,8 @@
     <Compile Include="..\Heirloom\Services\VaultService.cs" Link="VaultService.cs" />
     <Compile Include="..\Heirloom\Services\AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="..\Heirloom\Services\SetupCore.cs" Link="SetupCore.cs" />
+    <Compile Include="..\Heirloom\Services\DiskProfiles.cs" Link="DiskProfiles.cs" />
+    <Compile Include="..\Heirloom\Services\DedicatedRole.cs" Link="DedicatedRole.cs" />
     <Compile Include="..\Heirloom\Services\WebIntent.cs" Link="WebIntent.cs" />
     <Compile Include="..\Heirloom\Services\VideoStudioCore.cs" Link="VideoStudioCore.cs" />
     <Compile Include="..\Heirloom\Services\PhoneIntent.cs" Link="PhoneIntent.cs" />

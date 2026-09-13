@@ -20,9 +20,9 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <ApplicationTitle>Heirloom</ApplicationTitle>
+    <ApplicationTitle>Heirloom Unbound</ApplicationTitle>
     <AssemblyName>Heirloom</AssemblyName>
-    <Product>Heirloom</Product>
+    <Product>Heirloom Unbound</Product>
     <Company>Unbound Infotech</Company>
     <Version>0.5.0</Version>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>

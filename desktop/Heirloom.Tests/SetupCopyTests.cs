@@ -14,28 +14,71 @@ public class SetupCopyTests
         Assert.False(plan.CanHear);
         Assert.False(plan.CanThink);
         Assert.False(plan.CanPicture);
-        Assert.Equal("lite", plan.ProfileId);
+        Assert.Equal("small", plan.ProfileId);
         Assert.Contains("C:", plan.DiskLine);
     }
 
     [Fact]
-    public void Eight_gig_can_think_but_not_picture()
+    public void Nine_gig_is_small_and_does_not_require_a_local_mind()
     {
         var plan = SetupCopy.PlanForFreeSpace(9L * 1024 * 1024 * 1024, "C:");
         Assert.True(plan.CanHear);
-        Assert.True(plan.CanThink);
+        Assert.False(plan.CanThink);
         Assert.False(plan.CanPicture);
-        Assert.Equal("lite", plan.ProfileId);
+        Assert.Equal("small", plan.ProfileId);
     }
 
     [Fact]
-    public void Studio_disk_is_picked_at_fifty_gig()
+    public void Medium_disk_is_picked_at_fifty_five_gig()
     {
         var plan = SetupCopy.PlanForFreeSpace(55L * 1024 * 1024 * 1024, "D:");
         Assert.True(plan.CanHear);
         Assert.True(plan.CanThink);
+        Assert.False(plan.CanPicture);
+        Assert.Equal("medium", plan.ProfileId);
+    }
+
+    [Fact]
+    public void Large_disk_is_picked_at_one_twenty_gig()
+    {
+        var plan = SetupCopy.PlanForFreeSpace(120L * 1024 * 1024 * 1024, "D:");
+        Assert.True(plan.CanHear);
+        Assert.True(plan.CanThink);
         Assert.True(plan.CanPicture);
-        Assert.Equal("studio", plan.ProfileId);
+        Assert.Equal("large", plan.ProfileId);
+    }
+
+    [Fact]
+    public void Dedicated_disk_is_picked_only_when_huge()
+    {
+        var almost = SetupCopy.PlanForFreeSpace(170L * 1024 * 1024 * 1024, "E:");
+        Assert.Equal("large", almost.ProfileId);
+        var huge = SetupCopy.PlanForFreeSpace(200L * 1024 * 1024 * 1024, "E:");
+        Assert.Equal("dedicated", huge.ProfileId);
+    }
+
+    [Fact]
+    public void Disk_profile_aliases_map_legacy_ids()
+    {
+        Assert.Equal("small", DiskProfiles.Resolve("lite").Id);
+        Assert.Equal("medium", DiskProfiles.Resolve("full").Id);
+        Assert.Equal("large", DiskProfiles.Resolve("max").Id);
+        Assert.Equal("large", DiskProfiles.Resolve("studio").Id);
+        Assert.Equal("medium", DiskProfiles.Resolve("nope").Id);
+        Assert.Equal("dedicated", DiskProfiles.Resolve("dedicated").Id);
+    }
+
+    [Fact]
+    public void Dedicated_role_writes_install_profile()
+    {
+        var settings = new AppSettings();
+        DedicatedRole.Apply(settings, consent: true, vaultDrive: @"D:\HeirloomVault");
+        Assert.Equal("dedicated", settings.InstallProfile);
+        Assert.Equal("dedicated", settings.DiskProfile);
+        Assert.Equal("dedicated", settings.MachineRole);
+        Assert.True(settings.DedicatedConsent);
+        Assert.True(settings.LiveListen);
+        Assert.Equal(@"D:\HeirloomVault", settings.LibraryPath);
     }
 
     [Fact]

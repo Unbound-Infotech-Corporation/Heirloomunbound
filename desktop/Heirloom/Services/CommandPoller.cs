@@ -211,8 +211,7 @@ public sealed class CommandPoller : IDisposable
                 case "windows":
                     return await ToolAsync("windows", command, cancellationToken).ConfigureAwait(false);
                 case "provision_models":
-                    var profile = DiskProfiles.All.FirstOrDefault(p => p.Id == (_settings.Current.DiskProfile ?? "full"))
-                        ?? DiskProfiles.All[1];
+                    var profile = DiskProfiles.Resolve(_settings.Current.InstallProfile ?? _settings.Current.DiskProfile);
                     await _provision.ProvisionAsync(profile, new Progress<string>(_ => { }), cancellationToken).ConfigureAwait(false);
                     return (true, "provisioned");
                 case "shell":
