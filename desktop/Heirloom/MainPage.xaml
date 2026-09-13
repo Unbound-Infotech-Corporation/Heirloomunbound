@@ -732,22 +732,22 @@
                             <controls:StudioActionButton
                                 AssetId="action-lite"
                                 Command="{x:Bind ViewModel.Models.ProvisionCommand}"
-                                CommandParameter="lite"
+                                CommandParameter="small"
                                 Glyph="&#xE73E;"
-                                Label="Lite" />
+                                Label="Small" />
                             <controls:StudioActionButton
                                 AssetId="action-full"
                                 Command="{x:Bind ViewModel.Models.ProvisionCommand}"
-                                CommandParameter="full"
+                                CommandParameter="medium"
                                 Glyph="&#xE8A5;"
-                                Label="Full" />
+                                Label="Medium" />
                             <controls:StudioActionButton
                                 AssetId="action-studio"
                                 Command="{x:Bind ViewModel.Models.ProvisionCommand}"
-                                CommandParameter="studio"
+                                CommandParameter="large"
                                 Glyph="&#xE950;"
                                 Kind="Primary"
-                                Label="Studio 50GB+" />
+                                Label="Large" />
                             <controls:StudioActionButton
                                 AssetId="action-thispc"
                                 Command="{x:Bind ViewModel.Models.SetComputeCommand}"
@@ -777,8 +777,8 @@
                             <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.VaultStatus, Mode=OneWay}" TextWrapping="Wrap" />
                             <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.Progress, Mode=OneWay}" TextWrapping="Wrap" />
                             <TextBlock Style="{StaticResource StudioOverline}" Text="Extra" />
-                            <Button Command="{x:Bind ViewModel.Models.ProvisionCommand}" CommandParameter="dedicated" Content="Dedicated" Style="{StaticResource StudioButtonSecondary}" />
-                            <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="50 GB is the serious floor. A dedicated second PC is uncommon and first-class." />
+                            <Button Command="{x:Bind ViewModel.Models.ProvisionCommand}" CommandParameter="dedicated" Content="Dedicated PC" Style="{StaticResource StudioButtonSecondary}" />
+                            <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Heirloom Unbound install sizes: Small 5–12 GB, Medium 40–70 GB, Large 100–160 GB, Dedicated PC 200 GB+ (this machine exists for the twin)." />
                         </StackPanel>
                     </ScrollViewer>
                 </controls:StudioDocumentWindow>

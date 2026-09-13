@@ -80,11 +80,17 @@ public partial class ModelsViewModel : ObservableObject
     [RelayCommand]
     public async Task ProvisionAsync(string profileId)
     {
-        var profile = DiskProfiles.All.First(p => p.Id == profileId);
+        var profile = DiskProfiles.Resolve(profileId);
         Busy = true;
         var progress = new Progress<string>(m => Progress = SetupCopy.FriendlyLine(m));
         await _host.Provision.ProvisionAsync(profile, progress, allowInstall: true).ConfigureAwait(true);
-        _host.Settings.Current.DiskProfile = profileId;
+        _host.Settings.Current.DiskProfile = profile.Id;
+        _host.Settings.Current.InstallProfile = profile.Id;
+        if (profile.MachineRole)
+        {
+            DedicatedRole.Apply(_host.Settings.Current, consent: true, vaultDrive: _host.Settings.Current.LibraryPath);
+        }
+
         _host.Settings.Save();
         await RefreshAsync().ConfigureAwait(true);
         Busy = false;

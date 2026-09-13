@@ -44,7 +44,8 @@ public partial class FirstRunViewModel : ObservableObject
     [ObservableProperty] private Visibility _stopVis = Visibility.Collapsed;
 
     public string WelcomeBody =>
-        "Heirloom will get what it needs onto this computer. You do not need to pick anything or type any codes.\n\n"
+        "Heirloom Unbound will get what it needs onto this computer. Four install sizes — Small, Medium, Large, Dedicated PC — are chosen from free disk. You do not need to type any codes.\n\n"
+        + "Small works without a GPU. Dedicated is only suggested when this machine has about 180 GB free.\n\n"
         + "Windows may ask once if a helper can be installed. Choose Yes.\n\n"
         + "The first time can take a while. You can leave this window open.";
 
@@ -109,8 +110,18 @@ public partial class FirstRunViewModel : ObservableObject
         {
             var vault = string.IsNullOrWhiteSpace(LibraryPath) ? AppPaths.DefaultVaultPath : LibraryPath;
             var plan = SetupCopy.PlanForPath(vault);
-            _host.Settings.Current.MachineRole = "daily";
-            _host.Settings.Current.DiskProfile = plan.ProfileId;
+            var profile = DiskProfiles.Resolve(plan.ProfileId);
+            _host.Settings.Current.DiskProfile = profile.Id;
+            _host.Settings.Current.InstallProfile = profile.Id;
+            if (profile.MachineRole)
+            {
+                DedicatedRole.Apply(_host.Settings.Current, consent: true, vaultDrive: vault);
+            }
+            else
+            {
+                _host.Settings.Current.MachineRole = "daily";
+            }
+
             _host.Settings.Save();
             _host.SetVaultPath(vault);
             LibraryPath = _host.Settings.Current.LibraryPath;

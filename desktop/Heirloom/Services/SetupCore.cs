@@ -82,13 +82,16 @@ public static class SetupCopy
     public static SetupDiskPlan PlanForFreeSpace(long freeBytes, string driveName = "this computer")
     {
         var hear = freeBytes >= HearingBytes;
-        var think = freeBytes >= MindBytes;
-        var picture = freeBytes >= MindBytes + PictureBytes;
-        var profile = freeBytes >= 50L * 1024 * 1024 * 1024
-            ? "studio"
-            : freeBytes >= 20L * 1024 * 1024 * 1024
-                ? "full"
-                : "lite";
+        var gb = freeBytes / (1024d * 1024d * 1024d);
+        var profile = gb >= 180
+            ? "dedicated"
+            : gb >= 100
+                ? "large"
+                : gb >= 40
+                    ? "medium"
+                    : "small";
+        var think = freeBytes >= MindBytes && profile is "medium" or "large" or "dedicated";
+        var picture = freeBytes >= MindBytes + PictureBytes && profile is "large" or "dedicated";
         var disk = FormatBytes(freeBytes) + " free on " + driveName;
         return new SetupDiskPlan(hear, think, picture, profile, disk, freeBytes);
     }
@@ -415,8 +418,32 @@ public static class SetupCopy
     {
         Directory.CreateDirectory(Path.GetDirectoryName(destPath) ?? AppPaths.Root);
         var part = destPath + ".part";
+        long existing = 0;
+        try
+        {
+            if (File.Exists(part))
+            {
+                existing = new FileInfo(part).Length;
+            }
+        }
+        catch
+        {
+            existing = 0;
+        }
+
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (existing > 0)
+        {
+            request.Headers.Range = new RangeHeaderValue(existing, null);
+        }
+
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        var resume = existing > 0 && response.StatusCode == HttpStatusCode.PartialContent;
+        if (!resume)
+        {
+            existing = 0;
+        }
+
         if (!response.IsSuccessStatusCode)
         {
             throw new HttpRequestException(
@@ -431,13 +458,20 @@ public static class SetupCopy
             throw new HttpRequestException("The download sent a web page instead of a file.", null, HttpStatusCode.BadGateway);
         }
 
-        var total = response.Content.Headers.ContentLength ?? 0;
+        var contentLen = response.Content.Headers.ContentLength ?? 0;
+        var total = resume && contentLen > 0 ? existing + contentLen : contentLen;
         await using var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        await using var output = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None, 80 * 1024, useAsync: true);
+        await using var output = new FileStream(
+            part,
+            resume ? FileMode.Append : FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            80 * 1024,
+            useAsync: true);
         var buffer = new byte[80 * 1024];
-        long done = 0;
+        long done = existing;
         var lastReport = DateTime.UtcNow;
-        progress?.Report(FriendlyDownload(friendlyLabel, 0, total));
+        progress?.Report(FriendlyDownload(friendlyLabel, done, total));
         while (true)
         {
             var read = await input.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);

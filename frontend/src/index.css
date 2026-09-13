@@ -691,11 +691,12 @@
     display: grid;
     grid-template-columns: auto 1fr;
     grid-template-rows: auto auto;
-    gap: 2px 8px;
-    padding: 8px 10px;
+    gap: 4px 12px;
+    padding: 14px 16px;
     border: 1px solid #222;
     background: #2a2a2a;
     cursor: pointer;
+    min-height: 72px;
 }
 .studio-compute-mode input {
     grid-row: 1 / span 2;
