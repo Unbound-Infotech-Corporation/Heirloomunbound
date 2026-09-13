@@ -462,6 +462,14 @@ class CommandPoller(QThread):
                     mmap = data.get("model_map")
                     if isinstance(mmap, dict):
                         self.model_map.emit(mmap)
+                    compute = data.get("studio_compute")
+                    if isinstance(compute, dict) or isinstance(mmap, dict):
+                        settings = config.load_settings()
+                        if isinstance(compute, dict):
+                            settings["studio_compute"] = compute
+                        if isinstance(mmap, dict):
+                            settings["studio_models"] = mmap
+                        config.save_settings(settings)
                     self._runtime_every += 1
                     if self._runtime_every == 1 or self._runtime_every % 10 == 0:
                         self._post_runtime()

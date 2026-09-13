@@ -52,13 +52,23 @@ TROUBLESHOOTING
 - Mic not working? Settings → Privacy → Microphone → allow desktop apps.
 - App didn't open? Check %LOCALAPPDATA%\Heirloom for error logs.
 
-VOICE CLONING
--------------
-In Waveform avatar mode, Heirloom calls your ElevenLabs cloned voice so the
-twin speaks aloud. Configure your voice in the web app: Settings → Voice clone
-→ paste your ElevenLabs API key and pick the voice id (clone one in
-ElevenLabs first if you haven't). The desktop app picks it up automatically
-on next launch — no restart needed.
+VOICE — HEIRLOOM UNBOUND (no Pinokio)
+-------------------------------------
+Local clone engines install standalone. Heirloom Unbound probes them over
+HTTP the same way it probes Ollama. There is no Pinokio installer.
+
+  Voicebox     default http://127.0.0.1:17493   (MSI or Docker, then Probe)
+  Qwen3-TTS    default http://127.0.0.1:8001    (pip or Docker, OpenAI-compatible GET /v1/models)
+  LatentSync   default http://127.0.0.1:7860    (optional talking-likeness probe)
+
+Window → Voice: status chips, Probe, Test phrase, Prefer Voicebox / Qwen3.
+Window → Terminal: live studio.log, filters, Send ticket (redacted snapshot).
+Auto TTS prefers Voicebox when it is listening, then Qwen3-TTS, then a
+cloned ElevenLabs voice, then Piper.
+
+In Waveform avatar mode, the companion still calls POST /api/desktop/speak
+when a cloud/cloned path is selected. Configure ElevenLabs in the web app
+Settings → Voice clone if you want that fallback.
 
 If no voice is configured, Waveform mode just pulses silently (no error).
 D-ID mode is unaffected — it always speaks because the talking-head MP4
