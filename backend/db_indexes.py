@@ -56,6 +56,7 @@ async def ensure_indexes() -> None:
         # Personas + nudges + dashboard
         ("personas", [("user_id", 1)], {"name": "user_id"}),
         ("nudges", [("user_id", 1), ("date", -1)], {"name": "user_date"}),
+        ("nudges", [("user_id", 1), ("kind", 1), ("date_key", -1)], {"name": "user_kind_date"}),
 
         # Photos
         ("photos", [("user_id", 1), ("created_at", -1)], {"name": "user_created"}),

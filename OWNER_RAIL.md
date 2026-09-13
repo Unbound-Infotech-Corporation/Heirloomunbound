@@ -114,6 +114,9 @@ WinUI Memory document is **deferred** (same as Settings → How we work). Assist
 | Twin-only `/twin` + heir portal | Unchanged |
 | Confirm-in-document | Unchanged (no MessageBox) |
 | WinUI Owner document | **Follow-up.** Assist + Twin docks stay. |
+| Standing Twin routines (web) | Done — opt-in morning brief, weekly biographer, sealed-letter nudge on `/api/nudges`. Empty mornings stay quiet. |
+
+**Standing routines (this pass).** Owner consent on Memory Studio and Settings. Persistence is `users.standing_routines` (`enabled` + `last_run` period key). Generation reuses `nudges` (`source=routine`) via `GET /api/nudges/today`, `GET/PUT /api/nudges/routines`, and `POST /api/nudges/routines/check`. A 30-minute sweep fires due routines for opted-in owners. Twin voice only — grounded in reminders, archive titles, and letters; never invented biography. Heirs do not get these productivity routines (portal has no `/nudges/routines`; `routines_allowed` refuses heir/caller). Assist vs Twin is unchanged: routines are Twin-voiced owner notes, not Assist PC work. WinUI toggles deferred with How we work.
 
 ### Slice 4 — Memory of work + heir fence audit
 
@@ -135,7 +138,8 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 - [x] Slice 3 Assist receipts + Sit plan/did chips (web). WinUI Owner document still deferred.
 - [ ] Slice 4 cross-session memory + full heir-fence audit pass — deferred.
 - [ ] WinUI Settings → How we work — deferred (web Settings ships in Slice 2).
-- [x] Memory Studio v1 on web (`/memory`) — facts, pairing, fence; heirs excluded.
+- [x] Memory Studio v1 on web (`/memory`) — facts, pairing, fence, standing routines; heirs excluded.
+- [x] Standing Twin routines (morning brief / weekly biographer / sealed-letter nudge) — skip-when-empty, owner-only.
 - [ ] WinUI Memory Studio document — deferred (web `/memory` is the owner edit surface).
 
 ## Ship order
@@ -145,4 +149,4 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 3. **Slice 3** — close-loop receipts so a Do leaves a visible result (web Sit shipped; WinUI Owner document still follow-up).
 4. **Slice 4** — remember + heir-fence audit once the prompts have settled.
 
-Do not give heirs owner mode, pairing productivity, or PC tools.
+Do not give heirs owner mode, pairing productivity, standing routines, or PC tools.

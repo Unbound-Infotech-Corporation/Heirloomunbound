@@ -81,5 +81,7 @@ describe("Memory Studio helpers", () => {
     expect(heirPortalMustExclude("navigate('/memory')")).toBe(false);
     expect(heirPortalMustExclude("api.get('/memory/facts')")).toBe(false);
     expect(heirPortalMustExclude("PUT /auth/me/preferences")).toBe(false);
+    expect(heirPortalMustExclude("api.put('/nudges/routines')")).toBe(false);
+    expect(heirPortalMustExclude("standing_routines")).toBe(false);
   });
 });

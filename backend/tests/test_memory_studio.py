@@ -24,6 +24,8 @@ def test_heir_portal_has_no_memory_studio():
     assert "/studio/memory" not in portal
     assert "/memory/facts" not in portal
     assert "/auth/me/preferences" not in portal
+    assert "/nudges/routines" not in portal
+    assert "standing_routines" not in portal
     assert "Memory Studio" not in portal
     assert "nav-memory" not in portal
 
@@ -51,6 +53,8 @@ def test_memory_page_reuses_existing_endpoints():
     assert 'api.put("/auth/me/preferences"' in page
     assert "biography" not in page.lower()
     assert 'data-testid="memory-facts-empty"' in page or "HeldFactsList" in page
+    assert "StandingRoutinesFields" in page
+    assert 'api.put("/nudges/routines"' in page
     assert 'data-testid="memory-studio-root"' in page
 
 

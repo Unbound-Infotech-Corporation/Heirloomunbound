@@ -4,9 +4,11 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import HowWeWorkFields from "../components/memory/HowWeWorkFields";
 import SafeTopicsFields from "../components/memory/SafeTopicsFields";
+import StandingRoutinesFields from "../components/memory/StandingRoutinesFields";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { nextSafeTopics, pairingFromMe, pairingPayload } from "../lib/memoryStudio";
+import { routinesFromMe, routinesPayload } from "../lib/standingRoutines";
 
 const WIDGETS = [
   { key: "reflection", label: "Daily reflection prompt" },
@@ -43,6 +45,7 @@ export default function Settings() {
     close_loop: true,
     remember_prefs: true,
   });
+  const [routines, setRoutines] = useState(routinesFromMe(null));
   const [personas, setPersonas] = useState([]);
   const [activePersonaId, setActivePersonaId] = useState(null);
   const [newPersona, setNewPersona] = useState({ name: "", description: "", system_addendum: "" });
@@ -82,6 +85,7 @@ export default function Settings() {
     setTtsLang(data.tts_language || "auto");
     setActivePersonaId(data.active_persona_id || null);
     setPairing(pairingFromMe(data));
+    setRoutines(routinesFromMe(data));
   };
 
   const savePairing = async (next) => {
@@ -90,6 +94,16 @@ export default function Settings() {
     try {
       await api.put("/auth/me/preferences", payload);
       toast.success("How we work saved");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    }
+  };
+  const saveRoutines = async (next) => {
+    const payload = routinesPayload(next);
+    setRoutines(payload);
+    try {
+      await api.put("/nudges/routines", payload);
+      toast.success("Standing routines saved");
     } catch (e) {
       toast.error(e.response?.data?.detail || e.message);
     }
@@ -294,13 +308,15 @@ export default function Settings() {
         <div>
           <div className="overline mb-1" style={{ color: "var(--accent)" }}>memory studio</div>
           <p className="text-sm" style={{ color: "var(--text-primary)" }}>
-            See and edit what the Twin holds — facts, pairing, safe-topic fence.
+            See and edit what the Twin holds — facts, pairing, standing routines, safe-topic fence.
           </p>
         </div>
         <span className="text-2xl" style={{ color: "var(--accent)" }}>→</span>
       </Link>
 
       <HowWeWorkFields pairing={pairing} onChange={savePairing} />
+
+      <StandingRoutinesFields routines={routines} onChange={saveRoutines} />
 
       {/* BYO keys quick-link — full setup wizard */}
       <a
