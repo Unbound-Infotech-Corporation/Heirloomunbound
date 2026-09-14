@@ -4,7 +4,7 @@
 
 #define MyAppName "Heirloom Unbound"
 #define MyAppPublisher "Unbound Infotech Corporation"
-#define MyAppVersion "0.5.0"
+#define MyAppVersion "0.5.1"
 #define MyAppExeName "Heirloom.exe"
 
 #ifndef DistDir

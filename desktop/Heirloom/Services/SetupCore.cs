@@ -54,7 +54,7 @@ public static class SetupCopy
         {
             Timeout = TimeSpan.FromHours(3),
         };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("Heirloom/0.5.0");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("Heirloom/0.5.1");
         http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*"));
         return http;
     }

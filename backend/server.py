@@ -127,7 +127,7 @@ async def build_info():
     Local PC download is an older desktop — deploy origin/main, then re-download.
     """
     sha = "dev"
-    version = "0.5.0"
+    version = "0.5.1"
     try:
         from companion_desktop.heirloom import BUILD_ID, __version__
 
