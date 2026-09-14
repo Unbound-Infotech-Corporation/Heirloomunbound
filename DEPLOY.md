@@ -1,6 +1,6 @@
 # Heirloom — Deploy, Backup & Ops Runbook
 
-Last reviewed: Aug 27, 2026 (desktop **0.5.0** — WinUI primary; see `EMERGENT_HANDOFF.md`).
+Last reviewed: Sep 14, 2026 (desktop **0.5.1** — WinUI primary; see `EMERGENT_HANDOFF.md`).
 
 ## TL;DR
 

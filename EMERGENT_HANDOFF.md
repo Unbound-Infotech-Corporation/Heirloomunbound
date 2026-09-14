@@ -1,22 +1,22 @@
-# Emergent handoff — Heirloom **0.5.0**
+# Emergent handoff — Heirloom **0.5.1**
 
 > **Owner shortcut:** open [`EMERGENT_PASTE_THIS.md`](EMERGENT_PASTE_THIS.md), copy the fenced block, paste into Emergent chat. Done.
 
 **GitHub (already pushed):**  
-https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/tree/v0.5.0  
-**Tag:** `v0.5.0` (use the tag — do not chase commit SHAs)  
-**Tree zip:** https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/archive/refs/tags/v0.5.0.zip
+https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/tree/v0.5.1  
+**Tag:** `v0.5.1` (use the tag — do not chase commit SHAs)  
+**Tree zip:** https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/archive/refs/tags/v0.5.1.zip
 
 **Audience:** Emergent operators / agents promoting this GitHub tree to preview + production  
-**Date:** 2026-08-27  
-**Previous production stamp:** `0.4.0` (legacy PySide first-run bake)  
-**This release:** Native WinUI owner studio is the product; PySide zip stays as fallback only
+**Date:** 2026-09-14  
+**Previous production stamp:** `0.5.0` (git `0dc1270`)  
+**This release:** Same WinUI owner studio; stamp + main work since `v0.5.0` (four Unbound install sizes, Dedicated PC, Models Studio local voice)
 
 ---
 
 ## What you must do (checklist)
 
-1. **Pull / sync this repo** onto the Emergent app from tag **`v0.5.0`** (or unpack the tag zip).
+1. **Pull / sync this repo** onto the Emergent app from tag **`v0.5.1`** (or unpack the tag zip).
 2. Confirm `backend/companion_desktop_data.py` is present (baked PySide zip). If you only copied loose files and that module is missing, run:
    ```bash
    cd backend && python build_desktop_data.py
@@ -24,9 +24,9 @@ https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/tree/v0.5.0
 3. Restart backend (`supervisorctl restart backend` or platform equivalent).
 4. Smoke:
    - `GET /api/` → ok  
-   - `GET /api/build` → `desktop_version: "0.5.0"`, features include `studio`, `first-run`, `vendor-coach`, `winui-native`
-   - `GET /api/companion/winui` (authed) → `"version": "0.5.0"`
-   - Web `/companion` copy mentions **0.5.0**
+   - `GET /api/build` → `desktop_version: "0.5.1"`, features include `studio`, `first-run`, `vendor-coach`, `winui-native`
+   - `GET /api/companion/winui` (authed) → `"version": "0.5.1"`
+   - Web `/companion` copy mentions **0.5.1**
 5. **Promote preview → production** in the Emergent UI when smoke is green.
 6. Website / download CTAs: point Windows owners at the **native** package path below, not only the old PySide zip.
 
@@ -43,36 +43,27 @@ https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/tree/v0.5.0
 - WinUI stores the device token in **Windows Credential Locker** (Settings paste). It does **not** bake `config.py`.
 - Overlaying `companion_desktop` onto an old install must keep that install’s baked `heirloom/config.py` (token + `BACKEND_URL`).
 - Mixer volume = Heirloom WASAPI session, not system master (`desktop/Heirloom/Services/MixerSessionService.cs`).
-
----
-
-## What changed since 0.4.0 (why this is 0.5.0)
-
-### Native WinUI studio (primary)
-
-- Full owner studio shell: dock groups, Sit → **Assist**, Twin group (Sitting / Portrait / Abilities / Skills / Avatar).
 - **Assist** (`AssistantViewModel` + `PcToolkit`): copilot on this PC — never first-person as the owner.
-- **Twin**: vault-grounded, likeness; cloud chat `mode=twin` strips `pc_control` / `screen_vision` / `terminal`.
-- First-run: one **Get everything ready** button (Whisper, Ollama/llama3.1, talking-picture engine when disk + NVIDIA allow). No tokens / backend URL / vendor email / model SKUs in the overlay.
-- Vendor coach is **optional** (Settings / Help → Getting started), never auto-started; no vendor DOM / captchas / screenshot key scraping.
-- Studio poller (`cmd_id` results), cloned speak, heir lock, Library/Skills, autostart, sideload zip APIs.
-- Chunked dock, named verbs (Ask / File / Save), DAW-style mute marks, hover lexicon.
-- Publish locally: `desktop/Publish-Heirloom.ps1` → `desktop/dist/Heirloom/`. Use `desktop/dist/Heirloom-ready` if the live exe is locked.
-
-### Backend / twin / phone
-
-- Twin brain routing: local faster-whisper → local Ollama when provisioned; Claude / ElevenLabs remain fallbacks (`backend/model_router.py`).
-- Desktop: `POST /api/desktop/brain-pack`, `POST /api/desktop/chat/local-complete`, `POST /api/desktop/speak`.
-- Studio persistence: `GET/PUT /api/studio/audio|models|compute` + provision with `target_device_id`.
-- Phone twin inbound / Retell / policy modules (`backend/routers/phone.py`, `phone_*.py`) — keep env vars for phone providers if already configured; no change required for pure web+desktop smoke.
-
-### Web
-
-- Adobe-style studio shell already on `/models` etc.; Companion page now advertises live bake version and warns when Emergent lags GitHub.
+- **Twin**: vault-grounded, likeness; cloud chat `mode=twin` strips `pc_control` / `screen_vision` / `terminal`. Heirs inherit Twin, not Assist.
 
 ---
 
-## Version stamps (must all say 0.5.0 after sync)
+## What changed since 0.5.0 (why this is 0.5.1)
+
+From GitHub `main` after tag `v0.5.0` (do not invent beyond this tree):
+
+- **Four Unbound install sizes** replace the old lite/full/max labels. First-run, Models Studio, companion wizard, and WinUI provision plan against those sizes.
+- **Dedicated PC** role on the companion / first-run path so local voice can live on a selected machine.
+- **Models Studio local voice:** Voicebox / Qwen3-TTS / LatentSync routing, support tickets with redaction, Voice and Terminal MDI windows with local probes.
+- **Heirloom Unbound Setup** Inno sources (`desktop/installer/`) for the native Windows installer.
+- Trust fences: heir writes stay off device-token rails; portal chat pins to the heir session; web Twin still strips PC tools.
+- Owner Sit rail (Do vs Ask without a mode picker), Assist action receipts / Sit plan and Did chips, owner-only Memory Studio, standing Twin routines, First Gift letters, owner pairing prefs baked into Assist and Twin prompts.
+
+Product rules from 0.5.0 are unchanged: WinUI is primary; PySide zip is fallback; Assist is the PC copilot; Twin is vault first-person.
+
+---
+
+## Version stamps (must all say 0.5.1 after sync)
 
 | Location | Field |
 | --- | --- |
@@ -81,11 +72,12 @@ https://github.com/Unbound-Infotech-Corporation/Heirloomunbound/tree/v0.5.0
 | `backend/server.py` | `/api/build` fallback + features |
 | `backend/routers/companion.py` | `GET /api/companion/winui` → `version` |
 | `desktop/Heirloom/Heirloom.csproj` | `<Version>` |
-| `desktop/Heirloom/Package.appxmanifest` | `Identity Version="0.5.0.0"` |
+| `desktop/Heirloom/Package.appxmanifest` | `Identity Version="0.5.1.0"` |
 | `desktop/Heirloom/Services/AppHost.cs` | `Version` |
-| Titlebar / settings (legacy + WinUI) | shows `0.5.0` + build id |
+| `desktop/installer/HeirloomUnbound.iss` | `MyAppVersion` |
+| Titlebar / settings (legacy + WinUI) | shows `0.5.1` + build id |
 
-Legacy script auto-update still uses `COMPANION_SCRIPT_VERSION` in `routers/companion.py` (separate from app `0.5.0`). Only bump that when `_build_companion_script` changes.
+Legacy script auto-update still uses `COMPANION_SCRIPT_VERSION` in `routers/companion.py` (separate from app `0.5.1`). Only bump that when `_build_companion_script` changes.
 
 ---
 
@@ -121,7 +113,7 @@ Phone (only if phone twin is live): Retell / Twilio-related vars already documen
 ```text
 curl https://<prod>/api/
 curl https://<prod>/api/build
-# expect desktop_version 0.5.0
+# expect desktop_version 0.5.1
 ```
 
 Manual: sign in → Companion → confirm bake text → (optional) re-download WinUI or legacy zip → Twin message → one companion `say` if a device is paired.
