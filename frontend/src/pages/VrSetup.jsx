@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
 import { api } from "../lib/api";
+import { usePageMeta } from "../lib/usePageMeta";
 import {
   checklistForPath,
   coachHref,
@@ -15,6 +16,8 @@ import {
   softwareById,
   tierLabel,
   vrCatalog,
+  vrCoachHomeHref,
+  vrCoachHomeLabel,
 } from "../lib/vrCompat";
 import { enterRoomVr, openXrSelfCheck, probeBrowserXr } from "../lib/vrRuntime";
 import { HeadsetArt, StepArt } from "../components/studio/VrIllustrations";
@@ -26,7 +29,13 @@ export default function VrSetup() {
   const catalog = vrCatalog();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
+  const homeHref = vrCoachHomeHref(location.pathname);
+  const homeLabel = vrCoachHomeLabel(location.pathname);
   const headsets = listHeadsets();
+  usePageMeta({
+    title: "VR setup coach — Heirloom Unbound",
+    description: "Pick your headset. Official free software only. OpenXR on the PC, WebXR in the headset browser.",
+  });
   const hinted = headsetHintFromUa(typeof navigator !== "undefined" ? navigator.userAgent : "");
   const headsetId = params.get("headset") || hinted?.id || "";
   const pathId = params.get("path") || "";
@@ -80,10 +89,10 @@ export default function VrSetup() {
   };
 
   return (
-    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl vr-setup" data-testid="vr-setup">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl vr-setup min-h-screen" data-testid="vr-setup">
       <div className="mb-6 text-xs" style={{ color: "var(--text-muted)" }}>
-        <Link to="/rooms" data-testid="vr-setup-back">
-          ← rooms
+        <Link to={homeHref} data-testid="vr-setup-back">
+          {homeLabel}
         </Link>
       </div>
       <header className="mb-8">
@@ -226,8 +235,8 @@ export default function VrSetup() {
             >
               Fix OpenXR <ArrowRight className="h-4 w-4" />
             </button>
-            <Link to="/rooms" className="px-4 py-2 text-sm rounded-sm" style={{ border: "1px solid var(--border-default)" }}>
-              Back to rooms
+            <Link to={homeHref} className="px-4 py-2 text-sm rounded-sm" style={{ border: "1px solid var(--border-default)" }}>
+              {homeLabel.replace("← ", "Back to ")}
             </Link>
           </div>
         </section>
@@ -286,7 +295,7 @@ export default function VrSetup() {
             </button>
             {headset ? (
               <Link
-                to={coachHref(headset.id, path?.id)}
+                to={coachHref(headset.id, path?.id, location.pathname)}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm"
                 style={{ color: "var(--accent)" }}
               >

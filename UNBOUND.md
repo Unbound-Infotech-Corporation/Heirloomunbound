@@ -26,8 +26,8 @@ there later.
   conversation overlay. **Enter in VR** probes WebXR (OpenXR-backed on a PC
   when a runtime is installed) and keeps a simple enclosed volume in the
   headset. Missing runtime → VR setup coach. Deep-link: `/twin?room=`.
-- **VR setup coach** (`/rooms/vr`) + **compatibility matrix**
-  (`/rooms/vr/matrix`, markdown at [`docs/vr-compatibility.md`](docs/vr-compatibility.md)).
+- **VR setup coach** (`/rooms/vr`, public Help copy at `/support/vr`) + **compatibility matrix**
+  (`/rooms/vr/matrix` / `/support/vr/matrix`, markdown at [`docs/vr-compatibility.md`](docs/vr-compatibility.md)).
   Official free software only (Meta Horizon Link, SteamVR, ALVR GitHub releases,
   PICO Connect, PlayStation VR2 App). Virtual Desktop is called out as paid
   optional polish. No vendor binaries in the repo.
@@ -85,8 +85,8 @@ In the studio:
 2. **Sit** (`/owner`) or **Talk to twin** — clone chips under the
    composer, or type `@Research look this up`.
 3. **Settings** → Clones under the twin — add, rename, disable.
-4. **VR setup** (`/rooms/vr`) — pick a headset, follow the illustrated
-   checklist, run **Fix OpenXR**. Matrix: `/rooms/vr/matrix`.
+4. **VR setup** (`/rooms/vr` or `/support/vr` without signing in) — pick a headset, follow the illustrated
+   checklist, run **Fix OpenXR**. Matrix: `/rooms/vr/matrix` or `/support/vr/matrix`.
 
 Tests:
 

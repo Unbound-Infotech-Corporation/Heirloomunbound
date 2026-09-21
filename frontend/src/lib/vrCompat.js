@@ -4,14 +4,41 @@ import catalog from "../data/vr-headsets.json";
 
 export const VR_SETUP_PATH = "/rooms/vr";
 export const VR_MATRIX_PATH = "/rooms/vr/matrix";
+export const SUPPORT_VR_SETUP_PATH = "/support/vr";
+export const SUPPORT_VR_MATRIX_PATH = "/support/vr/matrix";
 
 export function vrCatalog() {
   return catalog;
 }
 
+export function isPublicVrSetupRoute(pathname) {
+  const path = String(pathname || "").split("?")[0];
+  return path === SUPPORT_VR_SETUP_PATH || path.startsWith(`${SUPPORT_VR_SETUP_PATH}/`);
+}
+
 export function isVrSetupRoute(pathname) {
   const path = String(pathname || "").split("?")[0];
-  return path === VR_SETUP_PATH || path.startsWith(`${VR_SETUP_PATH}/`);
+  return (
+    path === VR_SETUP_PATH ||
+    path.startsWith(`${VR_SETUP_PATH}/`) ||
+    isPublicVrSetupRoute(path)
+  );
+}
+
+export function vrSetupBase(pathname) {
+  return isPublicVrSetupRoute(pathname) ? SUPPORT_VR_SETUP_PATH : VR_SETUP_PATH;
+}
+
+export function vrMatrixHref(pathname) {
+  return isPublicVrSetupRoute(pathname) ? SUPPORT_VR_MATRIX_PATH : VR_MATRIX_PATH;
+}
+
+export function vrCoachHomeHref(pathname) {
+  return isPublicVrSetupRoute(pathname) ? "/support" : "/rooms";
+}
+
+export function vrCoachHomeLabel(pathname) {
+  return isPublicVrSetupRoute(pathname) ? "← support" : "← rooms";
 }
 
 export function listHeadsets() {
@@ -115,12 +142,17 @@ export function headsetHintFromUa(ua) {
   return null;
 }
 
-export function coachHref(headsetId, pathId) {
+export function coachHref(headsetId, pathId, pathname) {
   const params = new URLSearchParams();
   if (headsetId) params.set("headset", headsetId);
   if (pathId) params.set("path", pathId);
   const q = params.toString();
-  return q ? `${VR_SETUP_PATH}?${q}` : VR_SETUP_PATH;
+  const base = vrSetupBase(pathname);
+  return q ? `${base}?${q}` : base;
+}
+
+export function openXrHref(pathname) {
+  return `${vrSetupBase(pathname)}#openxr`;
 }
 
 export function tierLabel(tier) {

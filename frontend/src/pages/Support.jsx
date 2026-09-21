@@ -69,11 +69,11 @@ export default function Support() {
               <ul className="text-sm list-disc ml-5 space-y-1" style={{ color: "var(--text-secondary)" }}>
                 <li>Windows companion not appearing in the tray? — see <Link to="/companion" style={{ color: "var(--accent)" }}>Companion setup</Link>.</li>
                 <li>
-                  Headset for a Heirloom Room? — owner studio{" "}
-                  <Link to="/rooms/vr" style={{ color: "var(--accent)" }}>VR setup coach</Link>
+                  Headset for a Heirloom Room? —{" "}
+                  <Link to="/support/vr" style={{ color: "var(--accent)" }} data-testid="support-vr-coach">VR setup coach</Link>
                   {" "}and the{" "}
-                  <Link to="/rooms/vr/matrix" style={{ color: "var(--accent)" }}>compatibility matrix</Link>
-                  {" "}(OpenXR / WebXR; official free software only).
+                  <Link to="/support/vr/matrix" style={{ color: "var(--accent)" }} data-testid="support-vr-matrix">compatibility matrix</Link>
+                  {" "}(OpenXR / WebXR; official free software only). Signed-in owners also have this under Rooms.
                 </li>
                 <li data-testid="support-terminal-ticket">
                   Local Voicebox / Qwen3-TTS path? Open the companion <strong>Window → Terminal</strong>, then{" "}

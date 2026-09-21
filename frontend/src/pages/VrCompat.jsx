@@ -1,10 +1,13 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { usePageMeta } from "../lib/usePageMeta";
 import {
   coachHref,
   matrixPathColumns,
   matrixRows,
   softwareById,
   vrCatalog,
+  vrCoachHomeHref,
+  vrCoachHomeLabel,
 } from "../lib/vrCompat";
 import VrSetupNav, { OfficialLink } from "../components/studio/VrSetupNav";
 
@@ -21,14 +24,21 @@ function cellLabel(cell) {
 
 export default function VrCompat() {
   const catalog = vrCatalog();
+  const location = useLocation();
+  const homeHref = vrCoachHomeHref(location.pathname);
+  const homeLabel = vrCoachHomeLabel(location.pathname);
   const rows = matrixRows();
   const cols = matrixPathColumns();
   const software = Object.keys(catalog.software || {}).map((id) => softwareById(id));
+  usePageMeta({
+    title: "Headset compatibility — Heirloom Unbound",
+    description: "Headset × path matrix for Heirloom Rooms. Official free software only.",
+  });
 
   return (
-    <div className="px-4 sm:px-8 lg:px-12 py-12 max-w-6xl" data-testid="vr-matrix">
+    <div className="px-4 sm:px-8 lg:px-12 py-12 max-w-6xl min-h-screen" data-testid="vr-matrix">
       <div className="mb-6 text-xs" style={{ color: "var(--text-muted)" }}>
-        <Link to="/rooms">← rooms</Link>
+        <Link to={homeHref} data-testid="vr-matrix-back">{homeLabel}</Link>
       </div>
       <header className="mb-8">
         <div className="overline mb-3">heirloom room</div>
@@ -57,7 +67,7 @@ export default function VrCompat() {
             {rows.map(({ headset, cells }) => (
               <tr key={headset.id} data-testid={`vr-matrix-row-${headset.id}`}>
                 <th>
-                  <Link to={coachHref(headset.id)} data-testid={`vr-matrix-link-${headset.id}`}>
+                  <Link to={coachHref(headset.id, undefined, location.pathname)} data-testid={`vr-matrix-link-${headset.id}`}>
                     {headset.short}
                     <span>
                       Tier {headset.tier}
@@ -79,7 +89,7 @@ export default function VrCompat() {
                     }
                   >
                     {cell.supported ? (
-                      <Link to={coachHref(headset.id, cell.pathId)}>{cellLabel(cell)}</Link>
+                      <Link to={coachHref(headset.id, cell.pathId, location.pathname)}>{cellLabel(cell)}</Link>
                     ) : (
                       "—"
                     )}

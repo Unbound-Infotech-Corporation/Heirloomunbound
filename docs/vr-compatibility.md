@@ -12,6 +12,9 @@ In the studio: **Rooms → VR setup coach** (`/rooms/vr`) and **Headset matrix**
 (`/rooms/vr/matrix`). Sit → **Enter in VR** probes WebXR and sends you to the
 coach when a runtime is missing.
 
+Public Help copies (no login): `/support/vr` and `/support/vr/matrix`. Heirs
+do not get Rooms; these Help pages are setup guidance only.
+
 ## Tiers
 
 | Tier | Meaning | Headsets |

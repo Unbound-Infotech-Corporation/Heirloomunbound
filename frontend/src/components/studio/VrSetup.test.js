@@ -15,7 +15,7 @@ jest.mock("react-router-dom", () => {
       return [params, jest.fn()];
     },
     useLocation: () => ({
-      pathname: "/rooms/vr",
+      pathname: global.__VR_PATH || "/rooms/vr",
       hash: global.__VR_HASH || "",
       search: global.__VR_SEARCH || "",
     }),
@@ -64,6 +64,7 @@ describe("VR setup coach", () => {
   test("Quest USB Link checklist uses the official Meta download", () => {
     global.__VR_SEARCH = "headset=quest&path=meta_link&step=checklist";
     global.__VR_HASH = "";
+    global.__VR_PATH = "/rooms/vr";
     const { el, unmount } = mount(<VrSetup />);
     expect(el.querySelector('[data-testid="vr-checklist"]')).toBeTruthy();
     const dl = el.querySelector('[data-testid="vr-dl-meta_horizon_link"]');
@@ -81,15 +82,46 @@ describe("VR setup coach", () => {
     );
     unmount();
   });
+
+  test("public Help coach keeps nav on /support/vr", () => {
+    global.__VR_SEARCH = "headset=quest&path=meta_link&step=checklist";
+    global.__VR_HASH = "";
+    global.__VR_PATH = "/support/vr";
+    const { el, unmount } = mount(<VrSetup />);
+    expect(el.querySelector('[data-testid="vr-setup-back"]').getAttribute("href")).toBe("/support");
+    expect(el.querySelector('[data-testid="vr-nav-matrix"]').getAttribute("href")).toBe(
+      "/support/vr/matrix",
+    );
+    expect(el.querySelector('[data-testid="vr-dl-meta_horizon_link"]').getAttribute("href")).toBe(
+      "https://www.oculus.com/download_app/?id=1582076955407037",
+    );
+    unmount();
+  });
 });
 
 describe("VR matrix", () => {
   test("lists Quest and official ALVR releases", () => {
     global.__VR_SEARCH = "";
+    global.__VR_PATH = "/rooms/vr/matrix";
     const { el, unmount } = mount(<VrCompat />);
     expect(el.querySelector('[data-testid="vr-matrix-row-quest"]')).toBeTruthy();
     expect(el.querySelector('[data-testid="vr-matrix-dl-alvr"]').getAttribute("href")).toBe(
       "https://github.com/alvr-org/ALVR/releases",
+    );
+    unmount();
+  });
+
+  test("public Help matrix stays on /support/vr", () => {
+    global.__VR_SEARCH = "";
+    global.__VR_PATH = "/support/vr/matrix";
+    const { el, unmount } = mount(<VrCompat />);
+    expect(el.querySelector('[data-testid="vr-nav-coach"]').getAttribute("href")).toBe("/support/vr");
+    expect(el.querySelector('[data-testid="vr-nav-matrix"]').getAttribute("href")).toBe(
+      "/support/vr/matrix",
+    );
+    expect(el.querySelector('[data-testid="vr-matrix-back"]').getAttribute("href")).toBe("/support");
+    expect(el.querySelector('[data-testid="vr-matrix-link-quest"]').getAttribute("href")).toContain(
+      "/support/vr",
     );
     unmount();
   });

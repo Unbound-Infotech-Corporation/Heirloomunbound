@@ -3,6 +3,7 @@ import {
   coachHref,
   headsetById,
   headsetHintFromUa,
+  isPublicVrSetupRoute,
   isVrSetupRoute,
   matrixRows,
   officialDownloadOnly,
@@ -10,13 +11,23 @@ import {
   recommendedPath,
   softwareById,
   vrCatalog,
+  vrCoachHomeHref,
+  vrMatrixHref,
+  vrSetupBase,
 } from "./vrCompat";
 
 describe("VR compatibility catalog", () => {
-  test("coach and matrix live under owner rooms", () => {
+  test("coach and matrix live under owner rooms and public Help", () => {
     expect(isVrSetupRoute("/rooms/vr")).toBe(true);
     expect(isVrSetupRoute("/rooms/vr/matrix")).toBe(true);
+    expect(isVrSetupRoute("/support/vr")).toBe(true);
+    expect(isPublicVrSetupRoute("/support/vr/matrix")).toBe(true);
+    expect(isPublicVrSetupRoute("/rooms/vr")).toBe(false);
     expect(isVrSetupRoute("/rooms/rm_abc/sit")).toBe(false);
+    expect(vrSetupBase("/support/vr")).toBe("/support/vr");
+    expect(vrMatrixHref("/support/vr")).toBe("/support/vr/matrix");
+    expect(vrCoachHomeHref("/support/vr")).toBe("/support");
+    expect(vrSetupBase("/rooms/vr")).toBe("/rooms/vr");
   });
 
   test("tier A vs guided workaround", () => {
@@ -71,5 +82,8 @@ describe("VR compatibility catalog", () => {
     expect(headsetHintFromUa("Mozilla/5.0 Quest 3 OculusBrowser").id).toBe("quest");
     expect(headsetHintFromUa("PicoBrowser").id).toBe("pico");
     expect(coachHref("quest", "air_link")).toBe("/rooms/vr?headset=quest&path=air_link");
+    expect(coachHref("quest", "air_link", "/support/vr")).toBe(
+      "/support/vr?headset=quest&path=air_link",
+    );
   });
 });

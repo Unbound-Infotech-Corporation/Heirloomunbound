@@ -95,3 +95,12 @@ def test_heir_portal_does_not_link_vr_setup():
     portal = (ROOT / "frontend" / "src" / "pages" / "HeirPortal.jsx").read_text(encoding="utf-8")
     assert "/rooms/vr" not in portal
     assert "vr-headsets" not in portal
+
+
+def test_public_help_vr_routes_are_unprotected():
+    app = (ROOT / "frontend" / "src" / "App.js").read_text(encoding="utf-8")
+    assert 'path="/support/vr"' in app
+    assert 'path="/support/vr/matrix"' in app
+    assert app.index('path="/support/vr"') < app.index('path="/rooms/vr"')
+    support = (ROOT / "frontend" / "src" / "pages" / "Support.jsx").read_text(encoding="utf-8")
+    assert 'to="/support/vr"' in support

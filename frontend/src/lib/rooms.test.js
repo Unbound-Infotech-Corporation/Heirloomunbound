@@ -13,6 +13,7 @@ describe("Heirloom Room helpers", () => {
     expect(isOwnerRoomsRoute("/rooms/rm_abc/sit")).toBe(true);
     expect(isOwnerRoomsRoute("/rooms/vr")).toBe(true);
     expect(isVrSetupRoute(VR_SETUP_PATH)).toBe(true);
+    expect(isOwnerRoomsRoute("/support/vr")).toBe(false);
     expect(isOwnerRoomsRoute("/heir/abc")).toBe(false);
     expect(isOwnerRoomsRoute("/twin")).toBe(false);
   });

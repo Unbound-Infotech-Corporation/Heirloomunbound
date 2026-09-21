@@ -65,6 +65,8 @@ function AppRouter() {
       <Route path="/terms" element={<Terms />} />
       <Route path="/refunds" element={<Refunds />} />
       <Route path="/support" element={<Support />} />
+      <Route path="/support/vr" element={<VrSetup />} />
+      <Route path="/support/vr/matrix" element={<VrCompat />} />
       <Route path="/auth/magic/:token" element={<MagicLink />} />
       <Route path="/heir/:token" element={<HeirPortal />} />
       <Route path="/twin/live/:handle" element={<TwinLive />} />
