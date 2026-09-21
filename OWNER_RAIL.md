@@ -150,3 +150,15 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 4. **Slice 4** — remember + heir-fence audit once the prompts have settled.
 
 Do not give heirs owner mode, pairing productivity, standing routines, or PC tools.
+
+## Unbound Phase 1 — Rooms + assistants
+
+Shipped on web (see `UNBOUND.md`).
+
+- **Rooms** (`/rooms`) — owner-only capture of a physical place. Mock glTF
+  reconstruction. Sit overlay talks to Twin. Not Archive.
+- **Assistants** — named specialists under the twin (Settings + Sit/Twin
+  picker + `@mention`). PC specialists stay Assist. Heirs never inherit them.
+- WinUI Rooms / Assistants documents — **deferred** with Memory Studio.
+
+Phase 2: real photogrammetry/splat vendor, Quest packaging, heir-released rooms.

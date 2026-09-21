@@ -53,8 +53,12 @@ async def ensure_indexes() -> None:
         ("skills", [("user_id", 1)], {"name": "user_id"}),
         ("reminders", [("user_id", 1), ("due_at", 1)], {"name": "user_due"}),
 
-        # Personas + nudges + dashboard
+        # Personas + assistants + rooms + nudges + dashboard
         ("personas", [("user_id", 1)], {"name": "user_id"}),
+        ("twin_assistants", [("user_id", 1)], {"name": "user_id"}),
+        ("twin_assistants", [("assistant_id", 1)], {"unique": True, "name": "assistant_id_uniq"}),
+        ("rooms", [("user_id", 1), ("created_at", -1)], {"name": "user_created"}),
+        ("rooms", [("room_id", 1)], {"unique": True, "name": "room_id_uniq"}),
         ("nudges", [("user_id", 1), ("date", -1)], {"name": "user_date"}),
         ("nudges", [("user_id", 1), ("kind", 1), ("date_key", -1)], {"name": "user_kind_date"}),
 

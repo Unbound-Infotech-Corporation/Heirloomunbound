@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Loader2, Sparkles } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import AssistReceipt from "../components/studio/AssistReceipt";
+import AssistantPicker from "../components/studio/AssistantPicker";
 import { shouldShowReceipt, splitOwnerLegs } from "../lib/assistReceipt";
+import { speakerLabel } from "../lib/assistants";
 import { api } from "../lib/api";
 
 const CHIP = {
@@ -34,12 +36,15 @@ export default function Owner() {
   const [pending, setPending] = useState(false);
   const [input, setInput] = useState("");
   const [lastChip, setLastChip] = useState("");
+  const [assistants, setAssistants] = useState([]);
+  const [selectedAssistant, setSelectedAssistant] = useState(null);
   const feedRef = useRef(null);
 
   useEffect(() => {
     api.get("/owner/conversation").then(({ data }) => setConv(data)).catch(() => {
       setConv({ conversation_id: "", messages: [] });
     });
+    api.get("/assistants").then(({ data }) => setAssistants(data.assistants || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -53,7 +58,7 @@ export default function Owner() {
     setInput("");
     setPending(true);
     try {
-      const { data } = await api.post("/owner/chat", { text });
+      const { data } = await api.post("/owner/chat", { text, assistant_id: selectedAssistant || undefined });
       setLastChip(data.rail_chip || "");
       setConv((c) => ({
         ...(c || {}),
@@ -72,6 +77,8 @@ export default function Owner() {
             receipt: data.receipt,
             twin_reply: data.twin_reply,
             assist_reply: data.assist_reply,
+            specialist_id: data.specialist_id,
+            specialist_name: data.specialist_name,
           },
         ],
       }));
@@ -123,6 +130,12 @@ export default function Owner() {
         <Link to="/companion" className="hover:text-[var(--accent)]" data-testid="owner-link-companion">
           Work on this PC →
         </Link>
+        <Link to="/rooms" className="hover:text-[var(--accent)]" data-testid="owner-link-rooms">
+          Rooms →
+        </Link>
+        <Link to="/settings" className="hover:text-[var(--accent)]" data-testid="owner-link-assistants">
+          Assistants →
+        </Link>
       </div>
 
       <div ref={feedRef} className="space-y-10 mb-10 max-h-[58vh] overflow-y-auto pr-2" data-testid="owner-feed">
@@ -154,7 +167,7 @@ export default function Owner() {
             {m.role === "assistant" ? (
               <div className="border-l-2 pl-6" style={{ borderColor: "var(--accent)" }}>
                 <div className="overline mb-2 flex items-center gap-3">
-                  <span>teammate</span>
+                  <span>{speakerLabel(m, assistants) === "you (the twin)" ? "teammate" : speakerLabel(m, assistants)}</span>
                   {m.rail_chip ? <RailChip chip={m.rail_chip} testid={`owner-chip-${i}`} /> : null}
                 </div>
                 <OwnerAssistantBody message={m} index={i} />
@@ -195,11 +208,14 @@ export default function Owner() {
           className="w-full bg-transparent border-none outline-none resize-none text-base leading-relaxed"
           style={{ color: "var(--text-primary)" }}
         />
-        <div className="flex justify-between items-center mt-2 pt-2 border-t" style={{ borderColor: "var(--border-default)" }}>
-          <div className="overline flex items-center gap-2">
-            <Sparkles className="h-3 w-3" />
-            {pending ? "thinking…" : "no mode picker"}
-          </div>
+        <div className="flex flex-wrap justify-between items-center gap-3 mt-2 pt-2 border-t" style={{ borderColor: "var(--border-default)" }}>
+          <AssistantPicker
+            assistants={assistants}
+            selectedId={selectedAssistant}
+            onSelect={setSelectedAssistant}
+            disabled={pending}
+            testid="owner-assistant-picker"
+          />
           <button
             type="button"
             onClick={() => send(input)}

@@ -23,7 +23,7 @@ from twin_tools import TOOL_SCHEMAS, execute_tool
 from utils import rate_limit
 import abilities as ab
 from owner_pairing import pairing_prefs_from_user
-from twin_runtime import PC_ABILITY_IDS, build_twin_system, tools_for_turn
+from twin_runtime import PC_ABILITY_IDS, build_assistant_system, build_twin_system, tools_for_turn
 
 router = APIRouter(prefix="/twin", tags=["twin"])
 
@@ -35,6 +35,8 @@ class StartTwinReq(BaseModel):
 class TwinMsgReq(BaseModel):
     conversation_id: str
     message: str
+    assistant_id: Optional[str] = None
+    room_id: Optional[str] = None
 
 
 @router.post("/start")
@@ -138,6 +140,29 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     enabled_ids = await ab.enabled_ability_ids(user["user_id"])
     twin_ids = {aid for aid in enabled_ids if aid not in PC_ABILITY_IDS}
     enabled_tools = tools_for_turn("twin", twin_ids)
+
+    from twin_runtime import load_specialist_turn
+    from assistants import filter_tools_for_specialist, specialist_prompt_block
+
+    specialist_turn = await load_specialist_turn(
+        user["user_id"],
+        payload.message,
+        assistant_id=payload.assistant_id,
+        audience="owner",
+    )
+    specialist = specialist_turn.get("assistant")
+    message_text = payload.message
+    specialist_id = None
+    specialist_name = None
+    if specialist:
+        message_text = specialist_turn.get("message") or payload.message
+        specialist_id = specialist.get("assistant_id")
+        specialist_name = specialist.get("name")
+        enabled_tools = filter_tools_for_specialist(enabled_tools, specialist)
+        if specialist_turn.get("role") == "assistant":
+            # PC specialists do not speak as the twin — Sit / Assist owns that.
+            enabled_tools = tools_for_turn("assistant", enabled_ids)
+            enabled_tools = filter_tools_for_specialist(enabled_tools, specialist)
 
     # ---- Music intent short-circuit (only if the Music ability is on) ----
     music_query = detect_music_intent(payload.message) if "music" in enabled_ids else None
@@ -259,12 +284,24 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         brand = None
     abilities_block = ab.build_abilities_prompt(twin_ids)
     # Web /twin/* is owner-auth only. Heirs use the portal, which compiles with audience=heir.
-    system = build_twin_system(
-        user.get("name", ""), memory_blob, archive, skills, merged_safe,
-        persona=persona, brand=brand, abilities_block=abilities_block,
-        audience="owner",
-        pairing=pairing_prefs_from_user(user),
-    )
+    if specialist and specialist_turn.get("role") == "assistant":
+        system = build_assistant_system(
+            user.get("name", ""),
+            memory_blob,
+            archive,
+            skills,
+            abilities_block=ab.build_abilities_prompt(enabled_ids),
+            pairing=pairing_prefs_from_user(user),
+        )
+    else:
+        system = build_twin_system(
+            user.get("name", ""), memory_blob, archive, skills, merged_safe,
+            persona=persona, brand=brand, abilities_block=abilities_block,
+            audience="owner",
+            pairing=pairing_prefs_from_user(user),
+        )
+    if specialist:
+        system += specialist_prompt_block(specialist, user.get("name") or "")
 
     # Replay prior turns so the twin remembers what was just said.
     initial_messages = [{"role": "system", "content": system}]
@@ -287,6 +324,8 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     )
 
     user_turn = {"role": "user", "content": payload.message, "ts": datetime.now(timezone.utc).isoformat()}
+    if specialist_id:
+        user_turn["specialist_id"] = specialist_id
 
     async def gen():
         """Streams a tool-use aware conversation.
@@ -301,8 +340,13 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         full = ""
         tool_trace: list[dict] = []
         try:
+            if specialist_id:
+                yield "event: specialist\ndata: " + json.dumps({
+                    "assistant_id": specialist_id,
+                    "name": specialist_name,
+                }) + "\n\n"
             # First call — carries the user message
-            resp = await chat.send_message_with_tools(UserMessage(text=payload.message))
+            resp = await chat.send_message_with_tools(UserMessage(text=message_text))
             for _iteration in range(6):
                 if resp.finish_reason != "tool_calls" or not resp.tool_calls:
                     break
@@ -346,6 +390,10 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         }
         if tool_trace:
             assistant_turn["tool_trace"] = tool_trace
+        if specialist_id:
+            assistant_turn["specialist_id"] = specialist_id
+        if specialist_name:
+            assistant_turn["specialist_name"] = specialist_name
 
         await db.conversations.update_one(
             {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},

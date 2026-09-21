@@ -167,7 +167,8 @@ async def seeded_users(db):
     # Cleanup
     uids = [u["user_id"] for u in users]
     for coll in ("users", "user_sessions", "entries", "memory_facts", "heirs",
-                  "conversations", "personas", "sealed_letters", "skills",
+                  "conversations", "personas", "twin_assistants", "rooms",
+                  "sealed_letters", "skills",
                   "reminders", "photos", "sources", "imports"):
         await db[coll].delete_many({"user_id": {"$in": uids}})
 

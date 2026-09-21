@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ArrowRight, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Monitor, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
 import { api, streamSSE } from "../lib/api";
 import FirstGiftInvite from "../components/FirstGiftInvite";
+import AssistantPicker from "../components/studio/AssistantPicker";
+import { speakerLabel } from "../lib/assistants";
 
 const TOOL_META = {
   search_archive: { label: "searching your archive", icon: Search },
@@ -64,9 +66,14 @@ export default function Twin() {
   const [videos, setVideos] = useState({});
   const [liveTools, setLiveTools] = useState([]);
   const [abilities, setAbilities] = useState([]);
+  const [assistants, setAssistants] = useState([]);
+  const [selectedAssistant, setSelectedAssistant] = useState(null);
+  const [searchParams] = useSearchParams();
+  const roomId = (searchParams.get("room") || "").trim();
 
   useEffect(() => {
     api.get("/abilities").then(({ data }) => setAbilities(data.abilities || [])).catch(() => {});
+    api.get("/assistants").then(({ data }) => setAssistants(data.assistants || [])).catch(() => {});
   }, []);
 
   const toggleAbility = async (ab) => {
@@ -154,9 +161,15 @@ export default function Twin() {
     let full = "";
     let action = null;
     const toolTrace = [];
+    let specialistName = "";
     await streamSSE(
       "/twin/message",
-      { conversation_id: conv.conversation_id, message: text },
+      {
+        conversation_id: conv.conversation_id,
+        message: text,
+        assistant_id: selectedAssistant || undefined,
+        room_id: roomId || undefined,
+      },
       (chunk) => {
         full += chunk;
         setStreaming(full);
@@ -173,6 +186,8 @@ export default function Twin() {
               ts: new Date().toISOString(),
               action,
               tool_trace: toolTrace.length ? toolTrace : undefined,
+              specialist_name: specialistName || undefined,
+              specialist_id: selectedAssistant || undefined,
             },
           ],
         }));
@@ -188,6 +203,8 @@ export default function Twin() {
       (eventName, data) => {
         if (eventName === "action") {
           action = data;
+        } else if (eventName === "specialist" && data?.name) {
+          specialistName = data.name;
         } else if (eventName === "tool") {
           // Merge start + result rows by id so the chip updates in place
           const idx = toolTrace.findIndex((t) => t.id === data.id);
@@ -257,6 +274,24 @@ export default function Twin() {
           >
             Memory Studio — what I hold onto →
           </Link>
+          <Link
+            to="/rooms"
+            className="inline-block mt-2 ml-4 text-xs hover:text-[var(--accent)]"
+            style={{ color: "var(--accent)" }}
+            data-testid="twin-link-rooms"
+          >
+            Rooms — sit in a place →
+          </Link>
+          {roomId ? (
+            <Link
+              to={`/rooms/${roomId}/sit`}
+              className="block mt-2 text-xs hover:text-[var(--accent)]"
+              style={{ color: "var(--accent)" }}
+              data-testid="twin-room-banner"
+            >
+              Sitting from a room — open the placeholder scene →
+            </Link>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
         <button
@@ -347,7 +382,7 @@ export default function Twin() {
             {m.role === "assistant" ? (
               <div className="border-l-2 pl-6" style={{ borderColor: "var(--accent)" }}>
                 <div className="overline mb-2 flex items-center gap-3">
-                  <span>you (the twin)</span>
+                  <span>{speakerLabel(m, assistants)}</span>
                   <button
                     onClick={() => speak(m.content, i)}
                     disabled={speakingIdx === i}
@@ -464,7 +499,7 @@ export default function Twin() {
         ))}
         {(streaming || liveTools.length > 0) && (
           <div className="border-l-2 pl-6" style={{ borderColor: "var(--accent)" }}>
-            <div className="overline mb-2">you (the twin)</div>
+            <div className="overline mb-2">{streaming ? speakerLabel({ specialist_id: selectedAssistant }, assistants) : "you (the twin)"}</div>
             {liveTools.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-3" data-testid="tool-live">
                 {liveTools.map((t) => (
@@ -498,9 +533,16 @@ export default function Twin() {
           className="w-full bg-transparent border-none outline-none resize-none text-base leading-relaxed"
           style={{ color: "var(--text-primary)" }}
         />
-        <div className="flex justify-between items-center mt-2 pt-2 border-t" style={{ borderColor: "var(--border-default)" }}>
-          <div className="overline">{pending ? "thinking…" : "ask away"}</div>
+        <div className="flex flex-wrap justify-between items-center gap-3 mt-2 pt-2 border-t" style={{ borderColor: "var(--border-default)" }}>
+          <AssistantPicker
+            assistants={assistants}
+            selectedId={selectedAssistant}
+            onSelect={setSelectedAssistant}
+            disabled={pending}
+            testid="twin-assistant-picker"
+          />
           <button
+            type="button"
             onClick={() => send(input)}
             disabled={pending || !input.trim()}
             data-testid="twin-send"

@@ -10,6 +10,7 @@ const QUICK_LINKS = [
   { to: "/import", label: "Import a memory", desc: "Paste Facebook, tweets, blogs", icon: BookText, tid: "quick-import" },
   { to: "/owner", label: "Sit", desc: "One teammate. Ask or do.", icon: Sparkles, tid: "quick-owner" },
   { to: "/twin", label: "Sit with your twin", desc: "Talk to the version of you", icon: Sparkles, tid: "quick-twin" },
+  { to: "/rooms", label: "Capture a room", desc: "Film a place. Sit there with the twin.", icon: Sparkles, tid: "quick-rooms" },
   { to: "/first-gift", label: "Write the first gift", desc: "Not a chatbot. A gift.", icon: Mail, tid: "quick-first-gift" },
 ];
 

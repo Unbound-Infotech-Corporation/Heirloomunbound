@@ -14,6 +14,8 @@ import Photos from "@/pages/Photos";
 import Import from "@/pages/Import";
 import Twin from "@/pages/Twin";
 import Owner from "@/pages/Owner";
+import Rooms, { RoomDetail } from "@/pages/Rooms";
+import RoomSit from "@/pages/RoomSit";
 import TwinLive from "@/pages/TwinLive";
 import AvatarStudio from "@/pages/AvatarStudio";
 import SetupKeys from "@/pages/SetupKeys";
@@ -98,6 +100,9 @@ function AppRouter() {
         <Route path="/import" element={<Import />} />
         <Route path="/owner" element={<Owner />} />
         <Route path="/twin" element={<Twin />} />
+        <Route path="/rooms" element={<Rooms />} />
+        <Route path="/rooms/:roomId" element={<RoomDetail />} />
+        <Route path="/rooms/:roomId/sit" element={<RoomSit />} />
         <Route path="/mixer" element={<AudioMixer />} />
         <Route path="/models" element={<ModelsStudio />} />
         <Route path="/setup" element={<FirstRunSetup />} />

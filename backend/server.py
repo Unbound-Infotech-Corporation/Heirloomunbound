@@ -35,6 +35,7 @@ from db_indexes import ensure_indexes
 from routers import (
     archive,
     abilities,
+    assistants,
     auth,
     photo_story,
     avatar,
@@ -63,6 +64,7 @@ from routers import (
     phone,
     photos,
     reminders,
+    rooms,
     skills,
     social_import,
     sources,
@@ -147,7 +149,7 @@ async def build_info():
         "status": "ok",
         "desktop_version": version,
         "git_sha": sha,
-        "features": ["studio", "first-run", "vendor-coach", "winui-native", "phone-twin"],
+        "features": ["studio", "first-run", "vendor-coach", "winui-native", "phone-twin", "rooms", "assistants"],
         "has_studio_first_run": True,
         "primary_windows_product": "winui",
         "legacy_pyside_package": "/api/companion/desktop-package",
@@ -178,6 +180,8 @@ api_router.include_router(letters.router)
 api_router.include_router(heir_portal.router)
 api_router.include_router(personality.router)
 api_router.include_router(personas.router)
+api_router.include_router(assistants.router)
+api_router.include_router(rooms.router)
 api_router.include_router(phone.router)
 api_router.include_router(nudges.router)
 api_router.include_router(memory.router)

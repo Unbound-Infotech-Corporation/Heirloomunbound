@@ -291,6 +291,8 @@ class TwinTurnResult:
     ts: str = ""
     backend: str = "cloud_claude"
     receipt: Optional[dict] = None
+    specialist_id: Optional[str] = None
+    specialist_name: Optional[str] = None
 
 
 @dataclass
@@ -301,6 +303,34 @@ class TwinBrainPack:
     twin_backend: str
     grounded_miss: bool = False
     citation_line: str = ""
+
+
+async def load_specialist_turn(
+    user_id: str,
+    text: str,
+    *,
+    assistant_id: str | None = None,
+    audience: str | None = "owner",
+) -> dict:
+    """Resolve @mention / picker for owner sitting. Heirs never get specialists."""
+    from assistants import resolve_specialist_turn
+    from owner_pairing import is_owner_audience as _owner
+    from routers.assistants import list_for_user
+
+    empty = {
+        "assistant": None,
+        "assistant_id": None,
+        "message": text or "",
+        "mention": None,
+        "role": "twin",
+        "route": "twin",
+    }
+    if not _owner(audience or "owner"):
+        return empty
+    items = await list_for_user(user_id, seed=False)
+    if not items and not assistant_id:
+        return empty
+    return resolve_specialist_turn(text or "", items, assistant_id=assistant_id)
 
 
 def tools_for_turn(
@@ -443,6 +473,7 @@ async def build_brain_pack(
     grounded: bool | None = None,
     persona_hint: str | None = None,
     audience: str | None = None,
+    specialist: dict | None = None,
 ) -> TwinBrainPack:
     """Assemble system + history for a twin turn without calling the LLM."""
     from model_router import resolve_twin_backend, runtime_probe_from_user
@@ -486,6 +517,12 @@ async def build_brain_pack(
     history = history_turns(conversation.get("messages", []))
     pairing = pairing_prefs_from_user(user)
 
+    specialist_block = ""
+    if specialist and is_owner_audience(audience_key):
+        from assistants import specialist_prompt_block
+
+        specialist_block = specialist_prompt_block(specialist, user.get("name") or "")
+
     if is_assistant:
         archive = await archive_blob(user_id, query_hint=text)
         system = build_assistant_system(
@@ -496,6 +533,8 @@ async def build_brain_pack(
             abilities_block=ab.build_abilities_prompt(enabled_ids),
             pairing=pairing,
         )
+        if specialist_block:
+            system += specialist_block
         return TwinBrainPack(
             system=system,
             history=history,
@@ -513,6 +552,8 @@ async def build_brain_pack(
         if audience:
             client_pack.audience = audience
         system = compile_twin_prompt(client_pack, user.get("name", ""), pairing=pairing)
+        if specialist_block:
+            system += specialist_block
         g = bool(client_pack.grounded) or client_pack.audience in {"heir", "caller"}
         return TwinBrainPack(
             system=system,
@@ -540,6 +581,8 @@ async def build_brain_pack(
         audience=(audience or "owner").strip() or "owner",
     )
     system = compile_twin_prompt(pack, user.get("name", ""), pairing=pairing)
+    if specialist_block:
+        system += specialist_block
     g = bool(pack.grounded) or pack.audience in {"heir", "caller"}
     return TwinBrainPack(
         system=system,
@@ -567,6 +610,7 @@ async def run_twin_turn(
     audience: str | None = None,
     caller_is_owner: bool = False,
     phone_caller_name: str = "",
+    assistant_id: str | None = None,
 ) -> TwinTurnResult:
     """One full twin turn with tools. Non-streaming — for desktop + companion voice.
 
@@ -592,6 +636,22 @@ async def run_twin_turn(
     owner_sitting = is_owner_audience(audience_key)
     if not owner_sitting:
         role = "twin"
+        assistant_id = None
+
+    specialist = None
+    specialist_id = None
+    specialist_name = None
+    if owner_sitting and (assistant_id or (text or "").lstrip().startswith("@")):
+        turn = await load_specialist_turn(
+            user_id, text, assistant_id=assistant_id, audience=audience_key
+        )
+        specialist = turn.get("assistant")
+        if specialist:
+            text = turn.get("message") or text
+            role = turn.get("role") or role
+            specialist_id = specialist.get("assistant_id")
+            specialist_name = specialist.get("name")
+
     if (role or "twin").strip().lower() != "assistant":
         enabled_ids = {aid for aid in enabled_ids if aid not in _PC_ABILITY_IDS}
     enabled_tools = tools_for_turn(
@@ -602,6 +662,10 @@ async def run_twin_turn(
         caller_is_owner=caller_is_owner,
         audience=audience_key,
     )
+    if specialist:
+        from assistants import filter_tools_for_specialist
+
+        enabled_tools = filter_tools_for_specialist(enabled_tools, specialist)
 
     # Music short-circuit — never on a PSTN call, never for heir/caller.
     music_query = (
@@ -684,6 +748,7 @@ async def run_twin_turn(
         grounded=grounded,
         persona_hint=persona_hint,
         audience=audience,
+        specialist=specialist,
     )
     if pack.grounded_miss:
         reply = miss_reply(True, spoken=phone)
@@ -794,6 +859,7 @@ async def run_twin_turn(
         await _persist_pair(
             user_id, conversation_id, text, reply, ts,
             source=source, tool_trace=tool_trace, receipt=receipt,
+            specialist_id=specialist_id, specialist_name=specialist_name,
         )
         if summarise:
             try:
@@ -808,6 +874,8 @@ async def run_twin_turn(
         ts=ts,
         backend=backend_used,
         receipt=receipt,
+        specialist_id=specialist_id,
+        specialist_name=specialist_name,
     )
 
 
@@ -845,6 +913,8 @@ async def _persist_pair(
     receipt: Optional[dict] = None,
     twin_reply: Optional[str] = None,
     assist_reply: Optional[str] = None,
+    specialist_id: Optional[str] = None,
+    specialist_name: Optional[str] = None,
 ) -> None:
     user_turn: dict[str, Any] = {
         "role": "user", "content": user_text, "ts": ts, "source": source,
@@ -852,6 +922,11 @@ async def _persist_pair(
     assistant_turn: dict[str, Any] = {
         "role": "assistant", "content": reply, "ts": ts, "source": source,
     }
+    if specialist_id:
+        user_turn["specialist_id"] = specialist_id
+        assistant_turn["specialist_id"] = specialist_id
+    if specialist_name:
+        assistant_turn["specialist_name"] = specialist_name
     if action:
         assistant_turn["action"] = action
     if tool_trace:
