@@ -23,7 +23,7 @@ export default function RoomSit() {
   useEffect(() => {
     api.get(`/rooms/${roomId}`).then(({ data }) => setRoom(data)).catch(() => setError("Room not found."));
     api.get(`/rooms/${roomId}/scene`).then(({ data }) => setGltf(data)).catch(() => setGltf(null));
-    api.get("/clones").then(({ data }) => setAssistants(data.clones || data.assistants || [])).catch(() => {});
+    api.get("/clones").then(({ data }) => setAssistants(data.clones || [])).catch(() => {});
     api.post("/twin/start", {}).then(({ data }) => setConv(data)).catch(() => {});
   }, [roomId]);
 
@@ -128,7 +128,7 @@ export default function RoomSit() {
         <div className="lg:col-span-2 surface p-4 flex flex-col" style={{ minHeight: 360 }} data-testid="room-sit-chat">
           <div className="overline mb-2">twin in this place</div>
           <AssistantPicker
-            assistants={assistants}
+            clones={assistants}
             selectedId={selectedAssistant}
             onSelect={setSelectedAssistant}
             testid="room-sit-clones"

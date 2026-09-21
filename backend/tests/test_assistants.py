@@ -108,7 +108,7 @@ def test_specialist_prompt_never_first_person_as_owner():
     block = specialist_prompt_block(_assistants()[0], "C L")
     assert "C L" in block
     assert "not them" in block.lower() or "not their twin" in block.lower()
-    assert "SPECIALIST THIS TURN: Research" in block
+    assert "CLONE THIS TURN: Research" in block
 
 
 def test_heir_portal_does_not_link_rooms_or_clones():

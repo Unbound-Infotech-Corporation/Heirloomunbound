@@ -37,7 +37,7 @@ Clones ≠ Assist (the PC copilot), though a PC clone may *route as* Assist.
   `name`, `slug`, `role`, `tools_allowlist`, `enabled`,
   `speak_as` (`specialist` | `assist`).
 - Public API: `GET/POST /api/clones`, `PATCH/DELETE /api/clones/{clone_id}`.
-  JSON uses `clone_id` (and `assistants` as a response alias).
+  JSON uses `clone_id`. Chat accepts `assistant_id` as an internal alias.
 - Seeded clones: Research, Archive, Letters, PC.
 - Owner can add / rename / disable in Settings (and Sit / Twin pickers).
 - Chat: pick a chip or `@Research …`. Twin remains the person. PC

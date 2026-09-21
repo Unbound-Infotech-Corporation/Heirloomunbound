@@ -12,7 +12,7 @@ export default function AssistantsPanel({ testid = "clones-panel" }) {
 
   const load = async () => {
     const { data } = await api.get("/clones");
-    setClones(data.clones || data.assistants || []);
+    setClones(data.clones || []);
     setTools(data.tools || []);
   };
 

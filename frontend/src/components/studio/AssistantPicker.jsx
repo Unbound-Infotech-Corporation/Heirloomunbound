@@ -1,13 +1,14 @@
 import { cloneIdOf, speakerOptions } from "../../lib/assistants";
 
 export default function AssistantPicker({
-  assistants = [],
+  clones = [],
+  assistants,
   selectedId = null,
   onSelect,
   disabled = false,
   testid = "clone-picker",
 }) {
-  const options = speakerOptions(assistants);
+  const options = speakerOptions(clones.length ? clones : assistants);
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-testid={testid}>
       {options.map((opt) => {

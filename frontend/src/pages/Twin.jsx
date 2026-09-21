@@ -73,7 +73,7 @@ export default function Twin() {
 
   useEffect(() => {
     api.get("/abilities").then(({ data }) => setAbilities(data.abilities || [])).catch(() => {});
-    api.get("/clones").then(({ data }) => setAssistants(data.clones || data.assistants || [])).catch(() => {});
+    api.get("/clones").then(({ data }) => setAssistants(data.clones || [])).catch(() => {});
   }, []);
 
   const toggleAbility = async (ab) => {
@@ -535,7 +535,7 @@ export default function Twin() {
         />
         <div className="flex flex-wrap justify-between items-center gap-3 mt-2 pt-2 border-t" style={{ borderColor: "var(--border-default)" }}>
           <AssistantPicker
-            assistants={assistants}
+            clones={assistants}
             selectedId={selectedAssistant}
             onSelect={setSelectedAssistant}
             disabled={pending}

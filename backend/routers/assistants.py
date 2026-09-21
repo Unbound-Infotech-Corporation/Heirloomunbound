@@ -85,7 +85,6 @@ async def list_assistants(user: dict = Depends(get_current_user)):
     clones = [public_assistant(a) for a in items]
     return {
         "clones": clones,
-        "assistants": clones,  # alias — user-facing name is Clone
         "tools": list(KNOWN_TOOLS),
         "max": MAX_ASSISTANTS,
     }

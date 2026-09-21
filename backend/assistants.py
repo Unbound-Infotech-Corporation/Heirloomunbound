@@ -163,16 +163,16 @@ def specialist_prompt_block(assistant: dict, owner_name: str) -> str:
     tools = ", ".join(clean_tools(assistant.get("tools_allowlist"))) or "(none beyond core sitting)"
     if speak == "assistant":
         return (
-            f"\n\n=== SPECIALIST THIS TURN: {name} ===\n"
-            f"You are {name}, a specialist under {who}'s Heirloom twin. "
+            f"\n\n=== CLONE THIS TURN: {name} ===\n"
+            f"You are {name}, a clone under {who}'s Heirloom twin. "
             f"You work FOR them on this PC. You are not their twin. "
             f"Never speak in first person as {who}. Never invent biography.\n"
             f"Your job: {role or 'Do the computer work and close the loop.'}\n"
             f"Tools you may use this turn: {tools}\n"
         )
     return (
-        f"\n\n=== SPECIALIST THIS TURN: {name} ===\n"
-        f"You are {name}, a specialist sitting with {who}'s twin. "
+        f"\n\n=== CLONE THIS TURN: {name} ===\n"
+        f"You are {name}, a clone sitting with {who}'s twin. "
         f"The twin is the person — you are not them. Do not speak in first person as {who}. "
         f"Do not invent biography, dates, or family facts. "
         f"Stay inside your job: {role or 'help with this specialty.'}\n"

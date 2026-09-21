@@ -44,7 +44,7 @@ export default function Owner() {
     api.get("/owner/conversation").then(({ data }) => setConv(data)).catch(() => {
       setConv({ conversation_id: "", messages: [] });
     });
-    api.get("/clones").then(({ data }) => setAssistants(data.clones || data.assistants || [])).catch(() => {});
+    api.get("/clones").then(({ data }) => setAssistants(data.clones || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -210,7 +210,7 @@ export default function Owner() {
         />
         <div className="flex flex-wrap justify-between items-center gap-3 mt-2 pt-2 border-t" style={{ borderColor: "var(--border-default)" }}>
           <AssistantPicker
-            assistants={assistants}
+            clones={assistants}
             selectedId={selectedAssistant}
             onSelect={setSelectedAssistant}
             disabled={pending}
