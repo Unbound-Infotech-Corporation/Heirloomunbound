@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowRight, Loader2 } from "lucide-react";
-import RoomViewer3D, { tryEnterWebXR } from "../components/studio/RoomViewer3D";
+import RoomViewer3D from "../components/studio/RoomViewer3D";
+import VrEnterButton from "../components/studio/VrEnterButton";
 import AssistantPicker from "../components/studio/AssistantPicker";
 import { api, streamSSE } from "../lib/api";
 import { speakerLabel } from "../lib/assistants";
@@ -18,7 +19,6 @@ export default function RoomSit() {
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [streaming, setStreaming] = useState("");
-  const canvasWrap = useRef(null);
 
   useEffect(() => {
     api.get(`/rooms/${roomId}`).then(({ data }) => setRoom(data)).catch(() => setError("Room not found."));
@@ -90,7 +90,7 @@ export default function RoomSit() {
 
       <div className="grid lg:grid-cols-5 gap-4">
         <div className="lg:col-span-3 surface overflow-hidden" style={{ minHeight: 360 }}>
-          <div ref={canvasWrap} className="h-[52vh] min-h-[320px]" data-testid="room-sit-stage">
+          <div className="h-[52vh] min-h-[320px]" data-testid="room-sit-stage">
             {gltf ? (
               <RoomViewer3D gltf={gltf} title={room?.name} />
             ) : (
@@ -100,23 +100,17 @@ export default function RoomSit() {
             )}
           </div>
           <div className="px-4 py-3 flex justify-between items-center" style={{ borderTop: "1px solid var(--border-default)" }}>
-            <span className="overline">placeholder glTF · mock reconstruct</span>
-            <button
-              type="button"
-              data-testid="room-sit-xr"
-              onClick={async () => {
-                const canvas = canvasWrap.current?.querySelector("canvas");
-                const result = await tryEnterWebXR(canvas);
-                setXrNote(result.ok ? "WebXR session started." : result.reason);
-                if (result.session) {
-                  result.session.addEventListener("end", () => setXrNote(""));
+            <span className="overline">placeholder glTF · OpenXR / WebXR</span>
+            <VrEnterButton
+              testid="room-sit-xr"
+              onResult={(result) => {
+                if (result?.ended) {
+                  setXrNote("");
+                  return;
                 }
+                setXrNote(result?.ok ? result.reason : result?.reason || "");
               }}
-              className="text-xs px-3 py-1 rounded-sm"
-              style={{ border: "1px solid var(--border-default)" }}
-            >
-              Enter VR
-            </button>
+            />
           </div>
           {xrNote ? (
             <p className="px-4 pb-3 text-xs" style={{ color: "var(--text-muted)" }} data-testid="room-sit-xr-note">

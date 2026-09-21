@@ -73,6 +73,8 @@ const WINDOW_TITLES = {
   "/library": "Library",
   "/photos": "Photos",
   "/rooms": "Rooms",
+  "/rooms/vr": "VR setup",
+  "/rooms/vr/matrix": "Headset matrix",
   "/photo-story": "Photo → Story",
   "/sources": "Sources",
   "/import": "Import",

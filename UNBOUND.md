@@ -23,8 +23,14 @@ there later.
   (inline positions/indices). No paid photogrammetry / NeRF / splat API is
   called. `job.vendor` is an optional integration point only.
 - Viewer: `/rooms/:id/sit` draws the placeholder room (orbit) with a Twin
-  conversation overlay. **Enter VR** is a WebXR stub (`navigator.xr`).
-  Deep-link: `/twin?room=`.
+  conversation overlay. **Enter in VR** probes WebXR (OpenXR-backed on a PC
+  when a runtime is installed) and keeps a simple enclosed volume in the
+  headset. Missing runtime → VR setup coach. Deep-link: `/twin?room=`.
+- **VR setup coach** (`/rooms/vr`) + **compatibility matrix**
+  (`/rooms/vr/matrix`, markdown at [`docs/vr-compatibility.md`](docs/vr-compatibility.md)).
+  Official free software only (Meta Horizon Link, SteamVR, ALVR GitHub releases,
+  PICO Connect, PlayStation VR2 App). Virtual Desktop is called out as paid
+  optional polish. No vendor binaries in the repo.
 
 ### B) Clones under the twin
 
@@ -79,12 +85,14 @@ In the studio:
 2. **Sit** (`/owner`) or **Talk to twin** — clone chips under the
    composer, or type `@Research look this up`.
 3. **Settings** → Clones under the twin — add, rename, disable.
+4. **VR setup** (`/rooms/vr`) — pick a headset, follow the illustrated
+   checklist, run **Fix OpenXR**. Matrix: `/rooms/vr/matrix`.
 
 Tests:
 
 ```bash
-cd backend && python -m pytest tests/test_rooms.py tests/test_assistants.py tests/test_heir_guards.py tests/test_owner_rail.py -q
-cd frontend && CI=true yarn test --watchAll=false --testPathPattern='(rooms|assistants|memoryStudio)'
+cd backend && python -m pytest tests/test_rooms.py tests/test_vr_compat.py tests/test_assistants.py tests/test_heir_guards.py tests/test_owner_rail.py -q
+cd frontend && CI=true yarn test --watchAll=false --testPathPattern='(rooms|vrCompat|vrRuntime|assistants|memoryStudio)'
 ```
 
 WinUI Rooms / Clones documents are **deferred** (same as Memory Studio
@@ -97,7 +105,8 @@ and Sit Owner document). Native chat already accepts `clone_id` on
   Swap `job.backend` / `job.vendor`; keep the Room document. Preferred
   export remains glTF; splat may sit beside it as `scene.splat_url`.
 - Quest / headset packaging: sideload or App Lab wrapper around the WebXR
-  viewer; seated tracking; spatial audio of the cloned voice.
+  viewer; seated tracking; spatial audio of the cloned voice. The VR setup
+  coach already covers Link / Air Link / ALVR / Pico Connect / PSVR2 adapter.
 - Capture from phone companion (existing phone pair) into the same Room.
 - Heir-enter-a-released-room (gift a place, not just a voice) — only after
   an explicit owner release, never by default.

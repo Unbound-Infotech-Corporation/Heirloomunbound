@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { parseRoomGltf } from "../../lib/rooms";
+import { tryEnterWebXR } from "../../lib/vrRuntime";
 
 function project(x, y, z, yaw, pitch, w, h) {
   const cy = Math.cos(yaw);
@@ -74,7 +75,7 @@ function drawRoom(ctx, w, h, yaw, pitch, title) {
 
 /**
  * Phase 1 placeholder viewer. Loads the mock glTF extras (inline positions)
- * and draws an enclosed volume. WebXR is offered when the browser supports it.
+ * and draws an enclosed volume. WebXR (OpenXR-backed on PC) is offered from Sit.
  */
 export default function RoomViewer3D({ gltf, title, testid = "room-viewer-3d" }) {
   const canvasRef = useRef(null);
@@ -145,20 +146,4 @@ export default function RoomViewer3D({ gltf, title, testid = "room-viewer-3d" })
   );
 }
 
-export async function tryEnterWebXR(canvas) {
-  if (!navigator.xr || !navigator.xr.isSessionSupported) {
-    return { ok: false, reason: "This browser does not expose WebXR." };
-  }
-  const ok = await navigator.xr.isSessionSupported("immersive-vr").catch(() => false);
-  if (!ok) {
-    return { ok: false, reason: "No immersive VR headset is available on this computer." };
-  }
-  try {
-    const gl = canvas?.getContext?.("webgl", { xrCompatible: true }) || canvas;
-    const session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor"] });
-    if (gl && gl.makeXRCompatible) await gl.makeXRCompatible();
-    return { ok: true, session };
-  } catch (err) {
-    return { ok: false, reason: err?.message || "WebXR session was refused." };
-  }
-}
+export { tryEnterWebXR };

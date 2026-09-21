@@ -75,6 +75,7 @@ from routers import (
     vault,
     voice,
     voice_clone,
+    vr_setup,
 )
 from storage import init_storage
 
@@ -149,7 +150,7 @@ async def build_info():
         "status": "ok",
         "desktop_version": version,
         "git_sha": sha,
-        "features": ["studio", "first-run", "vendor-coach", "winui-native", "phone-twin", "rooms", "clones"],
+        "features": ["studio", "first-run", "vendor-coach", "winui-native", "phone-twin", "rooms", "clones", "rooms-vr"],
         "has_studio_first_run": True,
         "primary_windows_product": "winui",
         "legacy_pyside_package": "/api/companion/desktop-package",
@@ -181,6 +182,7 @@ api_router.include_router(heir_portal.router)
 api_router.include_router(personality.router)
 api_router.include_router(personas.router)
 api_router.include_router(assistants.router)
+api_router.include_router(vr_setup.router)
 api_router.include_router(rooms.router)
 api_router.include_router(phone.router)
 api_router.include_router(nudges.router)

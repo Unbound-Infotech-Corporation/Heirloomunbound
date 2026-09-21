@@ -278,6 +278,8 @@ const ROUTE_MENUS = {
       label: "Room",
       items: [
         { label: "All rooms", onClick: go(ctx.navigate, "/rooms") },
+        { label: "VR setup coach…", onClick: go(ctx.navigate, "/rooms/vr"), hint: "pick a headset" },
+        { label: "Headset matrix…", onClick: go(ctx.navigate, "/rooms/vr/matrix") },
         { label: "Sit with Twin…", onClick: go(ctx.navigate, "/twin") },
         { label: "Photos", onClick: go(ctx.navigate, "/photos") },
         { label: "Clones…", onClick: go(ctx.navigate, "/settings") },
@@ -333,6 +335,9 @@ export function getAppMenubarItems(ctx) {
         { label: "Clone your voice…", onClick: go(ctx.navigate, "/setup#voice") },
         { label: "Take likeness photos…", onClick: go(ctx.navigate, "/setup#likeness") },
         { label: "Remaining setup", onClick: () => ctx.reopenSetupCoach?.() },
+        { sep: true },
+        { label: "VR headset setup…", onClick: go(ctx.navigate, "/rooms/vr") },
+        { label: "Headset compatibility…", onClick: go(ctx.navigate, "/rooms/vr/matrix") },
       ],
     },
   ];
