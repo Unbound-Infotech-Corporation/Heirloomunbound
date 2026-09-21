@@ -245,6 +245,7 @@ def owner_response_fields(result: OwnerTurnResult) -> dict[str, Any]:
         out["receipt"] = result.receipt
     if result.specialist_id:
         out["specialist_id"] = result.specialist_id
+        out["clone_id"] = result.specialist_id
     if result.specialist_name:
         out["specialist_name"] = result.specialist_name
     return out

@@ -924,7 +924,9 @@ async def _persist_pair(
     }
     if specialist_id:
         user_turn["specialist_id"] = specialist_id
+        user_turn["clone_id"] = specialist_id
         assistant_turn["specialist_id"] = specialist_id
+        assistant_turn["clone_id"] = specialist_id
     if specialist_name:
         assistant_turn["specialist_name"] = specialist_name
     if action:

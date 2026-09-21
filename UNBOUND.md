@@ -1,4 +1,4 @@
-# Unbound Phase 1 — Heirloom Room + multi-assistant twin
+# Unbound Phase 1 — Heirloom Room + clones under the twin
 
 Product directions from owner C L. This pass ships a **real scaffold**, not vapor:
 working owner-only UI, data models, mock reconstruction, and chat routing that
@@ -26,25 +26,30 @@ there later.
   conversation overlay. **Enter VR** is a WebXR stub (`navigator.xr`).
   Deep-link: `/twin?room=`.
 
-### B) Multi-assistant under the twin
+### B) Clones under the twin
 
-Personas stay **tone/modes** of the same twin. Assistants are **who speaks
-this turn**, with a tools allowlist.
+Personas stay **tone/modes** of the same twin. **Clones** are named
+specialist agents the owner adds under that twin — **who speaks this
+turn**, with a tools allowlist. Twin = the person / heirloom identity.
+Clones ≠ Assist (the PC copilot), though a PC clone may *route as* Assist.
 
-- Mongo `twin_assistants`: `assistant_id`, `name`, `slug`, `role`,
-  `tools_allowlist`, `enabled`, `speak_as` (`specialist` | `assist`).
-- Seeded specialists: Research, Archive, Letters, PC.
+- Mongo `twin_assistants` (internal): `clone_id` / `assistant_id` alias,
+  `name`, `slug`, `role`, `tools_allowlist`, `enabled`,
+  `speak_as` (`specialist` | `assist`).
+- Public API: `GET/POST /api/clones`, `PATCH/DELETE /api/clones/{clone_id}`.
+  JSON uses `clone_id` (and `assistants` as a response alias).
+- Seeded clones: Research, Archive, Letters, PC.
 - Owner can add / rename / disable in Settings (and Sit / Twin pickers).
 - Chat: pick a chip or `@Research …`. Twin remains the person. PC
-  specialists route as **Assist** (never first-person as the owner, never
-  on heir/caller). Twin-side specialists never receive PC tools.
+  clones route as **Assist** (never first-person as the owner, never
+  on heir/caller). Twin-side clones never receive PC tools.
 - Wired on `POST /api/twin/message`, `POST /api/owner/chat`,
-  `POST /api/desktop/chat` (`assistant_id`).
+  `POST /api/desktop/chat` (`clone_id`; `assistant_id` accepted as alias).
 
 ### Trust fences (unchanged)
 
-- Heirs inherit Twin, not Assist, not Rooms, not the assistant roster.
-- Portal (`/heir/:token`) has no links to `/rooms` or `/assistants`.
+- Heirs inherit Twin, not Assist, not Rooms, not Clones.
+- Portal (`/heir/:token`) has no links to `/rooms` or `/clones`.
 - Stripe / billing / refund 403 paths untouched.
 
 ## Try it locally
@@ -71,9 +76,9 @@ In the studio:
 1. **Rooms** in the dock → name a room → upload a still or video (optional) →
    **Build stand-in scene** → **Sit in this room**. Talk in the overlay;
    switch Twin / Research / PC.
-2. **Sit** (`/owner`) or **Talk to twin** — specialist chips under the
+2. **Sit** (`/owner`) or **Talk to twin** — clone chips under the
    composer, or type `@Research look this up`.
-3. **Settings** → Assistants under the twin — add, rename, disable.
+3. **Settings** → Clones under the twin — add, rename, disable.
 
 Tests:
 
@@ -82,8 +87,8 @@ cd backend && python -m pytest tests/test_rooms.py tests/test_assistants.py test
 cd frontend && CI=true yarn test --watchAll=false --testPathPattern='(rooms|assistants|memoryStudio)'
 ```
 
-WinUI Rooms / Assistants documents are **deferred** (same as Memory Studio
-and Sit Owner document). Native chat already accepts `assistant_id` on
+WinUI Rooms / Clones documents are **deferred** (same as Memory Studio
+and Sit Owner document). Native chat already accepts `clone_id` on
 `POST /api/desktop/chat`.
 
 ## Phase 2 (not this PR)
@@ -96,9 +101,9 @@ and Sit Owner document). Native chat already accepts `assistant_id` on
 - Capture from phone companion (existing phone pair) into the same Room.
 - Heir-enter-a-released-room (gift a place, not just a voice) — only after
   an explicit owner release, never by default.
-- Full tool parity per specialist (letters CRUD, archive file, PC Confirm
+- Full tool parity per clone (letters CRUD, archive file, PC Confirm
   receipts already on Assist).
-- WinUI Rooms document + Assistants list in Settings.
+- WinUI Rooms document + Clones list in Settings.
 
 Hypothesis confirmed for Phase 1: **Owner rail + Assist** are the extension
-points for specialists; **Rooms** are a new section (not Archive).
+points for clones; **Rooms** are a new section (not Archive).

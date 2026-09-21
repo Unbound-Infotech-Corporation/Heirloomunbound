@@ -1,4 +1,4 @@
-"""Phase 1 multi-assistant specialists under the twin."""
+"""Phase 1 Clones — named specialists under the twin."""
 from pathlib import Path
 
 from assistants import (
@@ -6,6 +6,7 @@ from assistants import (
     chat_role_for_specialist,
     filter_tools_for_specialist,
     mention_from_text,
+    public_assistant,
     resolve_specialist_turn,
     specialist_prompt_block,
     speak_as_for_tools,
@@ -52,6 +53,13 @@ def test_defaults_cover_specialists_not_a_second_twin():
     pc = next(a for a in DEFAULT_ASSISTANTS if a["slug"] == "pc")
     assert pc["speak_as"] == "assist"
     assert "open_on_pc" in pc["tools_allowlist"]
+
+
+def test_public_clone_id_is_user_facing():
+    out = public_assistant({"assistant_id": "cln_abc", "name": "Research", "_id": "hide-me"})
+    assert out["clone_id"] == "cln_abc"
+    assert out["assistant_id"] == "cln_abc"
+    assert "_id" not in out
 
 
 def test_mention_parse_and_pick():
@@ -103,11 +111,13 @@ def test_specialist_prompt_never_first_person_as_owner():
     assert "SPECIALIST THIS TURN: Research" in block
 
 
-def test_heir_portal_does_not_link_rooms_or_assistants():
+def test_heir_portal_does_not_link_rooms_or_clones():
     portal = (ROOT / "frontend" / "src" / "pages" / "HeirPortal.jsx").read_text(encoding="utf-8")
     assert "/rooms" not in portal
+    assert "/clones" not in portal
     assert "/assistants" not in portal
     assert "AssistantPicker" not in portal
     src = (ROOT / "backend" / "routers" / "heir_portal.py").read_text(encoding="utf-8")
     assert "/rooms" not in src
     assert "twin_assistants" not in src
+    assert "/clones" not in src

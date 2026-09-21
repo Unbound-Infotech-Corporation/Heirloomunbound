@@ -71,7 +71,8 @@ class ChatReq(BaseModel):
     persona: Optional[str] = Field(None, max_length=24)
     audience: Optional[str] = Field(None, max_length=16)
     twin_pack: Optional[dict] = None
-    assistant_id: Optional[str] = Field(None, max_length=40)
+    clone_id: Optional[str] = Field(None, max_length=40)
+    assistant_id: Optional[str] = Field(None, max_length=40)  # alias for clone_id
 
 
 async def _ensure_companion_conv(user_id: str, kind: str = "companion_twin") -> dict:
@@ -151,7 +152,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
                 grounded=body.grounded,
                 persona_hint=body.persona,
                 audience=audience,
-                assistant_id=body.assistant_id,
+                assistant_id=body.clone_id or body.assistant_id,
             )
         else:
             result = await run_twin_turn(
@@ -166,7 +167,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
                 grounded=body.grounded,
                 persona_hint=body.persona,
                 audience=audience,
-                assistant_id=body.assistant_id,
+                assistant_id=body.clone_id or body.assistant_id,
             )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

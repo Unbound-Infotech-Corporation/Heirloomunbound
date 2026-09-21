@@ -149,7 +149,7 @@ async def build_info():
         "status": "ok",
         "desktop_version": version,
         "git_sha": sha,
-        "features": ["studio", "first-run", "vendor-coach", "winui-native", "phone-twin", "rooms", "assistants"],
+        "features": ["studio", "first-run", "vendor-coach", "winui-native", "phone-twin", "rooms", "clones"],
         "has_studio_first_run": True,
         "primary_windows_product": "winui",
         "legacy_pyside_package": "/api/companion/desktop-package",

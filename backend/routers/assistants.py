@@ -1,4 +1,4 @@
-"""Owner-only named assistants under the twin."""
+"""Owner-only named Clones under the twin."""
 from __future__ import annotations
 
 import uuid
@@ -18,7 +18,7 @@ from assistants import (
 )
 from deps import db, get_current_user
 
-router = APIRouter(prefix="/assistants", tags=["assistants"])
+router = APIRouter(prefix="/clones", tags=["clones"])
 
 MAX_ASSISTANTS = 12
 
@@ -50,8 +50,10 @@ class AssistantUpdate(BaseModel):
 
 def _doc_from_defaults(user_id: str, spec: dict) -> dict:
     tools = clean_tools(spec.get("tools_allowlist"))
+    cid = f"cln_{uuid.uuid4().hex[:12]}"
     return {
-        "assistant_id": f"ast_{uuid.uuid4().hex[:12]}",
+        "assistant_id": cid,
+        "clone_id": cid,
         "user_id": user_id,
         "slug": spec.get("slug") or slugify_name(spec["name"]),
         "name": spec["name"][:60],
@@ -80,8 +82,10 @@ async def list_for_user(user_id: str, *, seed: bool = True) -> list[dict]:
 async def list_assistants(user: dict = Depends(get_current_user)):
     _owner_gate(user)
     items = await list_for_user(user["user_id"])
+    clones = [public_assistant(a) for a in items]
     return {
-        "assistants": [public_assistant(a) for a in items],
+        "clones": clones,
+        "assistants": clones,  # alias — user-facing name is Clone
         "tools": list(KNOWN_TOOLS),
         "max": MAX_ASSISTANTS,
     }
@@ -92,10 +96,12 @@ async def create_assistant(payload: AssistantCreate, user: dict = Depends(get_cu
     _owner_gate(user)
     existing = await db.twin_assistants.count_documents({"user_id": user["user_id"]})
     if existing >= MAX_ASSISTANTS:
-        raise HTTPException(status_code=400, detail=f"At most {MAX_ASSISTANTS} assistants")
+        raise HTTPException(status_code=400, detail=f"At most {MAX_ASSISTANTS} clones")
     tools = clean_tools(payload.tools_allowlist)
+    cid = f"cln_{uuid.uuid4().hex[:12]}"
     doc = {
-        "assistant_id": f"ast_{uuid.uuid4().hex[:12]}",
+        "assistant_id": cid,
+        "clone_id": cid,
         "user_id": user["user_id"],
         "slug": slugify_name(payload.name),
         "name": payload.name.strip()[:60],
@@ -111,9 +117,16 @@ async def create_assistant(payload: AssistantCreate, user: dict = Depends(get_cu
     return public_assistant(doc)
 
 
-@router.patch("/{assistant_id}")
+def _owned_filter(clone_id: str, user_id: str) -> dict:
+    return {
+        "user_id": user_id,
+        "$or": [{"clone_id": clone_id}, {"assistant_id": clone_id}],
+    }
+
+
+@router.patch("/{clone_id}")
 async def update_assistant(
-    assistant_id: str, payload: AssistantUpdate, user: dict = Depends(get_current_user)
+    clone_id: str, payload: AssistantUpdate, user: dict = Depends(get_current_user)
 ):
     _owner_gate(user)
     update: dict = {}
@@ -129,34 +142,27 @@ async def update_assistant(
         update["tools_allowlist"] = clean_tools(payload.tools_allowlist)
     if payload.enabled is not None:
         update["enabled"] = bool(payload.enabled)
+    owned = _owned_filter(clone_id, user["user_id"])
     if payload.speak_as is not None or "tools_allowlist" in update:
-        current = await db.twin_assistants.find_one(
-            {"assistant_id": assistant_id, "user_id": user["user_id"]}, {"_id": 0}
-        )
+        current = await db.twin_assistants.find_one(owned, {"_id": 0})
         if not current:
-            raise HTTPException(status_code=404, detail="Assistant not found")
+            raise HTTPException(status_code=404, detail="Clone not found")
         tools = update.get("tools_allowlist", current.get("tools_allowlist") or [])
         update["speak_as"] = speak_as_for_tools(tools, payload.speak_as or current.get("speak_as"))
     if not update:
         raise HTTPException(status_code=400, detail="No fields to update")
     update["updated_at"] = _now()
-    res = await db.twin_assistants.update_one(
-        {"assistant_id": assistant_id, "user_id": user["user_id"]}, {"$set": update}
-    )
+    res = await db.twin_assistants.update_one(owned, {"$set": update})
     if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Assistant not found")
-    doc = await db.twin_assistants.find_one(
-        {"assistant_id": assistant_id, "user_id": user["user_id"]}, {"_id": 0}
-    )
+        raise HTTPException(status_code=404, detail="Clone not found")
+    doc = await db.twin_assistants.find_one(owned, {"_id": 0})
     return public_assistant(doc)
 
 
-@router.delete("/{assistant_id}")
-async def delete_assistant(assistant_id: str, user: dict = Depends(get_current_user)):
+@router.delete("/{clone_id}")
+async def delete_assistant(clone_id: str, user: dict = Depends(get_current_user)):
     _owner_gate(user)
-    res = await db.twin_assistants.delete_one(
-        {"assistant_id": assistant_id, "user_id": user["user_id"]}
-    )
+    res = await db.twin_assistants.delete_one(_owned_filter(clone_id, user["user_id"]))
     if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Assistant not found")
+        raise HTTPException(status_code=404, detail="Clone not found")
     return {"ok": True}

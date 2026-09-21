@@ -44,7 +44,7 @@ export default function Owner() {
     api.get("/owner/conversation").then(({ data }) => setConv(data)).catch(() => {
       setConv({ conversation_id: "", messages: [] });
     });
-    api.get("/assistants").then(({ data }) => setAssistants(data.assistants || [])).catch(() => {});
+    api.get("/clones").then(({ data }) => setAssistants(data.clones || data.assistants || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export default function Owner() {
     setInput("");
     setPending(true);
     try {
-      const { data } = await api.post("/owner/chat", { text, assistant_id: selectedAssistant || undefined });
+      const { data } = await api.post("/owner/chat", { text, clone_id: selectedAssistant || undefined });
       setLastChip(data.rail_chip || "");
       setConv((c) => ({
         ...(c || {}),
@@ -133,8 +133,8 @@ export default function Owner() {
         <Link to="/rooms" className="hover:text-[var(--accent)]" data-testid="owner-link-rooms">
           Rooms →
         </Link>
-        <Link to="/settings" className="hover:text-[var(--accent)]" data-testid="owner-link-assistants">
-          Assistants →
+        <Link to="/settings" className="hover:text-[var(--accent)]" data-testid="owner-link-clones">
+          Clones →
         </Link>
       </div>
 
@@ -214,7 +214,7 @@ export default function Owner() {
             selectedId={selectedAssistant}
             onSelect={setSelectedAssistant}
             disabled={pending}
-            testid="owner-assistant-picker"
+            testid="owner-clone-picker"
           />
           <button
             type="button"

@@ -35,7 +35,8 @@ class StartTwinReq(BaseModel):
 class TwinMsgReq(BaseModel):
     conversation_id: str
     message: str
-    assistant_id: Optional[str] = None
+    clone_id: Optional[str] = None
+    assistant_id: Optional[str] = None  # alias for clone_id
     room_id: Optional[str] = None
 
 
@@ -147,7 +148,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     specialist_turn = await load_specialist_turn(
         user["user_id"],
         payload.message,
-        assistant_id=payload.assistant_id,
+        assistant_id=payload.clone_id or payload.assistant_id,
         audience="owner",
     )
     specialist = specialist_turn.get("assistant")
@@ -326,6 +327,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     user_turn = {"role": "user", "content": payload.message, "ts": datetime.now(timezone.utc).isoformat()}
     if specialist_id:
         user_turn["specialist_id"] = specialist_id
+        user_turn["clone_id"] = specialist_id
 
     async def gen():
         """Streams a tool-use aware conversation.
@@ -342,6 +344,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         try:
             if specialist_id:
                 yield "event: specialist\ndata: " + json.dumps({
+                    "clone_id": specialist_id,
                     "assistant_id": specialist_id,
                     "name": specialist_name,
                 }) + "\n\n"
@@ -392,6 +395,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             assistant_turn["tool_trace"] = tool_trace
         if specialist_id:
             assistant_turn["specialist_id"] = specialist_id
+            assistant_turn["clone_id"] = specialist_id
         if specialist_name:
             assistant_turn["specialist_name"] = specialist_name
 

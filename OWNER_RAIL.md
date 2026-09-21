@@ -151,14 +151,15 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 
 Do not give heirs owner mode, pairing productivity, standing routines, or PC tools.
 
-## Unbound Phase 1 — Rooms + assistants
+## Unbound Phase 1 — Rooms + clones
 
 Shipped on web (see `UNBOUND.md`).
 
 - **Rooms** (`/rooms`) — owner-only capture of a physical place. Mock glTF
   reconstruction. Sit overlay talks to Twin. Not Archive.
-- **Assistants** — named specialists under the twin (Settings + Sit/Twin
-  picker + `@mention`). PC specialists stay Assist. Heirs never inherit them.
-- WinUI Rooms / Assistants documents — **deferred** with Memory Studio.
+- **Clones** — named specialists under the twin (Settings + Sit/Twin
+  picker + `@mention`). PC clones stay Assist. Heirs never inherit them.
+  User-facing API: `GET/POST /api/clones`, chat field `clone_id`.
+- WinUI Rooms / Clones documents — **deferred** with Memory Studio.
 
 Phase 2: real photogrammetry/splat vendor, Quest packaging, heir-released rooms.

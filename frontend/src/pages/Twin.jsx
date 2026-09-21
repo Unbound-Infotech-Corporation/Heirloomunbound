@@ -73,7 +73,7 @@ export default function Twin() {
 
   useEffect(() => {
     api.get("/abilities").then(({ data }) => setAbilities(data.abilities || [])).catch(() => {});
-    api.get("/assistants").then(({ data }) => setAssistants(data.assistants || [])).catch(() => {});
+    api.get("/clones").then(({ data }) => setAssistants(data.clones || data.assistants || [])).catch(() => {});
   }, []);
 
   const toggleAbility = async (ab) => {
@@ -167,7 +167,7 @@ export default function Twin() {
       {
         conversation_id: conv.conversation_id,
         message: text,
-        assistant_id: selectedAssistant || undefined,
+        clone_id: selectedAssistant || undefined,
         room_id: roomId || undefined,
       },
       (chunk) => {
@@ -528,7 +528,7 @@ export default function Twin() {
             }
           }}
           rows={3}
-          placeholder="Ask anything. (⌘/Ctrl + Enter to send)"
+          placeholder="Ask anything. @Research or pick a clone. (⌘/Ctrl + Enter to send)"
           data-testid="twin-input"
           className="w-full bg-transparent border-none outline-none resize-none text-base leading-relaxed"
           style={{ color: "var(--text-primary)" }}
@@ -539,7 +539,7 @@ export default function Twin() {
             selectedId={selectedAssistant}
             onSelect={setSelectedAssistant}
             disabled={pending}
-            testid="twin-assistant-picker"
+            testid="twin-clone-picker"
           />
           <button
             type="button"

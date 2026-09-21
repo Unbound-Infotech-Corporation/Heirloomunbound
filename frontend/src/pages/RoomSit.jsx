@@ -23,7 +23,7 @@ export default function RoomSit() {
   useEffect(() => {
     api.get(`/rooms/${roomId}`).then(({ data }) => setRoom(data)).catch(() => setError("Room not found."));
     api.get(`/rooms/${roomId}/scene`).then(({ data }) => setGltf(data)).catch(() => setGltf(null));
-    api.get("/assistants").then(({ data }) => setAssistants(data.assistants || [])).catch(() => {});
+    api.get("/clones").then(({ data }) => setAssistants(data.clones || data.assistants || [])).catch(() => {});
     api.post("/twin/start", {}).then(({ data }) => setConv(data)).catch(() => {});
   }, [roomId]);
 
@@ -41,7 +41,7 @@ export default function RoomSit() {
       {
         conversation_id: conv.conversation_id,
         message: text,
-        assistant_id: selectedAssistant || undefined,
+        clone_id: selectedAssistant || undefined,
         room_id: roomId,
       },
       (chunk) => {
@@ -131,7 +131,7 @@ export default function RoomSit() {
             assistants={assistants}
             selectedId={selectedAssistant}
             onSelect={setSelectedAssistant}
-            testid="room-sit-assistants"
+            testid="room-sit-clones"
           />
           <div className="flex-1 overflow-y-auto mt-4 space-y-4 max-h-[40vh]" data-testid="room-sit-feed">
             {messages.map((m, i) => (
@@ -152,7 +152,7 @@ export default function RoomSit() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             rows={3}
-            placeholder="Talk here. @Research or pick a specialist."
+            placeholder="Talk here. @Research or pick a clone."
             data-testid="room-sit-input"
             className="mt-3 w-full bg-transparent outline-none resize-none text-sm"
             style={{ color: "var(--text-primary)" }}

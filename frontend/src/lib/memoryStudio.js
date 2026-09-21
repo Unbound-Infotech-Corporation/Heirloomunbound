@@ -93,6 +93,7 @@ export function heirPortalMustExclude(src) {
     !text.includes("/nudges/routines") &&
     !text.includes("standing_routines") &&
     !text.includes("/rooms") &&
+    !text.includes("/clones") &&
     !text.includes("/assistants")
   );
 }

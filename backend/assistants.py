@@ -1,11 +1,14 @@
-"""Named specialists under one twin — Grok-bot-like teammates, not a second product.
+"""Named Clones under one twin — specialist agents, not a second person.
 
-The twin remains the person (first-person, vault-grounded). Assistants are
+The twin remains the person (first-person, vault-grounded). Clones are
 specialists the owner can pick or @mention. PC tools still belong to Assist;
-heirs never inherit specialists or PC abilities.
+heirs never inherit clones or PC abilities.
 
-Personas (existing) are tone/modes of the same twin. Assistants are a different
+Personas (existing) are tone/modes of the same twin. Clones are a different
 axis: who speaks this turn, with which tools.
+
+User-facing name is Clone. Internal docs may still say assistant (Assist
+copilot role, chat role=assistant). Public JSON uses clone_id.
 """
 from __future__ import annotations
 
@@ -154,7 +157,7 @@ def filter_tools_for_specialist(enabled_tools: set[str], assistant: Optional[dic
 
 def specialist_prompt_block(assistant: dict, owner_name: str) -> str:
     who = owner_name or "the owner"
-    name = (assistant.get("name") or "Assistant").strip()[:60]
+    name = (assistant.get("name") or "Clone").strip()[:60]
     role = (assistant.get("role") or "").strip()[:400]
     speak = chat_role_for_specialist(assistant)
     tools = ", ".join(clean_tools(assistant.get("tools_allowlist"))) or "(none beyond core sitting)"
@@ -181,7 +184,7 @@ def specialist_prompt_block(assistant: dict, owner_name: str) -> str:
 
 def slugify_name(name: str) -> str:
     raw = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
-    return (raw[:32] or "assistant")
+    return (raw[:32] or "clone")
 
 
 def mention_from_text(text: str) -> tuple[Optional[str], str]:
@@ -197,7 +200,7 @@ def match_assistant(assistants: list[dict], *, assistant_id: Optional[str] = Non
     enabled = [a for a in assistants if a.get("enabled") is not False]
     if assistant_id:
         for a in enabled:
-            if a.get("assistant_id") == assistant_id:
+            if a.get("clone_id") == assistant_id or a.get("assistant_id") == assistant_id:
                 return a
         return None
     if not mention:
@@ -212,7 +215,7 @@ def match_assistant(assistants: list[dict], *, assistant_id: Optional[str] = Non
             return a
         if slugify_name(a.get("name") or "") == key:
             return a
-        aid = (a.get("assistant_id") or "").lower()
+        aid = (a.get("clone_id") or a.get("assistant_id") or "").lower()
         if aid and (aid == key or aid.endswith(key)):
             return a
     return None
@@ -236,7 +239,8 @@ def resolve_specialist_turn(
         message = text
     return {
         "assistant": chosen,
-        "assistant_id": (chosen or {}).get("assistant_id") if chosen else None,
+        "assistant_id": ((chosen or {}).get("clone_id") or (chosen or {}).get("assistant_id")) if chosen else None,
+        "clone_id": ((chosen or {}).get("clone_id") or (chosen or {}).get("assistant_id")) if chosen else None,
         "message": message,
         "mention": mention if used_mention else None,
         "role": chat_role_for_specialist(chosen),
@@ -245,6 +249,20 @@ def resolve_specialist_turn(
 
 
 def public_assistant(doc: dict) -> dict:
+    """Public Clone payload. clone_id is the user-facing id; assistant_id is an alias."""
     if not doc:
         return {}
-    return {k: v for k, v in doc.items() if k != "_id"}
+    out = {k: v for k, v in doc.items() if k != "_id"}
+    cid = out.get("clone_id") or out.get("assistant_id")
+    if cid:
+        out["clone_id"] = cid
+        out["assistant_id"] = cid
+    return out
+
+
+def public_clone(doc: dict) -> dict:
+    return public_assistant(doc)
+
+
+def resolved_clone_id(*, clone_id: Optional[str] = None, assistant_id: Optional[str] = None) -> Optional[str]:
+    return (clone_id or assistant_id or "").strip() or None
