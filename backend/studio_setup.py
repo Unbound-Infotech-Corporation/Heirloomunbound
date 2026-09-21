@@ -276,7 +276,100 @@ SETUP_DEFAULTS: dict = {
     "warm_engines": False,
     "live_listen_default": False,
     "branding_dedicated": False,
+    "coach_dismissed": False,
+    "coach_dismissed_at": None,
 }
+
+# Stock D-ID presenter — a custom avatar_source_url that equals this is not "your face".
+TWIN_DEFAULT_AVATAR_SOURCE = (
+    "https://create-images-results.d-id.com/DefaultPresenters/Emma_f/v1_image.jpeg"
+)
+LIKENESS_PHOTOS_NEEDED = 3
+
+TWIN_SETUP_STEPS = (
+    {
+        "id": "voice",
+        "label": "Clone your voice",
+        "critical": True,
+        "href": "/setup#voice",
+        "document": "keys",
+        "cta": "Set up the Twin voice",
+        "benefit": "Your Twin speaks as you — live sit, talking video, and a VR room sit.",
+        "unlocks": (
+            "Live twin conversation in your voice",
+            "Talking-picture video that sounds like you",
+            "Sit with the Twin in a Heirloom Room",
+        ),
+        "needed": 1,
+        "examples": (
+            {
+                "id": "quiet",
+                "title": "1. A quiet room",
+                "caption": "Close the door. Phone on the table, not in a pocket.",
+            },
+            {
+                "id": "speak",
+                "title": "2. Speak for about 30 seconds",
+                "caption": "Read something you would actually say — a greeting, a memory, how you say goodnight.",
+            },
+            {
+                "id": "ready",
+                "title": "3. That recording is the Twin's voice",
+                "caption": "We clone from your samples. Stock voices stay off once this is done.",
+            },
+        ),
+    },
+    {
+        "id": "likeness",
+        "label": "Take likeness photos",
+        "critical": True,
+        "href": "/avatar-studio",
+        "document": "avatar",
+        "cta": "Take the three photos",
+        "benefit": "A lifelike talking picture of you — video, live sit, and the Heirloom Room.",
+        "unlocks": (
+            "Live-action talking picture",
+            "Video that uses your face, not a stock presenter",
+            "Sit in a captured room as yourself",
+        ),
+        "needed": LIKENESS_PHOTOS_NEEDED,
+        "examples": (
+            {
+                "id": "front",
+                "title": "1. Straight on",
+                "caption": "Head and shoulders, both eyes toward the lens, even light. This one is the talking picture.",
+            },
+            {
+                "id": "three_quarter",
+                "title": "2. Three-quarter",
+                "caption": "Turn a little. Same distance. Helps the live version lock your mouth.",
+            },
+            {
+                "id": "profile",
+                "title": "3. Profile",
+                "caption": "Side of the face. Same height. Together these three make the virtual you.",
+            },
+        ),
+    },
+    {
+        "id": "avatar",
+        "label": "Set a talking-picture source",
+        "critical": False,
+        "href": "/avatar-studio",
+        "document": "avatar",
+        "cta": "Use a photo as the Twin face",
+        "benefit": "Play as video uses your face instead of a stock presenter.",
+        "unlocks": ("Talking-head video from Twin replies",),
+        "needed": 1,
+        "examples": (
+            {
+                "id": "pick",
+                "title": "Pick the front photo",
+                "caption": "Choose the straight-on likeness as the active talking-picture source.",
+            },
+        ),
+    },
+)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_IDS = {p["id"] for p in PHONE_FEATURES if not p.get("pc_only")}
@@ -633,9 +726,102 @@ def clamp_setup(raw: dict | None) -> dict:
     src["warm_engines"] = bool(raw.get("warm_engines"))
     src["live_listen_default"] = bool(raw.get("live_listen_default"))
     src["branding_dedicated"] = bool(raw.get("branding_dedicated"))
+    src["coach_dismissed"] = bool(raw.get("coach_dismissed"))
+    dismissed_at = raw.get("coach_dismissed_at")
+    src["coach_dismissed_at"] = str(dismissed_at).strip()[:40] if dismissed_at else None
     if src["space_profile"] == "dedicated":
         src["install_profile"] = "dedicated"
     return src
+
+
+def is_custom_avatar_source(url: str | None) -> bool:
+    clean = str(url or "").strip()
+    if not clean:
+        return False
+    return clean.rstrip("/") != TWIN_DEFAULT_AVATAR_SOURCE.rstrip("/")
+
+
+def build_twin_setup_progress(
+    *,
+    voice_id: str = "",
+    voice_name: str = "",
+    photo_count: int = 0,
+    avatar_angles: set[str] | list[str] | tuple[str, ...] | None = None,
+    avatar_source_url: str = "",
+    coach_dismissed: bool = False,
+    coach_dismissed_at: str | None = None,
+) -> dict:
+    """Owner-only Twin setup checklist: cloned voice + likeness photos.
+
+    Critical steps are voice and likeness. Avatar/D-ID source is tracked but
+    does not keep the reminder open once voice + photos are done.
+    """
+    angles = {
+        str(a).strip().lower()
+        for a in (avatar_angles or ())
+        if str(a).strip().lower() in {"front", "left", "right"}
+    }
+    photos = max(0, int(photo_count or 0))
+    likeness_have = max(photos, len(angles))
+    voice_ready = bool(str(voice_id or "").strip())
+    avatar_ready = is_custom_avatar_source(avatar_source_url)
+    likeness_ready = likeness_have >= LIKENESS_PHOTOS_NEEDED
+
+    have_by_id = {
+        "voice": 1 if voice_ready else 0,
+        "likeness": likeness_have,
+        "avatar": 1 if avatar_ready else 0,
+    }
+    done_by_id = {
+        "voice": voice_ready,
+        "likeness": likeness_ready,
+        "avatar": avatar_ready,
+    }
+    steps = []
+    remaining_critical = 0
+    remaining = 0
+    for spec in TWIN_SETUP_STEPS:
+        done = bool(done_by_id[spec["id"]])
+        have = int(have_by_id[spec["id"]])
+        if not done:
+            remaining += 1
+            if spec["critical"]:
+                remaining_critical += 1
+        steps.append(
+            {
+                "id": spec["id"],
+                "label": spec["label"],
+                "critical": spec["critical"],
+                "href": spec["href"],
+                "document": spec["document"],
+                "cta": spec["cta"],
+                "benefit": spec["benefit"],
+                "unlocks": list(spec["unlocks"]),
+                "examples": [dict(ex) for ex in spec["examples"]],
+                "needed": spec["needed"],
+                "have": have,
+                "done": done,
+            }
+        )
+
+    all_critical_done = remaining_critical == 0
+    dismissed = bool(coach_dismissed) and not all_critical_done
+    return {
+        "steps": steps,
+        "remaining": remaining,
+        "remaining_critical": remaining_critical,
+        "all_critical_done": all_critical_done,
+        "coach_dismissed": dismissed,
+        "coach_dismissed_at": coach_dismissed_at if dismissed else None,
+        "visible": (not dismissed) and (not all_critical_done),
+        "youre_set": all_critical_done,
+        "voice_ready": voice_ready,
+        "voice_name": str(voice_name or "").strip()[:80],
+        "likeness_ready": likeness_ready,
+        "likeness_have": likeness_have,
+        "likeness_needed": LIKENESS_PHOTOS_NEEDED,
+        "avatar_ready": avatar_ready,
+    }
 
 
 def signup_url_with_email(signup: str, email: str = "", param: str | None = "email") -> str:
@@ -779,6 +965,15 @@ def setup_catalog() -> dict:
             "medium": MEDIUM_RECOMMEND_GB,
         },
         "local_first": True,
+        "twin_setup_steps": [
+            {
+                **{k: v for k, v in spec.items() if k != "examples" and k != "unlocks"},
+                "unlocks": list(spec["unlocks"]),
+                "examples": [dict(ex) for ex in spec["examples"]],
+            }
+            for spec in TWIN_SETUP_STEPS
+        ],
+        "likeness_photos_needed": LIKENESS_PHOTOS_NEEDED,
         "vendor_signup_policy": (
             "On the dedicated PC, after local models finish installing, a stay-on-top "
             "guide opens. Heirloom copies your email, opens the official sign-up page, "

@@ -7,4 +7,6 @@ export { default as StudioFieldRow } from "./StudioFieldRow";
 export { default as StudioTabs } from "./StudioTabs";
 export { default as StudioWorkspace } from "./StudioWorkspace";
 export { default as AssistReceipt } from "./AssistReceipt";
+export { default as SetupCoach } from "./SetupCoach";
+export { SetupExampleRow, SetupExampleArt } from "./SetupIllustrations";
 export { getWindowMenus, getAppMenubarItems } from "./menuDefinitions";

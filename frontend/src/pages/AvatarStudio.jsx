@@ -4,6 +4,7 @@ import { Camera, Check, Sparkles, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePageMeta } from "@/lib/usePageMeta";
+import { notifyTwinSetupChanged } from "@/lib/twinSetup";
 
 const ANGLES = [
   { key: "front", label: "Front", hint: "Straight on, eyes level with camera. The one your twin uses today." },
@@ -44,6 +45,7 @@ export default function AvatarStudio() {
       await api.post("/avatar-studio/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
       toast.success(`${angle} uploaded.`);
       load();
+      notifyTwinSetupChanged();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Upload failed.");
     } finally {
@@ -56,6 +58,7 @@ export default function AvatarStudio() {
       await api.post("/avatar-studio/use", { image_id });
       toast.success("Set as your twin's face.");
       load();
+      notifyTwinSetupChanged();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Couldn't save.");
     }

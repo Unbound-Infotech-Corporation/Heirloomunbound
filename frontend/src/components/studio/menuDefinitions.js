@@ -305,5 +305,14 @@ export function getAppMenubarItems(ctx) {
     },
     audioMenu(ctx.navigate),
     modelsMenu(ctx.navigate),
+    {
+      label: "Help",
+      items: [
+        { label: "First-run setup…", onClick: go(ctx.navigate, "/setup") },
+        { label: "Clone your voice…", onClick: go(ctx.navigate, "/setup#voice") },
+        { label: "Take likeness photos…", onClick: go(ctx.navigate, "/setup#likeness") },
+        { label: "Remaining setup", onClick: () => ctx.reopenSetupCoach?.() },
+      ],
+    },
   ];
 }

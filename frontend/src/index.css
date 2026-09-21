@@ -730,9 +730,131 @@
     font-size: 11px;
     cursor: pointer;
 }
-.studio-setup-steps .is-active button {
-    border-color: #4da3ff;
-    color: #e6e6e6;
+.studio-setup-steps .is-done button {
+    color: #7da06f;
+}
+.setup-example-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin: 12px 0 16px;
+}
+.setup-example-card {
+    background: #1f1f1f;
+    border: 1px solid #2a2a2a;
+    padding: 8px;
+}
+.setup-example-title {
+    font-size: 11px;
+    color: #ddd;
+    margin: 8px 0 4px;
+    font-weight: 600;
+}
+.setup-example-caption {
+    font-size: 10px;
+    color: #888;
+    line-height: 1.4;
+    margin: 0;
+}
+.setup-example.is-done svg rect:first-child {
+    stroke: #7da06f;
+}
+.setup-likeness-uploads {
+    display: grid;
+    gap: 8px;
+}
+.setup-likeness-upload {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: #ccc;
+}
+.setup-coach {
+    position: fixed;
+    top: 48px;
+    right: 16px;
+    width: 340px;
+    max-width: calc(100vw - 32px);
+    z-index: 80;
+    background: #2d2d2d;
+    border: 1px solid #c9b8a4;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+    padding: 14px 14px 12px;
+}
+.setup-coach-titlebar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+}
+.setup-coach-overline {
+    color: #888;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin: 0 0 4px;
+}
+.setup-coach h2 {
+    font-size: 16px;
+    margin: 0 0 8px;
+    color: #eee;
+    font-family: inherit;
+}
+.setup-coach-close {
+    background: transparent;
+    border: 1px solid #444;
+    color: #ddd;
+    padding: 4px;
+    cursor: pointer;
+}
+.setup-coach-body {
+    font-size: 12px;
+    color: #bbb;
+    line-height: 1.45;
+    margin: 0;
+}
+.setup-coach-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+}
+.setup-coach-step {
+    display: grid;
+    grid-template-columns: 88px 1fr;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    background: #232323;
+    border: 1px solid #333;
+    color: inherit;
+    padding: 6px;
+    cursor: pointer;
+}
+.setup-coach-step strong {
+    display: block;
+    font-size: 12px;
+    color: #eee;
+}
+.setup-coach-step span {
+    display: block;
+    font-size: 11px;
+    color: #999;
+    line-height: 1.35;
+    margin: 4px 0;
+}
+.setup-coach-step em {
+    display: block;
+    font-size: 11px;
+    font-style: normal;
+    color: #d4a373;
+}
+.setup-coach-hint {
+    font-size: 10px;
+    color: #777;
+    margin: 10px 0 0;
 }
 .studio-handoff {
     margin-bottom: 16px;

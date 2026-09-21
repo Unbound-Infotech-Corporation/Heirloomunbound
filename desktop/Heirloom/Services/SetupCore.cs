@@ -346,11 +346,11 @@ public static class SetupCopy
     {
         if (mind)
         {
-            var voice = "Your Twin will speak with this computer's voice. A copied voice is optional later, under Settings.";
+            var voice = "Next, clone your voice and take three photos of you so the Twin can look and sound like you. A reminder stays in the corner until those are done.";
             var next = "Hold to talk, or record a memory. The Twin only remembers what you file.";
             if (!picture)
             {
-                return next + " A talking picture can wait. " + voice;
+                return next + " A talking picture can wait if the photos are not ready. " + voice;
             }
 
             return next + " " + voice;

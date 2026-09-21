@@ -24,7 +24,8 @@ public sealed partial class MainPage : Page
                 or nameof(StudioShellViewModel.ShowFirstRun)
                 or nameof(StudioShellViewModel.CommandPaletteOpen)
                 or nameof(StudioShellViewModel.ActiveDocumentId)
-                or nameof(StudioShellViewModel.ShowCoach))
+                or nameof(StudioShellViewModel.ShowCoach)
+                or nameof(StudioShellViewModel.ShowSetupReminder))
             {
                 SyncChrome();
             }
@@ -81,6 +82,7 @@ public sealed partial class MainPage : Page
         FirstRun.Visibility = ViewModel.ShowFirstRun ? Visibility.Visible : Visibility.Collapsed;
         Palette.Visibility = ViewModel.CommandPaletteOpen ? Visibility.Visible : Visibility.Collapsed;
         Coach.Visibility = ViewModel.ShowCoach && ViewModel.Coach.IsOpen ? Visibility.Visible : Visibility.Collapsed;
+        SetupReminder.Visibility = ViewModel.ShowSetupReminder ? Visibility.Visible : Visibility.Collapsed;
         foreach (var window in Documents())
         {
             if (window.DocumentId == ViewModel.ActiveDocumentId && window.Visibility == Visibility.Visible)
@@ -260,6 +262,14 @@ public sealed partial class MainPage : Page
 
     private void OnInspectorHide(object sender, EventArgs e) =>
         ViewModel.Settings.SetInspectorOpen(false);
+
+    private void OnSetupReminderStep(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && button.Tag is string id)
+        {
+            ViewModel.SetupReminder.OpenStep(id);
+        }
+    }
 
     private void OnInspectorTopic(object sender, string id)
     {

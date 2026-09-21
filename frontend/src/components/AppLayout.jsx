@@ -32,6 +32,7 @@ import QuickCapture from "./QuickCapture";
 import SiteFooter from "./SiteFooter";
 import StudioWindow, { StudioMenuBar } from "./StudioWindow";
 import { getAppMenubarItems, getWindowMenus } from "./studio";
+import SetupCoach from "./studio/SetupCoach";
 import TourOverlay from "./TourOverlay";
 import { useAuth } from "../lib/auth";
 
@@ -180,6 +181,7 @@ export default function AppLayout() {
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
+  const [coachReopen, setCoachReopen] = useState(0);
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -204,7 +206,12 @@ export default function AppLayout() {
 
   const title = WINDOW_TITLES[location.pathname] || "Heirloom";
   const menuCtx = useMemo(
-    () => ({ navigate, logout, setCaptureOpen }),
+    () => ({
+      navigate,
+      logout,
+      setCaptureOpen,
+      reopenSetupCoach: () => setCoachReopen((n) => n + 1),
+    }),
     [navigate, logout]
   );
   const menus = useMemo(
@@ -319,6 +326,7 @@ export default function AppLayout() {
       )}
 
       <TourOverlay />
+      {location.pathname !== "/setup" ? <SetupCoach reopenSignal={coachReopen} /> : null}
     </div>
   );
 }

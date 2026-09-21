@@ -140,3 +140,8 @@ def test_auth_skips_owner_session_on_heir_portal():
     app = (ROOT / "frontend" / "src" / "App.js").read_text(encoding="utf-8")
     assert 'path="/heir/:token"' in app
     assert "AuthProvider" in app
+    portal = (ROOT / "backend" / "routers" / "heir_portal.py").read_text(encoding="utf-8")
+    assert "first-run/progress" not in portal
+    layout = (ROOT / "frontend" / "src" / "components" / "AppLayout.jsx").read_text(encoding="utf-8")
+    assert "SetupCoach" in layout
+    assert "HeirPortal" in app
