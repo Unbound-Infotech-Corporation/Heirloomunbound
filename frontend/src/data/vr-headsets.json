@@ -1,0 +1,665 @@
+{
+  "updated": "2026-09-21",
+  "architecture": {
+    "primary": "openxr",
+    "fallback": "webxr",
+    "bridge": "steamvr_openxr",
+    "note": "Heirloom Room on PC prefers OpenXR (Meta, SteamVR, Pico Streaming XR, or Sony via SteamVR). The browser viewer uses WebXR, which on a Windows PC is usually backed by the active OpenXR runtime. Quest browser and Cardboard skip the PC runtime and sit in WebXR directly."
+  },
+  "legal": {
+    "no_cracks": true,
+    "no_bundled_installers": true,
+    "virtual_desktop": "paid_optional",
+    "copy": "Heirloom never ships Meta, Sony, Pico, or Steam installers, and never links to cracked Virtual Desktop. Downloads below are official vendor or open-source releases only. Virtual Desktop is optional paid polish — skip it unless you already own it."
+  },
+  "tiers": {
+    "A": {
+      "label": "First-class",
+      "blurb": "Official free PC path. OpenXR or WebXR works with vendor software."
+    },
+    "B": {
+      "label": "Official but fiddly",
+      "blurb": "Vendor software is free; hardware or an experimental runtime may be required."
+    },
+    "C": {
+      "label": "Guided workaround",
+      "blurb": "Community or browser paths. Expect extra steps and lower fidelity."
+    }
+  },
+  "software": {
+    "meta_horizon_link": {
+      "name": "Meta Horizon Link",
+      "free": true,
+      "kind": "official",
+      "url": "https://www.oculus.com/download_app/?id=1582076955407037",
+      "help_url": "https://www.meta.com/help/quest/509273027107091/",
+      "requirements_url": "https://www.meta.com/help/quest/articles/headsets-and-accessories/oculus-link/requirements-quest-link/",
+      "setup_url": "https://www.meta.com/quest/setup/",
+      "notes": "Windows only. One installer covers USB Link and wireless Air Link."
+    },
+    "steam": {
+      "name": "Steam",
+      "free": true,
+      "kind": "official",
+      "url": "https://store.steampowered.com/about/",
+      "notes": "Needed for SteamVR, the PSVR2 App, and most OpenXR PC titles."
+    },
+    "steamvr": {
+      "name": "SteamVR",
+      "free": true,
+      "kind": "official",
+      "url": "https://store.steampowered.com/app/250820/SteamVR/",
+      "notes": "Set SteamVR as the OpenXR runtime: SteamVR → Settings → OpenXR."
+    },
+    "alvr": {
+      "name": "ALVR",
+      "free": true,
+      "kind": "open_source",
+      "url": "https://github.com/alvr-org/ALVR/releases",
+      "help_url": "https://github.com/alvr-org/ALVR/wiki/Installation-guide",
+      "repo_url": "https://github.com/alvr-org/ALVR",
+      "quest_store_url": "https://www.meta.com/experiences/alvr/7674846229245715/",
+      "notes": "Free wireless SteamVR streamer. PC host is Windows or Linux — not macOS. Match streamer and headset app versions."
+    },
+    "sidequest": {
+      "name": "SideQuest",
+      "free": true,
+      "kind": "community",
+      "url": "https://sidequestvr.com/",
+      "help_url": "https://sidequestvr.com/setup-howto",
+      "notes": "Sideload ALVR on Pico and on Quest 1 (Quest 2/3/Pro can use the Meta store app)."
+    },
+    "pico_connect": {
+      "name": "PICO Connect",
+      "free": true,
+      "kind": "official",
+      "url": "https://www.picoxr.com/software/pico-link",
+      "headset_store_url": "https://store-global.picoxr.com/global/detail/1/7257472870996230207",
+      "notes": "Free streaming for Pico OS 5.11.2+. Experimental OpenXR: run add_runtime.bat as Administrator inside the PICO Connect folder, then confirm PicoStreamingXR is the active runtime."
+    },
+    "psvr2_app": {
+      "name": "PlayStation VR2 App",
+      "free": true,
+      "kind": "official",
+      "url": "https://store.steampowered.com/app/2580190/PlayStationVR2_App/",
+      "help_url": "https://www.playstation.com/en-us/support/hardware/pc-ps-vr2-set-up/",
+      "prepare_url": "https://www.playstation.com/en-us/support/hardware/pc-prepare-ps-vr2/",
+      "troubleshoot_url": "https://www.playstation.com/en-us/support/hardware/pc-ps-vr2-troubleshoot/",
+      "notes": "Free on Steam. Does not replace the paid Sony PC adapter. Not ALVR."
+    },
+    "openxr": {
+      "name": "OpenXR",
+      "free": true,
+      "kind": "standard",
+      "url": "https://www.khronos.org/openxr/",
+      "notes": "The PC API Heirloom prefers. Only one active runtime at a time (Meta, SteamVR, PicoStreamingXR, or Monado)."
+    },
+    "webxr": {
+      "name": "WebXR",
+      "free": true,
+      "kind": "standard",
+      "url": "https://immersiveweb.dev/",
+      "notes": "Browser path. Works in Quest Browser and on a PC when an OpenXR runtime is installed. Needs HTTPS or localhost."
+    },
+    "oasis": {
+      "name": "Oasis Driver for Windows Mixed Reality",
+      "free": true,
+      "kind": "community",
+      "url": "https://store.steampowered.com/app/3824490/Oasis_Driver_for_Windows_Mixed_Reality/",
+      "help_url": "https://github.com/mbucchia/Oasis-Driver-for-Windows-Mixed-Reality/wiki",
+      "notes": "Community SteamVR driver for Reverb / Odyssey / Explorer after Microsoft removed WMR in Windows 11 24H2. Fragile. NVIDIA or AMD RDNA; no Intel GPU."
+    },
+    "phonevr": {
+      "name": "PhoneVR",
+      "free": true,
+      "kind": "open_source",
+      "url": "https://github.com/PhoneVR-Developers/PhoneVR",
+      "notes": "Smartphone ALVR client. Experimental."
+    },
+    "monado": {
+      "name": "Monado",
+      "free": true,
+      "kind": "open_source",
+      "url": "https://monado.freedesktop.org/",
+      "notes": "Linux OpenXR runtime. Pair with ALVR's experimental Android/Monado client."
+    },
+    "virtual_desktop": {
+      "name": "Virtual Desktop",
+      "free": false,
+      "kind": "paid_optional",
+      "url": "https://www.vrdesktop.net/",
+      "steam_url": "https://store.steampowered.com/app/382110/Virtual_Desktop/",
+      "notes": "Paid wireless polish with its own OpenXR runtime (VDXR). Optional. Never required. Do not use cracked copies."
+    }
+  },
+  "pc_requirements": {
+    "baseline": [
+      "Windows 10 22H2 or later for most PCVR. SteamVR also runs on Linux; Meta Link does not.",
+      "Dedicated GPU: NVIDIA GTX 1060 6GB / AMD RX 480 class or better for wireless streaming.",
+      "USB 3.0+ Type-A or USB-C 3.2 (5 Gb/s) for wired Quest Link. Avoid unpowered hubs.",
+      "For wireless: wire the PC to the router. Put the headset on 5 GHz or 6 GHz, same LAN, not a guest SSID.",
+      "8 GB RAM minimum; 16 GB is the comfortable floor."
+    ],
+    "psvr2": [
+      "Sony PlayStation VR2 PC adapter (paid hardware, CFI-ZVP1) — required. Software is free.",
+      "DisplayPort 1.4 straight into the GPU. No USB-C DisplayPort, no HDMI converters, no DP hubs.",
+      "USB 3.0 Type-A directly on the PC (not a hub or extension).",
+      "Bluetooth for Sense controllers. Buy a compatible USB Bluetooth adapter if the board has none.",
+      "See Sony's PC spec page before you buy the adapter."
+    ]
+  },
+  "wifi_tips": [
+    "Same subnet as the PC. Guest / AP isolation / client isolation will fail discovery.",
+    "Prefer 5 GHz or Wi-Fi 6/6E. 2.4 GHz is a last resort.",
+    "Sit near the router. Walls and microwave ovens wreck Air Link and ALVR.",
+    "Ethernet the PC. Do not stream PC-to-headset over the same wireless hop twice.",
+    "Disable Wi-Fi power saving on the adapter. Pause VPN while streaming.",
+    "If Air Link stutters, drop to a wired Link cable or try ALVR with HEVC on a wired PC."
+  ],
+  "openxr_notes": [
+    "Only one OpenXR runtime can be active. Switching vendors without resetting this is the usual 'headset not found' cause.",
+    "Windows stores the active runtime at %LOCALAPPDATA%\\openxr\\1\\active_runtime.json. Linux uses /etc/xdg/openxr/1/ or $XDG_CONFIG_HOME/openxr/1/, overridable with OPENXR_RUNTIME_JSON.",
+    "SteamVR: Settings → OpenXR → Set SteamVR as OpenXR Runtime.",
+    "Meta: install Horizon Link, then let it register the Meta OpenXR runtime (or pick it in the Link app).",
+    "Pico: PICO Connect folder → add_runtime.bat as Administrator → PicoStreamingXR. To undo, set SteamVR as OpenXR runtime again.",
+    "Restart the browser after changing the runtime. Chrome/Edge WebXR reads it at launch.",
+    "Native WinUI Room viewer (OpenXR directly) is still deferred. Until then, Sit uses WebXR on top of that runtime."
+  ],
+  "fix_openxr": [
+    {
+      "id": "https",
+      "label": "Use HTTPS or localhost",
+      "detail": "WebXR only starts in a secure context. Open the studio on https:// or http://localhost, not a LAN HTTP IP."
+    },
+    {
+      "id": "webxr_api",
+      "label": "Browser exposes WebXR",
+      "detail": "Chrome, Edge, or Quest Browser. Firefox needs the WebXR flag and is a poor PC VR host."
+    },
+    {
+      "id": "immersive_vr",
+      "label": "immersive-vr is supported",
+      "detail": "Headset awake, steamvr/link/pico/psvr2 app running. If this is false on a PC, the OpenXR runtime is missing or not active."
+    },
+    {
+      "id": "runtime_json",
+      "label": "Active OpenXR runtime file",
+      "detail": "Confirm active_runtime.json points at SteamVR, Meta, PicoStreamingXR, or Monado — not a stale WMR package."
+    },
+    {
+      "id": "one_runtime",
+      "label": "One runtime at a time",
+      "detail": "If you ran Pico add_runtime.bat and also use SteamVR, pick one. SteamVR → OpenXR is the safe reset."
+    },
+    {
+      "id": "restart",
+      "label": "Restart the browser after switching",
+      "detail": "WebXR caches the runtime. Fully quit Chrome/Edge, then put the headset on again."
+    }
+  ],
+  "headsets": [
+    {
+      "id": "quest",
+      "name": "Meta Quest 2 / 3 / 3S / Pro",
+      "short": "Quest",
+      "tier": "A",
+      "family": "standalone_pcvr",
+      "ua": ["quest", "oculus", "horizon"],
+      "recommended_path": "meta_link",
+      "simple_path": "webxr",
+      "paths": ["meta_link", "air_link", "webxr", "alvr", "steamvr", "virtual_desktop"],
+      "pain": "Air Link needs a clean 5 GHz/6 GHz LAN. Cheap USB-C cables fail Link. Developer Mode is only needed for SideQuest, not for Link.",
+      "pc_ok": true,
+      "art": "quest"
+    },
+    {
+      "id": "index",
+      "name": "Valve Index",
+      "short": "Index",
+      "tier": "A",
+      "family": "steamvr",
+      "ua": ["index"],
+      "recommended_path": "steamvr",
+      "simple_path": "openxr",
+      "paths": ["steamvr", "openxr", "webxr"],
+      "pain": "Needs SteamVR, DisplayPort, and lighthouses powered. Set SteamVR as the OpenXR runtime.",
+      "pc_ok": true,
+      "art": "index"
+    },
+    {
+      "id": "vive",
+      "name": "HTC Vive / Vive Pro (Index-class SteamVR)",
+      "short": "Vive",
+      "tier": "A",
+      "family": "steamvr",
+      "ua": ["vive"],
+      "recommended_path": "steamvr",
+      "simple_path": "openxr",
+      "paths": ["steamvr", "openxr", "webxr"],
+      "pain": "Same SteamVR + OpenXR path as Index. USB + DisplayPort + base stations.",
+      "pc_ok": true,
+      "art": "index"
+    },
+    {
+      "id": "wmr",
+      "name": "Windows Mixed Reality (Reverb, Odyssey, Explorer)",
+      "short": "WMR",
+      "tier": "A",
+      "family": "wmr",
+      "ua": ["mixed reality", "reverb"],
+      "recommended_path": "oasis",
+      "simple_path": "steamvr",
+      "paths": ["oasis", "steamvr", "openxr", "webxr"],
+      "pain": "Microsoft removed Mixed Reality Portal in Windows 11 24H2. Official WMR-for-SteamVR is deprecated and fragile. Community Oasis driver is the current path — NVIDIA/AMD only.",
+      "deprecated": true,
+      "pc_ok": true,
+      "art": "wmr"
+    },
+    {
+      "id": "pico",
+      "name": "Pico Neo 3 / 4 / 4 Ultra",
+      "short": "Pico",
+      "tier": "B",
+      "family": "standalone_pcvr",
+      "ua": ["pico"],
+      "recommended_path": "pico_connect",
+      "simple_path": "alvr",
+      "paths": ["pico_connect", "pico_openxr", "alvr", "webxr", "virtual_desktop"],
+      "pain": "PICO Connect is free but fiddly. Experimental OpenXR needs add_runtime.bat as Administrator. ALVR on Pico is a SideQuest sideload.",
+      "pc_ok": true,
+      "art": "pico"
+    },
+    {
+      "id": "psvr2",
+      "name": "PlayStation VR2 (PC adapter)",
+      "short": "PSVR2",
+      "tier": "B",
+      "family": "console_pcvr",
+      "ua": ["psvr"],
+      "recommended_path": "psvr2_adapter",
+      "simple_path": "psvr2_adapter",
+      "paths": ["psvr2_adapter", "steamvr", "openxr", "webxr"],
+      "pain": "Not ALVR. Requires Sony's paid PC adapter plus a DisplayPort 1.4 GPU output and Bluetooth for Sense. Software (SteamVR + PSVR2 App) is free.",
+      "pc_ok": true,
+      "art": "psvr2"
+    },
+    {
+      "id": "alvr_other",
+      "name": "ALVR others (Vive Focus, YVR, PhoneVR, Android/Monado)",
+      "short": "ALVR others",
+      "tier": "C",
+      "family": "workaround",
+      "ua": ["yvr", "focus"],
+      "recommended_path": "alvr",
+      "simple_path": "alvr",
+      "paths": ["alvr", "steamvr", "webxr"],
+      "pain": "Free, but you install the matching ALVR client (SideQuest or vendor store) and keep SteamVR running on the PC. Android/Monado is experimental.",
+      "pc_ok": true,
+      "art": "alvr"
+    },
+    {
+      "id": "vision_pro",
+      "name": "Apple Vision Pro",
+      "short": "Vision Pro",
+      "tier": "C",
+      "family": "workaround",
+      "ua": ["xros", "visionos", "macintosh"],
+      "recommended_path": "alvr",
+      "simple_path": "webxr",
+      "paths": ["alvr", "webxr"],
+      "pain": "ALVR has an App Store client. The PC streamer is Windows or Linux — macOS host is unsupported. Use a Windows PC on the same LAN. Safari WebXR is limited.",
+      "pc_ok": false,
+      "host_note": "macOS cannot host ALVR. Pair Vision Pro with a Windows (or Linux) PC.",
+      "art": "vision"
+    },
+    {
+      "id": "cardboard",
+      "name": "Smartphone Cardboard / browser WebXR",
+      "short": "Phone / Cardboard",
+      "tier": "C",
+      "family": "browser",
+      "ua": ["mobile"],
+      "recommended_path": "webxr",
+      "simple_path": "webxr",
+      "paths": ["webxr"],
+      "pain": "Lowest-fidelity room sit. Open this studio in the phone browser, tap Enter in VR, drop the phone in a Cardboard viewer. No SteamVR, no OpenXR runtime.",
+      "pc_ok": false,
+      "art": "cardboard"
+    }
+  ],
+  "paths": {
+    "meta_link": {
+      "label": "Meta Quest Link (USB)",
+      "free": true,
+      "optional_paid": false,
+      "runtime": "openxr",
+      "software": ["meta_horizon_link", "openxr"],
+      "pc": true,
+      "blurb": "Official wired path. USB-C 3.2 cable into the PC, Horizon Link running, OpenXR via the Meta runtime."
+    },
+    "air_link": {
+      "label": "Air Link (Wi-Fi)",
+      "free": true,
+      "optional_paid": false,
+      "runtime": "openxr",
+      "software": ["meta_horizon_link", "openxr"],
+      "pc": true,
+      "blurb": "Official wireless path. Same Horizon Link app. 5 GHz or 6 GHz, PC on Ethernet."
+    },
+    "webxr": {
+      "label": "WebXR in the browser",
+      "free": true,
+      "optional_paid": false,
+      "runtime": "webxr",
+      "software": ["webxr"],
+      "pc": false,
+      "blurb": "Simplest path. Quest Browser, or Chrome/Edge on a PC that already has an OpenXR runtime. Heirloom Sit uses this today."
+    },
+    "openxr": {
+      "label": "Native OpenXR runtime",
+      "free": true,
+      "optional_paid": false,
+      "runtime": "openxr",
+      "software": ["openxr", "steamvr"],
+      "pc": true,
+      "blurb": "Preferred PC API. SteamVR, Meta Link, PicoStreamingXR, or Monado registers as the active runtime. WebXR on Chrome/Edge rides on top of it."
+    },
+    "steamvr": {
+      "label": "SteamVR (+ OpenXR bridge)",
+      "free": true,
+      "optional_paid": false,
+      "runtime": "openxr",
+      "software": ["steam", "steamvr", "openxr"],
+      "pc": true,
+      "blurb": "Index, Vive, and anything ALVR/Pico/PSVR2 already presents to SteamVR. Turn on the OpenXR bridge in SteamVR settings."
+    },
+    "alvr": {
+      "label": "ALVR (free wireless)",
+      "free": true,
+      "optional_paid": false,
+      "runtime": "steamvr",
+      "software": ["steamvr", "alvr", "sidequest"],
+      "pc": true,
+      "blurb": "Open-source SteamVR streamer. Quest store app, or SideQuest APK for Pico / Quest 1. Windows or Linux host — not Mac."
+    },
+    "pico_connect": {
+      "label": "PICO Connect",
+      "free": true,
+      "optional_paid": false,
+      "runtime": "steamvr",
+      "software": ["pico_connect", "steamvr"],
+      "pc": true,
+      "blurb": "Official free Pico streaming. Install the Windows (or Mac desktop-view) app and the headset Connect title."
+    },
+    "pico_openxr": {
+      "label": "Pico experimental OpenXR (add_runtime.bat)",
+      "free": true,
+      "optional_paid": false,
+      "runtime": "openxr",
+      "software": ["pico_connect", "openxr"],
+      "pc": true,
+      "blurb": "Inside the PICO Connect install, run add_runtime.bat as Administrator so PicoStreamingXR is the active OpenXR runtime. Experimental. Reset via SteamVR → OpenXR if it breaks other headsets."
+    },
+    "psvr2_adapter": {
+      "label": "PSVR2 PC adapter + Steam app",
+      "free": false,
+      "hardware_paid": true,
+      "optional_paid": false,
+      "runtime": "openxr",
+      "software": ["steam", "steamvr", "psvr2_app", "openxr"],
+      "pc": true,
+      "blurb": "Paid Sony adapter + free PlayStation VR2 App on Steam + SteamVR. DisplayPort 1.4 and Bluetooth. Not ALVR."
+    },
+    "oasis": {
+      "label": "Oasis (community WMR → SteamVR)",
+      "free": true,
+      "optional_paid": false,
+      "runtime": "steamvr",
+      "software": ["steamvr", "oasis", "openxr"],
+      "pc": true,
+      "blurb": "Community SteamVR driver after Microsoft removed WMR. Official WMR-for-SteamVR is deprecated. Treat as fragile."
+    },
+    "virtual_desktop": {
+      "label": "Virtual Desktop (paid, optional)",
+      "free": false,
+      "optional_paid": true,
+      "runtime": "openxr",
+      "software": ["virtual_desktop"],
+      "pc": true,
+      "blurb": "Optional polish. Buy it from the official store if you want VDXR. Heirloom never requires it and will not link to cracks."
+    }
+  },
+  "checklists": {
+    "meta_link": [
+      {
+        "title": "Install Horizon Link on the PC",
+        "body": "Download the official Meta Horizon Link app for Windows. No other 'Oculus cracked' installer.",
+        "software": "meta_horizon_link",
+        "art": "download"
+      },
+      {
+        "title": "Use a real USB 3 cable",
+        "body": "USB-C 3.2, 5 Gb/s or faster. Charge-only cables fail silently. Plug into the PC, not a monitor hub.",
+        "art": "cable"
+      },
+      {
+        "title": "Put the headset on Link",
+        "body": "Headset Settings → System → Quest Link → enable, then Launch Quest Link. Confirm the PC name.",
+        "art": "quest"
+      },
+      {
+        "title": "OpenXR runtime",
+        "body": "Let Link register the Meta OpenXR runtime, or set SteamVR as OpenXR if you prefer that bridge.",
+        "software": "openxr",
+        "art": "openxr"
+      },
+      {
+        "title": "Sit in the room",
+        "body": "In Chrome/Edge on the PC, open Heirloom → Rooms → Sit → Enter in VR. Or open this page in Quest Browser for the simple WebXR path.",
+        "art": "sit"
+      }
+    ],
+    "air_link": [
+      {
+        "title": "Same Horizon Link app",
+        "body": "Air Link is built into Meta Horizon Link. Do not buy a third-party 'air link' APK.",
+        "software": "meta_horizon_link",
+        "art": "download"
+      },
+      {
+        "title": "Wire the PC, 5 GHz for the headset",
+        "body": "Ethernet the PC to the router. Headset on 5 GHz or 6 GHz, same LAN, not guest Wi-Fi.",
+        "art": "wifi"
+      },
+      {
+        "title": "Pair Air Link",
+        "body": "In the headset: Quest Link → Air Link → select the PC. Allow the prompt on the PC.",
+        "art": "quest"
+      },
+      {
+        "title": "Enter in VR",
+        "body": "Once Air Link shows the PC dashboard, open Heirloom Sit in the browser on the PC and press Enter in VR.",
+        "art": "sit"
+      }
+    ],
+    "webxr": [
+      {
+        "title": "Open a supported browser",
+        "body": "Quest Browser on the headset, or Chrome/Edge on a PC that already has SteamVR/Link/Pico/PSVR2 running.",
+        "software": "webxr",
+        "art": "webxr"
+      },
+      {
+        "title": "Stay on HTTPS",
+        "body": "WebXR refuses plain HTTP on a LAN IP. Use https:// or http://localhost.",
+        "art": "lock"
+      },
+      {
+        "title": "Tap Enter in VR",
+        "body": "Allow the immersive session. Seated tracking is enough for a Heirloom Room sit.",
+        "art": "sit"
+      }
+    ],
+    "steamvr": [
+      {
+        "title": "Install Steam and SteamVR",
+        "body": "Both are free. SteamVR is the host for Index, Vive, ALVR, Pico Connect, and PSVR2.",
+        "software": "steamvr",
+        "art": "download"
+      },
+      {
+        "title": "Set the OpenXR runtime",
+        "body": "SteamVR → Settings → OpenXR → Set SteamVR as OpenXR Runtime. Restart the browser.",
+        "software": "openxr",
+        "art": "openxr"
+      },
+      {
+        "title": "Headset ready in SteamVR",
+        "body": "Status should be standing / seated, not 'headset not detected'. Then Enter in VR from Sit.",
+        "art": "sit"
+      }
+    ],
+    "openxr": [
+      {
+        "title": "Pick one runtime",
+        "body": "Meta Link, SteamVR, PicoStreamingXR, or Monado — not several at once.",
+        "software": "openxr",
+        "art": "openxr"
+      },
+      {
+        "title": "Confirm active_runtime.json",
+        "body": "Windows: %LOCALAPPDATA%\\openxr\\1\\active_runtime.json. Use the in-app Fix OpenXR check.",
+        "art": "check"
+      },
+      {
+        "title": "Browser on top",
+        "body": "Chrome/Edge WebXR uses that runtime. Restart the browser after switching.",
+        "software": "webxr",
+        "art": "webxr"
+      }
+    ],
+    "alvr": [
+      {
+        "title": "SteamVR on the PC",
+        "body": "ALVR is a SteamVR plugin. Install SteamVR first (Windows or Linux, not macOS).",
+        "software": "steamvr",
+        "art": "download"
+      },
+      {
+        "title": "ALVR streamer from GitHub",
+        "body": "Download the official ALVR release (Launcher). Never a random 'ALVR full cracked' zip.",
+        "software": "alvr",
+        "art": "download"
+      },
+      {
+        "title": "Headset client",
+        "body": "Quest 2/3/Pro: Meta store ALVR app. Pico / Quest 1 / Focus / YVR: SideQuest sideload of the matching APK. Match versions.",
+        "software": "sidequest",
+        "art": "alvr"
+      },
+      {
+        "title": "Same Wi-Fi, then trust",
+        "body": "PC on Ethernet. Headset on 5 GHz. Accept the client in the ALVR streamer, then Enter in VR from Heirloom Sit.",
+        "art": "wifi"
+      }
+    ],
+    "pico_connect": [
+      {
+        "title": "PICO Connect on the PC",
+        "body": "Official download from picoxr.com — Windows 10 22H2+. Headset OS 5.11.2+.",
+        "software": "pico_connect",
+        "art": "download"
+      },
+      {
+        "title": "Connect app on the headset",
+        "body": "Install PICO Connect from the Pico store. Pair over Wi-Fi or USB 3.",
+        "art": "pico"
+      },
+      {
+        "title": "SteamVR if you need OpenXR via Steam",
+        "body": "PICO Connect can present the headset to SteamVR. Then set SteamVR as the OpenXR runtime.",
+        "software": "steamvr",
+        "art": "openxr"
+      }
+    ],
+    "pico_openxr": [
+      {
+        "title": "Install PICO Connect first",
+        "body": "The experimental runtime lives inside that install.",
+        "software": "pico_connect",
+        "art": "download"
+      },
+      {
+        "title": "Run add_runtime.bat as Administrator",
+        "body": "Search under C:\\Program Files\\PICO Connect\\ for add_runtime.bat. This registers PicoStreamingXR.",
+        "art": "openxr"
+      },
+      {
+        "title": "Know how to undo it",
+        "body": "If Index/Quest/SteamVR break, SteamVR → Settings → OpenXR → Set SteamVR as OpenXR Runtime.",
+        "software": "steamvr",
+        "art": "check"
+      }
+    ],
+    "psvr2_adapter": [
+      {
+        "title": "You need the Sony PC adapter",
+        "body": "CFI-ZVP1, paid hardware. There is no ALVR path for PSVR2. Software is free; the adapter is not.",
+        "art": "psvr2"
+      },
+      {
+        "title": "Free apps on Steam",
+        "body": "Install Steam, then SteamVR, then the PlayStation VR2 App. Keep the PSVR2 App installed after setup — firmware lives there.",
+        "software": "psvr2_app",
+        "art": "download"
+      },
+      {
+        "title": "Cables: DP 1.4 + USB 3 + power",
+        "body": "Adapter USB-A 3.0 into the PC (no hub). DisplayPort 1.4 into the GPU (no USB-C DP, no HDMI dongle). Power the adapter, then the headset.",
+        "art": "cable"
+      },
+      {
+        "title": "Bluetooth for Sense",
+        "body": "Pair Sense controllers over Bluetooth. If the PC has no radio, Sony lists compatible USB adapters. Built-in Intel BT is often fine; cheap dongles are not.",
+        "art": "bt"
+      },
+      {
+        "title": "Finish in the PSVR2 App",
+        "body": "Open the Steam app, complete play area and firmware. SteamVR should see the headset. Then Heirloom Sit → Enter in VR.",
+        "art": "sit"
+      }
+    ],
+    "oasis": [
+      {
+        "title": "Know that official WMR is gone",
+        "body": "Windows 11 24H2 removed Mixed Reality Portal and WMR for SteamVR. Do not hunt for old Microsoft Store packages.",
+        "art": "wmr"
+      },
+      {
+        "title": "Oasis community driver (free on Steam)",
+        "body": "Install SteamVR, then Oasis Driver for Windows Mixed Reality. NVIDIA or AMD RDNA. No Intel GPU. Read the wiki first.",
+        "software": "oasis",
+        "art": "download"
+      },
+      {
+        "title": "OpenXR via SteamVR",
+        "body": "Set SteamVR as the OpenXR runtime. Expect this path to stay fragile.",
+        "software": "steamvr",
+        "art": "openxr"
+      }
+    ],
+    "virtual_desktop": [
+      {
+        "title": "Buy it if you want polish",
+        "body": "Official site or Steam. Optional. Heirloom works without it.",
+        "software": "virtual_desktop",
+        "art": "download"
+      },
+      {
+        "title": "Never a crack",
+        "body": "Cracked Virtual Desktop is malware territory and a ToS violation. Skip this path if you do not own it — use Link, Air Link, ALVR, or Pico Connect instead.",
+        "art": "lock"
+      }
+    ]
+  }
+}

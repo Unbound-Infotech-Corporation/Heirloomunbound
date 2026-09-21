@@ -12,4 +12,5 @@ export { SetupExampleRow, SetupExampleArt } from "./SetupIllustrations";
 export { default as AssistantPicker } from "./AssistantPicker";
 export { default as AssistantsPanel } from "./AssistantsPanel";
 export { default as RoomViewer3D } from "./RoomViewer3D";
+export { default as VrEnterButton } from "./VrEnterButton";
 export { getWindowMenus, getAppMenubarItems } from "./menuDefinitions";

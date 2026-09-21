@@ -5,11 +5,15 @@ import {
   roomStatusLabel,
   twinSitHref,
 } from "./rooms";
+import { isVrSetupRoute, VR_SETUP_PATH } from "./vrCompat";
 
 describe("Heirloom Room helpers", () => {
   test("owner-only path is /rooms", () => {
     expect(isOwnerRoomsRoute("/rooms")).toBe(true);
     expect(isOwnerRoomsRoute("/rooms/rm_abc/sit")).toBe(true);
+    expect(isOwnerRoomsRoute("/rooms/vr")).toBe(true);
+    expect(isVrSetupRoute(VR_SETUP_PATH)).toBe(true);
+    expect(isOwnerRoomsRoute("/support/vr")).toBe(false);
     expect(isOwnerRoomsRoute("/heir/abc")).toBe(false);
     expect(isOwnerRoomsRoute("/twin")).toBe(false);
   });

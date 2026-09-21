@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowRight, Box, Loader2, Upload } from "lucide-react";
+import { ArrowRight, Box, Headset, Loader2, Upload } from "lucide-react";
 import { api } from "../lib/api";
 import { CAPTURE_HINTS, canEnterRoom, roomStatusLabel } from "../lib/rooms";
+import { VR_MATRIX_PATH, VR_SETUP_PATH } from "../lib/vrCompat";
 
 export default function Rooms() {
   const [rooms, setRooms] = useState([]);
@@ -47,7 +48,16 @@ export default function Rooms() {
         </h1>
         <p className="mt-3 text-base max-w-xl" style={{ color: "var(--text-secondary)" }}>
           Film a real room. Phase 1 builds a stand-in scene you can enter in the browser
-          and talk with your twin inside it. Headset-ready reconstruction is Phase 2.
+          and talk with your twin inside it. Headset sit uses OpenXR on the PC (via WebXR)
+          or the Quest browser.
+        </p>
+        <p className="mt-4 flex flex-wrap gap-4 text-sm">
+          <Link to={VR_SETUP_PATH} data-testid="rooms-vr-setup" className="inline-flex items-center gap-1.5" style={{ color: "var(--accent)" }}>
+            <Headset className="h-4 w-4" /> VR setup coach
+          </Link>
+          <Link to={VR_MATRIX_PATH} data-testid="rooms-vr-matrix" style={{ color: "var(--accent)" }}>
+            Headset matrix
+          </Link>
         </p>
       </header>
 
@@ -139,7 +149,6 @@ export function RoomEditor({ roomId }) {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
-  const [xrNote, setXrNote] = useState("");
   const fileRef = useRef(null);
   const navigate = useNavigate();
 
@@ -283,30 +292,14 @@ export function RoomEditor({ roomId }) {
           </button>
           <button
             type="button"
-            onClick={async () => {
-              if (!navigator.xr) {
-                setXrNote("WebXR is not available here. On a Quest, open this page in the headset browser after Phase 2 packaging.");
-                return;
-              }
-              const supported = await navigator.xr.isSessionSupported("immersive-vr").catch(() => false);
-              setXrNote(
-                supported
-                  ? "A VR session can start from Sit. Phase 2 will package a Quest build around this glTF."
-                  : "No headset on this computer. Download the glTF later for Quest."
-              );
-            }}
+            onClick={() => navigate(`${VR_SETUP_PATH}`)}
             data-testid="room-xr-note-btn"
-            className="px-4 py-2 text-sm rounded-sm"
+            className="px-4 py-2 text-sm rounded-sm inline-flex items-center gap-2"
             style={{ border: "1px solid var(--border-default)" }}
           >
-            Headset notes
+            <Headset className="h-4 w-4" /> VR setup coach
           </button>
         </div>
-      ) : null}
-      {xrNote ? (
-        <p className="text-sm mt-4" style={{ color: "var(--text-muted)" }} data-testid="room-xr-note">
-          {xrNote}
-        </p>
       ) : null}
     </div>
   );

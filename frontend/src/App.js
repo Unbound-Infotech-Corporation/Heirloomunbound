@@ -16,6 +16,8 @@ import Twin from "@/pages/Twin";
 import Owner from "@/pages/Owner";
 import Rooms, { RoomDetail } from "@/pages/Rooms";
 import RoomSit from "@/pages/RoomSit";
+import VrSetup from "@/pages/VrSetup";
+import VrCompat from "@/pages/VrCompat";
 import TwinLive from "@/pages/TwinLive";
 import AvatarStudio from "@/pages/AvatarStudio";
 import SetupKeys from "@/pages/SetupKeys";
@@ -63,6 +65,8 @@ function AppRouter() {
       <Route path="/terms" element={<Terms />} />
       <Route path="/refunds" element={<Refunds />} />
       <Route path="/support" element={<Support />} />
+      <Route path="/support/vr" element={<VrSetup />} />
+      <Route path="/support/vr/matrix" element={<VrCompat />} />
       <Route path="/auth/magic/:token" element={<MagicLink />} />
       <Route path="/heir/:token" element={<HeirPortal />} />
       <Route path="/twin/live/:handle" element={<TwinLive />} />
@@ -100,6 +104,8 @@ function AppRouter() {
         <Route path="/import" element={<Import />} />
         <Route path="/owner" element={<Owner />} />
         <Route path="/twin" element={<Twin />} />
+        <Route path="/rooms/vr" element={<VrSetup />} />
+        <Route path="/rooms/vr/matrix" element={<VrCompat />} />
         <Route path="/rooms" element={<Rooms />} />
         <Route path="/rooms/:roomId" element={<RoomDetail />} />
         <Route path="/rooms/:roomId/sit" element={<RoomSit />} />
