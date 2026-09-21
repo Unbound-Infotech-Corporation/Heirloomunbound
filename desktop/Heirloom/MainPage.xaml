@@ -152,6 +152,7 @@
                     <MenuFlyoutSeparator />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="kitchensink" Text="Control kit" />
                     <MenuFlyoutItem Command="{x:Bind ViewModel.ReopenFirstRunCommand}" Text="Getting started…" />
+                    <MenuFlyoutItem Command="{x:Bind ViewModel.ReopenSetupReminderCommand}" Text="Remaining setup" />
                     <MenuFlyoutItem Command="{x:Bind ViewModel.StartCoachCommand}" Text="Optional: copied voice guide…" />
                     <MenuFlyoutItem Text="Heirloom is an Unbound Infotech product" />
                 </MenuBarItem>
@@ -2138,6 +2139,11 @@
                                     Command="{x:Bind ViewModel.ReopenFirstRunCommand}"
                                     Glyph="&#xE90F;"
                                     Label="Getting started" />
+                                <controls:StudioActionButton
+                                    AssetId="action-setup-reminder"
+                                    Command="{x:Bind ViewModel.ReopenSetupReminderCommand}"
+                                    Glyph="&#xE946;"
+                                    Label="Remaining setup" />
                             </StackPanel>
                         </StackPanel>
                     </ScrollViewer>
@@ -2465,6 +2471,63 @@
                 </ScrollViewer>
             </Border>
         </Grid>
+
+        <Border
+            x:Name="SetupReminder"
+            Grid.RowSpan="3"
+            Width="340"
+            MaxHeight="520"
+            Margin="0,56,16,0"
+            Padding="16"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Background="{StaticResource HeirloomBgElevatedBrush}"
+            BorderBrush="{StaticResource HeirloomBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="3"
+            Visibility="Collapsed">
+            <StackPanel Spacing="10">
+                <Grid>
+                    <StackPanel Spacing="2">
+                        <TextBlock Style="{StaticResource StudioOverline}" Text="Twin setup" />
+                        <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="{x:Bind ViewModel.SetupReminder.Title, Mode=OneWay}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        AutomationProperties.Name="Close setup reminder"
+                        Command="{x:Bind ViewModel.SetupReminder.DismissCommand}"
+                        Content="✕"
+                        Style="{StaticResource StudioButtonQuiet}" />
+                </Grid>
+                <TextBlock
+                    Style="{StaticResource StudioMuted}"
+                    Text="{x:Bind ViewModel.SetupReminder.Body, Mode=OneWay}"
+                    TextWrapping="Wrap"
+                    Visibility="{x:Bind ViewModel.SetupReminder.SetVis, Mode=OneWay}" />
+                <ItemsControl ItemsSource="{x:Bind ViewModel.SetupReminder.Items, Mode=OneWay}" Visibility="{x:Bind ViewModel.SetupReminder.ListVis, Mode=OneWay}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SetupReminderItem">
+                            <Border Margin="0,0,0,8" Padding="10" Background="{StaticResource HeirloomBgSurfaceBrush}" BorderBrush="{StaticResource HeirloomBorderBrush}" BorderThickness="1" CornerRadius="3">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Style="{StaticResource StudioOverline}" Text="{x:Bind ExampleLine}" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource StudioDocumentTitle}" Text="{x:Bind Label}" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind Benefit}" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource StudioCaption}" Text="{x:Bind Caption}" TextWrapping="Wrap" />
+                                    <Button
+                                        HorizontalAlignment="Left"
+                                        Click="OnSetupReminderStep"
+                                        Content="{x:Bind Cta}"
+                                        Style="{StaticResource StudioButtonPrimary}"
+                                        Tag="{x:Bind DocumentId}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Style="{StaticResource StudioCaption}" Text="Help → Remaining setup if you close this." TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
 
         <Border
             x:Name="Coach"

@@ -140,6 +140,11 @@ def test_auth_skips_owner_session_on_heir_portal():
     app = (ROOT / "frontend" / "src" / "App.js").read_text(encoding="utf-8")
     assert 'path="/heir/:token"' in app
     assert "AuthProvider" in app
+    portal = (ROOT / "backend" / "routers" / "heir_portal.py").read_text(encoding="utf-8")
+    assert "first-run/progress" not in portal
+    layout = (ROOT / "frontend" / "src" / "components" / "AppLayout.jsx").read_text(encoding="utf-8")
+    assert "SetupCoach" in layout
+    assert "HeirPortal" in app
 
 
 def test_heir_portal_excludes_rooms_and_clones():
@@ -147,9 +152,9 @@ def test_heir_portal_excludes_rooms_and_clones():
     assert "/rooms" not in portal
     assert "/clones" not in portal
     assert "/assistants" not in portal
+    assert "SetupCoach" not in portal
     app = (ROOT / "frontend" / "src" / "App.js").read_text(encoding="utf-8")
     # Owner studio routes stay inside ProtectedRoute AppLayout, not the public portal.
     assert 'path="/rooms"' in app
     assert 'path="/heir/:token"' in app
     assert app.index('path="/heir/:token"') < app.index('path="/rooms"')
-

@@ -39,6 +39,9 @@ public sealed class HeirloomApiClient
     public Task<JsonElement?> PostSessionAsync(string path, object? body, CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Post, path, body, useDevice: false, cancellationToken);
 
+    public Task<JsonElement?> PutSessionAsync(string path, object? body, CancellationToken cancellationToken = default) =>
+        SendAsync(HttpMethod.Put, path, body, useDevice: false, cancellationToken);
+
     public async Task<JsonElement?> PostMultipartAsync(
         string path,
         string fileName,

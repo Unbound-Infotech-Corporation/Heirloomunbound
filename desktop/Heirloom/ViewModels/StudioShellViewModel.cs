@@ -41,6 +41,8 @@ public partial class StudioShellViewModel : ObservableObject
                     Heirs.ApplyFirstGiftPresets();
                 }
             }
+
+            _ = SetupReminder.RefreshAsync();
         };
         Personality = new PersonalityViewModel(host);
         Abilities = new AbilitiesViewModel(host);
@@ -50,6 +52,10 @@ public partial class StudioShellViewModel : ObservableObject
         Glossary = new GlossaryViewModel();
         KitchenSink = new KitchenSinkViewModel();
         Coach = new VendorCoachViewModel(host);
+        SetupReminder = new SetupReminderViewModel(host);
+        SetupReminder.VisibilityChanged += (_, _) => SyncReminderChrome();
+        SetupReminder.OpenDocumentRequested += (_, id) => OpenDocument(id);
+        SyncReminderChrome();
         Skills = new SkillsViewModel(host);
         Library = new LibraryViewModel(host);
         Phone = new PhoneViewModel(host);
@@ -96,6 +102,7 @@ public partial class StudioShellViewModel : ObservableObject
             Twin.ApplyAudience();
             Phone.ApplyAudience();
             Personality.ReloadFacts();
+            _ = SetupReminder.RefreshAsync();
         });
         Mixer.PropertyChanged += (_, e) =>
         {
@@ -134,6 +141,7 @@ public partial class StudioShellViewModel : ObservableObject
     public GlossaryViewModel Glossary { get; }
     public KitchenSinkViewModel KitchenSink { get; }
     public VendorCoachViewModel Coach { get; }
+    public SetupReminderViewModel SetupReminder { get; }
     public SkillsViewModel Skills { get; }
     public LibraryViewModel Library { get; }
     public PhoneViewModel Phone { get; }
@@ -181,6 +189,15 @@ public partial class StudioShellViewModel : ObservableObject
     [ObservableProperty] private bool _showSplash = true;
     [ObservableProperty] private bool _showFirstRun;
     [ObservableProperty] private bool _showCoach;
+    [ObservableProperty] private bool _showSetupReminder;
+
+    partial void OnShowFirstRunChanged(bool value) => SyncReminderChrome();
+    partial void OnShowSplashChanged(bool value) => SyncReminderChrome();
+
+    private void SyncReminderChrome()
+    {
+        ShowSetupReminder = SetupReminder.IsVisible && !ShowFirstRun && !ShowSplash && !IsHeirMode;
+    }
 
     public bool IsHeirMode => string.Equals(_host.Settings.Current.AppMode, "heir", StringComparison.OrdinalIgnoreCase);
     public bool IsOpen(string id) => _open.Contains(id);
@@ -216,6 +233,7 @@ public partial class StudioShellViewModel : ObservableObject
                 break;
             case "photos":
                 Photos.Reload();
+                _ = SetupReminder.RefreshAsync();
                 break;
             case "skills":
                 Skills.Reload();
@@ -229,9 +247,11 @@ public partial class StudioShellViewModel : ObservableObject
                 break;
             case "keys":
                 Keys.Refresh();
+                _ = SetupReminder.RefreshAsync();
                 break;
             case "avatar":
                 Avatar.Reload();
+                _ = SetupReminder.RefreshAsync();
                 break;
             case "models":
             case "thismachine":
@@ -391,7 +411,11 @@ public partial class StudioShellViewModel : ObservableObject
         ShowSplash = false;
         ShowFirstRun = !_host.Settings.Current.SetupComplete && !_host.Settings.Current.SetupSkipped;
         OpenDocument("twin");
+        _ = SetupReminder.RefreshAsync();
     }
+
+    [RelayCommand]
+    public void ReopenSetupReminder() => _ = SetupReminder.ReopenAsync();
 
     [RelayCommand]
     public void StartCoach()

@@ -46,6 +46,7 @@ from studio_compute import (
 )
 from studio_coach_vision import COACH_STEPS, classify_vendor_screen, observe_result
 from studio_setup import (
+    build_twin_setup_progress,
     clamp_setup,
     provision_features,
     setup_catalog,
@@ -652,6 +653,7 @@ class FirstRunUpdate(BaseModel):
     warm_engines: Optional[bool] = None
     live_listen_default: Optional[bool] = None
     branding_dedicated: Optional[bool] = None
+    coach_dismissed: Optional[bool] = None
 
 
 def _pair_origin(request: Request) -> str:
@@ -660,6 +662,28 @@ def _pair_origin(request: Request) -> str:
         or os.environ.get("PUBLIC_BACKEND_URL")
         or str(request.base_url).rstrip("/")
     ).rstrip("/")
+
+
+async def _twin_setup_progress(user: dict) -> dict:
+    """Owner Twin setup checklist. Never called from the heir portal."""
+    setup = _user_setup(user)
+    photo_count = await db.photos.count_documents(
+        {"user_id": user["user_id"], "is_deleted": {"$ne": True}}
+    )
+    rows = await db.avatar_images.find(
+        {"user_id": user["user_id"], "is_deleted": {"$ne": True}},
+        {"_id": 0, "angle": 1},
+    ).to_list(length=60)
+    angles = {str(r.get("angle") or "") for r in rows}
+    return build_twin_setup_progress(
+        voice_id=user.get("elevenlabs_voice_id") or "",
+        voice_name=user.get("elevenlabs_voice_name") or "",
+        photo_count=int(photo_count or 0),
+        avatar_angles=angles,
+        avatar_source_url=user.get("avatar_source_url") or "",
+        coach_dismissed=bool(setup.get("coach_dismissed")),
+        coach_dismissed_at=setup.get("coach_dismissed_at"),
+    )
 
 
 @router.get("/first-run")
@@ -682,6 +706,7 @@ async def get_first_run(user: dict = Depends(get_studio_user)):
     handoffs = {
         svc["id"]: vendor_handoff(svc["id"], email) for svc in catalog["cloud_services"]
     }
+    progress = await _twin_setup_progress(user)
     return {
         "settings": setup,
         "catalog": catalog,
@@ -691,8 +716,15 @@ async def get_first_run(user: dict = Depends(get_studio_user)):
         "pcs": pcs,
         "phones": phones,
         "compute": _user_compute(user),
+        "progress": progress,
         "updated_at": user.get("studio_setup_updated_at"),
     }
+
+
+@router.get("/first-run/progress")
+async def get_first_run_progress(user: dict = Depends(get_studio_user)):
+    """Lightweight Twin setup checklist for the shell reminder panel."""
+    return await _twin_setup_progress(user)
 
 
 @router.get("/first-run/handoff/{service_id}")
@@ -738,6 +770,10 @@ async def observe_vendor_coach(payload: CoachObserve, user: dict = Depends(get_s
 async def put_first_run(payload: FirstRunUpdate, user: dict = Depends(get_studio_user)):
     current = _user_setup(user)
     patch = payload.model_dump(exclude_none=True)
+    if payload.coach_dismissed is True:
+        patch["coach_dismissed_at"] = _now_iso()
+    elif payload.coach_dismissed is False:
+        patch["coach_dismissed_at"] = None
     merged = clamp_setup({**current, **patch})
     now = _now_iso()
     sets: dict = {"studio_setup": merged, "studio_setup_updated_at": now}
@@ -746,7 +782,8 @@ async def put_first_run(payload: FirstRunUpdate, user: dict = Depends(get_studio
         sets["studio_compute_updated_at"] = now
     profile = space_profile(merged["space_profile"])
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": sets})
-    return {"settings": merged, "space_profile": profile, "updated_at": now}
+    progress = await _twin_setup_progress({**user, "studio_setup": merged})
+    return {"settings": merged, "space_profile": profile, "progress": progress, "updated_at": now}
 
 
 @router.post("/first-run/complete")
@@ -777,7 +814,12 @@ async def complete_first_run(user: dict = Depends(get_studio_user)):
             "hint": "No companion PC yet — open the desktop app so models can download locally.",
             "features": list(profile["provision_features"]),
         }
-    return {"settings": setup, "provision": provision, "space_profile": profile}
+    return {
+        "settings": setup,
+        "provision": provision,
+        "space_profile": profile,
+        "progress": await _twin_setup_progress({**user, "studio_setup": setup}),
+    }
 
 
 @router.post("/first-run/pair")

@@ -45,9 +45,9 @@ public partial class FirstRunViewModel : ObservableObject
 
     public string WelcomeBody =>
         "Heirloom Unbound will get what it needs onto this computer. Four install sizes — Small, Medium, Large, Dedicated PC — are chosen from free disk. You do not need to type any codes.\n\n"
-        + "Small works without a GPU. Dedicated is only suggested when this machine has about 180 GB free.\n\n"
+        + "Then clone your voice and take three photos of you. That is how the Twin becomes a live, talking picture of you — for sit, video, and a room later.\n\n"
         + "Windows may ask once if a helper can be installed. Choose Yes.\n\n"
-        + "The first time can take a while. You can leave this window open.";
+        + "If you skip voice or photos, a reminder sits in the top-right. You can close it and reopen it from Help.";
 
     partial void OnPhaseChanged(string value) => NotifyChrome();
 

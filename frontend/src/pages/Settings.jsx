@@ -10,6 +10,7 @@ import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { nextSafeTopics, pairingFromMe, pairingPayload } from "../lib/memoryStudio";
 import { routinesFromMe, routinesPayload } from "../lib/standingRoutines";
+import { notifyTwinSetupChanged } from "../lib/twinSetup";
 
 const WIDGETS = [
   { key: "reflection", label: "Daily reflection prompt" },
@@ -246,6 +247,7 @@ export default function Settings() {
     setVoiceId(id);
     await api.put("/voice-clone/settings", { voice_id: id });
     await loadSettings();
+    notifyTwinSetupChanged();
   };
 
   const clearAll = async () => {
@@ -253,6 +255,7 @@ export default function Settings() {
     await api.put("/voice-clone/settings", { clear: true });
     setVoices([]);
     await loadSettings();
+    notifyTwinSetupChanged();
   };
 
   const submitClone = async () => {
@@ -276,6 +279,7 @@ export default function Settings() {
       setCloneFiles([]);
       await loadSettings();
       await loadVoices();
+      notifyTwinSetupChanged();
       alert(`Voice "${data.name}" created and set as your Twin voice.`);
     } catch (e) {
       alert("Clone failed: " + e.message);

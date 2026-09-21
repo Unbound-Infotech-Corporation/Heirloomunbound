@@ -1,28 +1,48 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { api } from "../lib/api";
+import { api, API_BASE } from "../lib/api";
+import { notifyTwinSetupChanged, stepById } from "../lib/twinSetup";
 import { StudioFieldRow, StudioPanel, VendorCoach } from "../components/studio";
 import { openCoachStep } from "../components/studio/VendorHandoff";
+import { SetupExampleRow } from "../components/studio/SetupIllustrations";
 
 const STEPS = [
   { id: "welcome", label: "Welcome" },
   { id: "space", label: "Disk" },
   { id: "email", label: "Email" },
+  { id: "voice", label: "Voice" },
+  { id: "likeness", label: "Photos" },
   { id: "phone", label: "Phone" },
   { id: "done", label: "Install" },
   { id: "keys", label: "Cloud keys" },
 ];
 
+const LIKENESS_ANGLES = [
+  { id: "front", exampleId: "front", label: "Straight on" },
+  { id: "left", exampleId: "three_quarter", label: "Three-quarter" },
+  { id: "right", exampleId: "profile", label: "Profile" },
+];
+
+function stepIndexFromHash(hash) {
+  const id = (hash || "").replace("#", "");
+  const i = STEPS.findIndex((s) => s.id === id);
+  return i >= 0 ? i : 0;
+}
+
 export default function FirstRunSetup() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [data, setData] = useState(null);
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => stepIndexFromHash(window.location.hash));
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
   const [pair, setPair] = useState(null);
   const [phoneFeats, setPhoneFeats] = useState([]);
   const [coachOn, setCoachOn] = useState(false);
+  const [voiceName, setVoiceName] = useState("My Twin voice");
+  const [voiceFiles, setVoiceFiles] = useState([]);
+  const [likenessBusy, setLikenessBusy] = useState("");
 
   const load = useCallback(async () => {
     const { data: body } = await api.get("/studio/first-run");
@@ -36,13 +56,18 @@ export default function FirstRunSetup() {
     load().catch(() => toast.error("Could not load first-run setup"));
   }, [load]);
 
+  useEffect(() => {
+    const i = stepIndexFromHash(location.hash);
+    if (i) setStep(i);
+  }, [location.hash]);
+
   const save = async (patch) => {
     const { data: body } = await api.put("/studio/first-run", patch);
     await load();
     return body;
   };
 
-  const startCoach = () => {
+  const startCoach = (serviceId) => {
     setCoachOn(true);
     try {
       if (email) save({ vendor_email: email });
@@ -53,7 +78,7 @@ export default function FirstRunSetup() {
           alreadySaved: Boolean(data.keys?.[svc.id]),
         }))
         .filter((svc) => !svc.alreadySaved);
-      const first = pending[0];
+      const first = (serviceId && pending.find((s) => s.id === serviceId)) || pending[0];
       if (first) {
         const steps = first.coach_steps?.length ? first.coach_steps : null;
         openCoachStep(
@@ -73,7 +98,7 @@ export default function FirstRunSetup() {
       await save({ vendor_email: email, phone_features: phoneFeats, prefer_local: true });
       const { data: body } = await api.post("/studio/first-run/complete");
       toast.success(body.provision?.hint || "Local models queued on the dedicated PC");
-      setStep(5);
+      setStep(STEPS.length - 1);
       startCoach();
     } catch (err) {
       toast.error(err?.response?.data?.detail || err.message);
@@ -86,7 +111,8 @@ export default function FirstRunSetup() {
     setBusy(true);
     try {
       await save({ complete: true, vendor_email: email, phone_features: phoneFeats });
-      navigate("/models");
+      notifyTwinSetupChanged();
+      navigate("/twin");
     } catch (err) {
       toast.error(err?.response?.data?.detail || err.message);
     } finally {
@@ -108,6 +134,59 @@ export default function FirstRunSetup() {
     }
   };
 
+  const cloneVoice = async () => {
+    if (!voiceFiles.length) {
+      toast.error("Add at least one recording of you speaking.");
+      return;
+    }
+    if (!data?.keys?.elevenlabs) {
+      toast.message("Save an ElevenLabs key first — the guide will open.");
+      startCoach("elevenlabs");
+      return;
+    }
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("name", voiceName.trim() || "My Twin voice");
+      fd.append("description", "First-run Twin voice");
+      for (const f of voiceFiles) fd.append("files", f);
+      const res = await fetch(`${API_BASE}/voice-clone/clone`, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || "Clone failed");
+      toast.success("Voice cloned. The Twin can sound like you.");
+      await load();
+      notifyTwinSetupChanged();
+    } catch (err) {
+      toast.error(err.message || "Could not clone the voice");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadLikeness = async (angle, file) => {
+    if (!file) return;
+    setLikenessBusy(angle);
+    try {
+      const fd = new FormData();
+      fd.append("angle", angle);
+      fd.append("file", file);
+      await api.post("/avatar-studio/upload", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      toast.success(`${angle} photo saved`);
+      await load();
+      notifyTwinSetupChanged();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || err.message);
+    } finally {
+      setLikenessBusy("");
+    }
+  };
+
   if (!data) {
     return (
       <div className="px-6 py-10" data-testid="setup-loading">
@@ -118,25 +197,46 @@ export default function FirstRunSetup() {
 
   const catalog = data.catalog || {};
   const settings = data.settings || {};
+  const progress = data.progress || {};
   const profileId = settings.space_profile || "medium";
   const gb = catalog.full_power_gb || { min: 100, max: 160 };
   const gbLabel = (p) => (p.gb_max ? `${p.gb_min}–${p.gb_max} GB` : `${p.gb_min} GB+`);
+  const voiceStep = stepById(progress, "voice") || catalog.twin_setup_steps?.[0];
+  const likenessStep = stepById(progress, "likeness") || catalog.twin_setup_steps?.[1];
+  const voiceDone = Boolean(progress.voice_ready);
+  const likenessDone = Boolean(progress.likeness_ready);
+
+  const go = (i) => {
+    setStep(i);
+    const id = STEPS[i]?.id;
+    if (id) navigate(`/setup#${id}`, { replace: true });
+  };
 
   return (
     <div className="px-6 py-6 max-w-3xl" data-testid="first-run-root">
       <p className="overline mb-2">Heirloom Unbound · first use</p>
       <h1 className="font-serif text-3xl mb-2" style={{ color: "var(--text-primary)" }}>
-        Set up Heirloom Unbound once
+        Make a Twin that sounds and looks like you
       </h1>
       <p className="text-sm mb-6" style={{ color: "var(--text-muted)", lineHeight: 1.5 }}>
-        After this, every feature is a dropdown. Local models stay on this PC. Large is about{" "}
-        {gb.min}–{gb.max} GB. Dedicated PC is 200 GB+ and consecrates this machine for the twin.
+        Two things unlock the live Twin: a cloned voice, and three likeness photos. After that you
+        can sit, make talking video, and enter a Heirloom Room. Local models stay on this PC. Large
+        is about {gb.min}–{gb.max} GB.
       </p>
 
       <ol className="studio-setup-steps" data-testid="setup-steps">
         {STEPS.map((s, i) => (
-          <li key={s.id} className={i === step ? "is-active" : i < step ? "is-done" : ""}>
-            <button type="button" onClick={() => setStep(i)}>
+          <li
+            key={s.id}
+            className={
+              i === step
+                ? "is-active"
+                : i < step || (s.id === "voice" && voiceDone) || (s.id === "likeness" && likenessDone)
+                  ? "is-done"
+                  : ""
+            }
+          >
+            <button type="button" onClick={() => go(i)}>
               {i + 1}. {s.label}
             </button>
           </li>
@@ -144,17 +244,23 @@ export default function FirstRunSetup() {
       </ol>
 
       {step === 0 ? (
-        <StudioPanel title="What this first run does" defaultOpen>
+        <StudioPanel title="What this first run unlocks" defaultOpen>
           <ul className="text-sm space-y-2" style={{ color: "#ccc", lineHeight: 1.45 }}>
-            <li>Reserve disk for Heirloom Unbound: Small 5–12 GB, Medium 40–70 GB, Large 100–160 GB, or Dedicated PC 200 GB+.</li>
-            <li>Save the email you will use on vendor sites (ElevenLabs, D-ID, fal).</li>
-            <li>Pair your phone. Heavy inference stays on this PC.</li>
-            <li>Download local models first so screen vision is ready.</li>
             <li>
-              Then a stay-on-top guide opens each official page and watches the screen.
-              <strong> You</strong> click Create account, I’m not a robot, and Verify —
-              Heirloom cannot drive those sites or read keys off a screenshot.
+              <strong>Clone your voice</strong> so the Twin greets people as you — not a stock speaker.
             </li>
+            <li>
+              <strong>Take three photos</strong> (front, three-quarter, profile) to build the lifelike
+              talking picture.
+            </li>
+            <li>That pair unlocks live sit, talking video, and sitting in a captured room.</li>
+            <li>Reserve disk, pair a phone, then download local models on this PC.</li>
+            <li>
+              A stay-on-top guide can open official vendor pages.
+              <strong> You</strong> click Create account, I’m not a robot, and Verify — Heirloom cannot
+              drive those sites or read keys off a screenshot.
+            </li>
+            <li>If you leave voice or photos for later, a reminder stays in the top-right. You can close it.</li>
           </ul>
         </StudioPanel>
       ) : null}
@@ -217,6 +323,108 @@ export default function FirstRunSetup() {
       ) : null}
 
       {step === 3 ? (
+        <StudioPanel title="Clone your voice" defaultOpen testId="setup-voice-panel">
+          <p className="text-sm mb-3" style={{ color: "#ccc", lineHeight: 1.5 }}>
+            {voiceStep?.benefit} This is required for the Twin to speak as you. You can skip and a
+            reminder will stay in the corner.
+          </p>
+          <ul className="text-xs mb-3 space-y-1" style={{ color: "#9a9a9a" }}>
+            {(voiceStep?.unlocks || []).map((u) => (
+              <li key={u}>Unlocks: {u}</li>
+            ))}
+          </ul>
+          <SetupExampleRow examples={voiceStep?.examples} done={voiceDone} />
+          {voiceDone ? (
+            <p className="text-sm mt-3" style={{ color: "#7da06f" }} data-testid="setup-voice-done">
+              Voice ready{progress.voice_name ? ` — ${progress.voice_name}` : ""}.
+            </p>
+          ) : (
+            <>
+              <StudioFieldRow label="Name this voice">
+                <input
+                  value={voiceName}
+                  onChange={(e) => setVoiceName(e.target.value)}
+                  data-testid="setup-voice-name"
+                />
+              </StudioFieldRow>
+              <StudioFieldRow label="Recordings of you">
+                <input
+                  type="file"
+                  accept="audio/*"
+                  multiple
+                  onChange={(e) => setVoiceFiles(Array.from(e.target.files || []))}
+                  data-testid="setup-voice-files"
+                />
+              </StudioFieldRow>
+              <p className="text-xs mb-3" style={{ color: "#888" }}>
+                One clip of about 30 seconds is enough. Speak as you would to family.
+              </p>
+              {!data.keys?.elevenlabs ? (
+                <button
+                  type="button"
+                  className="studio-btn studio-btn-primary mb-2"
+                  onClick={() => startCoach("elevenlabs")}
+                  data-testid="setup-voice-key-guide"
+                >
+                  Open the voice-key guide
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="studio-btn studio-btn-primary"
+                disabled={busy}
+                onClick={cloneVoice}
+                data-testid="setup-voice-clone"
+              >
+                {busy ? "Cloning…" : "Clone this voice"}
+              </button>
+            </>
+          )}
+        </StudioPanel>
+      ) : null}
+
+      {step === 4 ? (
+        <StudioPanel title="Take likeness photos" defaultOpen testId="setup-likeness-panel">
+          <p className="text-sm mb-3" style={{ color: "#ccc", lineHeight: 1.5 }}>
+            {likenessStep?.benefit} Three photos. Same clothes, even light, you alone in the frame.
+          </p>
+          <ul className="text-xs mb-3 space-y-1" style={{ color: "#9a9a9a" }}>
+            {(likenessStep?.unlocks || []).map((u) => (
+              <li key={u}>Unlocks: {u}</li>
+            ))}
+          </ul>
+          <SetupExampleRow examples={likenessStep?.examples} done={likenessDone} />
+          <p className="text-xs mt-2 mb-3" style={{ color: progress.likeness_ready ? "#7da06f" : "#c9b8a4" }}>
+            {progress.likeness_have || 0} of {progress.likeness_needed || 3} photos on file
+          </p>
+          <div className="setup-likeness-uploads">
+            {LIKENESS_ANGLES.map((ang) => (
+              <label key={ang.id} className="setup-likeness-upload">
+                <span>{ang.label}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  disabled={Boolean(likenessBusy)}
+                  data-testid={`setup-likeness-${ang.id}`}
+                  onChange={(e) => uploadLikeness(ang.id, e.target.files?.[0])}
+                />
+                {likenessBusy === ang.id ? <em>Saving…</em> : null}
+              </label>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="studio-btn mt-3"
+            onClick={() => navigate("/avatar-studio")}
+            data-testid="setup-open-avatar-studio"
+          >
+            Open Avatar Studio
+          </button>
+        </StudioPanel>
+      ) : null}
+
+      {step === 5 ? (
         <StudioPanel title="Connect your phone" defaultOpen>
           <p className="text-xs mb-3" style={{ color: "#999", lineHeight: 1.45 }}>
             Same Heirloom login on the phone. Heavy models stay on this PC. Choose what the phone
@@ -274,7 +482,7 @@ export default function FirstRunSetup() {
         </StudioPanel>
       ) : null}
 
-      {step === 4 ? (
+      {step === 6 ? (
         <StudioPanel title="Install local models first" defaultOpen>
           <p className="text-sm mb-3" style={{ color: "#ccc", lineHeight: 1.5 }}>
             Completing this step queues Whisper / Ollama / Piper on the dedicated PC. The vendor
@@ -292,7 +500,7 @@ export default function FirstRunSetup() {
         </StudioPanel>
       ) : null}
 
-      {step === 5 ? (
+      {step === 7 ? (
         <StudioPanel title="Cloud accounts — after install" defaultOpen>
           <p className="text-xs mb-4" style={{ color: "#999", lineHeight: 1.45 }}>
             {catalog.vendor_signup_policy} Local Whisper/Ollama do not need these keys. Screen
@@ -302,7 +510,7 @@ export default function FirstRunSetup() {
           <button
             type="button"
             className="studio-btn studio-btn-primary mb-4"
-            onClick={startCoach}
+            onClick={() => startCoach()}
             data-testid="setup-start-coach"
           >
             Pop out the guide
@@ -365,26 +573,25 @@ export default function FirstRunSetup() {
       ) : null}
 
       <div className="flex justify-between mt-6">
-        <button
-          type="button"
-          className="studio-btn"
-          disabled={step === 0}
-          onClick={() => setStep((s) => Math.max(0, s - 1))}
-        >
+        <button type="button" className="studio-btn" disabled={step === 0} onClick={() => go(Math.max(0, step - 1))}>
           Back
         </button>
         {step < STEPS.length - 1 ? (
           <button
             type="button"
             className="studio-btn studio-btn-primary"
+            data-testid="setup-next"
             onClick={async () => {
               if (step === 2 && email) {
                 await save({ vendor_email: email });
               }
-              setStep((s) => s + 1);
+              if ((step === 3 && !voiceDone) || (step === 4 && !likenessDone)) {
+                toast.message("A reminder will sit in the top-right until this is done.");
+              }
+              go(step + 1);
             }}
           >
-            Next
+            {(step === 3 && !voiceDone) || (step === 4 && !likenessDone) ? "Skip for now" : "Next"}
           </button>
         ) : null}
       </div>

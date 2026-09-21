@@ -411,6 +411,11 @@ def test_first_run_and_phone_pair(studio_user):
     assert "watch" in body["catalog"]["vendor_signup_policy"].lower()
     assert "handoffs" in body
     assert body["handoffs"]["elevenlabs"]["signup_url"].startswith("https://elevenlabs.io/")
+    progress = body["progress"]
+    assert progress["visible"] is True
+    assert progress["remaining_critical"] == 2
+    assert [s["id"] for s in progress["steps"]] == ["voice", "likeness", "avatar"]
+    assert body["catalog"]["likeness_photos_needed"] == 3
 
     r = requests.put(
         f"{API}/studio/first-run",
@@ -449,6 +454,27 @@ def test_first_run_and_phone_pair(studio_user):
     assert r.status_code == 200, r.text
     assert r.json()["settings"]["complete"] is True
     assert r.json()["provision"]["queued"] is False
+
+    r = requests.put(
+        f"{API}/studio/first-run",
+        headers=h,
+        json={"coach_dismissed": True},
+        timeout=15,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["settings"]["coach_dismissed"] is True
+    r = requests.get(f"{API}/studio/first-run/progress", headers=h, timeout=15)
+    assert r.status_code == 200, r.text
+    assert r.json()["visible"] is False
+    assert r.json()["remaining_critical"] == 2
+
+    r = requests.put(
+        f"{API}/studio/first-run",
+        headers=h,
+        json={"coach_dismissed": False},
+        timeout=15,
+    )
+    assert r.json()["progress"]["visible"] is True
 
     r = requests.post(f"{API}/studio/first-run/pair", headers=h, timeout=15)
     assert r.status_code == 200, r.text

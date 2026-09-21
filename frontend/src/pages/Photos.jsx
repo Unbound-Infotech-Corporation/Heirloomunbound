@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Image as ImageIcon, Loader2, Trash2, Upload as UploadIcon } from "lucide-react";
 import { api, API_BASE } from "../lib/api";
+import { notifyTwinSetupChanged } from "../lib/twinSetup";
 
 function PhotoCard({ p, onRemove }) {
   const [src, setSrc] = useState(null);
@@ -99,6 +100,7 @@ export default function Photos() {
       setTakenAt("");
       if (fileInputRef.current) fileInputRef.current.value = "";
       load();
+      notifyTwinSetupChanged();
     } catch (e) {
       alert("Upload failed: " + e.message);
     } finally {
@@ -110,6 +112,7 @@ export default function Photos() {
     if (!window.confirm("Remove this photo?")) return;
     await api.delete(`/photos/${id}`);
     load();
+    notifyTwinSetupChanged();
   };
 
   return (
