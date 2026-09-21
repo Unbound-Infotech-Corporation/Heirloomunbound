@@ -7,4 +7,7 @@ export { default as StudioFieldRow } from "./StudioFieldRow";
 export { default as StudioTabs } from "./StudioTabs";
 export { default as StudioWorkspace } from "./StudioWorkspace";
 export { default as AssistReceipt } from "./AssistReceipt";
+export { default as AssistantPicker } from "./AssistantPicker";
+export { default as AssistantsPanel } from "./AssistantsPanel";
+export { default as RoomViewer3D } from "./RoomViewer3D";
 export { getWindowMenus, getAppMenubarItems } from "./menuDefinitions";

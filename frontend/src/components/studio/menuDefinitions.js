@@ -20,6 +20,7 @@ function commonWindow(navigate) {
       { label: "Voice journal", onClick: go(navigate, "/journal") },
       { label: "Sources", onClick: go(navigate, "/sources") },
       { label: "Photos", onClick: go(navigate, "/photos") },
+      { label: "Rooms", onClick: go(navigate, "/rooms"), hint: "capture a place" },
       { sep: true },
       { label: "Local PC", onClick: go(navigate, "/companion") },
       { label: "Settings", onClick: go(navigate, "/settings") },
@@ -100,6 +101,8 @@ const ROUTE_MENUS = {
       items: [
         { label: "Twin sitting…", onClick: go(ctx.navigate, "/twin") },
         { label: "Memory Studio…", onClick: go(ctx.navigate, "/memory") },
+        { label: "Clones…", onClick: go(ctx.navigate, "/settings") },
+        { label: "Rooms…", onClick: go(ctx.navigate, "/rooms") },
         { label: "Local PC…", onClick: go(ctx.navigate, "/companion") },
         { label: "Abilities", onClick: go(ctx.navigate, "/abilities") },
       ],
@@ -132,6 +135,8 @@ const ROUTE_MENUS = {
         { label: "Abilities", onClick: go(ctx.navigate, "/abilities") },
         { label: "Portrait", onClick: go(ctx.navigate, "/personality") },
         { label: "Memory Studio…", onClick: go(ctx.navigate, "/memory") },
+        { label: "Clones…", onClick: go(ctx.navigate, "/settings") },
+        { label: "Rooms…", onClick: go(ctx.navigate, "/rooms") },
       ],
     },
     audioMenu(ctx.navigate),
@@ -196,6 +201,7 @@ const ROUTE_MENUS = {
       items: [
         { label: "Import…", onClick: go(ctx.navigate, "/import") },
         { label: "Photo → Story", onClick: go(ctx.navigate, "/photo-story") },
+        { label: "Rooms…", onClick: go(ctx.navigate, "/rooms") },
         { label: "Sources", onClick: go(ctx.navigate, "/sources") },
       ],
     },
@@ -256,6 +262,8 @@ const ROUTE_MENUS = {
       label: "Settings",
       items: [
         { label: "Credentials", onClick: go(ctx.navigate, "/models"), hint: "inside each feature tab" },
+        { label: "Clones…", onClick: go(ctx.navigate, "/settings") },
+        { label: "Rooms…", onClick: go(ctx.navigate, "/rooms") },
         { label: "Memory Studio…", onClick: go(ctx.navigate, "/memory") },
         { label: "Heirs", onClick: go(ctx.navigate, "/heirs") },
         { label: "Sealed letters", onClick: go(ctx.navigate, "/letters") },
@@ -265,10 +273,23 @@ const ROUTE_MENUS = {
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
     commonWindow(ctx.navigate),
   ],
+  "/rooms": (ctx) => [
+    {
+      label: "Room",
+      items: [
+        { label: "All rooms", onClick: go(ctx.navigate, "/rooms") },
+        { label: "Sit with Twin…", onClick: go(ctx.navigate, "/twin") },
+        { label: "Photos", onClick: go(ctx.navigate, "/photos") },
+        { label: "Clones…", onClick: go(ctx.navigate, "/settings") },
+      ],
+    },
+    editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
+    commonWindow(ctx.navigate),
+  ],
 };
 
 export function getWindowMenus(pathname, ctx) {
-  const factory = ROUTE_MENUS[pathname];
+  const factory = ROUTE_MENUS[pathname] || (pathname.startsWith("/rooms/") ? ROUTE_MENUS["/rooms"] : null);
   if (factory) return factory(ctx);
   return [
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
