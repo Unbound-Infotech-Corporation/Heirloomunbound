@@ -22,6 +22,8 @@ class OwnerChatReq(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
     grounded: Optional[bool] = None
     persona: Optional[str] = Field(None, max_length=24)
+    clone_id: Optional[str] = Field(None, max_length=40)
+    assistant_id: Optional[str] = Field(None, max_length=40)  # alias for clone_id
 
 
 @router.get("/conversation")
@@ -59,6 +61,7 @@ async def owner_chat(body: OwnerChatReq, user: dict = Depends(get_current_user))
             grounded=body.grounded,
             persona_hint=body.persona,
             audience="owner",
+            assistant_id=body.clone_id or body.assistant_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   BookOpen,
+  Box,
   Brain,
   Camera,
   Cpu,
@@ -44,6 +45,7 @@ const navItems = [
   { to: "/journal", label: "Voice journal", icon: Feather, tid: "nav-journal" },
   { to: "/library", label: "Library", icon: BookOpen, tid: "nav-library" },
   { to: "/photos", label: "Photos", icon: ImageIcon, tid: "nav-photos" },
+  { to: "/rooms", label: "Rooms", icon: Box, tid: "nav-rooms" },
   { to: "/photo-story", label: "Photo → Story", icon: Camera, tid: "nav-photo-story" },
   { to: "/sources", label: "Sources", icon: Database, tid: "nav-sources" },
   { to: "/import", label: "Import", icon: Upload, tid: "nav-import" },
@@ -70,6 +72,7 @@ const WINDOW_TITLES = {
   "/journal": "Voice Journal",
   "/library": "Library",
   "/photos": "Photos",
+  "/rooms": "Rooms",
   "/photo-story": "Photo → Story",
   "/sources": "Sources",
   "/import": "Import",
@@ -204,7 +207,9 @@ export default function AppLayout() {
     },
   };
 
-  const title = WINDOW_TITLES[location.pathname] || "Heirloom";
+  const title =
+    WINDOW_TITLES[location.pathname] ||
+    (location.pathname.startsWith("/rooms/") ? "Room" : "Heirloom");
   const menuCtx = useMemo(
     () => ({
       navigate,

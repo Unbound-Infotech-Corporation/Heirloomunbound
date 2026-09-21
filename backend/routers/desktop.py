@@ -71,6 +71,8 @@ class ChatReq(BaseModel):
     persona: Optional[str] = Field(None, max_length=24)
     audience: Optional[str] = Field(None, max_length=16)
     twin_pack: Optional[dict] = None
+    clone_id: Optional[str] = Field(None, max_length=40)
+    assistant_id: Optional[str] = Field(None, max_length=40)  # alias for clone_id
 
 
 async def _ensure_companion_conv(user_id: str, kind: str = "companion_twin") -> dict:
@@ -150,6 +152,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
                 grounded=body.grounded,
                 persona_hint=body.persona,
                 audience=audience,
+                assistant_id=body.clone_id or body.assistant_id,
             )
         else:
             result = await run_twin_turn(
@@ -164,6 +167,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
                 grounded=body.grounded,
                 persona_hint=body.persona,
                 audience=audience,
+                assistant_id=body.clone_id or body.assistant_id,
             )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -187,6 +191,9 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     elif getattr(result, "receipt", None):
         # Assist-only: reviewable receipt. Twin-only stays a reply.
         out["receipt"] = result.receipt
+    if getattr(result, "specialist_id", None):
+        out["specialist_id"] = result.specialist_id
+        out["specialist_name"] = result.specialist_name
     return out
 
 

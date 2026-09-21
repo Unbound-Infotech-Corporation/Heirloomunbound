@@ -76,7 +76,7 @@ export function nextSafeTopics(topics, topic) {
 }
 
 /** Owner studio routes — never linked from the heir portal. */
-export const OWNER_MEMORY_ROUTES = [MEMORY_STUDIO_PATH, "/personality", "/settings", "/owner"];
+export const OWNER_MEMORY_ROUTES = [MEMORY_STUDIO_PATH, "/personality", "/settings", "/owner", "/rooms"];
 
 export function isOwnerMemoryRoute(pathname) {
   const path = String(pathname || "").split("?")[0];
@@ -91,6 +91,9 @@ export function heirPortalMustExclude(src) {
     !text.includes("/auth/me/preferences") &&
     !text.includes("/memory/facts") &&
     !text.includes("/nudges/routines") &&
-    !text.includes("standing_routines")
+    !text.includes("standing_routines") &&
+    !text.includes("/rooms") &&
+    !text.includes("/clones") &&
+    !text.includes("/assistants")
   );
 }

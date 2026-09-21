@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import HowWeWorkFields from "../components/memory/HowWeWorkFields";
 import SafeTopicsFields from "../components/memory/SafeTopicsFields";
 import StandingRoutinesFields from "../components/memory/StandingRoutinesFields";
+import AssistantsPanel from "../components/studio/AssistantsPanel";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { nextSafeTopics, pairingFromMe, pairingPayload } from "../lib/memoryStudio";
@@ -502,6 +503,8 @@ export default function Settings() {
           </button>
         </div>
       </section>
+
+      <AssistantsPanel />
 
       {/* Brand Kit — injected into the twin's system prompt */}
       <section className="surface p-7 mb-6" data-testid="brand-section">
