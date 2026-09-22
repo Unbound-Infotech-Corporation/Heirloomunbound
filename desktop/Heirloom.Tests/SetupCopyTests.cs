@@ -1,5 +1,7 @@
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Heirloom.Services;
 using Xunit;
 
@@ -168,5 +170,30 @@ public class SetupCopyTests
     {
         Assert.Equal("1 GB", SetupCopy.FormatBytes(1024L * 1024 * 1024));
         Assert.Contains("MB", SetupCopy.FormatBytes(150L * 1024 * 1024));
+    }
+
+    [Fact]
+    public void Setup_flags_persist_as_snake_case_in_settings_json()
+    {
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        };
+        var saved = JsonSerializer.Serialize(new AppSettings
+        {
+            SetupComplete = true,
+            SetupSkipped = false,
+        }, options);
+        Assert.Contains("\"setup_complete\": true", saved, StringComparison.Ordinal);
+        Assert.Contains("\"setup_skipped\": false", saved, StringComparison.Ordinal);
+
+        var loaded = JsonSerializer.Deserialize<AppSettings>("""
+            { "setup_complete": false, "setup_skipped": true }
+            """, options);
+        Assert.NotNull(loaded);
+        Assert.False(loaded.SetupComplete);
+        Assert.True(loaded.SetupSkipped);
     }
 }
