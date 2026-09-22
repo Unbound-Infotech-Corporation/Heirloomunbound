@@ -7,6 +7,8 @@ namespace Heirloom.Services;
 public sealed class AppSettings
 {
     public string BackendUrl { get; set; } = "https://voice-clone-hub-20.emergent.host";
+    public bool SetupComplete { get; set; }
+    public bool SetupSkipped { get; set; }
     public bool SetupCoachDismissed { get; set; }
     public string DiskProfile { get; set; } = "medium";
     public string InstallProfile { get; set; } = "medium";
