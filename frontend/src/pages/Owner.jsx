@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Loader2 } from "lucide-react";
 import AssistReceipt from "../components/studio/AssistReceipt";
+import ApprovalCard from "../components/studio/ApprovalCard";
 import AssistantPicker from "../components/studio/AssistantPicker";
 import { shouldShowReceipt, splitOwnerLegs } from "../lib/assistReceipt";
+import { assignmentHref } from "../lib/assignments";
 import { handoffChip, speakerLabel } from "../lib/assistants";
 import { api } from "../lib/api";
 
@@ -39,13 +41,26 @@ export default function Owner() {
   const [lastChip, setLastChip] = useState("");
   const [assistants, setAssistants] = useState([]);
   const [selectedAssistant, setSelectedAssistant] = useState(null);
+  const [pendingApprovals, setPendingApprovals] = useState([]);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const [closedApprovalIds, setClosedApprovalIds] = useState({});
   const feedRef = useRef(null);
+
+  const loadApprovals = async () => {
+    try {
+      const { data } = await api.get("/approvals", { params: { status: "pending" } });
+      setPendingApprovals(data.approvals || []);
+    } catch {
+      setPendingApprovals([]);
+    }
+  };
 
   useEffect(() => {
     api.get("/owner/conversation").then(({ data }) => setConv(data)).catch(() => {
       setConv({ conversation_id: "", messages: [] });
     });
     api.get("/clones").then(({ data }) => setAssistants(data.clones || [])).catch(() => {});
+    loadApprovals();
   }, []);
 
   useEffect(() => {
@@ -82,9 +97,21 @@ export default function Owner() {
             specialist_name: data.specialist_name,
             handoff: data.handoff,
             handoff_chip: data.handoff_chip,
+            assignment: data.assignment,
+            assignment_id: data.assignment_id || data.assignment?.assignment_id || data.handoff?.assignment_id,
+            approval: data.approval,
           },
         ],
       }));
+      if (data.approval?.status === "pending") {
+        setPendingApprovals((rows) => {
+          const id = data.approval.approval_id;
+          if (rows.some((row) => row.approval_id === id)) return rows;
+          return [data.approval, ...rows];
+        });
+      } else {
+        loadApprovals();
+      }
     } catch (err) {
       setConv((c) => ({
         ...(c || {}),
@@ -103,7 +130,35 @@ export default function Owner() {
     }
   };
 
+  const decideApproval = async (approval, path) => {
+    if (!approval?.approval_id || approvalBusy) return;
+    setApprovalBusy(true);
+    try {
+      await api.post(`/approvals/${approval.approval_id}/${path}`);
+      setClosedApprovalIds((ids) => ({ ...ids, [approval.approval_id]: true }));
+      setPendingApprovals((rows) => rows.filter((row) => row.approval_id !== approval.approval_id));
+    } catch {
+      loadApprovals();
+    } finally {
+      setApprovalBusy(false);
+    }
+  };
+
+  const approvalForMessage = (message) => {
+    const embedded = message?.approval;
+    if (!embedded?.approval_id || closedApprovalIds[embedded.approval_id]) return null;
+    const live = pendingApprovals.find((row) => row.approval_id === embedded.approval_id);
+    if (live) return live.status === "pending" ? live : null;
+    return embedded.status === "pending" ? embedded : null;
+  };
+
   const messages = conv?.messages || [];
+  const shownOnMessages = new Set(
+    messages.map((message) => approvalForMessage(message)?.approval_id).filter(Boolean)
+  );
+  const looseApprovals = pendingApprovals.filter(
+    (row) => row.status === "pending" && !closedApprovalIds[row.approval_id] && !shownOnMessages.has(row.approval_id)
+  );
 
   return (
     <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl" data-testid="owner-root">
@@ -140,9 +195,26 @@ export default function Owner() {
         <Link to="/settings" className="hover:text-[var(--accent)]" data-testid="owner-link-clones">
           Clones →
         </Link>
+        <Link to="/assignments" className="hover:text-[var(--accent)]" data-testid="owner-link-assignments">
+          Assignments →
+        </Link>
       </div>
 
       <div ref={feedRef} className="space-y-10 mb-10 max-h-[58vh] overflow-y-auto pr-2" data-testid="owner-feed">
+        {looseApprovals.length ? (
+          <div className="space-y-4" data-testid="owner-approvals">
+            {looseApprovals.map((approval) => (
+              <ApprovalCard
+                key={approval.approval_id}
+                approval={approval}
+                busy={approvalBusy}
+                testid={`owner-approval-${approval.approval_id}`}
+                onApprove={(item) => decideApproval(item, "approve")}
+                onDecline={(item) => decideApproval(item, "decline")}
+              />
+            ))}
+          </div>
+        ) : null}
         {messages.length === 0 && !pending && (
           <div className="surface p-8" data-testid="owner-empty-prompt">
             <div className="overline mb-3">try saying</div>
@@ -179,6 +251,28 @@ export default function Owner() {
                     ) : null}
                   </div>
                   <OwnerAssistantBody message={m} index={i} />
+                  {approvalForMessage(m) ? (
+                    <div className="mt-4">
+                      <ApprovalCard
+                        approval={approvalForMessage(m)}
+                        busy={approvalBusy}
+                        testid={`owner-msg-approval-${i}`}
+                        onApprove={(item) => decideApproval(item, "approve")}
+                        onDecline={(item) => decideApproval(item, "decline")}
+                      />
+                    </div>
+                  ) : null}
+                  {(m.assignment_id || m.handoff?.assignment_id) ? (
+                    <p className="mt-3 text-sm">
+                      <Link
+                        to={assignmentHref(m.assignment_id || m.handoff?.assignment_id)}
+                        data-testid={`owner-assignment-link-${i}`}
+                        style={{ color: "var(--accent)" }}
+                      >
+                        Open assignment
+                      </Link>
+                    </p>
+                  ) : null}
                 </div>
               ) : (
                 <div>

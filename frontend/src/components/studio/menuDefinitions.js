@@ -11,6 +11,7 @@ function commonWindow(navigate) {
       { label: "Today", onClick: go(navigate, "/today") },
       { label: "Archive", onClick: go(navigate, "/dashboard") },
       { label: "Sit", onClick: go(navigate, "/owner"), hint: "one teammate" },
+      { label: "Assignments", onClick: go(navigate, "/assignments"), hint: "background jobs" },
       { label: "Twin", onClick: go(navigate, "/twin"), hint: "conversation" },
       { label: "Memory Studio", onClick: go(navigate, "/memory"), hint: "what the Twin holds" },
       { label: "First gift", onClick: go(navigate, "/first-gift"), hint: "sealed letter" },
@@ -101,6 +102,7 @@ const ROUTE_MENUS = {
       items: [
         { label: "Twin sitting…", onClick: go(ctx.navigate, "/twin") },
         { label: "Memory Studio…", onClick: go(ctx.navigate, "/memory") },
+        { label: "Assignments…", onClick: go(ctx.navigate, "/assignments") },
         { label: "Clones…", onClick: go(ctx.navigate, "/settings") },
         { label: "Rooms…", onClick: go(ctx.navigate, "/rooms") },
         { label: "Local PC…", onClick: go(ctx.navigate, "/companion") },
@@ -273,6 +275,18 @@ const ROUTE_MENUS = {
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
     commonWindow(ctx.navigate),
   ],
+  "/assignments": (ctx) => [
+    {
+      label: "Assignments",
+      items: [
+        { label: "All assignments", onClick: go(ctx.navigate, "/assignments") },
+        { label: "New assignment…", onClick: go(ctx.navigate, "/assignments/new") },
+        { label: "Sit…", onClick: go(ctx.navigate, "/owner") },
+      ],
+    },
+    editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
+    commonWindow(ctx.navigate),
+  ],
   "/rooms": (ctx) => [
     {
       label: "Room",
@@ -291,7 +305,9 @@ const ROUTE_MENUS = {
 };
 
 export function getWindowMenus(pathname, ctx) {
-  const factory = ROUTE_MENUS[pathname] || (pathname.startsWith("/rooms/") ? ROUTE_MENUS["/rooms"] : null);
+  const factory = ROUTE_MENUS[pathname]
+    || (pathname.startsWith("/assignments") ? ROUTE_MENUS["/assignments"] : null)
+    || (pathname.startsWith("/rooms/") ? ROUTE_MENUS["/rooms"] : null);
   if (factory) return factory(ctx);
   return [
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),

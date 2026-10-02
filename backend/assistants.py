@@ -184,7 +184,9 @@ def clean_abilities(raw: Optional[list], *, tools: Optional[list] = None) -> lis
 
 
 def clean_autonomy(raw: Optional[str]) -> str:
-    """'ask' is the only behavior this slice enforces. 'act' is stored for later."""
+    """'ask' is the default. 'act' is stored and honored by Assignments for
+    internal work only — it does not bypass send, post, delete, or spend.
+    """
     key = str(raw or "").strip().lower()
     if key == AUTONOMY_ACT:
         return AUTONOMY_ACT

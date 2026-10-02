@@ -142,8 +142,10 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 - [x] Standing Twin routines (morning brief / weekly biographer / sealed-letter nudge) — skip-when-empty, owner-only.
 - [ ] WinUI Memory Studio document — deferred (web `/memory` is the owner edit surface).
 - [x] Main bot routing — Twin answers, one Clone, or Assist; explicit `@` / `clone_id` wins; handoff receipt persisted; heir fence holds.
-- [ ] Assignments, approve-before-send, connectors, per-Clone routines, per-Clone memory, Clone-to-Clone messaging — not built.
+- [x] Assignments v1 + approval card — scoped background jobs, legal statuses, approve-before-send for outbound work. See `ASSIGNMENTS.md`.
+- [ ] Connectors (real email, calendar, Slack), per-Clone routines, per-Clone memory, Clone-to-Clone messaging — not built.
 - [ ] WinUI Clones document — deferred (web Clones panel shows role).
+- [ ] WinUI Assignments list — deferred (models + session client shipped; web `/assignments` is the owner surface).
 
 ## Ship order
 
@@ -174,7 +176,7 @@ Clone documents gain optional fields (defaults, non-breaking):
 |---|---|---|
 | `role` | `""` | One line. Shown in the Clones panel. Used for matching. |
 | `abilities` | derived from `tools_allowlist` | Ability ids from the existing catalog (`web`, `music`, `smart_home`, `pc_control`, `screen_vision`, `terminal`, `phone`). |
-| `autonomy` | `ask` | `ask` or `act`. Stored only. `act` is not enforced. |
+| `autonomy` | `ask` | `ask` or `act`. On an Assignment, `act` may do internal work without asking. Send, post, delete, and spend still need an Approval. |
 
 Heuristic routing is the default. `LlmMainBotClassifier` is the extension point for a cheap model; it is not called unless a `complete` hook is injected, and it cannot grant the Assist / PC leg.
 
@@ -182,13 +184,11 @@ WinUI has no Clones document yet (still deferred with Memory Studio). Role is ed
 
 ### ROADMAP
 
-Later slices. **Not built.**
-
 | Slice | Status |
 |---|---|
-| Assignments / background jobs | not built |
-| Approve-before-send | not built |
-| Connectors (email, calendar, Slack) | not built |
+| Assignments / background jobs | **v1 shipped** (web). Explicit phrase opens one job and replies with a receipt. WinUI list is follow-up. |
+| Approve-before-send | **spine shipped.** Outbound send / post / delete / spend creates an Approval. Nothing external runs until the owner approves. `act` does not bypass it. |
+| Connectors (email, calendar, Slack) | not built. `ConnectorAction` plus an in-memory fake only. |
 | Routines owned by a Clone | not built. Standing Twin routines already exist and are not per-clone. |
 | Per-Clone memory | not built |
 | Clone-to-Clone messaging | not built |

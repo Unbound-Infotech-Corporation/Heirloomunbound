@@ -9,10 +9,13 @@ Slice 1 is the routing spine only. On an owner Sit turn the Twin decides:
 Explicit ``@CloneName`` or ``clone_id`` always wins. Unclear stays with the
 Twin. Heirs, callers, and heir surfaces never enter this router.
 
-Extension points (not built): a ``MainBotClassifier`` may be a cheap LLM.
-``autonomy`` is stored (``ask`` default, ``act`` later) and is not enforced.
-Assignments, approve-before-send, connectors, per-clone routines, per-clone
-memory, and Clone-to-Clone messaging are later slices.
+Extension point: a ``MainBotClassifier`` may be a cheap LLM.
+Clone ``autonomy`` ``ask`` is the default. ``act`` may do internal assignment
+work without asking, and still cannot send, post, delete, or spend without
+an Approval. Background phrases ("assign", "in the background", "while I'm
+away") open an Assignment instead of answering in chat. Connectors,
+per-clone routines, per-clone memory, and Clone-to-Clone messaging are
+later slices.
 """
 from __future__ import annotations
 

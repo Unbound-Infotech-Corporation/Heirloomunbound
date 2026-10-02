@@ -929,6 +929,8 @@ async def _persist_pair(
     specialist_id: Optional[str] = None,
     specialist_name: Optional[str] = None,
     handoff: Optional[dict] = None,
+    assignment: Optional[dict] = None,
+    approval: Optional[dict] = None,
 ) -> None:
     user_turn: dict[str, Any] = {
         "role": "user", "content": user_text, "ts": ts, "source": source,
@@ -963,6 +965,12 @@ async def _persist_pair(
         from main_bot import stamp_persisted_turn
 
         stamp_persisted_turn(assistant_turn, handoff)
+    if assignment:
+        assistant_turn["assignment"] = assignment
+        if assignment.get("assignment_id"):
+            assistant_turn["assignment_id"] = assignment["assignment_id"]
+    if approval:
+        assistant_turn["approval"] = approval
     await db.conversations.update_one(
         {"conversation_id": conversation_id, "user_id": user_id},
         {

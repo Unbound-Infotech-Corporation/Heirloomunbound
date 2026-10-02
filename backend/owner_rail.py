@@ -130,6 +130,8 @@ class OwnerTurnResult:
     specialist_id: Optional[str] = None
     specialist_name: Optional[str] = None
     handoff: Optional[dict] = None
+    assignment: Optional[dict] = None
+    approval: Optional[dict] = None
 
 
 def _norm(text: str) -> str:
@@ -253,7 +255,69 @@ def owner_response_fields(result: OwnerTurnResult) -> dict[str, Any]:
         out["handoff"] = result.handoff
         if result.handoff.get("chip"):
             out["handoff_chip"] = result.handoff["chip"]
+    if result.assignment:
+        out["assignment"] = result.assignment
+        out["assignment_id"] = result.assignment.get("assignment_id")
+    if result.approval:
+        out["approval"] = result.approval
     return out
+
+
+async def _finish_assignment_turn(
+    *,
+    user: dict,
+    text: str,
+    conversation: dict,
+    source: str,
+    persist: bool,
+    routed: Any,
+    opened: dict,
+) -> OwnerTurnResult:
+    """One-line receipt for a background assignment. Does not call the chat model."""
+    from main_bot import handoff_payload
+    from twin_runtime import _persist_pair
+
+    decision = _rail_from_routed(routed)
+    assignment = opened["assignment"]
+    approval = opened.get("approval")
+    reply = opened.get("receipt") or "Assigned. I'll report back."
+    handoff = handoff_payload(routed)
+    if assignment.get("assignment_id"):
+        handoff["assignment_id"] = assignment["assignment_id"]
+    ts = assignment.get("updated_at") or assignment.get("created_at") or ""
+    specialist_id = routed.clone_id if routed.handler == "clone" else None
+    specialist_name = routed.clone_name if routed.handler == "clone" else None
+    if persist:
+        await _persist_pair(
+            user["user_id"],
+            conversation["conversation_id"],
+            text,
+            reply,
+            ts,
+            source=source,
+            rail=decision.route,
+            rail_chip=decision.chip,
+            rail_legs=list(decision.legs),
+            specialist_id=specialist_id,
+            specialist_name=specialist_name,
+            handoff=handoff,
+            assignment=assignment,
+            approval=approval,
+        )
+    return OwnerTurnResult(
+        reply=reply,
+        conversation_id=conversation["conversation_id"],
+        ts=ts,
+        backend="assignment",
+        rail=decision.route,
+        rail_chip=decision.chip,
+        rail_legs=list(decision.legs),
+        specialist_id=specialist_id,
+        specialist_name=specialist_name,
+        handoff=handoff,
+        assignment=assignment,
+        approval=approval,
+    )
 
 
 async def run_owner_turn(
@@ -304,6 +368,34 @@ async def run_owner_turn(
         heir_surface=fenced,
         classifier=classifier,
     )
+    from assignments import open_assignment_for_turn, should_open_assignment
+
+    if should_open_assignment(
+        text,
+        fenced=routed.fenced,
+        handler=routed.handler,
+        message=routed.message or "",
+    ):
+        opened = await open_assignment_for_turn(
+            text,
+            user_id=user["user_id"],
+            now=_now_iso(),
+            fenced=routed.fenced,
+            handler=routed.handler,
+            message=routed.message or "",
+            clone_id=routed.clone_id,
+            clones=clones,
+        )
+        if opened:
+            return await _finish_assignment_turn(
+                user=user,
+                text=text,
+                conversation=conversation,
+                source=source,
+                persist=persist,
+                routed=routed,
+                opened=opened,
+            )
     decision = _rail_from_routed(routed)
     work_text = (routed.message or text).strip() or text
     clone_on_twin = routed.handler == HANDLER_CLONE and routed.execution == ROUTE_TWIN
@@ -406,6 +498,8 @@ async def run_owner_turn(
             specialist_id=specialist_id,
             specialist_name=specialist_name,
             handoff=handoff,
+            assignment=None,
+            approval=None,
         )
         if summarise:
             try:

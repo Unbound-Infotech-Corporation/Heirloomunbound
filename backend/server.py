@@ -35,6 +35,8 @@ from db_indexes import ensure_indexes
 from routers import (
     archive,
     abilities,
+    approvals,
+    assignments,
     assistants,
     auth,
     photo_story,
@@ -182,6 +184,8 @@ api_router.include_router(heir_portal.router)
 api_router.include_router(personality.router)
 api_router.include_router(personas.router)
 api_router.include_router(assistants.router)
+api_router.include_router(assignments.router)
+api_router.include_router(approvals.router)
 api_router.include_router(vr_setup.router)
 api_router.include_router(rooms.router)
 api_router.include_router(phone.router)

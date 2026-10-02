@@ -5,6 +5,7 @@ import {
   Box,
   Brain,
   Camera,
+  ClipboardList,
   Cpu,
   Database,
   Feather,
@@ -50,6 +51,7 @@ const navItems = [
   { to: "/sources", label: "Sources", icon: Database, tid: "nav-sources" },
   { to: "/import", label: "Import", icon: Upload, tid: "nav-import" },
   { to: "/owner", label: "Sit", icon: MessageCircle, tid: "nav-owner" },
+  { to: "/assignments", label: "Assignments", icon: ClipboardList, tid: "nav-assignments" },
   { to: "/twin", label: "Talk to twin", icon: Sparkles, tid: "nav-twin" },
   { to: "/memory", label: "Memory", icon: Brain, tid: "nav-memory" },
   { to: "/mixer", label: "Mixer", icon: Volume2, tid: "nav-mixer" },
@@ -79,6 +81,8 @@ const WINDOW_TITLES = {
   "/sources": "Sources",
   "/import": "Import",
   "/owner": "Sit",
+  "/assignments": "Assignments",
+  "/assignments/new": "New assignment",
   "/twin": "Twin",
   "/memory": "Memory Studio",
   "/mixer": "Mixer",
@@ -211,6 +215,7 @@ export default function AppLayout() {
 
   const title =
     WINDOW_TITLES[location.pathname] ||
+    (location.pathname.startsWith("/assignments") ? "Assignments" : null) ||
     (location.pathname.startsWith("/rooms/") ? "Room" : "Heirloom");
   const menuCtx = useMemo(
     () => ({
