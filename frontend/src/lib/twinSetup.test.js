@@ -1,4 +1,4 @@
-import { coachShouldShow, remainingCritical, stepById } from "./twinSetup";
+import { coachShouldShow, remainingCritical, stepById, stepIndexFromHash } from "./twinSetup";
 
 const incomplete = {
   remaining_critical: 2,
@@ -43,5 +43,25 @@ describe("twin setup coach visibility", () => {
   test("finds the likeness step", () => {
     expect(stepById(incomplete, "likeness")?.critical).toBe(true);
     expect(stepById(incomplete, "nope")).toBeNull();
+  });
+});
+
+const SETUP_IDS = ["welcome", "space", "email", "voice", "likeness", "phone", "done", "keys"];
+
+describe("first-run hash step", () => {
+  test("welcome is step 0, not skipped", () => {
+    expect(stepIndexFromHash("#welcome", SETUP_IDS)).toBe(0);
+    expect(stepIndexFromHash("welcome", SETUP_IDS)).toBe(0);
+  });
+
+  test("voice and likeness hashes resolve", () => {
+    expect(stepIndexFromHash("#voice", SETUP_IDS)).toBe(3);
+    expect(stepIndexFromHash("#likeness", SETUP_IDS)).toBe(4);
+  });
+
+  test("empty and unknown hashes do not select a step", () => {
+    expect(stepIndexFromHash("", SETUP_IDS)).toBeNull();
+    expect(stepIndexFromHash("#", SETUP_IDS)).toBeNull();
+    expect(stepIndexFromHash("#nope", SETUP_IDS)).toBeNull();
   });
 });
