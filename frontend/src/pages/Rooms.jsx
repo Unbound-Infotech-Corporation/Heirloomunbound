@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowRight, Box, Headset, Loader2, Upload } from "lucide-react";
 import { api } from "../lib/api";
@@ -152,14 +152,14 @@ export function RoomEditor({ roomId }) {
   const fileRef = useRef(null);
   const navigate = useNavigate();
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const { data } = await api.get(`/rooms/${roomId}`);
     setRoom(data);
-  };
+  }, [roomId]);
 
   useEffect(() => {
     load().catch(() => setError("Couldn't load this room."));
-  }, [roomId]);
+  }, [load]);
 
   const onFiles = async (list) => {
     const files = Array.from(list || []);

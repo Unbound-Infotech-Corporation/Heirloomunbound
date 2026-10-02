@@ -22,3 +22,12 @@ export function coachShouldShow(progress, { dismissedOverride } = {}) {
 export function stepById(progress, id) {
   return (progress?.steps || []).find((s) => s.id === id) || null;
 }
+
+/** Index of a setup step named by the URL hash. Empty or unknown hashes return null. */
+export function stepIndexFromHash(hash, stepIds) {
+  const id = String(hash || "").replace(/^#/, "");
+  if (!id) return null;
+  const ids = Array.isArray(stepIds) ? stepIds : [];
+  const i = ids.indexOf(id);
+  return i >= 0 ? i : null;
+}

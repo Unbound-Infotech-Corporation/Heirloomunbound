@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, API_BASE } from "../lib/api";
-import { notifyTwinSetupChanged, stepById } from "../lib/twinSetup";
+import { notifyTwinSetupChanged, stepById, stepIndexFromHash } from "../lib/twinSetup";
 import { StudioFieldRow, StudioPanel, VendorCoach } from "../components/studio";
 import { openCoachStep } from "../components/studio/VendorHandoff";
 import { SetupExampleRow } from "../components/studio/SetupIllustrations";
@@ -24,17 +24,13 @@ const LIKENESS_ANGLES = [
   { id: "right", exampleId: "profile", label: "Profile" },
 ];
 
-function stepIndexFromHash(hash) {
-  const id = (hash || "").replace("#", "");
-  const i = STEPS.findIndex((s) => s.id === id);
-  return i >= 0 ? i : 0;
-}
+const STEP_IDS = STEPS.map((s) => s.id);
 
 export default function FirstRunSetup() {
   const navigate = useNavigate();
   const location = useLocation();
   const [data, setData] = useState(null);
-  const [step, setStep] = useState(() => stepIndexFromHash(window.location.hash));
+  const [step, setStep] = useState(() => stepIndexFromHash(window.location.hash, STEP_IDS) ?? 0);
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
   const [pair, setPair] = useState(null);
@@ -57,8 +53,8 @@ export default function FirstRunSetup() {
   }, [load]);
 
   useEffect(() => {
-    const i = stepIndexFromHash(location.hash);
-    if (i) setStep(i);
+    const i = stepIndexFromHash(location.hash, STEP_IDS);
+    if (i !== null) setStep(i);
   }, [location.hash]);
 
   const save = async (patch) => {
