@@ -33,6 +33,15 @@ public sealed class HeirloomApiClient
     public Task<JsonElement?> DeleteAsync(string path, CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Delete, path, null, useDevice: true, cancellationToken);
 
+    public Task<JsonElement?> ListAssignmentsAsync(CancellationToken cancellationToken = default) =>
+        GetSessionAsync(AssignmentCore.ListPath, cancellationToken);
+
+    public Task<JsonElement?> ListPendingApprovalsAsync(CancellationToken cancellationToken = default) =>
+        GetSessionAsync(AssignmentCore.ApprovalsPath, cancellationToken);
+
+    public Task<JsonElement?> DecideApprovalAsync(string approvalId, bool approve, CancellationToken cancellationToken = default) =>
+        PostSessionAsync(AssignmentCore.ApprovalPath(approvalId, approve), new { }, cancellationToken);
+
     public Task<JsonElement?> GetSessionAsync(string path, CancellationToken cancellationToken = default) =>
         SendAsync(HttpMethod.Get, path, null, useDevice: false, cancellationToken);
 

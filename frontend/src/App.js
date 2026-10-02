@@ -34,6 +34,7 @@ import FirstGift from "@/pages/FirstGift";
 import MagicLink from "@/pages/MagicLink";
 import Personality from "@/pages/Personality";
 import Memory from "@/pages/Memory";
+import Assignments, { AssignmentNew } from "@/pages/Assignments";
 import Buy from "@/pages/Buy";
 import BuySuccess from "@/pages/BuySuccess";
 import Today from "@/pages/Today";
@@ -121,6 +122,9 @@ function AppRouter() {
         <Route path="/first-gift" element={<FirstGift />} />
         <Route path="/personality" element={<Personality />} />
         <Route path="/memory" element={<Memory />} />
+        <Route path="/assignments/new" element={<AssignmentNew />} />
+        <Route path="/assignments" element={<Assignments />} />
+        <Route path="/assignments/:assignmentId" element={<Assignments />} />
         <Route path="/studio/memory" element={<Navigate to="/memory" replace />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/avatar-studio" element={<AvatarStudio />} />
