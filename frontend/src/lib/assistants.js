@@ -69,6 +69,39 @@ export function speakerLabel(message, clones) {
   return "you (the twin)";
 }
 
+export const AUTONOMY_ASK = "ask";
+export const AUTONOMY_ACT = "act";
+
+export function autonomyOf(clone) {
+  return String(clone?.autonomy || AUTONOMY_ASK).trim().toLowerCase() === AUTONOMY_ACT
+    ? AUTONOMY_ACT
+    : AUTONOMY_ASK;
+}
+
+export function abilitiesOf(clone) {
+  if (!clone || !Array.isArray(clone.abilities)) return [];
+  return clone.abilities.filter((id) => typeof id === "string" && id.trim());
+}
+
+/** Quiet chip for a main-bot handoff. Falls back to the older rail chip. */
+export function handoffChip(handoff, message) {
+  const source = handoff || message?.handoff || null;
+  const chip = String(source?.chip || "").trim();
+  if (chip) return chip;
+  const handler = String(source?.handler || "").trim().toLowerCase();
+  if (handler === "clone") {
+    const name = source?.clone_name || message?.specialist_name || "Clone";
+    return `Clone: ${name}`;
+  }
+  if (handler === "assist") return "Do";
+  if (handler === "twin") return "Twin";
+  return String(message?.rail_chip || "").trim();
+}
+
+export function handoffReason(handoff) {
+  return String(handoff?.reason || "").trim();
+}
+
 export function isPcSpecialist(clone) {
   if (!clone) return false;
   if (String(clone.speak_as || "").toLowerCase() === "assist") return true;

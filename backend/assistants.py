@@ -43,6 +43,57 @@ KNOWN_TOOLS: tuple[dict[str, str], ...] = (
 
 KNOWN_TOOL_IDS = frozenset(t["id"] for t in KNOWN_TOOLS)
 
+# Ability ids from abilities.ABILITIES. Kept here so clone routing stays
+# importable without Mongo. PC abilities never grant tools on a Twin leg.
+ABILITY_IDS: tuple[str, ...] = (
+    "web",
+    "music",
+    "smart_home",
+    "pc_control",
+    "screen_vision",
+    "terminal",
+    "phone",
+)
+ABILITY_ID_SET = frozenset(ABILITY_IDS)
+PC_ABILITY_IDS = frozenset({"pc_control", "screen_vision", "terminal"})
+
+ABILITY_TOOLS: dict[str, tuple[str, ...]] = {
+    "web": ("web_search", "web_fetch", "get_weather"),
+    "music": (),
+    "smart_home": ("run_skill",),
+    "pc_control": (
+        "open_on_pc",
+        "control_media",
+        "set_volume",
+        "power_action",
+        "notify_on_pc",
+        "type_text",
+        "clipboard",
+        "system_status",
+        "find_file",
+    ),
+    "screen_vision": ("see_screen",),
+    "terminal": ("run_command",),
+    "phone": (),
+}
+TOOL_TO_ABILITY: dict[str, str] = {
+    tool: ability for ability, tools in ABILITY_TOOLS.items() for tool in tools
+}
+
+ABILITY_CATALOG: tuple[dict[str, str], ...] = (
+    {"id": "web", "label": "Web & weather"},
+    {"id": "music", "label": "Music"},
+    {"id": "smart_home", "label": "Smart home"},
+    {"id": "pc_control", "label": "PC control"},
+    {"id": "screen_vision", "label": "Screen"},
+    {"id": "terminal", "label": "Terminal"},
+    {"id": "phone", "label": "Phone"},
+)
+
+AUTONOMY_ASK = "ask"
+AUTONOMY_ACT = "act"
+AUTONOMY_VALUES = frozenset({AUTONOMY_ASK, AUTONOMY_ACT})
+
 MENTION_RE = re.compile(r"^@([A-Za-z0-9][\w-]{0,47})\b[:,]?\s*", re.UNICODE)
 
 DEFAULT_ASSISTANTS: tuple[dict[str, Any], ...] = (
@@ -51,6 +102,8 @@ DEFAULT_ASSISTANTS: tuple[dict[str, Any], ...] = (
         "name": "Research",
         "role": "Look things up. Web, weather, and public pages — never invent biography.",
         "tools_allowlist": ["web_search", "web_fetch", "get_weather", "search_archive"],
+        "abilities": ["web"],
+        "autonomy": "ask",
         "enabled": True,
         "speak_as": "specialist",
     },
@@ -59,6 +112,8 @@ DEFAULT_ASSISTANTS: tuple[dict[str, Any], ...] = (
         "name": "Archive",
         "role": "Search what is already filed. Reminders. No PC control.",
         "tools_allowlist": ["search_archive", "set_reminder", "list_recent_memories"],
+        "abilities": [],
+        "autonomy": "ask",
         "enabled": True,
         "speak_as": "specialist",
     },
@@ -67,6 +122,8 @@ DEFAULT_ASSISTANTS: tuple[dict[str, Any], ...] = (
         "name": "Letters",
         "role": "Help draft and think about sealed letters. No PC tools. The twin stays the person.",
         "tools_allowlist": ["search_archive", "list_recent_memories"],
+        "abilities": [],
+        "autonomy": "ask",
         "enabled": True,
         "speak_as": "specialist",
     },
@@ -87,10 +144,78 @@ DEFAULT_ASSISTANTS: tuple[dict[str, Any], ...] = (
             "run_command",
             "search_archive",
         ],
+        "abilities": ["pc_control", "screen_vision", "terminal"],
+        "autonomy": "ask",
         "enabled": True,
         "speak_as": "assist",
     },
 )
+
+
+def clean_abilities(raw: Optional[list], *, tools: Optional[list] = None) -> list[str]:
+    """Keep known ability ids. Tool ids map onto their ability. Unknown ids drop.
+
+    Pass raw=None to derive abilities from a tool allowlist (older clones).
+    An explicit empty list stays empty — it does not fall back to tools.
+    """
+    source: list
+    if raw is None:
+        source = []
+        for tool in tools or []:
+            ability = TOOL_TO_ABILITY.get(str(tool or "").strip())
+            if ability:
+                source.append(ability)
+    else:
+        source = list(raw)
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in source:
+        key = str(item or "").strip().lower()
+        mapped = TOOL_TO_ABILITY.get(key)
+        if mapped:
+            key = mapped
+        if key not in ABILITY_ID_SET or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+        if len(out) >= 12:
+            break
+    return out
+
+
+def clean_autonomy(raw: Optional[str]) -> str:
+    """'ask' is the only behavior this slice enforces. 'act' is stored for later."""
+    key = str(raw or "").strip().lower()
+    if key == AUTONOMY_ACT:
+        return AUTONOMY_ACT
+    return AUTONOMY_ASK
+
+
+def clone_abilities(clone: Optional[dict]) -> list[str]:
+    """Declared abilities, or the set implied by tools_allowlist when unset."""
+    if not clone:
+        return []
+    if clone.get("abilities") is not None:
+        return clean_abilities(clone.get("abilities"))
+    return clean_abilities(None, tools=clone.get("tools_allowlist"))
+
+
+def clone_autonomy(clone: Optional[dict]) -> str:
+    if not clone:
+        return AUTONOMY_ASK
+    return clean_autonomy(clone.get("autonomy"))
+
+
+def tools_for_ability_ids(ability_ids: Optional[list]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for ability in clean_abilities(ability_ids):
+        for tool in ABILITY_TOOLS.get(ability, ()):
+            if tool in seen or tool not in KNOWN_TOOL_IDS:
+                continue
+            seen.add(tool)
+            out.append(tool)
+    return out
 
 
 def clean_tools(raw: Optional[list]) -> list[str]:
@@ -107,8 +232,14 @@ def clean_tools(raw: Optional[list]) -> list[str]:
     return out
 
 
-def speak_as_for_tools(tools: list[str], requested: Optional[str] = None) -> str:
-    if set(tools) & PC_TOOL_NAMES:
+def speak_as_for_tools(
+    tools: list[str],
+    requested: Optional[str] = None,
+    abilities: Optional[list] = None,
+) -> str:
+    if set(tools or []) & PC_TOOL_NAMES:
+        return "assist"
+    if abilities is not None and set(clean_abilities(abilities)) & PC_ABILITY_IDS:
         return "assist"
     req = (requested or "").strip().lower()
     if req == "assist":
@@ -119,14 +250,17 @@ def speak_as_for_tools(tools: list[str], requested: Optional[str] = None) -> str
 def chat_role_for_specialist(assistant: Optional[dict]) -> str:
     """Map a specialist onto twin_runtime role=twin|assistant.
 
-    PC / Assist specialists use the copilot role (PC tools allowed).
-    Everyone else stays on the Twin leg so heirs and the gift voice stay clean.
+    PC / Assist specialists use the copilot role (PC tools allowed only on
+    that leg). Everyone else stays on the Twin leg so heirs and the gift
+    voice stay clean. Declared PC abilities follow the same Assist leg.
     """
     if not assistant:
         return "twin"
     if (assistant.get("speak_as") or "").strip().lower() == "assist":
         return "assistant"
     if set(assistant.get("tools_allowlist") or []) & PC_TOOL_NAMES:
+        return "assistant"
+    if set(clone_abilities(assistant)) & PC_ABILITY_IDS:
         return "assistant"
     return "twin"
 
@@ -145,6 +279,11 @@ def filter_tools_for_specialist(enabled_tools: set[str], assistant: Optional[dic
     role = chat_role_for_specialist(assistant)
     if allow:
         names &= allow
+    elif assistant.get("abilities"):
+        # A non-empty ability list with no tool allowlist grants only those
+        # ability tools. It does not widen into the full Assist toolkit.
+        # An empty ability list keeps the old empty-allowlist behavior.
+        names &= set(tools_for_ability_ids(assistant.get("abilities")))
     if role != "assistant":
         names -= PC_TOOL_NAMES
         names.discard("save_memory")
@@ -176,6 +315,7 @@ def specialist_prompt_block(assistant: dict, owner_name: str) -> str:
         f"The twin is the person — you are not them. Do not speak in first person as {who}. "
         f"Do not invent biography, dates, or family facts. "
         f"Stay inside your job: {role or 'help with this specialty.'}\n"
+        f"Do not speak in the twin's first person. Do not speak as {who}.\n"
         f"If the question is really for the twin's own voice (memory, feeling, a story), "
         f"say so plainly so they can ask the twin.\n"
         f"Tools you may use this turn: {tools}\n"
@@ -196,8 +336,14 @@ def mention_from_text(text: str) -> tuple[Optional[str], str]:
     return m.group(1), src[m.end() :]
 
 
-def match_assistant(assistants: list[dict], *, assistant_id: Optional[str] = None, mention: Optional[str] = None) -> Optional[dict]:
-    enabled = [a for a in assistants if a.get("enabled") is not False]
+def match_assistant(
+    assistants: list[dict],
+    *,
+    assistant_id: Optional[str] = None,
+    mention: Optional[str] = None,
+    include_disabled: bool = False,
+) -> Optional[dict]:
+    enabled = list(assistants) if include_disabled else [a for a in assistants if a.get("enabled") is not False]
     if assistant_id:
         for a in enabled:
             if a.get("clone_id") == assistant_id or a.get("assistant_id") == assistant_id:
@@ -257,6 +403,15 @@ def public_assistant(doc: dict) -> dict:
     if cid:
         out["clone_id"] = cid
         out["assistant_id"] = cid
+    if not str(out.get("role") or "").strip():
+        out["role"] = ""
+    else:
+        out["role"] = str(out.get("role") or "").strip()[:400]
+    if out.get("abilities") is None:
+        out["abilities"] = clean_abilities(None, tools=out.get("tools_allowlist"))
+    else:
+        out["abilities"] = clean_abilities(out.get("abilities"))
+    out["autonomy"] = clean_autonomy(out.get("autonomy"))
     return out
 
 

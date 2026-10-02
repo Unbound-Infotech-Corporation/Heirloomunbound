@@ -141,6 +141,9 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 - [x] Memory Studio v1 on web (`/memory`) — facts, pairing, fence, standing routines; heirs excluded.
 - [x] Standing Twin routines (morning brief / weekly biographer / sealed-letter nudge) — skip-when-empty, owner-only.
 - [ ] WinUI Memory Studio document — deferred (web `/memory` is the owner edit surface).
+- [x] Main bot routing — Twin answers, one Clone, or Assist; explicit `@` / `clone_id` wins; handoff receipt persisted; heir fence holds.
+- [ ] Assignments, approve-before-send, connectors, per-Clone routines, per-Clone memory, Clone-to-Clone messaging — not built.
+- [ ] WinUI Clones document — deferred (web Clones panel shows role).
 
 ## Ship order
 
@@ -149,7 +152,46 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 3. **Slice 3** — close-loop receipts so a Do leaves a visible result (web Sit shipped; WinUI Owner document still follow-up).
 4. **Slice 4** — remember + heir-fence audit once the prompts have settled.
 
-Do not give heirs owner mode, pairing productivity, standing routines, or PC tools.
+Do not give heirs owner mode, pairing productivity, standing routines, main-bot routing, Clones, or PC tools.
+
+## Main bot routing
+
+**This pass.** The Twin is the main bot. Every other assistant is a Clone: an owner-managed specialist under the Twin. One owner Sit turn, with no explicit clone, is routed by the Twin:
+
+| Decision | When | Chip |
+|---|---|---|
+| Twin answers | Unclear, or the turn is the person's own voice | `Twin` |
+| One Clone | Best match on name, role, and declared abilities | `Clone: Research` |
+| Assist | Existing Do / both classifier (the PC leg) | `Do` or `Do + As you` |
+
+Explicit `@CloneName` or `clone_id` always wins, including over a PC phrase. A disabled or unknown id stays with the Twin. Heirs, callers, and `heir_surface` never enter the router (`resolve_chat_mode` / `owner_mode_allowed`).
+
+The response carries a handoff receipt and the owner conversation stores it: `handler` (`twin` / `clone` / `assist`), a one-line `reason`, and the Twin's short first-person `close_loop`. Clones run on the Twin leg unless they are the PC / Assist specialist, in which case the turn uses the Assist leg. Clones never receive `pc_control`, `screen_vision`, or `terminal` on a Twin leg. The Twin does not speak as a Clone. A Clone does not speak as the owner. Assist stays never-first-person.
+
+Clone documents gain optional fields (defaults, non-breaking):
+
+| Field | Default | This slice |
+|---|---|---|
+| `role` | `""` | One line. Shown in the Clones panel. Used for matching. |
+| `abilities` | derived from `tools_allowlist` | Ability ids from the existing catalog (`web`, `music`, `smart_home`, `pc_control`, `screen_vision`, `terminal`, `phone`). |
+| `autonomy` | `ask` | `ask` or `act`. Stored only. `act` is not enforced. |
+
+Heuristic routing is the default. `LlmMainBotClassifier` is the extension point for a cheap model; it is not called unless a `complete` hook is injected, and it cannot grant the Assist / PC leg.
+
+WinUI has no Clones document yet (still deferred with Memory Studio). Role is edited on the web Clones panel.
+
+### ROADMAP
+
+Later slices. **Not built.**
+
+| Slice | Status |
+|---|---|
+| Assignments / background jobs | not built |
+| Approve-before-send | not built |
+| Connectors (email, calendar, Slack) | not built |
+| Routines owned by a Clone | not built. Standing Twin routines already exist and are not per-clone. |
+| Per-Clone memory | not built |
+| Clone-to-Clone messaging | not built |
 
 ## Unbound Phase 1 — Rooms + clones
 

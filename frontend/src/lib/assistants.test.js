@@ -1,5 +1,9 @@
 import {
+  abilitiesOf,
+  autonomyOf,
   cloneIdOf,
+  handoffChip,
+  handoffReason,
   isPcSpecialist,
   matchAssistant,
   parseAssistantMention,
@@ -57,6 +61,22 @@ describe("Twin clones", () => {
     expect(isPcSpecialist(CLONES[1])).toBe(true);
     expect(isPcSpecialist(CLONES[0])).toBe(false);
     expect(slugifyAssistant("Letters & notes")).toBe("letters-notes");
+  });
+
+  test("handoff chip names twin, clone, or assist", () => {
+    expect(handoffChip({ handler: "twin", chip: "Twin", reason: "No specialist was a clear match." })).toBe("Twin");
+    expect(handoffChip({ handler: "clone", chip: "Clone: Research", clone_name: "Research" })).toBe("Clone: Research");
+    expect(handoffChip({ handler: "assist", chip: "Do" })).toBe("Do");
+    expect(handoffChip(null, { rail_chip: "As you" })).toBe("As you");
+    expect(handoffReason({ reason: "You asked for Research." })).toBe("You asked for Research.");
+  });
+
+  test("clone shape defaults stay ask and optional abilities", () => {
+    expect(autonomyOf({})).toBe("ask");
+    expect(autonomyOf({ autonomy: "act" })).toBe("act");
+    expect(autonomyOf({ autonomy: "nope" })).toBe("ask");
+    expect(abilitiesOf({ abilities: ["web", "pc_control"] })).toEqual(["web", "pc_control"]);
+    expect(abilitiesOf({})).toEqual([]);
   });
 
   test("speaker label prefers specialist_name", () => {

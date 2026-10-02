@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../lib/api";
-import { cloneIdOf } from "../../lib/assistants";
+import { autonomyOf, cloneIdOf } from "../../lib/assistants";
 
-const EMPTY = { name: "", role: "", tools_allowlist: [] };
+const EMPTY = { name: "", role: "", tools_allowlist: [], autonomy: "ask" };
 
 export default function AssistantsPanel({ testid = "clones-panel" }) {
   const [clones, setClones] = useState([]);
@@ -27,6 +27,7 @@ export default function AssistantsPanel({ testid = "clones-panel" }) {
         name: draft.name.trim(),
         role: draft.role,
         tools_allowlist: draft.tools_allowlist,
+        autonomy: draft.autonomy || "ask",
         enabled: true,
       });
       setDraft(EMPTY);
@@ -71,8 +72,8 @@ export default function AssistantsPanel({ testid = "clones-panel" }) {
       <div className="overline mb-2">clones under the twin</div>
       <h2 className="font-serif text-2xl mb-2">Clones, not a second person</h2>
       <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
-        The twin stays the person. Clones are named specialists you can pick or @mention —
-        research, letters, archive, PC. PC tools still belong to Assist. Heirs never see this list.
+        The twin is the main bot. Clones are specialists it can hand work to — by name, role,
+        or what they're allowed to do. PC tools still belong to Assist. Heirs never see this list.
       </p>
 
       <div className="space-y-3 mb-6" data-testid="clones-list">
@@ -114,11 +115,40 @@ export default function AssistantsPanel({ testid = "clones-panel" }) {
                   </button>
                 </div>
               </div>
-              {a.role ? (
-                <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
-                  {a.role}
-                </p>
-              ) : null}
+              <label className="block text-xs mt-3" style={{ color: "var(--text-muted)" }}>
+                Role
+                <textarea
+                  defaultValue={a.role || ""}
+                  aria-label={`Role for ${a.name}`}
+                  data-testid={`clone-role-${a.slug}`}
+                  rows={2}
+                  className="mt-1 w-full px-3 py-1.5 text-sm rounded-sm"
+                  style={{ background: "var(--bg-base)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                  onBlur={(e) => {
+                    const next = e.target.value.trim();
+                    if (next !== (a.role || "")) patch(id, { role: next });
+                  }}
+                />
+              </label>
+              <div className="flex flex-wrap items-center gap-2 mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                <span data-testid={`clone-abilities-${a.slug}`}>
+                  {(a.abilities || []).length ? a.abilities.join(", ") : "no declared abilities"}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span data-testid={`clone-autonomy-${a.slug}`}>
+                  {autonomyOf(a) === "act" ? "Act later" : "Ask"}
+                </span>
+                <button
+                  type="button"
+                  data-testid={`clone-autonomy-toggle-${a.slug}`}
+                  title="Stored for a later slice. Ask is the only behavior today."
+                  onClick={() => patch(id, { autonomy: autonomyOf(a) === "act" ? "ask" : "act" })}
+                  className="px-2 py-0.5 rounded-sm"
+                  style={{ border: "1px solid var(--border-default)" }}
+                >
+                  {autonomyOf(a) === "act" ? "Use ask" : "Store act"}
+                </button>
+              </div>
               <input
                 defaultValue={a.name}
                 aria-label={`Rename ${a.name}`}
@@ -172,6 +202,19 @@ export default function AssistantsPanel({ testid = "clones-panel" }) {
               </button>
             );
           })}
+        </div>
+        <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
+          <span>Autonomy</span>
+          <button
+            type="button"
+            data-testid="clone-new-autonomy"
+            title="Ask is the default. Act is stored for a later slice and is not enforced yet."
+            onClick={() => setDraft((d) => ({ ...d, autonomy: d.autonomy === "act" ? "ask" : "act" }))}
+            className="px-2 py-1 rounded-sm"
+            style={{ border: "1px solid var(--border-default)" }}
+          >
+            {draft.autonomy === "act" ? "Act (stored, not enforced)" : "Ask (default)"}
+          </button>
         </div>
         <button
           type="button"

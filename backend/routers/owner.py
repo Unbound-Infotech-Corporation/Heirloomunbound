@@ -1,7 +1,7 @@
 """Owner rail chat — session-auth teammate entry (web).
 
-Heirs use the portal, not this router. One composer; server classifies
-each turn to Assist (Do) and/or Twin (As you).
+Heirs use the portal, not this router. One composer; the Twin routes
+each turn to itself, one Clone, or Assist (Do).
 """
 from __future__ import annotations
 
