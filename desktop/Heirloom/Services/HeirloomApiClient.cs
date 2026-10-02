@@ -36,6 +36,12 @@ public sealed class HeirloomApiClient
     public Task<JsonElement?> ListAssignmentsAsync(CancellationToken cancellationToken = default) =>
         GetSessionAsync(AssignmentCore.ListPath, cancellationToken);
 
+    public Task<JsonElement?> ListConnectorsAsync(CancellationToken cancellationToken = default) =>
+        GetSessionAsync(ConnectorCore.ListPath, cancellationToken);
+
+    public Task<JsonElement?> ConnectorStatusAsync(CancellationToken cancellationToken = default) =>
+        GetSessionAsync(ConnectorCore.StatusPath, cancellationToken);
+
     public Task<JsonElement?> ListPendingApprovalsAsync(CancellationToken cancellationToken = default) =>
         GetSessionAsync(AssignmentCore.ApprovalsPath, cancellationToken);
 

@@ -34,7 +34,7 @@ export const PRESETS = [
     label: "Triage email",
     title: "Triage email",
     goal: "Read what the owner pointed at and draft a short triage: what needs a reply, what can wait, and what to leave alone.",
-    scope: "Heirloom only. Draft replies. Do not send email.",
+    scope: "Connected mailbox. Read and draft replies. Do not send email.",
     autonomy: "draft",
   },
   {
@@ -42,7 +42,7 @@ export const PRESETS = [
     label: "Summarize thread",
     title: "Summarize thread",
     goal: "Summarize the thread into a short note the owner can act on.",
-    scope: "Read the thread. Write a summary artifact. Do not reply, post, or send.",
+    scope: "Read the connected mailbox thread. Write a summary artifact. Do not reply, post, or send.",
     autonomy: "draft",
   },
   {

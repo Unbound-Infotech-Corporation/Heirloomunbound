@@ -11,6 +11,7 @@ import {
   statusIsOpen,
   statusLabel,
 } from "../lib/assignments";
+import { connectorNotice } from "../lib/connectors";
 
 export default function Assignments() {
   const { assignmentId } = useParams();
@@ -118,7 +119,22 @@ export function AssignmentNew() {
   const [autonomy, setAutonomy] = useState("draft");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [connectorStatus, setConnectorStatus] = useState(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/connectors/status")
+      .then(({ data }) => {
+        if (!cancelled) setConnectorStatus(data);
+      })
+      .catch(() => {
+        if (!cancelled) setConnectorStatus({ connectors: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const applyPreset = (id) => {
     const filled = presetPrefill(id);
@@ -150,6 +166,8 @@ export function AssignmentNew() {
     }
   };
 
+  const mailbox = connectorNotice(preset, connectorStatus);
+
   return (
     <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl" data-testid="assignment-new">
       <header className="mb-8">
@@ -176,6 +194,11 @@ export function AssignmentNew() {
           </button>
         ))}
       </div>
+      {mailbox.message ? (
+        <p className="mb-4 text-sm" data-testid="assignment-connector-state" style={{ color: "var(--text-secondary)" }}>
+          {mailbox.message}
+        </p>
+      ) : null}
       <div className="surface p-6 space-y-4">
         <Field label="Title" value={title} onChange={setTitle} testid="assignment-title" />
         <Field label="Goal" value={goal} onChange={setGoal} testid="assignment-goal" multiline />

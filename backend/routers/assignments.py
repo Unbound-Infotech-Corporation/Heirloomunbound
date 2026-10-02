@@ -50,7 +50,14 @@ def _store() -> MongoAssignmentStore:
     return MongoAssignmentStore()
 
 
-def _executor():
+async def _executor_for(user_id: str, preset: Optional[str]):
+    from email_intent import EMAIL_PRESETS
+
+    if (preset or "") in EMAIL_PRESETS:
+        from connector_runtime import provider_for_user
+        from mail_provider import EmailAssignmentExecutor
+
+        return EmailAssignmentExecutor(await provider_for_user(user_id))
     from assignments import production_executor
 
     return production_executor()
@@ -124,8 +131,9 @@ async def create_assignment(payload: AssignmentCreate, user: dict = Depends(get_
             clone_id=clone_id,
             tasks=payload.tasks,
             now=_now(),
-            executor=_executor(),
+            executor=await _executor_for(user["user_id"], fields.get("preset")),
             connector=InMemoryConnector(),
+            preset=fields.get("preset") or "",
             clone_autonomy_value=autonomy_for_clone(clones, clone_id),
         )
     except (AssignmentError, IllegalTransition) as exc:
@@ -237,7 +245,7 @@ async def step(assignment_id: str, user: dict = Depends(get_current_user)):
     try:
         outcome = await run_assignment_step(
             doc,
-            executor=_executor(),
+            executor=await _executor_for(user["user_id"], doc.get("preset")),
             connector=InMemoryConnector(),
             now=_now(),
             clone_autonomy_value=autonomy_for_clone(clones, doc.get("clone_id")),

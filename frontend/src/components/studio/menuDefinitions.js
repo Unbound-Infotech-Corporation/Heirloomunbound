@@ -264,6 +264,7 @@ const ROUTE_MENUS = {
       label: "Settings",
       items: [
         { label: "Credentials", onClick: go(ctx.navigate, "/models"), hint: "inside each feature tab" },
+        { label: "Connectors…", onClick: go(ctx.navigate, "/settings"), hint: "email" },
         { label: "Clones…", onClick: go(ctx.navigate, "/settings") },
         { label: "Rooms…", onClick: go(ctx.navigate, "/rooms") },
         { label: "Memory Studio…", onClick: go(ctx.navigate, "/memory") },

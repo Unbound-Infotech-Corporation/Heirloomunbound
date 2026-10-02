@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Languages, Loader2, Music, Palette, Sparkles, Trash2, Upload, User, Video, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import ConnectorsSection from "../components/settings/ConnectorsSection";
 import HowWeWorkFields from "../components/memory/HowWeWorkFields";
 import SafeTopicsFields from "../components/memory/SafeTopicsFields";
 import StandingRoutinesFields from "../components/memory/StandingRoutinesFields";
@@ -303,6 +304,8 @@ export default function Settings() {
           <Row label="User ID" value={user?.user_id || "—"} mono />
         </div>
       </section>
+
+      <ConnectorsSection />
 
       <Link
         to="/memory"
