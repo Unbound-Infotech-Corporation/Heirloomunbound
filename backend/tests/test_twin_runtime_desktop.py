@@ -234,7 +234,7 @@ def test_compile_twin_prompt_owner_includes_pairing():
 def test_web_twin_uses_shared_builder_as_owner():
     path = Path(__file__).resolve().parents[1] / "routers" / "twin.py"
     src = path.read_text(encoding="utf-8")
-    assert "from twin_runtime import PC_ABILITY_IDS, build_twin_system, tools_for_turn" in src
+    assert "from twin_runtime import PC_ABILITY_IDS, build_assistant_system, build_twin_system, tools_for_turn" in src
     assert 'audience="owner"' in src
     assert "def _build_twin_system" not in src
     assert "tools_for_turn(\"twin\", twin_ids)" in src
