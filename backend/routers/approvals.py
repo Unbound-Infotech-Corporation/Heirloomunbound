@@ -10,12 +10,13 @@ from assignments import (
     ApprovalFinal,
     AssignmentError,
     IllegalTransition,
-    InMemoryConnector,
     assignments_allowed,
     decide_approval,
     public_approval,
     public_assignment,
 )
+from connector_runtime import connector_for_approval
+from mail_provider import MailAccessError
 from deps import get_current_user
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
@@ -54,8 +55,10 @@ async def _decide(user: dict, approval_id: str, decision: str) -> dict:
             assignment,
             decision,
             now=_now(),
-            connector=InMemoryConnector(),
+            connector=await connector_for_approval(user["user_id"], approval),
         )
+    except MailAccessError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ApprovalFinal as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (AssignmentError, IllegalTransition) as exc:

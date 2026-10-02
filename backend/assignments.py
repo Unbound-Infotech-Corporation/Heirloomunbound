@@ -2,8 +2,8 @@
 
 Approvals gate anything that would leave Heirloom (send, post, delete, spend).
 ``autonomy=act`` on a Clone or on the assignment does not bypass that gate.
-Connectors are an interface plus an in-memory fake. No real email, calendar,
-or Slack.
+Email reads and drafts go through the mailbox connector. ``send_message`` runs
+only after the owner approves. Calendar and Slack are not connectors yet.
 
 Pure: no Mongo, no clock, no network. Callers pass ``now`` and a store.
 """
@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping, Optional, Protocol, Sequence
 
 from assistants import clone_autonomy
+from email_intent import NOT_CONNECTED_REPLY, email_assignment_intent
 from owner_pairing import is_owner_audience
 
 STATUS_QUEUED = "queued"
@@ -141,7 +142,7 @@ class StepDraft:
 
 @dataclass(frozen=True)
 class ConnectorAction:
-    """What a connector would do. v1 has no live email/calendar/Slack."""
+    """Approved outbound work. Email sends go through EmailSendConnector."""
 
     action_kind: str
     summary: str
@@ -274,7 +275,7 @@ PRESETS: dict[str, dict[str, str]] = {
             "Read what the owner pointed at and draft a short triage: "
             "what needs a reply, what can wait, and what to leave alone."
         ),
-        "scope": "Heirloom only. Draft replies. Do not send email.",
+        "scope": "Connected mailbox. Read and draft replies. Do not send email.",
         "autonomy": AUTONOMY_DRAFT,
     },
     "summarize_thread": {
@@ -282,7 +283,7 @@ PRESETS: dict[str, dict[str, str]] = {
         "label": "Summarize thread",
         "title": "Summarize thread",
         "goal": "Summarize the thread into a short note the owner can act on.",
-        "scope": "Read the thread. Write a summary artifact. Do not reply, post, or send.",
+        "scope": "Read the connected mailbox thread. Write a summary artifact. Do not reply, post, or send.",
         "autonomy": AUTONOMY_DRAFT,
     },
     "blank": {
@@ -381,6 +382,8 @@ def should_open_assignment(
     """
     if fenced:
         return False
+    if email_assignment_intent(text or "") or email_assignment_intent(message or ""):
+        return True
     # A Clone handoff counts only when that handoff asks for background work.
     if handler == "clone" and _ASSIGNMENT_CUE.search(message or text or ""):
         return True
@@ -466,6 +469,7 @@ def new_assignment(
     now: str,
     tasks: Optional[Sequence[str]] = None,
     assignment_id: Optional[str] = None,
+    preset: str = "",
 ) -> dict[str, Any]:
     if not (user_id or "").strip():
         raise AssignmentError("Owner is required")
@@ -488,6 +492,7 @@ def new_assignment(
         "artifacts": [],
         "log": [],
         "tasks": task_rows,
+        "preset": (preset or "").strip()[:40],
         "created_at": now,
         "updated_at": now,
     }
@@ -508,6 +513,7 @@ def public_assignment(doc: Mapping[str, Any]) -> dict[str, Any]:
         "artifacts": list(doc.get("artifacts") or []),
         "log": list(doc.get("log") or []),
         "tasks": list(doc.get("tasks") or []),
+        "preset": doc.get("preset") or "",
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
     }
@@ -1008,6 +1014,7 @@ async def create_and_run(
     executor: AssignmentExecutor,
     connector: Connector,
     clone_autonomy_value: str = "ask",
+    preset: str = "",
 ) -> dict[str, Any]:
     doc = new_assignment(
         user_id=user_id,
@@ -1018,6 +1025,7 @@ async def create_and_run(
         clone_id=clone_id,
         now=now,
         tasks=tasks,
+        preset=preset,
     )
     await store.insert_assignment(doc)
     outcome = await run_assignment_step(
@@ -1030,11 +1038,23 @@ async def create_and_run(
     await store.replace_assignment(outcome.assignment)
     if outcome.approval:
         await store.insert_approval(outcome.approval)
+    receipt = receipt_line(outcome.assignment)
+    if _mentions_disconnected(outcome.assignment):
+        receipt = NOT_CONNECTED_REPLY
     return {
         "assignment": public_assignment(outcome.assignment),
         "approval": public_approval(outcome.approval) if outcome.approval else None,
-        "receipt": receipt_line(outcome.assignment),
+        "receipt": receipt,
     }
+
+
+def _mentions_disconnected(assignment: Mapping[str, Any]) -> bool:
+    chunks: list[str] = []
+    for row in assignment.get("log") or []:
+        chunks.append(str(row.get("line") or ""))
+    for art in assignment.get("artifacts") or []:
+        chunks.append(str(art.get("text") or ""))
+    return any(NOT_CONNECTED_REPLY in chunk for chunk in chunks)
 
 
 async def open_assignment_for_turn(
@@ -1050,6 +1070,8 @@ async def open_assignment_for_turn(
     store: Optional[AssignmentStore] = None,
     executor: Optional[AssignmentExecutor] = None,
     connector: Optional[Connector] = None,
+    mail_provider: Any = None,
+    resolve_mail: bool = True,
 ) -> Optional[dict[str, Any]]:
     """Router handoff. Returns a receipt payload, or None to stay in chat."""
     if not should_open_assignment(text, fenced=fenced, handler=handler, message=message):
@@ -1059,14 +1081,26 @@ async def open_assignment_for_turn(
         from assignment_store import MongoAssignmentStore
 
         active = MongoAssignmentStore()
-    goal = (message or text or "").strip()[:MAX_GOAL]
-    fields = resolve_create_fields(
-        preset=None,
-        title=title_from_request(text),
-        goal=goal,
-        scope="Heirloom workspace. Do not send, post, delete, or spend without approval.",
-        autonomy=AUTONOMY_DRAFT,
+    intent = None if fenced else (
+        email_assignment_intent(message or "") or email_assignment_intent(text or "")
     )
+    if intent:
+        fields = _email_turn_fields(intent, message or text or "")
+        active_executor = executor or await _email_executor(
+            user_id,
+            mail_provider=mail_provider,
+            resolve_mail=resolve_mail,
+        )
+    else:
+        goal = (message or text or "").strip()[:MAX_GOAL]
+        fields = resolve_create_fields(
+            preset=None,
+            title=title_from_request(text),
+            goal=goal,
+            scope="Heirloom workspace. Do not send, post, delete, or spend without approval.",
+            autonomy=AUTONOMY_DRAFT,
+        )
+        active_executor = executor or production_executor()
     return await create_and_run(
         active,
         user_id=user_id,
@@ -1077,10 +1111,44 @@ async def open_assignment_for_turn(
         clone_id=clone_id,
         tasks=None,
         now=now,
-        executor=executor or production_executor(),
+        executor=active_executor,
         connector=connector or InMemoryConnector(),
         clone_autonomy_value=autonomy_for_clone(clones, clone_id),
+        preset=fields.get("preset") or "",
     )
+
+
+def _email_turn_fields(intent: str, text: str) -> dict[str, str]:
+    from email_intent import DRAFT_REPLY, SUMMARIZE_THREAD
+
+    if intent == SUMMARIZE_THREAD:
+        title = "Summarize thread"
+        scope = "Read the connected mailbox thread. Write a summary artifact. Do not reply, post, or send."
+    elif intent == DRAFT_REPLY:
+        title = "Draft a reply"
+        scope = "Connected mailbox. Save a draft reply. Sending needs an approval."
+    else:
+        title = "Triage email"
+        scope = "Connected mailbox. Read and draft replies. Do not send email."
+    goal = (text or "").strip()[:MAX_GOAL] or title
+    return {
+        "preset": intent,
+        "title": title,
+        "goal": goal,
+        "scope": scope,
+        "autonomy": AUTONOMY_DRAFT,
+    }
+
+
+async def _email_executor(user_id: str, *, mail_provider: Any, resolve_mail: bool) -> AssignmentExecutor:
+    provider = mail_provider
+    if provider is None and resolve_mail:
+        from connector_runtime import provider_for_user
+
+        provider = await provider_for_user(user_id)
+    from mail_provider import EmailAssignmentExecutor
+
+    return EmailAssignmentExecutor(provider)
 
 
 def production_executor() -> ChatAssignmentExecutor:

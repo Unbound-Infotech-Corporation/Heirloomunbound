@@ -60,6 +60,7 @@ async def ensure_indexes() -> None:
         ("approvals", [("user_id", 1), ("status", 1)], {"name": "user_status"}),
         ("approvals", [("approval_id", 1)], {"unique": True, "name": "approval_id_uniq"}),
         ("approvals", [("assignment_id", 1)], {"name": "assignment_id"}),
+        ("connectors", [("user_id", 1), ("provider", 1)], {"unique": True, "name": "user_provider"}),
         ("twin_assistants", [("user_id", 1)], {"name": "user_id"}),
         ("twin_assistants", [("assistant_id", 1)], {"unique": True, "name": "assistant_id_uniq"}),
         ("rooms", [("user_id", 1), ("created_at", -1)], {"name": "user_created"}),

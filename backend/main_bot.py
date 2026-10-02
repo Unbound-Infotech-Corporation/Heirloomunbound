@@ -13,9 +13,10 @@ Extension point: a ``MainBotClassifier`` may be a cheap LLM.
 Clone ``autonomy`` ``ask`` is the default. ``act`` may do internal assignment
 work without asking, and still cannot send, post, delete, or spend without
 an Approval. Background phrases ("assign", "in the background", "while I'm
-away") open an Assignment instead of answering in chat. Connectors,
-per-clone routines, per-clone memory, and Clone-to-Clone messaging are
-later slices.
+away") and mailbox phrases ("check my email", "draft a reply") open an
+Assignment instead of answering in chat. Email is the first connector.
+Calendar, Slack, per-clone routines, per-clone memory, and Clone-to-Clone
+messaging are later slices.
 """
 from __future__ import annotations
 

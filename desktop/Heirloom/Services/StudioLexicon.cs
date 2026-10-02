@@ -164,7 +164,7 @@ public static class StudioLexicon
                 "assistant", "twin", "heirs"),
             T("assignments", "Assignments", "term",
                 "A scoped job the Twin or a Clone does in the background and reports back on.",
-                "Web Sit can open an assignment when you say assign, in the background, or while I'm away. Send, post, delete, and spend wait on an approval card. Act does not skip that. The Windows list is not in this build — use the web Assignments page. Heirs never see these jobs.",
+                "Web Sit can open an assignment when you say assign, in the background, while I'm away, check my email, or draft a reply. Send, post, delete, and spend wait on an approval card. Act does not skip that. Mail is read through Settings > Connectors on the web. The Windows assignments list and connectors screen are not in this build. Heirs never see these jobs.",
                 "owner-rail", "twin", "heirs"),
             T("assistant", "Assist", "document",
                 "The copilot that uses this PC. Not the Twin. Never speaks as you.",

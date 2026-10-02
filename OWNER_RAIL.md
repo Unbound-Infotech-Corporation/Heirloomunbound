@@ -143,9 +143,11 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 - [ ] WinUI Memory Studio document — deferred (web `/memory` is the owner edit surface).
 - [x] Main bot routing — Twin answers, one Clone, or Assist; explicit `@` / `clone_id` wins; handoff receipt persisted; heir fence holds.
 - [x] Assignments v1 + approval card — scoped background jobs, legal statuses, approve-before-send for outbound work. See `ASSIGNMENTS.md`.
-- [ ] Connectors (real email, calendar, Slack), per-Clone routines, per-Clone memory, Clone-to-Clone messaging — not built.
+- [x] Email connector (IMAP/SMTP) — read and draft without approval; send is always an Approval. Gmail OAuth is not enabled. See `CONNECTORS.md`.
+- [ ] Calendar, Slack, per-Clone routines, per-Clone memory, Clone-to-Clone messaging — not built.
 - [ ] WinUI Clones document — deferred (web Clones panel shows role).
 - [ ] WinUI Assignments list — deferred (models + session client shipped; web `/assignments` is the owner surface).
+- [ ] WinUI Connectors screen — deferred (`ConnectorCore` paths only; web Settings → Connectors is the owner surface).
 
 ## Ship order
 
@@ -154,7 +156,7 @@ Remember working style across owner sessions when `remember_prefs` is on. Audit 
 3. **Slice 3** — close-loop receipts so a Do leaves a visible result (web Sit shipped; WinUI Owner document still follow-up).
 4. **Slice 4** — remember + heir-fence audit once the prompts have settled.
 
-Do not give heirs owner mode, pairing productivity, standing routines, main-bot routing, Clones, or PC tools.
+Do not give heirs owner mode, pairing productivity, standing routines, main-bot routing, Clones, connectors, or PC tools.
 
 ## Main bot routing
 
@@ -188,7 +190,7 @@ WinUI has no Clones document yet (still deferred with Memory Studio). Role is ed
 |---|---|
 | Assignments / background jobs | **v1 shipped** (web). Explicit phrase opens one job and replies with a receipt. WinUI list is follow-up. |
 | Approve-before-send | **spine shipped.** Outbound send / post / delete / spend creates an Approval. Nothing external runs until the owner approves. `act` does not bypass it. |
-| Connectors (email, calendar, Slack) | not built. `ConnectorAction` plus an in-memory fake only. |
+| Connectors | **Email shipped** (IMAP/SMTP, approval-gated send). Gmail OAuth is a disabled seam. Calendar and Slack are not built. See `CONNECTORS.md`. |
 | Routines owned by a Clone | not built. Standing Twin routines already exist and are not per-clone. |
 | Per-Clone memory | not built |
 | Clone-to-Clone messaging | not built |

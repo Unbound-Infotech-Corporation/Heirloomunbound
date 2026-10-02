@@ -103,14 +103,14 @@ public static class AssignmentCore
                 "Triage email",
                 "Triage email",
                 "Read what the owner pointed at and draft a short triage: what needs a reply, what can wait, and what to leave alone.",
-                "Heirloom only. Draft replies. Do not send email.",
+                "Connected mailbox. Read and draft replies. Do not send email.",
                 "draft"),
             "summarize_thread" => new Preset(
                 "summarize_thread",
                 "Summarize thread",
                 "Summarize thread",
                 "Summarize the thread into a short note the owner can act on.",
-                "Read the thread. Write a summary artifact. Do not reply, post, or send.",
+                "Read the connected mailbox thread. Write a summary artifact. Do not reply, post, or send.",
                 "draft"),
             _ => new Preset("blank", "Blank", "", "", "", "draft"),
         };

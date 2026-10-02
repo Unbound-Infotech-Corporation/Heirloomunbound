@@ -45,6 +45,7 @@ from routers import (
     billing,
     capture,
     companion,
+    connectors,
     dashboard,
     dashboard_extra,
     desktop,
@@ -186,6 +187,7 @@ api_router.include_router(personas.router)
 api_router.include_router(assistants.router)
 api_router.include_router(assignments.router)
 api_router.include_router(approvals.router)
+api_router.include_router(connectors.router)
 api_router.include_router(vr_setup.router)
 api_router.include_router(rooms.router)
 api_router.include_router(phone.router)

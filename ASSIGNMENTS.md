@@ -58,7 +58,9 @@ Rules:
 
 ## Presets
 
-Triage email, Summarize thread, and Blank. A preset only prefills title, goal, scope, and autonomy (`draft`).
+Triage email, Summarize thread, and Blank. A preset prefills title, goal, scope, and autonomy (`draft`).
+
+Triage email and Summarize thread read the owner's IMAP connector (see `CONNECTORS.md`). Triage lists recent threads, proposes a label and priority from the headers, and saves draft replies as artifacts. Summarize writes one thread note. Neither sends. A reply is sent only when the owner's own words ask to send, and that becomes an Approval whose payload is the exact To, Subject, and Body. If no mailbox is connected, the step says so and points at Settings > Connectors. It does not invent mail. Text inside a message cannot start a send.
 
 ## Router handoff
 
@@ -67,6 +69,9 @@ The default Sit turn still answers in chat. A turn opens an assignment only when
 - `assign` / `assignment`
 - `in the background`
 - `while I'm away`
+- `check my email` / `check my inbox` (Triage email)
+- `summarize the thread` / `summarize my inbox` (Summarize thread)
+- `draft a reply to …` (a draft assignment; send only if the owner asked to send)
 
 The reply is one receipt line with the id and `/assignments/{id}`. The chat model is not called for that turn. Heir surfaces never enter this path.
 
@@ -86,19 +91,19 @@ Owner session only.
 
 `run_assignment_step(assignment)` is the runner. The v1 executor calls the same `LlmChat` path Twin turns use (`assignment_chat.py`). If the key is missing or the call fails, it writes a local draft instead of sending. A proposed outbound action becomes an Approval.
 
-`ConnectorAction` is the connector interface. `InMemoryConnector` records a send once per `approval_id`. There is no email, calendar, or Slack connector.
+`ConnectorAction` is what an approved send hands to a connector. `InMemoryConnector` still records non-email sends once per `approval_id`. Email sends use `EmailSendConnector`, which calls `send_message` only from `decide_approval`. See `CONNECTORS.md`.
 
 ## Web
 
-`/assignments` lists jobs. `/assignments/new` offers the three presets. The detail page shows status, log, artifacts, tasks, and an Approval card (the payload, Approve, Decline). The same card appears inline in Sit when an assignment needs approval.
+`/assignments` lists jobs. `/assignments/new` offers the three presets and shows whether IMAP is connected. The detail page shows status, log, artifacts, tasks, and an Approval card (the payload, including To / Subject / Body, Approve, Decline). The same card appears inline in Sit when an assignment needs approval. Settings has a Connectors section for the app password.
 
 ## WinUI
 
-`AssignmentCore` holds the same transition, preset, and approval rules, with tests in `desktop/Heirloom.Tests`. `HeirloomApiClient` can list assignments, list pending approvals, and approve or decline on the owner session. A native Assignments list is **not** in this build.
+`AssignmentCore` holds the same transition, preset, and approval rules, with tests in `desktop/Heirloom.Tests`. `HeirloomApiClient` can list assignments, list pending approvals, approve or decline, and read connector status on the owner session. A native Assignments list and a native connect form are **not** in this build.
 
 ## Not built
 
-- Real email, calendar, or Slack connectors
+- Calendar or Slack connectors. Email (IMAP/SMTP) is in `CONNECTORS.md`. Gmail OAuth is not enabled.
 - Routines or scheduling
 - Per-Clone memory
 - Clone-to-Clone messaging
