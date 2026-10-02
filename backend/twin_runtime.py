@@ -463,6 +463,13 @@ async def ensure_conversation(
     return conv
 
 
+def _with_extra_system(system: str, extra_system: str | None) -> str:
+    extra = (extra_system or "").strip()
+    if not extra:
+        return system
+    return system.rstrip() + "\n\n" + extra + "\n"
+
+
 async def build_brain_pack(
     user: dict,
     message: str,
@@ -474,6 +481,7 @@ async def build_brain_pack(
     persona_hint: str | None = None,
     audience: str | None = None,
     specialist: dict | None = None,
+    extra_system: str | None = None,
 ) -> TwinBrainPack:
     """Assemble system + history for a twin turn without calling the LLM."""
     from model_router import resolve_twin_backend, runtime_probe_from_user
@@ -535,6 +543,7 @@ async def build_brain_pack(
         )
         if specialist_block:
             system += specialist_block
+        system = _with_extra_system(system, extra_system)
         return TwinBrainPack(
             system=system,
             history=history,
@@ -554,6 +563,7 @@ async def build_brain_pack(
         system = compile_twin_prompt(client_pack, user.get("name", ""), pairing=pairing)
         if specialist_block:
             system += specialist_block
+        system = _with_extra_system(system, extra_system)
         g = bool(client_pack.grounded) or client_pack.audience in {"heir", "caller"}
         return TwinBrainPack(
             system=system,
@@ -583,6 +593,7 @@ async def build_brain_pack(
     system = compile_twin_prompt(pack, user.get("name", ""), pairing=pairing)
     if specialist_block:
         system += specialist_block
+    system = _with_extra_system(system, extra_system)
     g = bool(pack.grounded) or pack.audience in {"heir", "caller"}
     return TwinBrainPack(
         system=system,
@@ -611,6 +622,7 @@ async def run_twin_turn(
     caller_is_owner: bool = False,
     phone_caller_name: str = "",
     assistant_id: str | None = None,
+    extra_system: str | None = None,
 ) -> TwinTurnResult:
     """One full twin turn with tools. Non-streaming — for desktop + companion voice.
 
@@ -749,6 +761,7 @@ async def run_twin_turn(
         persona_hint=persona_hint,
         audience=audience,
         specialist=specialist,
+        extra_system=extra_system,
     )
     if pack.grounded_miss:
         reply = miss_reply(True, spoken=phone)
@@ -915,6 +928,7 @@ async def _persist_pair(
     assist_reply: Optional[str] = None,
     specialist_id: Optional[str] = None,
     specialist_name: Optional[str] = None,
+    handoff: Optional[dict] = None,
 ) -> None:
     user_turn: dict[str, Any] = {
         "role": "user", "content": user_text, "ts": ts, "source": source,
@@ -945,6 +959,10 @@ async def _persist_pair(
         assistant_turn["twin_reply"] = twin_reply
     if assist_reply:
         assistant_turn["assist_reply"] = assist_reply
+    if handoff:
+        from main_bot import stamp_persisted_turn
+
+        stamp_persisted_turn(assistant_turn, handoff)
     await db.conversations.update_one(
         {"conversation_id": conversation_id, "user_id": user_id},
         {

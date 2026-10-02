@@ -129,6 +129,7 @@ class OwnerTurnResult:
     receipt: Optional[dict] = None
     specialist_id: Optional[str] = None
     specialist_name: Optional[str] = None
+    handoff: Optional[dict] = None
 
 
 def _norm(text: str) -> str:
@@ -248,6 +249,10 @@ def owner_response_fields(result: OwnerTurnResult) -> dict[str, Any]:
         out["clone_id"] = result.specialist_id
     if result.specialist_name:
         out["specialist_name"] = result.specialist_name
+    if result.handoff:
+        out["handoff"] = result.handoff
+        if result.handoff.get("chip"):
+            out["handoff_chip"] = result.handoff["chip"]
     return out
 
 
@@ -264,57 +269,48 @@ async def run_owner_turn(
     persona_hint: str | None = None,
     audience: str = "owner",
     assistant_id: str | None = None,
+    classifier: Any = None,
 ) -> OwnerTurnResult:
-    """Classify one owner turn, run Twin and/or Assist, persist one receipt."""
+    """Route one owner turn (Twin, one Clone, or Assist) and persist one receipt."""
     import asyncio
 
-    from twin_runtime import _now_iso, _persist_pair, _safe_summarise, load_specialist_turn, run_twin_turn
+    from main_bot import (
+        HANDLER_CLONE,
+        HANDLER_TWIN,
+        compose_routed_reply,
+        handoff_payload,
+        leg_allows_pc_tools,
+        route_main_bot,
+        twin_self_voice_note,
+    )
+    from twin_runtime import _now_iso, _persist_pair, _safe_summarise, run_twin_turn
 
     text = (message or "").strip()
     if not text:
         raise ValueError("Empty message")
 
-    specialist_id = None
-    specialist_name = None
-    work_text = text
-    specialist_role = None
+    fenced = not owner_mode_allowed(audience=audience)
+    clones: list[dict] = []
+    if not fenced:
+        from routers.assistants import list_for_user
 
-    if not owner_mode_allowed(audience=audience):
-        decision = OwnerRailDecision(
-            route=ROUTE_TWIN,
-            chip=CHIP_AS_YOU,
-            assist=False,
-            twin=True,
-            reasons=("heir_fence",),
-        )
-        assistant_id = None
-    else:
-        turn = await load_specialist_turn(
-            user["user_id"], text, assistant_id=assistant_id, audience=audience
-        )
-        if turn.get("assistant"):
-            work_text = (turn.get("message") or text).strip() or text
-            specialist_id = turn.get("assistant_id")
-            specialist_name = (turn["assistant"] or {}).get("name")
-            specialist_role = turn.get("role")
-            if specialist_role == "assistant":
-                decision = OwnerRailDecision(
-                    route=ROUTE_ASSIST,
-                    chip=CHIP_DO,
-                    assist=True,
-                    twin=False,
-                    reasons=("specialist",),
-                )
-            else:
-                decision = OwnerRailDecision(
-                    route=ROUTE_TWIN,
-                    chip=CHIP_AS_YOU,
-                    assist=False,
-                    twin=True,
-                    reasons=("specialist",),
-                )
-        else:
-            decision = classify_owner_turn(work_text)
+        clones = await list_for_user(user["user_id"], seed=False)
+
+    routed = route_main_bot(
+        text,
+        clones,
+        clone_id=None if fenced else assistant_id,
+        audience=audience,
+        heir_surface=fenced,
+        classifier=classifier,
+    )
+    decision = _rail_from_routed(routed)
+    work_text = (routed.message or text).strip() or text
+    clone_on_twin = routed.handler == HANDLER_CLONE and routed.execution == ROUTE_TWIN
+    clone_on_assist = routed.handler == HANDLER_CLONE and routed.execution == ROUTE_ASSIST
+    specialist_id = routed.clone_id if routed.handler == HANDLER_CLONE else None
+    specialist_name = routed.clone_name if routed.handler == HANDLER_CLONE else None
+    voice_note = twin_self_voice_note() if routed.handler == HANDLER_TWIN and not routed.fenced else None
 
     twin_res = None
     assist_res = None
@@ -333,9 +329,10 @@ async def run_owner_turn(
             grounded=grounded,
             persona_hint=persona_hint,
             audience=audience or "owner",
-            assistant_id=specialist_id if specialist_role != "assistant" else None,
+            assistant_id=specialist_id if clone_on_twin else None,
+            extra_system=voice_note,
         )
-    if decision.assist:
+    if decision.assist and leg_allows_pc_tools(routed, ROUTE_ASSIST):
         assist_res = await run_twin_turn(
             user,
             work_text,
@@ -348,12 +345,13 @@ async def run_owner_turn(
             grounded=False,
             persona_hint=persona_hint,
             audience="owner",
-            assistant_id=specialist_id if specialist_role == "assistant" else None,
+            assistant_id=specialist_id if clone_on_assist else None,
         )
 
     twin_reply = (twin_res.reply if twin_res else "") or ""
     assist_reply = (assist_res.reply if assist_res else "") or ""
-    reply = merge_owner_replies(twin_reply, assist_reply)
+    reply = compose_routed_reply(merge_owner_replies(twin_reply, assist_reply), routed)
+    handoff = handoff_payload(routed)
     tool_trace: list[dict] = []
     if twin_res:
         for row in twin_res.tool_trace:
@@ -407,6 +405,7 @@ async def run_owner_turn(
             assist_reply=assist_reply.strip() or None,
             specialist_id=specialist_id,
             specialist_name=specialist_name,
+            handoff=handoff,
         )
         if summarise:
             try:
@@ -429,4 +428,33 @@ async def run_owner_turn(
         receipt=receipt,
         specialist_id=specialist_id,
         specialist_name=specialist_name,
+        handoff=handoff,
+    )
+
+
+def _rail_from_routed(routed: Any) -> OwnerRailDecision:
+    """Map a main-bot decision onto the existing Assist / Twin / both legs."""
+    rail = (getattr(routed, "rail", None) or ROUTE_TWIN).strip().lower()
+    if rail == ROUTE_BOTH:
+        return OwnerRailDecision(
+            route=ROUTE_BOTH,
+            chip=CHIP_BOTH,
+            assist=True,
+            twin=True,
+            reasons=("main_bot",),
+        )
+    if rail == ROUTE_ASSIST:
+        return OwnerRailDecision(
+            route=ROUTE_ASSIST,
+            chip=CHIP_DO,
+            assist=True,
+            twin=False,
+            reasons=("main_bot",),
+        )
+    return OwnerRailDecision(
+        route=ROUTE_TWIN,
+        chip=CHIP_AS_YOU,
+        assist=False,
+        twin=True,
+        reasons=("main_bot", "heir_fence") if getattr(routed, "fenced", False) else ("main_bot",),
     )

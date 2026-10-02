@@ -4,22 +4,23 @@ import { ArrowRight, Loader2 } from "lucide-react";
 import AssistReceipt from "../components/studio/AssistReceipt";
 import AssistantPicker from "../components/studio/AssistantPicker";
 import { shouldShowReceipt, splitOwnerLegs } from "../lib/assistReceipt";
-import { speakerLabel } from "../lib/assistants";
+import { handoffChip, speakerLabel } from "../lib/assistants";
 import { api } from "../lib/api";
 
 const CHIP = {
+  Twin: { label: "Twin", hint: "The twin answered" },
   Do: { label: "Do", hint: "Assist on this PC" },
   "As you": { label: "As you", hint: "Twin from the vault" },
   "Do + As you": { label: "Do + As you", hint: "Both legs this turn" },
 };
 
-function RailChip({ chip, testid }) {
-  const meta = CHIP[chip] || { label: chip || "As you", hint: "" };
+function RailChip({ chip, testid, hint }) {
+  const meta = CHIP[chip] || { label: chip || "Twin", hint: hint || "" };
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] tracking-wide uppercase rounded-sm"
       data-testid={testid}
-      title={meta.hint}
+      title={hint || meta.hint}
       style={{
         border: "1px solid var(--border-default)",
         color: "var(--text-muted)",
@@ -59,7 +60,7 @@ export default function Owner() {
     setPending(true);
     try {
       const { data } = await api.post("/owner/chat", { text, clone_id: selectedAssistant || undefined });
-      setLastChip(data.rail_chip || "");
+      setLastChip(handoffChip(data.handoff) || data.handoff_chip || data.rail_chip || "");
       setConv((c) => ({
         ...(c || {}),
         conversation_id: data.conversation_id || c?.conversation_id,
@@ -79,6 +80,8 @@ export default function Owner() {
             assist_reply: data.assist_reply,
             specialist_id: data.specialist_id,
             specialist_name: data.specialist_name,
+            handoff: data.handoff,
+            handoff_chip: data.handoff_chip,
           },
         ],
       }));
@@ -111,8 +114,9 @@ export default function Owner() {
             One teammate.
           </h1>
           <p className="mt-3 text-base max-w-xl" style={{ color: "var(--text-secondary)" }}>
-            Ask or do — we route it. Quiet chips, no mode picker. Twin stays the gift voice;
-            Assist still confirms the destructive work in the document.
+            The twin takes the turn, hands it to a clone, or asks Assist to do it on this PC.
+            Quiet chips, no mode picker. Heirs never see this. Assist still confirms
+            destructive work in the document.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -162,26 +166,31 @@ export default function Owner() {
             </ul>
           </div>
         )}
-        {messages.map((m, i) => (
-          <div key={`${m.ts || i}-${i}`} data-testid={`owner-msg-${i}`}>
-            {m.role === "assistant" ? (
-              <div className="border-l-2 pl-6" style={{ borderColor: "var(--accent)" }}>
-                <div className="overline mb-2 flex items-center gap-3">
-                  <span>{speakerLabel(m, assistants) === "you (the twin)" ? "teammate" : speakerLabel(m, assistants)}</span>
-                  {m.rail_chip ? <RailChip chip={m.rail_chip} testid={`owner-chip-${i}`} /> : null}
+        {messages.map((m, i) => {
+          const chip = m.role === "assistant" ? handoffChip(m.handoff, m) : "";
+          return (
+            <div key={`${m.ts || i}-${i}`} data-testid={`owner-msg-${i}`}>
+              {m.role === "assistant" ? (
+                <div className="border-l-2 pl-6" style={{ borderColor: "var(--accent)" }}>
+                  <div className="overline mb-2 flex items-center gap-3">
+                    <span>{speakerLabel(m, assistants) === "you (the twin)" ? "teammate" : speakerLabel(m, assistants)}</span>
+                    {chip ? (
+                      <RailChip chip={chip} hint={m.handoff?.reason} testid={`owner-chip-${i}`} />
+                    ) : null}
+                  </div>
+                  <OwnerAssistantBody message={m} index={i} />
                 </div>
-                <OwnerAssistantBody message={m} index={i} />
-              </div>
-            ) : (
-              <div>
-                <div className="overline mb-2">you</div>
-                <p className="text-base leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                  {m.content}
-                </p>
-              </div>
-            )}
-          </div>
-        ))}
+              ) : (
+                <div>
+                  <div className="overline mb-2">you</div>
+                  <p className="text-base leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                    {m.content}
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        })}
         {pending && (
           <div className="border-l-2 pl-6" style={{ borderColor: "var(--accent)" }}>
             <div className="overline mb-2">teammate</div>
@@ -259,15 +268,26 @@ function OwnerAssistantBody({ message, index }) {
           ) : null}
           {showReceipt ? <AssistReceipt receipt={message.receipt} testid={`assist-receipt-${index}`} /> : null}
         </div>
+        {message.handoff?.close_loop ? (
+          <p className="text-sm" data-testid={`owner-close-${index}`} style={{ color: "var(--text-muted)" }}>
+            {message.handoff.close_loop}
+          </p>
+        ) : null}
       </div>
     );
   }
 
+  const twinClose = message.handoff?.handler === "twin" ? message.handoff.close_loop : "";
   return (
     <>
       <p className="font-serif text-xl lg:text-2xl leading-snug" style={{ color: "var(--text-primary)" }}>
         {message.content}
       </p>
+      {twinClose ? (
+        <p className="text-sm mt-3" data-testid={`owner-close-${index}`} style={{ color: "var(--text-muted)" }}>
+          {twinClose}
+        </p>
+      ) : null}
       {showReceipt ? <AssistReceipt receipt={message.receipt} testid={`assist-receipt-${index}`} /> : null}
     </>
   );

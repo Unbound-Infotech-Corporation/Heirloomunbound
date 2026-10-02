@@ -9,8 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from assistants import (
+    ABILITY_CATALOG,
     DEFAULT_ASSISTANTS,
     KNOWN_TOOLS,
+    clean_abilities,
+    clean_autonomy,
     clean_tools,
     public_assistant,
     slugify_name,
@@ -36,6 +39,8 @@ class AssistantCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=60)
     role: str = ""
     tools_allowlist: list[str] = Field(default_factory=list)
+    abilities: Optional[list[str]] = None
+    autonomy: Optional[str] = None
     enabled: bool = True
     speak_as: Optional[str] = None
 
@@ -44,12 +49,19 @@ class AssistantUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=60)
     role: Optional[str] = None
     tools_allowlist: Optional[list[str]] = None
+    abilities: Optional[list[str]] = None
+    autonomy: Optional[str] = None
     enabled: Optional[bool] = None
     speak_as: Optional[str] = None
 
 
 def _doc_from_defaults(user_id: str, spec: dict) -> dict:
     tools = clean_tools(spec.get("tools_allowlist"))
+    abilities = (
+        clean_abilities(spec.get("abilities"))
+        if spec.get("abilities") is not None
+        else clean_abilities(None, tools=tools)
+    )
     cid = f"cln_{uuid.uuid4().hex[:12]}"
     return {
         "assistant_id": cid,
@@ -59,8 +71,10 @@ def _doc_from_defaults(user_id: str, spec: dict) -> dict:
         "name": spec["name"][:60],
         "role": (spec.get("role") or "")[:400],
         "tools_allowlist": tools,
+        "abilities": abilities,
+        "autonomy": clean_autonomy(spec.get("autonomy")),
         "enabled": bool(spec.get("enabled", True)),
-        "speak_as": speak_as_for_tools(tools, spec.get("speak_as")),
+        "speak_as": speak_as_for_tools(tools, spec.get("speak_as"), abilities=abilities),
         "seeded": True,
         "created_at": _now(),
         "updated_at": _now(),
@@ -86,6 +100,7 @@ async def list_assistants(user: dict = Depends(get_current_user)):
     return {
         "clones": clones,
         "tools": list(KNOWN_TOOLS),
+        "abilities": list(ABILITY_CATALOG),
         "max": MAX_ASSISTANTS,
     }
 
@@ -97,6 +112,11 @@ async def create_assistant(payload: AssistantCreate, user: dict = Depends(get_cu
     if existing >= MAX_ASSISTANTS:
         raise HTTPException(status_code=400, detail=f"At most {MAX_ASSISTANTS} clones")
     tools = clean_tools(payload.tools_allowlist)
+    abilities = (
+        clean_abilities(payload.abilities)
+        if payload.abilities is not None
+        else clean_abilities(None, tools=tools)
+    )
     cid = f"cln_{uuid.uuid4().hex[:12]}"
     doc = {
         "assistant_id": cid,
@@ -106,8 +126,10 @@ async def create_assistant(payload: AssistantCreate, user: dict = Depends(get_cu
         "name": payload.name.strip()[:60],
         "role": (payload.role or "").strip()[:400],
         "tools_allowlist": tools,
+        "abilities": abilities,
+        "autonomy": clean_autonomy(payload.autonomy),
         "enabled": bool(payload.enabled),
-        "speak_as": speak_as_for_tools(tools, payload.speak_as),
+        "speak_as": speak_as_for_tools(tools, payload.speak_as, abilities=abilities),
         "seeded": False,
         "created_at": _now(),
         "updated_at": _now(),
@@ -139,15 +161,24 @@ async def update_assistant(
         update["role"] = payload.role.strip()[:400]
     if payload.tools_allowlist is not None:
         update["tools_allowlist"] = clean_tools(payload.tools_allowlist)
+    if payload.abilities is not None:
+        update["abilities"] = clean_abilities(payload.abilities)
+    if payload.autonomy is not None:
+        update["autonomy"] = clean_autonomy(payload.autonomy)
     if payload.enabled is not None:
         update["enabled"] = bool(payload.enabled)
     owned = _owned_filter(clone_id, user["user_id"])
-    if payload.speak_as is not None or "tools_allowlist" in update:
+    if payload.speak_as is not None or "tools_allowlist" in update or "abilities" in update:
         current = await db.twin_assistants.find_one(owned, {"_id": 0})
         if not current:
             raise HTTPException(status_code=404, detail="Clone not found")
         tools = update.get("tools_allowlist", current.get("tools_allowlist") or [])
-        update["speak_as"] = speak_as_for_tools(tools, payload.speak_as or current.get("speak_as"))
+        abilities = update.get("abilities", current.get("abilities"))
+        update["speak_as"] = speak_as_for_tools(
+            tools,
+            payload.speak_as or current.get("speak_as"),
+            abilities=abilities,
+        )
     if not update:
         raise HTTPException(status_code=400, detail="No fields to update")
     update["updated_at"] = _now()
