@@ -17,16 +17,18 @@ DRY_RUN=0
 DEV_TOOLS=0
 WITH_TAILSCALE=0
 WITH_CHATTERBOX=0
+WITH_OBSERVER=0
 export DEBIAN_FRONTEND=noninteractive
 
 usage() {
   cat <<'EOF'
-Usage: sudo bash box/install.sh [--dry-run] [--dev-tools] [--tailscale] [--with-chatterbox]
+Usage: sudo bash box/install.sh [--dry-run] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer]
 
   --dry-run           print the plan and write the log; change nothing
   --dev-tools         git, gh, Node.js LTS, Python 3.12, uv, Cursor CLI, Claude Code
   --tailscale         install Tailscale; you run `tailscale up` yourself
   --with-chatterbox   optional MIT Chatterbox TTS container
+  --observer          watch the HDMI capture card and learn notes on this lab box
 EOF
 }
 
@@ -67,6 +69,7 @@ parse_args() {
       --dev-tools) DEV_TOOLS=1 ;;
       --tailscale) WITH_TAILSCALE=1 ;;
       --with-chatterbox) WITH_CHATTERBOX=1 ;;
+      --observer) WITH_OBSERVER=1 ;;
       -h|--help) usage; exit 0 ;;
       *)
         printf 'Unknown flag: %s\n' "${arg}" >&2
@@ -325,16 +328,24 @@ write_tree() {
   run install -d -m 0750 /var/lib/heirloom/ollama
   run install -d -m 0750 /var/lib/heirloom/caddy
   run install -d -m 0750 /var/lib/heirloom/caddy-config
+  if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
+    run install -d -m 0750 /var/lib/heirloom/observer
+  fi
   run install -d -m 0755 /etc/heirloom
 }
 
 write_env() {
   local env_file="/var/lib/heirloom/box.env"
   local model="$1"
+  local observer_model="$2"
+  local vram="$3"
   local secret=""
   log "Writing ${env_file} (local connector key only; no GitHub or vendor tokens)"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would set HEIRLOOM_LLM_PROVIDER=ollama OLLAMA_TWIN_MODEL=${model} HEIRLOOM_LAB_MODE=1"
+    if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
+      log "would set HEIRLOOM_OBSERVER=1 OLLAMA_OBSERVER_MODEL=${observer_model:-ocr} OBSERVER_VRAM_MIB=${vram} OBSERVER_CLIPS=0"
+    fi
     return 0
   fi
   touch "${env_file}"
@@ -349,6 +360,21 @@ write_env() {
   upsert_env HEIRLOOM_LAB_DIR "/var/lib/heirloom/lab" "${env_file}"
   upsert_env HEIRLOOM_LAB_REPORT_DIR "/var/lib/heirloom/lab-reports" "${env_file}"
   upsert_env HEIRLOOM_AI_DISCLOSURE "1" "${env_file}"
+  if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
+    upsert_env HEIRLOOM_OBSERVER "1" "${env_file}"
+    upsert_env HEIRLOOM_OBSERVER_DIR "/var/lib/heirloom/observer" "${env_file}"
+    upsert_env OLLAMA_OBSERVER_MODEL "${observer_model}" "${env_file}"
+    upsert_env OBSERVER_OLLAMA_URL "http://127.0.0.1:11434" "${env_file}"
+    upsert_env OBSERVER_SAMPLE_FPS "2" "${env_file}"
+    upsert_env OBSERVER_BURST_FPS "8" "${env_file}"
+    upsert_env OBSERVER_CLIPS "0" "${env_file}"
+    upsert_env OBSERVER_CLIP_SECONDS "8" "${env_file}"
+    upsert_env OBSERVER_CLIP_MAX_MINUTES_PER_DAY "10" "${env_file}"
+    upsert_env OBSERVER_CLIP_TTL_DAYS "7" "${env_file}"
+    upsert_env OBSERVER_DISK_CAP_BYTES "536870912" "${env_file}"
+    upsert_env OBSERVER_HOTKEY_PHRASE '"HEIRLOOM PAUSE"' "${env_file}"
+    upsert_env OBSERVER_VRAM_MIB "${vram}" "${env_file}"
+  fi
   if ! grep -q '^CONNECTOR_SECRET_KEY=.\+' "${env_file}"; then
     secret="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
     upsert_env CONNECTOR_SECRET_KEY "${secret}" "${env_file}"
@@ -381,20 +407,59 @@ write_compose_args() {
 write_cron() {
   local cron_file="/etc/cron.d/heirloom-box"
   log "Nightly backup and lab report via ${cron_file}"
+  if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
+    log "Nightly observer digest at 03:20"
+  fi
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     return 0
   fi
-  cat > "${cron_file}" <<'EOF'
+  {
+    cat <<'EOF'
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 0 3 * * * root /usr/local/bin/heirloom-box backup >> /var/log/heirloom-box-backup.log 2>&1
 15 3 * * * root /usr/local/bin/heirloom-box report >> /var/log/heirloom-box-report.log 2>&1
 EOF
+    if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
+      printf '%s\n' '20 3 * * * root /usr/local/bin/heirloom-box observer digest >> /var/log/heirloom-box-observer.log 2>&1'
+    fi
+  } > "${cron_file}"
   chmod 644 "${cron_file}"
+}
+
+install_observer() {
+  if [[ "${WITH_OBSERVER}" -eq 0 ]]; then
+    log "Observer not requested. Product builds leave it off."
+    return 0
+  fi
+  log "Observer requested. Installing ffmpeg, v4l-utils, tesseract-ocr, the systemd unit, and the udev rule."
+  run apt-get install -y ffmpeg v4l-utils tesseract-ocr
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    log "would install /usr/local/bin/heirloom-observer, heirloom-observer.service, and 99-heirloom-observer.rules"
+    log "would touch /etc/heirloom/observer.enabled and systemctl enable --now heirloom-observer.service"
+    return 0
+  fi
+  install -m 0755 "${ROOT}/box/observer/heirloom-observer" /usr/local/bin/heirloom-observer
+  install -m 0644 "${ROOT}/box/observer/heirloom-observer.service" /etc/systemd/system/heirloom-observer.service
+  install -d -m 0755 /etc/udev/rules.d
+  install -m 0644 "${ROOT}/box/observer/99-heirloom-observer.rules" /etc/udev/rules.d/99-heirloom-observer.rules
+  install -d -m 0755 /etc/heirloom
+  touch /etc/heirloom/observer.enabled
+  chmod 644 /etc/heirloom/observer.enabled
+  systemctl daemon-reload
+  systemctl enable --now heirloom-observer.service || log "heirloom-observer did not start; heirloom-box status will show why"
+  if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules || true
+    udevadm trigger --subsystem-match=video4linux || true
+  fi
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    usermod -aG video "${SUDO_USER}" || true
+  fi
 }
 
 start_stack() {
   local model="$1"
+  local observer_model="$2"
   local -a args=()
   args+=(-f "${ROOT}/box/docker-compose.yml")
   if [[ "${USE_GPU}" -eq 1 ]]; then
@@ -406,10 +471,20 @@ start_stack() {
   log "Starting containers from ${ROOT}"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would docker compose up -d and ollama pull ${model}"
+    if [[ "${WITH_OBSERVER}" -eq 1 && -n "${observer_model}" ]]; then
+      log "would ollama pull ${observer_model}"
+    elif [[ "${WITH_OBSERVER}" -eq 1 ]]; then
+      log "Observer vision model is empty; OCR and heuristics only"
+    fi
     return 0
   fi
   docker compose "${args[@]}" up -d --build
   docker compose "${args[@]}" exec -T ollama ollama pull "${model}"
+  if [[ "${WITH_OBSERVER}" -eq 1 && -n "${observer_model}" ]]; then
+    docker compose "${args[@]}" exec -T ollama ollama pull "${observer_model}"
+  elif [[ "${WITH_OBSERVER}" -eq 1 ]]; then
+    log "Observer vision model is empty; OCR and heuristics only"
+  fi
 }
 
 print_next() {
@@ -428,26 +503,38 @@ print_next() {
   if [[ "${WITH_TAILSCALE}" -eq 1 ]]; then
     log "Tailscale login, when you want it: sudo tailscale up"
   fi
+  if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
+    log "Observer is on for this box. Pause with: heirloom-box observer pause"
+    log "Wiring and privacy rules: box/OBSERVER.md"
+  fi
   if [[ "${NEED_REBOOT}" -eq 1 ]]; then
     log "Reboot so the NVIDIA driver loads, then re-run: sudo bash box/install.sh"
   fi
 }
 
 main() {
-  local mib="" model=""
+  local mib="" model="" observer_model=""
   NEED_REBOOT=0
   USE_GPU=0
   parse_args "$@"
   prepare_log
+  if [[ "${WITH_OBSERVER}" -eq 0 && -f /etc/heirloom/observer.enabled ]]; then
+    WITH_OBSERVER=1
+    log "Observer marker /etc/heirloom/observer.enabled is present; keeping Observer on"
+  fi
   if [[ "${DRY_RUN}" -eq 0 && "${EUID}" -ne 0 ]]; then
     printf 'Re-run as root: sudo bash box/install.sh\n' >&2
     exit 1
   fi
-  log "Heirloom Twin Box installer root=${ROOT} dry_run=${DRY_RUN} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX}"
+  log "Heirloom Twin Box installer root=${ROOT} dry_run=${DRY_RUN} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER}"
   require_ubuntu
   mib="$(vram_mib)"
   model="$(heirloom_model_for_vram_mib "${mib}")"
+  observer_model="$(heirloom_observer_model_for_vram_mib "${mib}")"
   log "VRAM MiB=${mib} default model=${model} (Apache-2.0 Qwen2.5)"
+  if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
+    log "Observer vision model=${observer_model:-ocr} (Apache-2.0, or OCR when VRAM is 0)"
+  fi
   if gpu_present && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
     USE_GPU=1
   fi
@@ -461,10 +548,11 @@ main() {
   harden_ssh
   configure_ufw
   write_tree
-  write_env "${model}"
+  write_env "${model}" "${observer_model}" "${mib}"
   write_compose_args
   write_cron
-  start_stack "${model}"
+  install_observer
+  start_stack "${model}" "${observer_model}"
   print_next
 }
 

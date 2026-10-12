@@ -39,6 +39,14 @@ def _lab_sse(user: dict, *, route: str, started: float, error: str | None = None
     return "event: lab\ndata: " + json.dumps({"lab_turn_id": turn_id}) + "\n\n"
 
 
+def _source_sse(relied: bool) -> str:
+    if not relied:
+        return ""
+    from observer_prompt import WATCHED_SOURCE
+
+    return "event: source\ndata: " + json.dumps({"source_label": WATCHED_SOURCE}) + "\n\n"
+
+
 class StartTwinReq(BaseModel):
     conversation_id: Optional[str] = None
 
@@ -328,6 +336,16 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     if specialist:
         system += specialist_prompt_block(specialist, user.get("name") or "")
 
+    watched_reply = False
+    assisting = bool(specialist and specialist_turn.get("role") == "assistant")
+    if not assisting:
+        from observer_prompt import attach_observer_context
+
+        attached = attach_observer_context("", message_text, audience="owner")
+        if attached.block:
+            system += "\n\n" + attached.block
+        watched_reply = attached.relied
+
     # Replay prior turns so the twin remembers what was just said.
     initial_messages = [{"role": "system", "content": system}]
     for m in conv.get("messages", []):
@@ -371,6 +389,10 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     assistant_turn["clone_id"] = specialist_id
                 if specialist_name:
                     assistant_turn["specialist_name"] = specialist_name
+                if watched_reply:
+                    from observer_prompt import WATCHED_SOURCE
+
+                    assistant_turn["source_label"] = WATCHED_SOURCE
                 await db.conversations.update_one(
                     {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},
                     {
@@ -391,6 +413,9 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             if lab_line:
                 yield lab_line
             if error is None:
+                source_line = _source_sse(watched_reply)
+                if source_line:
+                    yield source_line
                 yield "event: done\ndata: {}\n\n"
 
         return StreamingResponse(
@@ -487,6 +512,10 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             assistant_turn["clone_id"] = specialist_id
         if specialist_name:
             assistant_turn["specialist_name"] = specialist_name
+        if watched_reply:
+            from observer_prompt import WATCHED_SOURCE
+
+            assistant_turn["source_label"] = WATCHED_SOURCE
 
         await db.conversations.update_one(
             {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},
@@ -509,6 +538,9 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         lab_line = _lab_sse(user, route=lab_route, started=started)
         if lab_line:
             yield lab_line
+        source_line = _source_sse(watched_reply)
+        if source_line:
+            yield source_line
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(

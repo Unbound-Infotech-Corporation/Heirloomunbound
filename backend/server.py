@@ -63,6 +63,7 @@ from routers import (
     music,
     nudges,
     oauth,
+    observer,
     onboarding,
     owner,
     personality,
@@ -195,6 +196,7 @@ api_router.include_router(reminders.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(sources.router)
 api_router.include_router(lab.router)
+api_router.include_router(observer.router)
 api_router.include_router(letters.router)
 api_router.include_router(heir_portal.router)
 api_router.include_router(personality.router)

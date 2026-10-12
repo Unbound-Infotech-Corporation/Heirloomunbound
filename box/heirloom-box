@@ -8,11 +8,15 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: heirloom-box <status|backup|report>
+Usage: heirloom-box <status|backup|report|observer>
 
-  status   services, GPU, disk, last backup, last report, /api/health
-  backup   Mongo archive + vault tarball, 14 copies kept
-  report   nightly local markdown under /var/lib/heirloom/lab-reports
+  status            services, GPU, disk, observer, last backup, last report, /api/health
+  backup            Mongo archive + vault tarball, 14 copies kept
+  report            nightly local markdown under /var/lib/heirloom/lab-reports
+  observer status   capture device, signal, fps, model, pause, notes today, disk used
+  observer pause    stop understanding until resume
+  observer resume   clear a manual, web, or hotkey pause
+  observer digest   write today's learned-notes markdown
 EOF
 }
 
@@ -98,6 +102,9 @@ cmd_status() {
     printf 'none\n'
   fi
 
+  printf '\n## observer\n'
+  print_observer "${root}"
+
   printf '\n## health\n'
   if command -v curl >/dev/null 2>&1; then
     curl -fsS --max-time 5 http://127.0.0.1:8001/api/health \
@@ -107,6 +114,34 @@ cmd_status() {
   else
     printf 'curl is not installed\n'
   fi
+}
+
+print_observer() {
+  local root="$1"
+  if [[ -z "${root}" || ! -f "${root}/backend/observer_cli.py" ]]; then
+    printf 'observer module is not in the install root\n'
+    return 0
+  fi
+  PYTHONPATH="${root}/backend${PYTHONPATH:+:${PYTHONPATH}}" python3 -m observer_cli status \
+    || printf 'observer status failed\n'
+}
+
+cmd_observer() {
+  local action="${1:-}"
+  local root
+  root="$(read_root)"
+  case "${action}" in
+    status|pause|resume|digest) ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+  if [[ -z "${root}" || ! -f "${root}/backend/observer_cli.py" ]]; then
+    echo "Run box/install.sh before heirloom-box observer." >&2
+    exit 1
+  fi
+  PYTHONPATH="${root}/backend${PYTHONPATH:+:${PYTHONPATH}}" python3 -m observer_cli "${action}"
 }
 
 cmd_backup() {
@@ -149,6 +184,10 @@ main() {
     status) cmd_status ;;
     backup) cmd_backup ;;
     report) cmd_report ;;
+    observer)
+      shift
+      cmd_observer "${1:-}"
+      ;;
     -h|--help|help|"") usage ;;
     *)
       usage >&2

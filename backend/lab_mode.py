@@ -221,7 +221,12 @@ def summarize_turns(turns: list[Mapping[str, Any]]) -> dict[str, Any]:
     return summary
 
 
-def render_report(turns: list[Mapping[str, Any]], *, day: str) -> str:
+def render_report(
+    turns: list[Mapping[str, Any]],
+    *,
+    day: str,
+    observer_markdown: str = "",
+) -> str:
     """Local markdown. No transcripts."""
     summary = summarize_turns(turns)
     lines = [
@@ -271,6 +276,9 @@ def render_report(turns: list[Mapping[str, Any]], *, day: str) -> str:
         lines.append(f"- {vote} ({row.get('route') or 'unknown'}): {note}")
     if notes == 0:
         lines.append("- (none)")
+    extra = (observer_markdown or "").strip()
+    if extra:
+        lines.extend(["", extra])
     lines.append("")
     return "\n".join(lines)
 
@@ -281,12 +289,16 @@ def write_report(
     *,
     day: Optional[str] = None,
     keep: int = 30,
+    observer_markdown: str = "",
 ) -> Path:
     folder = Path(dest)
     folder.mkdir(parents=True, exist_ok=True)
     stamp = day or _day()
     path = folder / f"lab-report-{stamp}.md"
-    path.write_text(render_report(turns, day=stamp), encoding="utf-8")
+    path.write_text(
+        render_report(turns, day=stamp, observer_markdown=observer_markdown),
+        encoding="utf-8",
+    )
     _rotate(folder, keep=keep)
     return path
 
@@ -374,7 +386,14 @@ def publish_report(
 ) -> dict[str, Any]:
     """Write today's markdown. File a GitHub issue only when token and repo are set."""
     stamp = _day(now)
-    path = write_report(store.read_all(), dest, day=stamp)
+    digest = ""
+    try:
+        from observer_prompt import nightly_digest_markdown
+
+        digest = nightly_digest_markdown()
+    except OSError:
+        digest = ""
+    path = write_report(store.read_all(), dest, day=stamp, observer_markdown=digest)
     result: dict[str, Any] = {
         "path": str(path),
         "day": stamp,

@@ -22,3 +22,21 @@ heirloom_model_for_vram_mib() {
     printf '%s\n' "qwen2.5:72b"
   fi
 }
+
+# Observer vision tags. Apache-2.0 only. Empty means OCR and heuristics.
+# Keep this table in sync with vision_model_for_vram_mib in backend/observer_models.py.
+heirloom_observer_model_for_vram_mib() {
+  local mib="${1:-0}"
+  if [[ ! "${mib}" =~ ^[0-9]+$ ]]; then
+    mib=0
+  fi
+  if (( mib <= 0 )); then
+    printf '%s\n' ""
+  elif (( mib < 6144 )); then
+    printf '%s\n' "moondream"
+  elif (( mib < 12288 )); then
+    printf '%s\n' "qwen2.5vl:3b"
+  else
+    printf '%s\n' "qwen2.5vl:7b"
+  fi
+}
