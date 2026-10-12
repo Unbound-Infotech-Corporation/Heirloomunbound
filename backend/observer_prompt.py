@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from observer_learn import jaccard, tokenize
-from observer_store import ObserverStore, observer_dir, observer_enabled
+from observer_store import HIGH_CONFIDENCE, ObserverStore, observer_dir, observer_enabled
 
 WATCHED_SOURCE = "from what I've watched"
 
@@ -65,6 +65,19 @@ def block_grounded_miss(grounded_miss: bool, watched_relied: bool) -> bool:
     return bool(grounded_miss) and not watched_relied
 
 
+def notes_for_prompt(notes: list[dict], *, audience: str, heir_surface: bool = False) -> list[dict]:
+    """Accepted notes, plus the owner's high-confidence pending notes."""
+    heir = heir_surface or (audience or "").strip().lower() == "heir"
+    picked: list[dict] = []
+    for note in notes:
+        status = str(note.get("status") or "pending").strip().lower()
+        if status == "accepted":
+            picked.append(note)
+        elif not heir and float(note.get("confidence") or 0) >= HIGH_CONFIDENCE:
+            picked.append(note)
+    return picked
+
+
 def attach_observer_context(
     citation: str,
     query: str,
@@ -86,6 +99,7 @@ def attach_observer_context(
             notes = active.background_notes(audience=audience, heir_surface=heir_surface)
         except OSError:
             notes = []
+    notes = notes_for_prompt(notes, audience=audience, heir_surface=heir_surface)
     block = observer_prompt_block(notes)
     relied = bool(block) and relies_on_watched(query, notes)
     return ObserverAttach(block, apply_source_label(citation, relied), relied)

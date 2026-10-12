@@ -59,7 +59,21 @@ def tokenize(text: str) -> list[str]:
         out.append(word)
         if len(word) > 4 and word.endswith("s") and word[:-1] not in _STOP:
             out.append(word[:-1])
+        stem = _light_stem(word)
+        if stem and stem not in _STOP and stem not in out:
+            out.append(stem)
     return out
+
+
+def _light_stem(word: str) -> str:
+    """Enough to match stayed/stay and switching/switch. Stems shorter than 4 are dropped."""
+    if len(word) > 5 and word.endswith("ing"):
+        stem = word[:-3]
+    elif len(word) > 5 and word.endswith("ed"):
+        stem = word[:-2]
+    else:
+        return ""
+    return stem if len(stem) >= 4 else ""
 
 
 def fingerprint(text: str) -> str:
