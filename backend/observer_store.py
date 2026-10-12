@@ -14,6 +14,7 @@ from observer_learn import (
     suppressed,
     tokenize,
 )
+from vr_mode import VR_GAZE_SOURCE
 
 _ON = frozenset({"1", "true", "yes", "on"})
 DEFAULT_DIR = "/var/lib/heirloom/observer"
@@ -291,13 +292,48 @@ class ObserverStore:
                 rows.append(note)
         return rows
 
+    def add_gaze_note(self, note: dict | None) -> dict:
+        """Write one attention summary. Refuses a pause and anything that is not a gaze note.
+
+        The stored row is the summary text only. Raw gaze fields on the input are dropped.
+        """
+        if not isinstance(note, dict) or note.get("source") != VR_GAZE_SOURCE:
+            return {"stored": False, "reason": "not-gaze"}
+        if bool(self.read_state().get("paused")):
+            return {"stored": False, "reason": "paused"}
+        stored = {
+            "id": str(note.get("id") or ""),
+            "source": VR_GAZE_SOURCE,
+            "kind": "attention",
+            "text": str(note.get("text") or "").strip(),
+            "confidence": 0.55,
+            "created_at": str(note.get("created_at") or _now().isoformat()),
+            "status": "pending",
+            "session_id": "",
+            "fingerprint": str(note.get("fingerprint") or ""),
+            "tokens": list(note.get("tokens") or []),
+            "topics": [str(topic) for topic in (note.get("topics") or []) if str(topic)],
+        }
+        if not stored["text"] or not stored["id"]:
+            return {"stored": False, "reason": "empty"}
+        if self.would_suppress(stored):
+            return {"stored": False, "reason": "suppressed"}
+        self.root.mkdir(parents=True, exist_ok=True)
+        _append_jsonl(self.notes_path, stored)
+        return {"stored": True, "note": stored}
+
     def visible_notes(self, *, audience: str, heir_surface: bool = False) -> list[dict]:
-        """Heirs see accepted notes only. Owners also see pending. Nobody sees clips here."""
+        """Heirs see accepted notes only. Owners also see pending. Nobody sees clips here.
+
+        VR gaze notes stay with the owner even after That's me. Heirs are unchanged.
+        """
         heir = heir_surface or (audience or "").strip().lower() == "heir"
         rows = []
         for note in self.read_notes():
             status = str(note.get("status") or "")
             if status not in {"accepted", "pending"}:
+                continue
+            if str(note.get("source") or "") == VR_GAZE_SOURCE and heir:
                 continue
             if heir and status != "accepted":
                 continue
@@ -455,9 +491,12 @@ def _parse_iso(value: str) -> Optional[datetime]:
 
 
 def _public_note(note: dict) -> dict:
+    source = str(note.get("source") or "observer")
+    if source != VR_GAZE_SOURCE:
+        source = "observer"
     return {
         "id": note.get("id") or "",
-        "source": "observer",
+        "source": source,
         "kind": note.get("kind") or "",
         "text": note.get("text") or "",
         "confidence": note.get("confidence") or 0,

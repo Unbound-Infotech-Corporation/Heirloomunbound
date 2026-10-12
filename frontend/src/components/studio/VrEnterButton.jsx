@@ -17,7 +17,7 @@ export default function VrEnterButton({ testid = "room-sit-xr", onResult }) {
   const go = async () => {
     setBusy(true);
     try {
-      const result = await enterRoomVr();
+      const result = await enterRoomVr({ gesture: true });
       onResult?.(result);
       if (result?.session) {
         result.session.addEventListener("end", () => onResult?.({ ok: false, reason: "", ended: true }));

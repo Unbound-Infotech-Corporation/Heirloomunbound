@@ -13,6 +13,19 @@ Headless Ubuntu Server 24.04 install under `box/`. Product version stays **0.5.1
 
 **Not a WinUI sitting.** Script checks and unit tests are evidence the box code runs. A real GPU, bare-metal Ubuntu, and Tailscale login are still unchecked.
 
+## Room VR (this pass)
+
+Optional owner VR in the Heirloom Room, plus an opt-in eye-tracking note for the Observer. Product version stays **0.5.1**. FastAPI stays **0.3.0**. Heirs are unchanged. Details: `docs/VR.md`.
+
+- The Room always opens on the normal screen. VR is a switch, default off, saved per owner. A connected headset does not enter VR. Turning the switch off ends the session.
+- WebXR starts only from the owner's click (Room switch on, or Enter headset when the preference was already saved). Settings save the switches and do not start a session.
+- The Twin is a seated block across the table. Push-to-talk is the controller trigger or grip, or Space / V. Speech uses the existing transcribe route with `save_to_archive=false`, the Twin chat, and spatial TTS from the seat.
+- PSVR2 with Sony's PC adapter is Windows + SteamVR only. The visor runs on the owner's Windows PC and talks to the Twin Box over the LAN. Eye tracking is a PlayStation 5 feature and is not exposed to PC apps. The opt-in switch degrades to "nothing sent".
+- If a runtime later provides gaze, the page posts aggregated area and dwell only (`source=vr_gaze`). Those notes honor Observer pause, stay out of the Twin prompt, and stay hidden from heirs.
+- WinUI Twin and Settings persist the same switches and do not launch a headset, a browser, or `Heirloom.exe`.
+
+**Not checked on a real PSVR2, SteamVR, OpenXR eye gaze, or the Caddy trust step.**
+
 ## Models Studio local voice (this pass)
 
 Standalone engines only — **no Pinokio**. Companion probes Voicebox (`:17493`), Qwen3-TTS (`:8001` `/v1/models`), and LatentSync (`:7860`) like Ollama. Auto TTS: Voicebox → Qwen3-TTS → ElevenLabs clone → Piper → OpenAI. Window → Voice and Window → Terminal (Send ticket `HU-…`, redacted bundle). Provision coach never curls installers.

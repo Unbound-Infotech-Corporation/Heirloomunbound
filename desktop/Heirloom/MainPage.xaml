@@ -471,6 +471,38 @@
                                     OnContent=""
                                     svc:StudioHint.Topic="speak" />
                             </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    Style="{StaticResource StudioOverline}"
+                                    Text="VR" />
+                                <ToggleSwitch
+                                    MinWidth="40"
+                                    AutomationProperties.Name="VR mode"
+                                    IsEnabled="{x:Bind ViewModel.Twin.CanEdit, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.Twin.VrMode, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent="" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    Style="{StaticResource StudioOverline}"
+                                    Text="Eyes" />
+                                <ToggleSwitch
+                                    MinWidth="40"
+                                    AutomationProperties.Name="Eye tracking"
+                                    IsEnabled="{x:Bind ViewModel.Twin.CanEdit, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.Twin.VrGaze, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent="" />
+                            </StackPanel>
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                MaxWidth="280"
+                                Style="{StaticResource StudioCaption}"
+                                Text="{x:Bind ViewModel.Twin.VrStatus, Mode=OneWay}"
+                                TextWrapping="Wrap" />
                             <TextBlock
                                 VerticalAlignment="Center"
                                 Style="{StaticResource StudioCaption}"
@@ -2121,6 +2153,23 @@
                                 <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Autostart" />
                                 <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind ViewModel.Settings.Autostart, Mode=TwoWay}" />
                             </Grid>
+                            <Grid MinHeight="32" Width="320">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Room VR" />
+                                <ToggleSwitch
+                                    HorizontalAlignment="Right"
+                                    AutomationProperties.Name="Room VR"
+                                    IsEnabled="{x:Bind ViewModel.Twin.CanEdit, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.Settings.VrMode, Mode=TwoWay}" />
+                            </Grid>
+                            <Grid MinHeight="32" Width="320">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Eye tracking" />
+                                <ToggleSwitch
+                                    HorizontalAlignment="Right"
+                                    AutomationProperties.Name="Eye tracking"
+                                    IsEnabled="{x:Bind ViewModel.Twin.CanEdit, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.Settings.VrGaze, Mode=TwoWay}" />
+                            </Grid>
+                            <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="VR stays off until you turn it on. This window does not enter a headset. The visor is the browser Room on this PC, through SteamVR." />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <controls:StudioActionButton
                                     AssetId="action-save"

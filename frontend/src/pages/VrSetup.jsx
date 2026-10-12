@@ -81,7 +81,7 @@ export default function VrSetup() {
   const simple = simplePath(headset);
 
   const tryVr = async () => {
-    const result = await enterRoomVr();
+    const result = await enterRoomVr({ gesture: true });
     setXrNote(result.ok ? result.reason : result.reason);
     if (result.session) {
       result.session.addEventListener("end", () => setXrNote(""));
@@ -149,6 +149,11 @@ export default function VrSetup() {
             {headset.pain}
             {headset.host_note ? ` ${headset.host_note}` : ""}
           </p>
+          {headset.eye_tracking?.note ? (
+            <p className="text-sm mb-6" data-testid="vr-eye-note" style={{ color: "var(--text-muted)" }}>
+              {headset.eye_tracking.note}
+            </p>
+          ) : null}
           <div className="space-y-3">
             {paths.map((p) => {
               const isRec = rec?.id === p.id;
@@ -293,6 +298,9 @@ export default function VrSetup() {
             >
               Try Enter in VR
             </button>
+            <p className="w-full text-xs" data-testid="vr-setup-not-room-mode" style={{ color: "var(--text-muted)" }}>
+              This check does not turn Room VR on. The Room stays on the normal screen until you use the VR switch there.
+            </p>
             {headset ? (
               <Link
                 to={coachHref(headset.id, path?.id, location.pathname)}

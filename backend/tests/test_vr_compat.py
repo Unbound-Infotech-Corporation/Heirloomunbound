@@ -46,9 +46,17 @@ def test_psvr2_is_not_alvr():
     psvr = next(h for h in data["headsets"] if h["id"] == "psvr2")
     assert "alvr" not in psvr["paths"]
     assert psvr["recommended_path"] == "psvr2_adapter"
+    assert psvr["windows_only"] is True
+    assert psvr["os"] == ["windows"]
+    eye = psvr["eye_tracking"]
+    assert eye["hardware"] is True
+    assert eye["pc_exposed"] is False
+    assert eye["extension"] == "XR_EXT_eye_gaze_interaction"
     steps = " ".join(s["body"] for s in data["checklists"]["psvr2_adapter"])
     assert "ALVR" in steps or "alvr" in steps.lower()
     assert "DisplayPort" in steps or "DP 1.4" in steps
+    assert "Windows" in steps
+    assert "XR_EXT_eye_gaze_interaction" in steps
 
 
 def test_public_catalog_refuses_binary_redistribution():
@@ -78,6 +86,9 @@ def test_markdown_matrix_lists_every_headset():
     assert "Virtual Desktop" in md
     assert "crack" in md.lower() or "cracked" in md.lower()
     assert "add_runtime.bat" in md
+    assert "Windows only" in md
+    assert "XR_EXT_eye_gaze_interaction" in md
+    assert "not expose" in md.lower()
 
 
 def test_vr_routes_are_registered_before_room_id():

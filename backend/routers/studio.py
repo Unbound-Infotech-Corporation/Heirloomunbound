@@ -53,6 +53,7 @@ from studio_setup import (
     space_profile,
     vendor_handoff,
 )
+from vr_mode import clamp_vr_prefs, launch_vr_state, owner_vr_allowed
 
 router = APIRouter(prefix="/studio", tags=["studio"])
 
@@ -90,6 +91,47 @@ def _user_compute(user: dict) -> dict:
 
 def _user_setup(user: dict) -> dict:
     return clamp_setup(user.get("studio_setup"))
+
+
+def _vr_owner(user: dict) -> None:
+    if not owner_vr_allowed(
+        audience=user.get("audience") or "owner",
+        heir_surface=bool(user.get("heir_surface")),
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+class VrUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    gaze_enabled: Optional[bool] = None
+
+
+@router.get("/vr")
+async def get_vr(user: dict = Depends(get_studio_user)):
+    """Saved VR switches. The response never reports an active session."""
+    _vr_owner(user)
+    state = launch_vr_state(user.get("studio_vr"), headset_connected=False)
+    return {"settings": clamp_vr_prefs(state), "session_active": False, "auto_enter": False}
+
+
+@router.put("/vr")
+async def put_vr(payload: VrUpdate, user: dict = Depends(get_studio_user)):
+    """Persist the switches. This does not start a headset session."""
+    _vr_owner(user)
+    current = clamp_vr_prefs(user.get("studio_vr"))
+    patch = payload.model_dump(exclude_none=True)
+    merged = clamp_vr_prefs({**current, **patch})
+    now = _now_iso()
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"studio_vr": merged, "studio_vr_updated_at": now}},
+    )
+    return {
+        "settings": merged,
+        "session_active": False,
+        "auto_enter": False,
+        "updated_at": now,
+    }
 
 
 # ---------- Audio mixer ----------

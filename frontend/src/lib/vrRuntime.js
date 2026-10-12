@@ -1,5 +1,7 @@
 /** WebXR / OpenXR enter path for Heirloom Room sit. */
 
+import { areaAlongRay } from "./vrGaze";
+import { readSessionPtt, TWIN_SEAT } from "./vrTalk";
 import { coachHref, headsetHintFromUa, VR_SETUP_PATH } from "./vrCompat";
 
 export const ENTER_CODES = {
@@ -9,7 +11,10 @@ export const ENTER_CODES = {
   no_headset: "no_headset",
   no_webgl: "no_webgl",
   refused: "refused",
+  no_gesture: "no_gesture",
 };
+
+export { TWIN_SEAT };
 
 function defaultNav() {
   return typeof navigator !== "undefined" ? navigator : undefined;
@@ -127,8 +132,9 @@ function makeRoomProgram(gl) {
     `
     precision mediump float;
     varying float vShade;
+    uniform vec3 uTint;
     void main() {
-      gl_FragColor = vec4(0.55 * vShade, 0.42 * vShade, 0.30, 1.0);
+      gl_FragColor = vec4(uTint * vShade, 1.0);
     }
   `,
   );
@@ -185,6 +191,33 @@ function perspectiveFromFov(fov, near, far) {
   return out;
 }
 
+function cuboid(x0, y0, z0, x1, y1, z1) {
+  return [
+    x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z0, x1, y0, z1, x0, y0, z1,
+    x0, y1, z0, x1, y1, z0, x1, y1, z1, x0, y1, z0, x1, y1, z1, x0, y1, z1,
+    x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y0, z1, x1, y1, z1, x0, y1, z1,
+    x0, y0, z0, x0, y1, z0, x1, y1, z0, x0, y0, z0, x1, y1, z0, x1, y0, z0,
+    x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y0, z0, x0, y1, z1, x0, y1, z0,
+    x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y0, z1, x1, y1, z0, x1, y1, z1,
+  ];
+}
+
+function twinFigureVertices() {
+  // A seated block figure across the table. Not a face, not a likeness mesh.
+  const seat = cuboid(-0.35, 0.42, -1.95, 0.35, 0.52, -1.25);
+  const torso = cuboid(-0.22, 0.52, -1.78, 0.22, 1.12, -1.42);
+  const head = cuboid(-0.12, 1.12, -1.72, 0.12, 1.4, -1.48);
+  return new Float32Array([...seat, ...torso, ...head]);
+}
+
+function rayFromViewMatrix(matrix) {
+  if (!matrix || matrix.length < 16) return null;
+  return {
+    origin: [matrix[12], matrix[13], matrix[14]],
+    direction: [-matrix[8], -matrix[9], -matrix[10]],
+  };
+}
+
 function boxVertices() {
   const x = 2;
   const y0 = 0;
@@ -203,10 +236,21 @@ function boxVertices() {
 }
 
 /**
- * Start an immersive-vr WebXR session and keep a simple enclosed volume on screen.
+ * Start an immersive-vr WebXR session. Refuses unless `gesture` is true so a
+ * page load cannot enter the headset. The twin is a seated block across the
+ * table. Eye gaze is optional and never required to start the session.
  * OpenXR-native WinUI viewing is deferred; on PC this is WebXR riding the active runtime.
  */
-export async function enterRoomVr({ xr, win } = {}) {
+export async function enterRoomVr({ xr, win, gesture = false, gaze = false, onPtt, onAttention, onEnd } = {}) {
+  if (!gesture) {
+    return {
+      ok: false,
+      code: ENTER_CODES.no_gesture,
+      session: null,
+      gazeAvailable: false,
+      reason: "VR stays on the normal screen until you turn it on.",
+    };
+  }
   const navXr = xr || defaultNav()?.xr;
   const probe = await probeBrowserXr(xr ? { xr, userAgent: defaultNav()?.userAgent } : defaultNav(), win || defaultWin());
   const fail = describeEnterFailure(probe);
@@ -234,7 +278,37 @@ export async function enterRoomVr({ xr, win } = {}) {
   try {
     if (typeof gl.makeXRCompatible === "function") await gl.makeXRCompatible();
     const session = await navXr.requestSession("immersive-vr", { optionalFeatures: ["local-floor"] });
-    const Layer = (win || defaultWin())?.XRWebGLLayer;
+    let gazeSpace = null;
+    if (gaze && typeof session.requestReferenceSpace === "function") {
+      try {
+        gazeSpace = await session.requestReferenceSpace("gaze");
+      } catch {
+        gazeSpace = null;
+      }
+    }
+    const host = win || defaultWin();
+    const keys = new Set();
+    const onKeyDown = (event) => {
+      const tag = event.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || event.repeat) return;
+      if (event.code === "Space" || event.code === "KeyV") keys.add(event.code);
+    };
+    const onKeyUp = (event) => keys.delete(event.code);
+    host?.addEventListener?.("keydown", onKeyDown);
+    host?.addEventListener?.("keyup", onKeyUp);
+    let closed = false;
+    let pttWas = false;
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      keys.clear();
+      host?.removeEventListener?.("keydown", onKeyDown);
+      host?.removeEventListener?.("keyup", onKeyUp);
+      onEnd?.({ gazeAvailable: Boolean(gazeSpace) });
+    };
+    session.addEventListener?.("end", finish);
+
+    const Layer = host?.XRWebGLLayer;
     if (Layer) {
       const layer = new Layer(session, gl);
       await session.updateRenderState({ baseLayer: layer });
@@ -243,17 +317,38 @@ export async function enterRoomVr({ xr, win } = {}) {
       );
       const prog = makeRoomProgram(gl);
       const buf = gl.createBuffer();
-      const verts = boxVertices();
+      const roomVerts = boxVertices();
+      const twinVerts = twinFigureVertices();
+      const verts = new Float32Array(roomVerts.length + twinVerts.length);
+      verts.set(roomVerts, 0);
+      verts.set(twinVerts, roomVerts.length);
+      const roomCount = roomVerts.length / 3;
+      const twinCount = twinVerts.length / 3;
       gl.bindBuffer(gl.ARRAY_BUFFER, buf);
       gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
       const aPos = gl.getAttribLocation(prog, "aPos");
       const uView = gl.getUniformLocation(prog, "uView");
       const uProj = gl.getUniformLocation(prog, "uProj");
+      const uTint = gl.getUniformLocation(prog, "uTint");
 
       const onFrame = (_time, frame) => {
+        if (closed) return;
         session.requestAnimationFrame(onFrame);
         const pose = frame.getViewerPose(space);
         const base = session.renderState.baseLayer;
+        const down = readSessionPtt(session, keys);
+        if (down !== pttWas) {
+          pttWas = down;
+          onPtt?.({ phase: down ? "down" : "up" });
+        }
+        if (gazeSpace && onAttention) {
+          const gazePose = frame.getPose?.(gazeSpace, space);
+          const ray = rayFromViewMatrix(gazePose?.transform?.matrix);
+          if (ray) {
+            const area = areaAlongRay(ray.origin, ray.direction);
+            if (area) onAttention({ area, time: _time });
+          }
+        }
         if (!pose || !base) return;
         gl.bindFramebuffer(gl.FRAMEBUFFER, base.framebuffer);
         gl.clearColor(0.07, 0.066, 0.062, 1);
@@ -272,16 +367,29 @@ export async function enterRoomVr({ xr, win } = {}) {
             : perspectiveFromFov(view.projection?.fov || view, 0.1, 40);
           gl.uniformMatrix4fv(uView, false, viewMat);
           gl.uniformMatrix4fv(uProj, false, proj);
-          gl.drawArrays(gl.TRIANGLES, 0, verts.length / 3);
+          if (uTint) gl.uniform3f(uTint, 0.55, 0.42, 0.3);
+          gl.drawArrays(gl.TRIANGLES, 0, roomCount);
+          if (uTint) gl.uniform3f(uTint, 0.78, 0.58, 0.32);
+          gl.drawArrays(gl.TRIANGLES, roomCount, twinCount);
         }
       };
       session.requestAnimationFrame(onFrame);
     }
+    const end = () => {
+      try {
+        session.end?.();
+      } catch {
+        finish();
+      }
+    };
     return {
       ok: true,
       code: ENTER_CODES.ok,
       session,
       canvas,
+      end,
+      gazeAvailable: Boolean(gazeSpace),
+      twinSeat: { ...TWIN_SEAT },
       runtime: "webxr",
       reason: "WebXR session started (OpenXR-backed on PC when a runtime is installed).",
     };
@@ -295,8 +403,8 @@ export async function enterRoomVr({ xr, win } = {}) {
   }
 }
 
-export async function tryEnterWebXR(canvas) {
-  // Back-compat wrapper used by older sit tests. Prefers a dedicated WebGL canvas.
+export async function tryEnterWebXR(canvas, { gesture = false } = {}) {
+  // Back-compat wrapper. Still requires a user gesture before a session starts.
   void canvas;
-  return enterRoomVr();
+  return enterRoomVr({ gesture });
 }

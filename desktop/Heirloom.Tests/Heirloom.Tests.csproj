@@ -28,6 +28,7 @@
     <Compile Include="..\Heirloom\Services\DedicatedRole.cs" Link="DedicatedRole.cs" />
     <Compile Include="..\Heirloom\Services\WebIntent.cs" Link="WebIntent.cs" />
     <Compile Include="..\Heirloom\Services\VideoStudioCore.cs" Link="VideoStudioCore.cs" />
+    <Compile Include="..\Heirloom\Services\VrModeCore.cs" Link="VrModeCore.cs" />
     <Compile Include="..\Heirloom\Services\PhoneIntent.cs" Link="PhoneIntent.cs" />
   </ItemGroup>
 </Project>

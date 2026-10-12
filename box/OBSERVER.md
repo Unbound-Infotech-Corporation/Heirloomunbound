@@ -99,6 +99,14 @@ Games are named when the title or window matches a known game, and the decision 
 
 Accepted notes, and the owner's pending notes at confidence `0.75` or higher, are background in the Twin prompt. They sit under owner-recorded vault passages. If a reply relies on them, the source label is `from what I've watched`.
 
+## VR gaze (owner, opt-in)
+
+This is separate from the capture card. When the owner turns on eye tracking in the Room and a runtime actually provides gaze, the browser posts one summary to `POST /api/observer/vr-gaze`. The note is `source=vr_gaze`, kind `attention`, and lists areas (twin, seat, room, floor, elsewhere) with dwell time. Raw rays, origins, and pupil samples are not stored. Dwells under 400 ms are dropped.
+
+A paused Observer writes nothing. If Observer is off, the route refuses and does not create a lab file. Heirs get 404. These notes stay out of the Twin prompt and out of heir-visible notes, including after "That's me".
+
+PSVR2 on PC does not currently expose eye tracking (`XR_EXT_eye_gaze_interaction` is not available through Sony's adapter and SteamVR). The usual result is that nothing is sent. See `docs/VR.md`.
+
 ## Owner loop
 
 Nightly, when Observer is on:

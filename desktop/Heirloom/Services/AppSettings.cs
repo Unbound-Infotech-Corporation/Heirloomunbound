@@ -33,6 +33,8 @@ public sealed class AppSettings
     public string TwinPersona { get; set; } = "family";
     public bool GroundedOnly { get; set; } = true;
     public bool SpeakReplies { get; set; } = true;
+    public bool VrMode { get; set; }
+    public bool VrGaze { get; set; }
     public bool AllowPcControl { get; set; } = true;
     public bool AllowSeeScreen { get; set; }
     public bool AllowSpeak { get; set; } = true;
@@ -108,6 +110,8 @@ public sealed class SettingsStore
 
     public AppSettings Current { get; set; } = new();
 
+    public event Action? Changed;
+
     public void Load()
     {
         AppPaths.EnsureDirectories();
@@ -137,5 +141,6 @@ public sealed class SettingsStore
     {
         AppPaths.EnsureDirectories();
         File.WriteAllText(AppPaths.SettingsPath, JsonSerializer.Serialize(Current, JsonOptions));
+        Changed?.Invoke();
     }
 }
