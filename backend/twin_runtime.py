@@ -320,6 +320,19 @@ def _with_observer(system: str, citation: str, query: str, audience: str | None)
     return system.rstrip() + "\n\n" + attached.block, attached.citation, attached.relied
 
 
+def _with_presence(system: str, audience: str | None) -> str:
+    """Who is in the room. Heirs get nothing. Failures leave the prompt unchanged."""
+    try:
+        from presence_prompt import attach_presence_context
+
+        block = attach_presence_context(audience=audience or "owner")
+    except OSError:
+        return system
+    if not block:
+        return system
+    return system.rstrip() + "\n\n" + block
+
+
 async def load_specialist_turn(
     user_id: str,
     text: str,
@@ -585,6 +598,7 @@ async def build_brain_pack(
             text,
             client_pack.audience,
         )
+        system = _with_presence(system, client_pack.audience)
         g = bool(client_pack.grounded) or client_pack.audience in {"heir", "caller"}
         return TwinBrainPack(
             system=system,
@@ -617,6 +631,7 @@ async def build_brain_pack(
         system += specialist_block
     system = _with_extra_system(system, extra_system)
     system, citation, watched = _with_observer(system, pack.citation_line, text, pack.audience)
+    system = _with_presence(system, pack.audience)
     g = bool(pack.grounded) or pack.audience in {"heir", "caller"}
     return TwinBrainPack(
         system=system,

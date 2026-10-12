@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 
+from box_pause import share_pause
 from observer_store import ObserverStore, observer_dir, observer_enabled, status_public
 
 
@@ -47,10 +48,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     store = _store()
     if command == "pause":
+        share_pause(True, "cli")
         store.set_paused(True, "cli")
         print("paused")
         return 0
     if command == "resume":
+        share_pause(False, "")
         store.set_paused(False, "")
         print("resumed")
         return 0

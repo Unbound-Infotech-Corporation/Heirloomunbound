@@ -305,6 +305,60 @@ def assignments_allowed(*, audience: Optional[str], heir_surface: bool = False) 
     return is_owner_audience(audience)
 
 
+def owner_is_present(present_names: Sequence[str], owner_names: Sequence[str]) -> bool:
+    present = {str(name).strip().lower() for name in present_names if str(name).strip()}
+    owners = {str(name).strip().lower() for name in owner_names if str(name).strip()}
+    if not owners:
+        return False
+    return bool(present & owners)
+
+
+_HOLD_PHRASES = (
+    "when i am in the room",
+    "when i'm in the room",
+    "when im in the room",
+    "until the owner is present",
+    "until i am in the room",
+    "until i'm in the room",
+    "when the owner is present",
+    "hold until i'm in the room",
+    "hold until i am in the room",
+)
+
+
+def wants_owner_present(assignment: Mapping[str, Any]) -> bool:
+    flag = str(assignment.get("deliver_when") or "").strip().lower().replace("-", "_")
+    if flag in {"owner_present", "present", "when_present"}:
+        return True
+    blob = f"{assignment.get('goal') or ''}\n{assignment.get('scope') or ''}".lower()
+    return any(phrase in blob for phrase in _HOLD_PHRASES)
+
+
+def hold_report(assignment: Mapping[str, Any], room: Optional[Mapping[str, Any]]) -> bool:
+    """Hold a finished report while Presence is on and the owner is not in the room.
+
+    ``room is None`` means Presence is off, and the report is not held.
+    """
+    if room is None or not wants_owner_present(assignment):
+        return False
+    return not owner_is_present(
+        list(room.get("present_names") or []),
+        list(room.get("owner_names") or []),
+    )
+
+
+def _assignment_room() -> Optional[dict]:
+    try:
+        from presence_store import room_for_assignments
+
+        return room_for_assignments()
+    except OSError:
+        return None
+
+
+_ROOM_UNSET = object()
+
+
 def can_transition(src: str, dst: str) -> bool:
     return dst in LEGAL_TRANSITIONS.get(src or "", frozenset())
 
@@ -517,6 +571,7 @@ def public_assignment(doc: Mapping[str, Any]) -> dict[str, Any]:
         "preset": doc.get("preset") or "",
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
+        "held_for_presence": bool(doc.get("held_for_presence")),
     }
 
 
@@ -809,8 +864,14 @@ async def run_assignment_step(
     connector: Connector,
     now: str,
     clone_autonomy_value: str = "ask",
+    room: Any = _ROOM_UNSET,
 ) -> StepOutcome:
-    """One step. Outbound proposals become an Approval. The connector is not called."""
+    """One step. Outbound proposals become an Approval. The connector is not called.
+
+    When Presence is on and the assignment asks to wait for the owner, a finished
+    report stays running until that person is in the room.
+    """
+    active_room = _assignment_room() if room is _ROOM_UNSET else room
     status = str(assignment.get("status") or "")
     if status == STATUS_QUEUED:
         current = transition_assignment(assignment, STATUS_RUNNING, now=now)
@@ -819,6 +880,14 @@ async def run_assignment_step(
         current = deepcopy(dict(assignment))
     else:
         raise IllegalTransition(f"Cannot run a step from {status}")
+
+    if status == STATUS_RUNNING and assignment.get("held_for_presence"):
+        if not hold_report(current, active_room):
+            done = transition_assignment(current, STATUS_DONE, now=now)
+            done["held_for_presence"] = False
+            append_log(done, "The owner is in the room. Report released.", now)
+            return StepOutcome(assignment=done, approval=None)
+        return StepOutcome(assignment=current, approval=None)
 
     try:
         drafted = await executor.draft(current)
@@ -861,6 +930,11 @@ async def run_assignment_step(
         # Connector stays idle until the owner approves.
         _ = connector
         return StepOutcome(assignment=current, approval=approval)
+
+    if hold_report(current, active_room):
+        current["held_for_presence"] = True
+        append_log(current, "Holding the report until the owner is in the room.", now)
+        return StepOutcome(assignment=current, approval=None)
 
     done = transition_assignment(current, STATUS_DONE, now=now)
     append_log(done, "Done.", now)

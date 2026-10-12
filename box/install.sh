@@ -18,17 +18,19 @@ DEV_TOOLS=0
 WITH_TAILSCALE=0
 WITH_CHATTERBOX=0
 WITH_OBSERVER=0
+WITH_PRESENCE=0
 export DEBIAN_FRONTEND=noninteractive
 
 usage() {
   cat <<'EOF'
-Usage: sudo bash box/install.sh [--dry-run] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer]
+Usage: sudo bash box/install.sh [--dry-run] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--presence]
 
   --dry-run           print the plan and write the log; change nothing
   --dev-tools         git, gh, Node.js LTS, Python 3.12, uv, Cursor CLI, Claude Code
   --tailscale         install Tailscale; you run `tailscale up` yourself
   --with-chatterbox   optional MIT Chatterbox TTS container
   --observer          watch the HDMI capture card and learn notes on this lab box
+  --presence          watch USB webcams and greet people the owner has taught
 EOF
 }
 
@@ -70,6 +72,7 @@ parse_args() {
       --tailscale) WITH_TAILSCALE=1 ;;
       --with-chatterbox) WITH_CHATTERBOX=1 ;;
       --observer) WITH_OBSERVER=1 ;;
+      --presence) WITH_PRESENCE=1 ;;
       -h|--help) usage; exit 0 ;;
       *)
         printf 'Unknown flag: %s\n' "${arg}" >&2
@@ -331,6 +334,10 @@ write_tree() {
   if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
     run install -d -m 0750 /var/lib/heirloom/observer
   fi
+  if [[ "${WITH_PRESENCE}" -eq 1 ]]; then
+    run install -d -m 0750 /var/lib/heirloom/presence
+    run install -d -m 0750 /var/lib/heirloom/presence/models
+  fi
   run install -d -m 0755 /etc/heirloom
 }
 
@@ -347,6 +354,10 @@ write_env() {
     log "would set HEIRLOOM_LLM_PROVIDER=ollama OLLAMA_TWIN_MODEL=${model} HEIRLOOM_LAB_MODE=1"
     if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
       log "would set HEIRLOOM_OBSERVER=1 OLLAMA_OBSERVER_MODEL=${observer_model:-ocr} OBSERVER_VRAM_MIB=${vram} OLLAMA_MAX_LOADED_MODELS=${max_loaded} OBSERVER_VISION_KEEP_ALIVE=${vision_keep} OBSERVER_RAM_BUDGET_BYTES=67108864 OBSERVER_CLIPS=0"
+    fi
+    if [[ "${WITH_PRESENCE}" -eq 1 ]]; then
+      log "would set HEIRLOOM_PRESENCE=1 PRESENCE_FPS=3 PRESENCE_VRAM_BUDGET_MIB=512 PRESENCE_UNKNOWN_THUMBNAILS=0 PRESENCE_THRESHOLD=0.36"
+      log "Presence models: YuNet MIT, SFace Apache-2.0. InsightFace pretrained models are not installed."
     fi
     return 0
   fi
@@ -381,6 +392,21 @@ write_env() {
     upsert_env OBSERVER_VISION_KEEP_ALIVE "${vision_keep}" "${env_file}"
     upsert_env OBSERVER_RING_SLOTS "4" "${env_file}"
     upsert_env OBSERVER_RAM_BUDGET_BYTES "67108864" "${env_file}"
+  fi
+  if [[ "${WITH_PRESENCE}" -eq 1 ]]; then
+    local speak="0"
+    if [[ "${WITH_CHATTERBOX}" -eq 1 ]]; then
+      speak="1"
+    fi
+    upsert_env HEIRLOOM_PRESENCE "1" "${env_file}"
+    upsert_env HEIRLOOM_PRESENCE_DIR "/var/lib/heirloom/presence" "${env_file}"
+    upsert_env PRESENCE_FPS "3" "${env_file}"
+    upsert_env PRESENCE_VRAM_BUDGET_MIB "512" "${env_file}"
+    upsert_env PRESENCE_THRESHOLD "0.36" "${env_file}"
+    upsert_env PRESENCE_DEBOUNCE_MINUTES "10" "${env_file}"
+    upsert_env PRESENCE_UNKNOWN_THUMBNAILS "0" "${env_file}"
+    upsert_env PRESENCE_SPEAK "${speak}" "${env_file}"
+    upsert_env PRESENCE_SPEAK_URL "http://127.0.0.1:8010/speak" "${env_file}"
   fi
   if ! grep -q '^CONNECTOR_SECRET_KEY=.\+' "${env_file}"; then
     secret="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
@@ -464,6 +490,76 @@ install_observer() {
   fi
 }
 
+install_presence() {
+  if [[ "${WITH_PRESENCE}" -eq 0 ]]; then
+    log "Presence not requested. Product builds leave it off."
+    return 0
+  fi
+  log "Presence requested. Installing python3-opencv, v4l-utils, ffmpeg, the systemd unit, and the udev rule."
+  log "Face models: YuNet (MIT) and SFace (Apache-2.0) from the OpenCV Zoo. InsightFace pretrained models are not installed."
+  log "GPU budget is 512 MiB free. Presence stays on CPU when Ollama leaves less than that."
+  run apt-get install -y python3-opencv v4l-utils ffmpeg
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    log "would download YuNet (MIT) https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+    log "would download SFace (Apache-2.0) https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
+    log "would keep each model's LICENSE file beside the weights"
+    log "would install /usr/local/bin/heirloom-presence, heirloom-presence.service, and 99-heirloom-presence.rules"
+    log "would touch /etc/heirloom/presence.enabled and systemctl enable --now heirloom-presence.service"
+    return 0
+  fi
+  install -d -m 0750 /var/lib/heirloom/presence/models
+  download_presence_model \
+    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" \
+    /var/lib/heirloom/presence/models/face_detection_yunet_2023mar.onnx \
+    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/LICENSE" \
+    /var/lib/heirloom/presence/models/face_detection_yunet.LICENSE
+  download_presence_model \
+    "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx" \
+    /var/lib/heirloom/presence/models/face_recognition_sface_2021dec.onnx \
+    "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/LICENSE" \
+    /var/lib/heirloom/presence/models/face_recognition_sface.LICENSE
+  install -m 0755 "${ROOT}/box/presence/heirloom-presence" /usr/local/bin/heirloom-presence
+  install -m 0644 "${ROOT}/box/presence/heirloom-presence.service" /etc/systemd/system/heirloom-presence.service
+  install -d -m 0755 /etc/udev/rules.d
+  install -m 0644 "${ROOT}/box/presence/99-heirloom-presence.rules" /etc/udev/rules.d/99-heirloom-presence.rules
+  install -d -m 0755 /etc/heirloom
+  touch /etc/heirloom/presence.enabled
+  chmod 644 /etc/heirloom/presence.enabled
+  systemctl daemon-reload
+  systemctl enable --now heirloom-presence.service || log "heirloom-presence did not start; heirloom-box status will show why"
+  if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules || true
+    udevadm trigger --subsystem-match=video4linux || true
+  fi
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    usermod -aG video "${SUDO_USER}" || true
+  fi
+}
+
+download_presence_model() {
+  local url="$1"
+  local dest="$2"
+  local license_url="$3"
+  local license_dest="$4"
+  if [[ -s "${dest}" && -s "${license_dest}" ]]; then
+    log "Presence model already present: ${dest}"
+    return 0
+  fi
+  log "Downloading ${url}"
+  if ! curl -fsSL "${url}" -o "${dest}.partial"; then
+    rm -f "${dest}.partial"
+    log "Could not download ${url}. Presence will report the model as missing until the file is there."
+    return 0
+  fi
+  mv "${dest}.partial" "${dest}"
+  if ! curl -fsSL "${license_url}" -o "${license_dest}.partial"; then
+    rm -f "${license_dest}.partial"
+    log "Could not download the license file ${license_url}"
+    return 0
+  fi
+  mv "${license_dest}.partial" "${license_dest}"
+}
+
 start_stack() {
   local model="$1"
   local observer_model="$2"
@@ -514,6 +610,10 @@ print_next() {
     log "Observer is on for this box. Pause with: heirloom-box observer pause"
     log "Wiring and privacy rules: box/OBSERVER.md"
   fi
+  if [[ "${WITH_PRESENCE}" -eq 1 ]]; then
+    log "Presence is on for this box. Pause with: heirloom-box presence pause"
+    log "Cameras, consent, and model licenses: box/PRESENCE.md"
+  fi
   if [[ "${NEED_REBOOT}" -eq 1 ]]; then
     log "Reboot so the NVIDIA driver loads, then re-run: sudo bash box/install.sh"
   fi
@@ -529,11 +629,15 @@ main() {
     WITH_OBSERVER=1
     log "Observer marker /etc/heirloom/observer.enabled is present; keeping Observer on"
   fi
+  if [[ "${WITH_PRESENCE}" -eq 0 && -f /etc/heirloom/presence.enabled ]]; then
+    WITH_PRESENCE=1
+    log "Presence marker /etc/heirloom/presence.enabled is present; keeping Presence on"
+  fi
   if [[ "${DRY_RUN}" -eq 0 && "${EUID}" -ne 0 ]]; then
     printf 'Re-run as root: sudo bash box/install.sh\n' >&2
     exit 1
   fi
-  log "Heirloom Twin Box installer root=${ROOT} dry_run=${DRY_RUN} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER}"
+  log "Heirloom Twin Box installer root=${ROOT} dry_run=${DRY_RUN} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} presence=${WITH_PRESENCE}"
   require_ubuntu
   mib="$(vram_mib)"
   solo="$(heirloom_model_for_vram_mib "${mib}")"
@@ -565,6 +669,7 @@ main() {
   write_compose_args
   write_cron
   install_observer
+  install_presence
   start_stack "${model}" "${observer_model}"
   print_next
 }

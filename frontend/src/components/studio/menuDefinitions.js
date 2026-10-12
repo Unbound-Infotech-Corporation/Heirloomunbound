@@ -337,8 +337,24 @@ function withObserverWindow(menus, ctx) {
   });
 }
 
+function withPresenceWindow(menus, ctx) {
+  if (!ctx?.presenceMode) return menus;
+  return menus.map((menu) => {
+    if (menu.label !== "Window") return menu;
+    if ((menu.items || []).some((item) => item.label === "Presence")) return menu;
+    return {
+      ...menu,
+      items: [
+        ...(menu.items || []),
+        { sep: true },
+        { label: "Presence", onClick: go(ctx.navigate, "/presence"), hint: "who is here" },
+      ],
+    };
+  });
+}
+
 function withBoxWindows(menus, ctx) {
-  return withObserverWindow(withLabWindow(menus, ctx), ctx);
+  return withPresenceWindow(withObserverWindow(withLabWindow(menus, ctx), ctx), ctx);
 }
 
 export function getWindowMenus(pathname, ctx) {

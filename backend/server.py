@@ -70,6 +70,7 @@ from routers import (
     personas,
     phone,
     photos,
+    presence,
     reminders,
     rooms,
     skills,
@@ -197,6 +198,7 @@ api_router.include_router(onboarding.router)
 api_router.include_router(sources.router)
 api_router.include_router(lab.router)
 api_router.include_router(observer.router)
+api_router.include_router(presence.router)
 api_router.include_router(letters.router)
 api_router.include_router(heir_portal.router)
 api_router.include_router(personality.router)

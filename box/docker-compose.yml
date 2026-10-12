@@ -32,6 +32,7 @@ services:
       - /var/lib/heirloom/lab:/var/lib/heirloom/lab
       - /var/lib/heirloom/lab-reports:/var/lib/heirloom/lab-reports
       - /var/lib/heirloom/observer:/var/lib/heirloom/observer
+      - /var/lib/heirloom/presence:/var/lib/heirloom/presence
     depends_on:
       - mongo
       - ollama

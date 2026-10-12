@@ -16,6 +16,7 @@ A former game server is the intended machine. Ubuntu Server 24.04 LTS, no monito
 | GPU | Reference lab card: NVIDIA RTX 3090, 24 GB. No GPU means CPU Ollama. The installer skips the driver and the container toolkit when `lspci` and `nvidia-smi` see nothing. |
 | Network | Ethernet on the LAN. SSH for a headless login. Ports 22, 80, and 443. |
 | HDMI capture | Optional, lab only. See [OBSERVER.md](OBSERVER.md). UVC devices such as the EVGA XR1. Off unless you pass `--observer`. |
+| USB webcams | Optional, lab only. See [PRESENCE.md](PRESENCE.md). One or more UVC cameras on the box. Off unless you pass `--presence`. |
 
 ### Default model from VRAM
 
@@ -32,6 +33,8 @@ The installer sets `OLLAMA_TWIN_MODEL` from the first GPU's VRAM. Qwen2.5 weight
 No GPU, or a driver that is not answering yet, is 0 MiB and selects `qwen2.5:3b`. Change the model later by editing `/var/lib/heirloom/box.env` and re-running the installer. Leave `OLLAMA_TWIN_MODEL` unset on a non-box process and the code default stays `llama3.1`.
 
 With `--observer` on the reference box (RTX 3090, 24 GB, 32 GB RAM), the chat model is `qwen2.5:14b` and the vision model is `qwen2.5vl:7b`. `qwen2.5:32b` does not leave room for vision. The pair, the 19 GB estimate, and the unload schedule are in [OBSERVER.md](OBSERVER.md).
+
+`--presence` does not change that pair. YuNet and SFace are small. Presence uses the GPU only when at least 512 MiB is free, and otherwise stays on CPU so Ollama keeps the card.
 
 Do not install XTTS-v2, F5-TTS weights, or LivePortrait bundled face models. Optional speech on the box is Chatterbox (MIT), behind `--with-chatterbox`.
 
@@ -51,6 +54,8 @@ Useful flags, which can be combined:
 sudo bash box/install.sh --dry-run
 sudo bash box/install.sh --dev-tools --tailscale --with-chatterbox
 sudo bash box/install.sh --observer
+sudo bash box/install.sh --presence
+sudo bash box/install.sh --presence --with-chatterbox
 ```
 
 | Flag | What it does |
@@ -60,6 +65,7 @@ sudo bash box/install.sh --observer
 | `--tailscale` | Installs Tailscale. You log in yourself. |
 | `--with-chatterbox` | Optional Chatterbox TTS container on `127.0.0.1:8010`. |
 | `--observer` | Lab only. Watches a UVC HDMI capture card and writes learned notes. Product installs leave this off. |
+| `--presence` | Lab only. Watches USB webcams and greets people the owner has taught. Product installs leave this off. |
 
 The script is idempotent. It uses `set -euo pipefail` and appends to `/var/log/heirloom-box-install.log`. A non-root dry-run that cannot write that path uses `$TMPDIR/heirloom-box-install.log`.
 
@@ -74,6 +80,7 @@ What a real run installs:
 - `ufw`: deny incoming, allow OpenSSH, `80/tcp`, and `443/tcp`.
 - Nightly cron: `03:00` `heirloom-box backup` (Mongo archive + vault tarball, 14 copies), `03:15` `heirloom-box report` (markdown under `/var/lib/heirloom/lab-reports`, 30 files).
 - With `--observer`: `ffmpeg`, `v4l-utils`, Tesseract, `heirloom-observer.service`, a udev rule for UVC replug, `HEIRLOOM_OBSERVER=1`, and a `03:20` digest. The marker `/etc/heirloom/observer.enabled` keeps Observer on when you later run the installer without the flag. Wiring, privacy rules, and the vision-model table are in [OBSERVER.md](OBSERVER.md).
+- With `--presence`: `python3-opencv`, `v4l-utils`, `ffmpeg`, YuNet (MIT) and SFace (Apache-2.0), `heirloom-presence.service`, and a udev rule. The marker `/etc/heirloom/presence.enabled` keeps Presence on later. Cameras, consent, and the GPU budget are in [PRESENCE.md](PRESENCE.md). `--with-chatterbox` turns on spoken greetings. Unknown-face thumbnails stay off.
 
 Data lives under `/var/lib/heirloom` (mongo, ollama, vault, lab JSONL, reports, backups, Caddy). The env file is `/var/lib/heirloom/box.env` mode `600`. The installer generates a local `CONNECTOR_SECRET_KEY` once. It never writes a GitHub token, mailbox password, or vendor key.
 
@@ -93,7 +100,7 @@ From the machine itself, or from SSH. The installer adds the user who ran `sudo`
 heirloom-box status
 ```
 
-That prints Compose services, GPU, disk for `/var/lib/heirloom`, the last backup, the last lab report, the Observer section (device, signal, fps, model, pause, notes today, disk), and `GET /api/health`. Health includes `observer` even when it is off.
+That prints Compose services, GPU, disk for `/var/lib/heirloom`, the last backup, the last lab report, the Observer section (device, signal, fps, model, pause, notes today, disk), the Presence section (cameras, fps, enrolled, who is here, pause), and `GET /api/health`. Health includes `observer` and `presence` even when they are off.
 
 Create the owner account in the web UI (the same signup the public app uses). Lab controls appear only for that owner session. Heirs and callers get 404 from `/api/lab/*` and do not see the Lab dock item.
 
@@ -138,7 +145,7 @@ git pull
 sudo bash box/install.sh
 ```
 
-Re-running is safe. It keeps the existing connector secret and rewrites the service env flags. Add `--dev-tools`, `--tailscale`, or `--with-chatterbox` again if you still want those. Observer stays on after the first `--observer` install because `/etc/heirloom/observer.enabled` is still there. A dry-run never creates that file.
+Re-running is safe. It keeps the existing connector secret and rewrites the service env flags. Add `--dev-tools`, `--tailscale`, or `--with-chatterbox` again if you still want those. Observer stays on after the first `--observer` install because `/etc/heirloom/observer.enabled` is still there. Presence stays on after the first `--presence` install because `/etc/heirloom/presence.enabled` is still there. A dry-run never creates those files.
 
 ## Lab signals
 
@@ -159,9 +166,13 @@ heirloom-box observer status
 heirloom-box observer pause
 heirloom-box observer resume
 heirloom-box observer digest
+heirloom-box presence status
+heirloom-box presence pause
+heirloom-box presence resume
+heirloom-box presence forget
 sudo bash box/install.sh --help
 ```
 
 ## What this environment did not prove
 
-A cloud agent can shellcheck the scripts, unit-test provider selection, the lab fence, and the Observer privacy filter, build the web app, and dry-run the installer. It cannot prove a real NVIDIA GPU, a bare-metal Ubuntu Server install from USB, a Tailscale login, a real UVC capture card, or a vision model answering from GPU VRAM.
+A cloud agent can shellcheck the scripts, unit-test provider selection, the lab fence, the Observer privacy filter, and Presence (debounce, enrollment purge, unknown faces, the heir fence, thresholds, pause), build the web app, and dry-run the installer. It cannot prove a real NVIDIA GPU, a bare-metal Ubuntu Server install from USB, a Tailscale login, a real UVC capture card, a real webcam, a real face, or a vision model answering from GPU VRAM.

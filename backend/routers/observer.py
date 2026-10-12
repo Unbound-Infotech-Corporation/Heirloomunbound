@@ -45,6 +45,9 @@ async def observer_pause(user: dict = Depends(get_current_user)):
     store = _gate(user)
     if not observer_enabled():
         raise HTTPException(status_code=404, detail="Not found")
+    from box_pause import share_pause
+
+    share_pause(True, "web")
     state = store.set_paused(True, "web")
     return {"paused": True, "reason": state.get("reason") or "web"}
 
@@ -54,6 +57,9 @@ async def observer_resume(user: dict = Depends(get_current_user)):
     store = _gate(user)
     if not observer_enabled():
         raise HTTPException(status_code=404, detail="Not found")
+    from box_pause import share_pause
+
+    share_pause(False, "")
     store.set_paused(False, "")
     return {"paused": False}
 

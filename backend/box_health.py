@@ -12,6 +12,7 @@ PRODUCT_VERSION = "0.5.1"
 
 
 from observer_store import status_public
+from presence_store import status_public as presence_status_public
 
 
 def health_payload() -> dict[str, object]:
@@ -24,4 +25,5 @@ def health_payload() -> dict[str, object]:
         "box": box_mode_enabled(),
         "ai_disclosure": disclosure_enabled(),
         "observer": status_public(),
+        "presence": presence_status_public(),
     }

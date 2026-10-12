@@ -208,6 +208,9 @@ class ObserverStore:
                     "owner_phrases": row.get("owner_phrases") or [],
                     "scene_delta": row.get("scene_delta") or 0,
                     "source": "observer",
+                    "presence": row.get("presence") or "",
+                    "presence_note": row.get("presence_note") or "",
+                    "presence_people": row.get("presence_people") or [],
                 },
             )
         return self._generate_notes()
@@ -474,7 +477,10 @@ def status_public(store: Optional[ObserverStore] = None) -> dict:
         store = ObserverStore(observer_dir())
     status = store.read_status() if enabled else {}
     state = store.read_state() if enabled else {}
-    paused = bool(state.get("paused")) or bool(status.get("paused"))
+    from box_pause import read_pause
+
+    shared = read_pause()
+    paused = bool(state.get("paused")) or bool(status.get("paused")) or bool(shared.get("paused"))
     try:
         used = disk_used(store.root) if enabled else 0
         notes_today = len(store.notes_for_day(_day())) if enabled else 0
