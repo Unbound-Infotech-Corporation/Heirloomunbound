@@ -293,6 +293,7 @@ class TwinTurnResult:
     receipt: Optional[dict] = None
     specialist_id: Optional[str] = None
     specialist_name: Optional[str] = None
+    source_label: str = ""
 
 
 @dataclass
@@ -303,6 +304,20 @@ class TwinBrainPack:
     twin_backend: str
     grounded_miss: bool = False
     citation_line: str = ""
+    watched_relied: bool = False
+
+
+def _with_observer(system: str, citation: str, query: str, audience: str | None) -> tuple[str, str, bool]:
+    """Watched notes stay behind filed passages. Failures leave the prompt unchanged."""
+    try:
+        from observer_prompt import attach_observer_context
+
+        attached = attach_observer_context(citation, query, audience=audience or "owner")
+    except OSError:
+        return system, citation, False
+    if not attached.block:
+        return system, attached.citation, False
+    return system.rstrip() + "\n\n" + attached.block, attached.citation, attached.relied
 
 
 async def load_specialist_turn(
@@ -564,6 +579,12 @@ async def build_brain_pack(
         if specialist_block:
             system += specialist_block
         system = _with_extra_system(system, extra_system)
+        system, citation, watched = _with_observer(
+            system,
+            client_pack.citation_line or citation_line(client_pack.passages),
+            text,
+            client_pack.audience,
+        )
         g = bool(client_pack.grounded) or client_pack.audience in {"heir", "caller"}
         return TwinBrainPack(
             system=system,
@@ -571,7 +592,8 @@ async def build_brain_pack(
             conversation_id=conversation["conversation_id"],
             twin_backend=twin_backend,
             grounded_miss=g and not client_pack.passages,
-            citation_line=client_pack.citation_line or citation_line(client_pack.passages),
+            citation_line=citation,
+            watched_relied=watched,
         )
 
     passages = await archive_passages(user_id, query_hint=text)
@@ -594,6 +616,7 @@ async def build_brain_pack(
     if specialist_block:
         system += specialist_block
     system = _with_extra_system(system, extra_system)
+    system, citation, watched = _with_observer(system, pack.citation_line, text, pack.audience)
     g = bool(pack.grounded) or pack.audience in {"heir", "caller"}
     return TwinBrainPack(
         system=system,
@@ -601,7 +624,8 @@ async def build_brain_pack(
         conversation_id=conversation["conversation_id"],
         twin_backend=twin_backend,
         grounded_miss=g and not pack.passages,
-        citation_line=pack.citation_line,
+        citation_line=citation,
+        watched_relied=watched,
     )
 
 
@@ -763,7 +787,9 @@ async def run_twin_turn(
         specialist=specialist,
         extra_system=extra_system,
     )
-    if pack.grounded_miss:
+    from observer_prompt import WATCHED_SOURCE, block_grounded_miss
+
+    if block_grounded_miss(pack.grounded_miss, pack.watched_relied):
         reply = miss_reply(True, spoken=phone)
         ts = _now_iso()
         receipt = _receipt_for_role(role, None, reply=reply)
@@ -779,6 +805,8 @@ async def run_twin_turn(
             backend="grounded_miss",
             receipt=receipt,
         )
+
+    source_label = WATCHED_SOURCE if pack.watched_relied else ""
 
     system = pack.system
     if phone:
@@ -819,6 +847,7 @@ async def run_twin_turn(
             ts=ts,
             backend=backend_used,
             receipt=receipt,
+            source_label=source_label,
         )
 
     if backend_used == "ollama":
@@ -857,6 +886,7 @@ async def run_twin_turn(
                 ts=ts,
                 backend=backend_used,
                 receipt=receipt,
+                source_label=source_label,
             )
 
     initial_messages = [{"role": "system", "content": system}]
@@ -922,6 +952,7 @@ async def run_twin_turn(
         receipt=receipt,
         specialist_id=specialist_id,
         specialist_name=specialist_name,
+        source_label=source_label,
     )
 
 

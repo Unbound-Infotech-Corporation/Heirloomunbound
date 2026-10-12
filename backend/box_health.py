@@ -11,6 +11,9 @@ from llm_provider import resolve_llm_provider
 PRODUCT_VERSION = "0.5.1"
 
 
+from observer_store import status_public
+
+
 def health_payload() -> dict[str, object]:
     return {
         "status": "ok",
@@ -20,4 +23,5 @@ def health_payload() -> dict[str, object]:
         "lab_mode": lab_mode_enabled(),
         "box": box_mode_enabled(),
         "ai_disclosure": disclosure_enabled(),
+        "observer": status_public(),
     }

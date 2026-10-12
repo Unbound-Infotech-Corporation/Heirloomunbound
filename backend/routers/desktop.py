@@ -197,6 +197,8 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     }
     if result.action:
         out["action"] = result.action
+    if getattr(result, "source_label", ""):
+        out["source_label"] = result.source_label
     if mode == "owner":
         out.update(owner_response_fields(result))
     elif getattr(result, "receipt", None):

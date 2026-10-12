@@ -1,0 +1,3 @@
+# Plug and unplug of a UVC capture device. The daemon also re-scans /dev/video*
+# each loop, so a replug is picked up even when systemd does not restart it.
+ACTION=="add", SUBSYSTEM=="video4linux", TAG+="systemd", ENV{SYSTEMD_WANTS}="heirloom-observer.service"

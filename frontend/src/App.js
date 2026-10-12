@@ -36,6 +36,7 @@ import Personality from "@/pages/Personality";
 import Memory from "@/pages/Memory";
 import Assignments, { AssignmentNew } from "@/pages/Assignments";
 import Lab from "@/pages/Lab";
+import Observer from "@/pages/Observer";
 import Buy from "@/pages/Buy";
 import BuySuccess from "@/pages/BuySuccess";
 import Today from "@/pages/Today";
@@ -124,6 +125,7 @@ function AppRouter() {
         <Route path="/personality" element={<Personality />} />
         <Route path="/memory" element={<Memory />} />
         <Route path="/lab" element={<Lab />} />
+        <Route path="/observer" element={<Observer />} />
         <Route path="/assignments/new" element={<AssignmentNew />} />
         <Route path="/assignments" element={<Assignments />} />
         <Route path="/assignments/:assignmentId" element={<Assignments />} />

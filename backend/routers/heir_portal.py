@@ -186,6 +186,7 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     if len(text) > 2000:
         raise HTTPException(status_code=400, detail="Message too long")
 
+    from observer_prompt import attach_observer_context
     from twin_pack import TwinPack, compile_twin_prompt, miss_reply, stance_line
     from twin_runtime import archive_passages, citation_line, _fence_from_user
 
@@ -203,7 +204,8 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
         grounded=True,
         audience="heir",
     )
-    if not passages:
+    attached = attach_observer_context(pack.citation_line, text, audience="heir")
+    if not passages and not attached.relied:
         reply_text = miss_reply(True)
         session_id = await _persist_portal_turn(
             owner["user_id"], heir, payload.session_id, text, reply_text
@@ -211,6 +213,8 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
         return {"reply": reply_text, "session_id": session_id, "citation_line": pack.citation_line}
 
     system = compile_twin_prompt(pack, owner.get("name", "the owner"))
+    if attached.block:
+        system += "\n\n" + attached.block
     system += (
         f"\nYou are speaking with their heir {heir.get('name', 'an heir')} "
         f"({heir.get('relationship', 'loved one')}). Be brief — 1-4 sentences unless asked for more. "
@@ -232,4 +236,8 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     session_id = await _persist_portal_turn(
         owner["user_id"], heir, session_id, text, reply_text
     )
-    return {"reply": reply_text, "session_id": session_id}
+    out = {"reply": reply_text, "session_id": session_id}
+    if attached.relied:
+        out["citation_line"] = attached.citation
+        out["source_label"] = "from what I've watched"
+    return out

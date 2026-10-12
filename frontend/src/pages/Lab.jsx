@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { healthLine, summarizeTurns, voteLabel } from "../lib/lab";
+import ObserverPanel from "../components/studio/ObserverPanel";
 
 export default function Lab() {
   const [health, setHealth] = useState(null);
@@ -48,6 +49,12 @@ export default function Lab() {
           </pre>
         ) : null}
       </section>
+
+      {health?.observer?.enabled ? (
+        <div className="mb-6" data-testid="lab-observer">
+          <ObserverPanel />
+        </div>
+      ) : null}
 
       {closed ? (
         <p className="text-sm" data-testid="lab-closed" style={{ color: "var(--text-muted)" }}>
