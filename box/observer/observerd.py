@@ -41,6 +41,7 @@ from observer_models import (  # noqa: E402
 )
 from observer_pipeline import consider_frame  # noqa: E402
 from observer_privacy import pause_decision  # noqa: E402
+from box_pause import merged_state  # noqa: E402
 from observer_store import (  # noqa: E402
     ObserverStore,
     clips_enabled,
@@ -299,7 +300,7 @@ def main() -> int:
 
     while True:
         now_dt = datetime.now().astimezone()
-        state = store.read_state()
+        state = merged_state(store.read_state())
         paused, reason = pause_decision(state, now=now_dt, hotkey_phrase=hotkey, quiet_hours=quiet)
         if paused and reason in {"cli", "web", "hotkey", "schedule"}:
             _write_status(
@@ -399,19 +400,18 @@ def main() -> int:
                     [{"ts": now_dt.isoformat(), "dropped": True, "reason": result["reason"]}]
                 )
             else:
-                store.add_observations(
-                    [
-                        {
-                            "ts": now_dt.isoformat(),
-                            "activity": result["activity"],
-                            "app": str(device.get("name") or ""),
-                            "title": result["text"][:120],
-                            "game": result["game"],
-                            "text": result["text"],
-                            "scene_delta": round(delta, 3),
-                        }
-                    ]
-                )
+                from presence_cues import attach_presence_fields
+
+                row = {
+                    "ts": now_dt.isoformat(),
+                    "activity": result["activity"],
+                    "app": str(device.get("name") or ""),
+                    "title": result["text"][:120],
+                    "game": result["game"],
+                    "text": result["text"],
+                    "scene_delta": round(delta, 3),
+                }
+                store.add_observations([attach_presence_fields(row)])
                 if clips_enabled() and delta >= 0.35:
                     keep_highlight(store, str(device["path"]), ram, _env_float("OBSERVER_CLIP_SECONDS", 8))
             if clips_enabled():
