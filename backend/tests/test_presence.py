@@ -27,7 +27,7 @@ from box_pause import merged_state, read_pause, share_pause, write_pause
 from observer_privacy import pause_decision
 from presence_access import presence_allowed, require_owner
 from presence_cues import cue_for_title, room_cue
-from presence_match import SeenFace, best_match, greeting_text, motion_open, should_greet, step, touch_present
+from presence_match import SeenFace, best_match, cosine, greeting_text, motion_open, should_greet, step, touch_present
 from presence_models import DETECTOR, RECOGNIZER, clamp_fps, select_target
 from presence_prompt import presence_prompt_block
 from presence_speak import speak_greeting
@@ -91,7 +91,7 @@ def test_threshold_matches_the_same_face_and_rejects_a_near_miss():
     other = _person("prs_guest", _vec(0.0, 1.0), name="Sam", relationship="guest")
     assert best_match(owner, [same, other]).person_id == "prs_owner"
     near = _vec(0.35, (1 - 0.35 ** 2) ** 0.5)
-    assert best_match(near, [same]).score < 0.36 or best_match(near, [same]) is None
+    assert cosine(near, owner) < 0.36
     assert best_match(near, [same], threshold=0.36) is None
     assert best_match(_vec(0.0, 1.0), [same]) is None
     tied = [
