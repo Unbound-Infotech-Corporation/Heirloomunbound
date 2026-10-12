@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { healthLine, summarizeTurns, voteLabel } from "../lib/lab";
+import { cameraSummary, presentLabel } from "../lib/presence";
 import ObserverPanel from "../components/studio/ObserverPanel";
 
 export default function Lab() {
@@ -54,6 +56,22 @@ export default function Lab() {
         <div className="mb-6" data-testid="lab-observer">
           <ObserverPanel />
         </div>
+      ) : null}
+
+      {health?.presence?.enabled ? (
+        <section className="surface p-5 mb-6" data-testid="lab-presence">
+          <div className="overline mb-2">presence</div>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            {cameraSummary(health.presence.cameras, health.presence.fps)}
+            {" · "}
+            {health.presence.enrolled || 0} enrolled
+            {" · "}
+            {presentLabel(health.presence.present)}
+          </p>
+          <Link to="/presence" className="text-sm" data-testid="lab-presence-link" style={{ color: "var(--accent)" }}>
+            Teach a person
+          </Link>
+        </section>
       ) : null}
 
       {closed ? (

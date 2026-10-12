@@ -12,6 +12,7 @@ import {
   FlaskConical,
   Eye,
   Home,
+  ScanFace,
   Image as ImageIcon,
   ListTodo,
   LogOut,
@@ -42,6 +43,7 @@ import { useAuth } from "../lib/auth";
 import { api } from "../lib/api";
 import { healthLine, labModeFromHealth } from "../lib/lab";
 import { observerEnabled } from "../lib/observer";
+import { presenceEnabled } from "../lib/presence";
 
 const navItems = [
   { to: "/today", label: "Today", icon: Sunrise, tid: "nav-today" },
@@ -103,6 +105,7 @@ const WINDOW_TITLES = {
   "/settings": "Settings",
   "/lab": "Lab",
   "/observer": "Observer",
+  "/presence": "Presence",
   "/avatar-studio": "Avatar Studio",
   "/setup/keys": "API Keys",
 };
@@ -200,6 +203,7 @@ export default function AppLayout() {
   const [coachReopen, setCoachReopen] = useState(0);
   const [labOn, setLabOn] = useState(false);
   const [observerOn, setObserverOn] = useState(false);
+  const [presenceOn, setPresenceOn] = useState(false);
   const [boxHealth, setBoxHealth] = useState(null);
 
   useEffect(() => {
@@ -207,7 +211,7 @@ export default function AppLayout() {
     api.get("/health")
       .then(({ data }) => {
         if (cancelled || !data) return;
-        if (data.box || data.lab_mode || data.observer) setBoxHealth(data);
+        if (data.box || data.lab_mode || data.observer || data.presence) setBoxHealth(data);
         if (observerEnabled(data)) {
           api.get("/observer/status")
             .then(() => {
@@ -215,6 +219,15 @@ export default function AppLayout() {
             })
             .catch(() => {
               if (!cancelled) setObserverOn(false);
+            });
+        }
+        if (presenceEnabled(data)) {
+          api.get("/presence/status")
+            .then(() => {
+              if (!cancelled) setPresenceOn(true);
+            })
+            .catch(() => {
+              if (!cancelled) setPresenceOn(false);
             });
         }
         if (!labModeFromHealth(data)) return;
@@ -236,6 +249,7 @@ export default function AppLayout() {
     ...navItems,
     ...(labOn ? [{ to: "/lab", label: "Lab", icon: FlaskConical, tid: "nav-lab" }] : []),
     ...(observerOn ? [{ to: "/observer", label: "Observer", icon: Eye, tid: "nav-observer" }] : []),
+    ...(presenceOn ? [{ to: "/presence", label: "Presence", icon: ScanFace, tid: "nav-presence" }] : []),
   ];
 
   useEffect(() => {
@@ -264,6 +278,7 @@ export default function AppLayout() {
     WINDOW_TITLES[location.pathname] ||
     (location.pathname.startsWith("/lab") ? "Lab" : null) ||
     (location.pathname.startsWith("/observer") ? "Observer" : null) ||
+    (location.pathname.startsWith("/presence") ? "Presence" : null) ||
     (location.pathname.startsWith("/assignments") ? "Assignments" : null) ||
     (location.pathname.startsWith("/rooms/") ? "Room" : "Heirloom");
   const menuCtx = useMemo(
@@ -274,8 +289,9 @@ export default function AppLayout() {
       reopenSetupCoach: () => setCoachReopen((n) => n + 1),
       labMode: labOn,
       observerMode: observerOn,
+      presenceMode: presenceOn,
     }),
-    [navigate, logout, labOn, observerOn]
+    [navigate, logout, labOn, observerOn, presenceOn]
   );
   const menus = useMemo(
     () => getWindowMenus(location.pathname, menuCtx),
