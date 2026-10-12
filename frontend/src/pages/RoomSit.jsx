@@ -306,10 +306,16 @@ export default function RoomSit() {
       save,
     });
     setVr(result.prefs);
-    if (sessionRef.current && nextGaze && !gazeRef.current) {
-      gazeRef.current = createGazeAccumulator();
+    if (!nextGaze) {
+      gazeRef.current = null;
+      return;
     }
-    if (!nextGaze) gazeRef.current = null;
+    const live = sessionRef.current;
+    if (live && !live.gazeAvailable) {
+      setVrNote("This visit started without eye tracking. Leave and enter again to ask the runtime for gaze.");
+      return;
+    }
+    if (live && !gazeRef.current) gazeRef.current = createGazeAccumulator();
   };
 
   const onEnter = async () => {

@@ -67,7 +67,7 @@ The companion's local faster-whisper path (`POST /api/companion/voice`, device t
 
 ## Eye-tracking notes
 
-Default off. Separate from the VR switch.
+Default off. Separate from the VR switch. Turn it on before entering the headset. A session that already started does not gain a gaze space until the next entry.
 
 When gaze data exists, the page totals which coarse area was looked at and for how long:
 

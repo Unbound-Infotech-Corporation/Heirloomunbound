@@ -155,8 +155,8 @@ export function gazeSupport({ features = [], headsetId = "" } = {}) {
 }
 
 export function rayHitAabb(origin, direction, min, max) {
-  let tmin = 0;
-  let tmax = 40;
+  let tEnter = -Infinity;
+  let tExit = Infinity;
   for (let axis = 0; axis < 3; axis += 1) {
     const originAxis = origin[axis];
     const directionAxis = direction[axis];
@@ -171,12 +171,15 @@ export function rayHitAabb(origin, direction, min, max) {
       enter = exit;
       exit = swap;
     }
-    tmin = Math.max(tmin, enter);
-    tmax = Math.min(tmax, exit);
-    if (tmin > tmax) return null;
+    tEnter = Math.max(tEnter, enter);
+    tExit = Math.min(tExit, exit);
+    if (tEnter > tExit) return null;
   }
-  if (tmax < 0) return null;
-  return tmin >= 0 ? tmin : tmax;
+  if (tExit < 0 || tEnter > 40) return null;
+  // Standing inside the room volume should not count as a hit at distance 0.
+  // The surface ahead is the far side, so the twin in front still wins.
+  if (tEnter >= 0) return tEnter;
+  return tExit;
 }
 
 export function areaAlongRay(origin, direction) {
