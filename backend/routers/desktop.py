@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -139,6 +140,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
         kind = "companion_twin"
 
     conv = await ensure_conversation(user["user_id"], kind=kind)
+    started = time.perf_counter()
     try:
         if mode == "owner":
             result = await run_owner_turn(
@@ -172,6 +174,15 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
+        from routers.lab import note_chat_reply
+
+        note_chat_reply(
+            user,
+            route=mode,
+            started=started,
+            error=str(exc),
+            audience=audience,
+        )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     await live_publish_turn(user["user_id"], "user", body.text, source="desktop")
@@ -194,6 +205,22 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     if getattr(result, "specialist_id", None):
         out["specialist_id"] = result.specialist_id
         out["specialist_name"] = result.specialist_name
+    from routers.lab import note_chat_reply
+
+    handler = ""
+    handoff = getattr(result, "handoff", None)
+    if isinstance(handoff, dict):
+        handler = str(handoff.get("handler") or "")
+    turn_id = note_chat_reply(
+        user,
+        route=handler or mode,
+        started=started,
+        approval=getattr(result, "approval", None),
+        audience=audience,
+        model=getattr(result, "backend", "") or "",
+    )
+    if turn_id:
+        out["lab_turn_id"] = turn_id
     return out
 
 

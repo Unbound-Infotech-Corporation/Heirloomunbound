@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# Twin Box status, backup, and lab report.
+if [[ -z "${BASH_VERSION:-}" ]]; then
+  echo "heirloom-box requires bash." >&2
+  exit 1
+fi
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: heirloom-box <status|backup|report>
+
+  status   services, GPU, disk, last backup, last report, /api/health
+  backup   Mongo archive + vault tarball, 14 copies kept
+  report   nightly local markdown under /var/lib/heirloom/lab-reports
+EOF
+}
+
+read_root() {
+  if [[ -r /etc/heirloom/root ]]; then
+    tr -d '[:space:]' < /etc/heirloom/root
+    return 0
+  fi
+  local here
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -f "${here}/docker-compose.yml" ]]; then
+    cd "${here}/.." && pwd
+    return 0
+  fi
+  printf '%s\n' ""
+}
+
+compose() {
+  local root="$1"
+  shift
+  local -a args=()
+  if [[ -r /etc/heirloom/compose.args ]]; then
+    local line
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && args+=("${line}")
+    done < /etc/heirloom/compose.args
+  else
+    args+=(-f "${root}/box/docker-compose.yml")
+  fi
+  if ! docker compose version >/dev/null 2>&1; then
+    printf 'docker compose is not installed\n' >&2
+    return 1
+  fi
+  docker compose "${args[@]}" "$@"
+}
+
+cmd_status() {
+  local root
+  root="$(read_root)"
+  printf 'Heirloom Twin Box\n'
+  printf 'root: %s\n' "${root:-unset}"
+
+  printf '\n## services\n'
+  if [[ -n "${root}" ]] && command -v docker >/dev/null 2>&1; then
+    compose "${root}" ps || printf 'compose ps failed\n'
+  else
+    printf 'docker or install root is not available\n'
+  fi
+
+  printf '\n## gpu\n'
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null; then
+    true
+  else
+    printf 'no NVIDIA GPU answering nvidia-smi\n'
+  fi
+
+  printf '\n## disk\n'
+  if [[ -d /var/lib/heirloom ]]; then
+    df -h /var/lib/heirloom || true
+  else
+    printf '/var/lib/heirloom is not created yet\n'
+  fi
+
+  printf '\n## last backup\n'
+  local last=""
+  if [[ -d /var/lib/heirloom/backups ]]; then
+    last="$(find /var/lib/heirloom/backups -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1 || true)"
+  fi
+  if [[ -n "${last}" ]]; then
+    printf '%s\n' "${last}"
+  else
+    printf 'none\n'
+  fi
+
+  printf '\n## last report\n'
+  local report=""
+  if [[ -d /var/lib/heirloom/lab-reports ]]; then
+    report="$(find /var/lib/heirloom/lab-reports -maxdepth 1 -name 'lab-report-*.md' | sort | tail -n 1 || true)"
+  fi
+  if [[ -n "${report}" ]]; then
+    printf '%s\n' "${report}"
+  else
+    printf 'none\n'
+  fi
+
+  printf '\n## health\n'
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS --max-time 5 http://127.0.0.1:8001/api/health \
+      || curl -kfsS --max-time 5 https://127.0.0.1/api/health \
+      || printf 'health endpoint did not answer\n'
+    printf '\n'
+  else
+    printf 'curl is not installed\n'
+  fi
+}
+
+cmd_backup() {
+  local root stamp dest
+  root="$(read_root)"
+  if [[ -z "${root}" ]]; then
+    echo "Run box/install.sh before heirloom-box backup." >&2
+    exit 1
+  fi
+  stamp="$(date -u +%Y%m%d-%H%M%S)"
+  dest="/var/lib/heirloom/backups/${stamp}"
+  mkdir -p "${dest}"
+  compose "${root}" exec -T mongo mongodump --archive > "${dest}/mongo.archive"
+  if [[ -d /var/lib/heirloom/vault ]]; then
+    tar -C /var/lib/heirloom -czf "${dest}/vault.tgz" vault
+  else
+    printf 'vault directory missing\n' > "${dest}/vault-missing.txt"
+  fi
+  mapfile -t old < <(find /var/lib/heirloom/backups -mindepth 1 -maxdepth 1 -type d | sort | head -n -14 || true)
+  local dir
+  for dir in "${old[@]+"${old[@]}"}"; do
+    rm -rf "${dir}"
+  done
+  printf '%s\n' "${dest}"
+}
+
+cmd_report() {
+  local root
+  root="$(read_root)"
+  if [[ -z "${root}" ]]; then
+    echo "Run box/install.sh before heirloom-box report." >&2
+    exit 1
+  fi
+  compose "${root}" exec -T api python -m lab_report
+}
+
+main() {
+  local cmd="${1:-}"
+  case "${cmd}" in
+    status) cmd_status ;;
+    backup) cmd_backup ;;
+    report) cmd_report ;;
+    -h|--help|help|"") usage ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

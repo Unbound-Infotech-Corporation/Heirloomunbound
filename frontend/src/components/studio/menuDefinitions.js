@@ -305,21 +305,39 @@ const ROUTE_MENUS = {
   ],
 };
 
+function withLabWindow(menus, ctx) {
+  if (!ctx?.labMode) return menus;
+  return menus.map((menu) => {
+    if (menu.label !== "Window") return menu;
+    if ((menu.items || []).some((item) => item.label === "Lab")) return menu;
+    return {
+      ...menu,
+      items: [
+        ...(menu.items || []),
+        { sep: true },
+        { label: "Lab", onClick: go(ctx.navigate, "/lab"), hint: "this box" },
+      ],
+    };
+  });
+}
+
 export function getWindowMenus(pathname, ctx) {
   const factory = ROUTE_MENUS[pathname]
     || (pathname.startsWith("/assignments") ? ROUTE_MENUS["/assignments"] : null)
     || (pathname.startsWith("/rooms/") ? ROUTE_MENUS["/rooms"] : null);
-  if (factory) return factory(ctx);
-  return [
-    editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    audioMenu(ctx.navigate),
-    modelsMenu(ctx.navigate),
-    commonWindow(ctx.navigate),
-  ];
+  const menus = factory
+    ? factory(ctx)
+    : [
+      editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
+      audioMenu(ctx.navigate),
+      modelsMenu(ctx.navigate),
+      commonWindow(ctx.navigate),
+    ];
+  return withLabWindow(menus, ctx);
 }
 
 export function getAppMenubarItems(ctx) {
-  return [
+  return withLabWindow([
     {
       label: "File",
       items: [
@@ -357,5 +375,5 @@ export function getAppMenubarItems(ctx) {
         { label: "Headset compatibility…", onClick: go(ctx.navigate, "/rooms/vr/matrix") },
       ],
     },
-  ];
+  ], ctx);
 }

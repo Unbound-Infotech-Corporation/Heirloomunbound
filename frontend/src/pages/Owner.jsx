@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Loader2 } from "lucide-react";
 import AssistReceipt from "../components/studio/AssistReceipt";
+import LabVote from "../components/studio/LabVote";
 import ApprovalCard from "../components/studio/ApprovalCard";
 import AssistantPicker from "../components/studio/AssistantPicker";
 import { shouldShowReceipt, splitOwnerLegs } from "../lib/assistReceipt";
@@ -44,6 +45,7 @@ export default function Owner() {
   const [pendingApprovals, setPendingApprovals] = useState([]);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [closedApprovalIds, setClosedApprovalIds] = useState({});
+  const [labOn, setLabOn] = useState(false);
   const feedRef = useRef(null);
 
   const loadApprovals = async () => {
@@ -61,6 +63,7 @@ export default function Owner() {
     });
     api.get("/clones").then(({ data }) => setAssistants(data.clones || [])).catch(() => {});
     loadApprovals();
+    api.get("/lab/status").then(() => setLabOn(true)).catch(() => setLabOn(false));
   }, []);
 
   useEffect(() => {
@@ -100,6 +103,7 @@ export default function Owner() {
             assignment: data.assignment,
             assignment_id: data.assignment_id || data.assignment?.assignment_id || data.handoff?.assignment_id,
             approval: data.approval,
+            lab_turn_id: data.lab_turn_id,
           },
         ],
       }));
@@ -251,6 +255,7 @@ export default function Owner() {
                     ) : null}
                   </div>
                   <OwnerAssistantBody message={m} index={i} />
+                  <LabVote turnId={m.lab_turn_id} enabled={labOn} />
                   {approvalForMessage(m) ? (
                     <div className="mt-4">
                       <ApprovalCard

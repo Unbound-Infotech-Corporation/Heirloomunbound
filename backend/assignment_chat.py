@@ -14,6 +14,17 @@ ASSIGNMENT_SYSTEM = (
 
 
 async def complete_assignment_prompt(prompt: str) -> str:
+    from llm_provider import complete_openai_chat, resolve_llm_provider, uses_ollama
+
+    if uses_ollama(resolve_llm_provider()):
+        completed = await complete_openai_chat([
+            {"role": "system", "content": ASSIGNMENT_SYSTEM},
+            {"role": "user", "content": prompt},
+        ])
+        if not completed.text:
+            raise RuntimeError("model returned empty content")
+        return completed.text
+
     from deps import EMERGENT_LLM_KEY
 
     if not (EMERGENT_LLM_KEY or "").strip():

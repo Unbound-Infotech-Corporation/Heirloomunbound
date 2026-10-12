@@ -16,6 +16,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping, Optional, Protocol, Sequence
 
+from ai_disclosure import label_outbound_payload
 from assistants import clone_autonomy
 from email_intent import NOT_CONNECTED_REPLY, email_assignment_intent
 from owner_pairing import is_owner_audience
@@ -606,13 +607,16 @@ def new_approval(
     now: str,
 ) -> dict[str, Any]:
     kind = normalize_action_kind(action_kind)
+    cleaned = clean_payload(payload)
+    if kind in {"send", "post"}:
+        cleaned = label_outbound_payload(cleaned, action_kind=kind)
     return {
         "approval_id": _new_id("apr"),
         "assignment_id": assignment["assignment_id"],
         "user_id": assignment["user_id"],
         "action_kind": kind,
         "summary": (summary or f"Approve {kind}").strip()[:400],
-        "payload": clean_payload(payload),
+        "payload": cleaned,
         "status": APPROVAL_PENDING,
         "decided_at": None,
         "executed": False,

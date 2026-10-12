@@ -9,6 +9,7 @@ import {
   Cpu,
   Database,
   Feather,
+  FlaskConical,
   Home,
   Image as ImageIcon,
   ListTodo,
@@ -37,6 +38,8 @@ import { getAppMenubarItems, getWindowMenus } from "./studio";
 import SetupCoach from "./studio/SetupCoach";
 import TourOverlay from "./TourOverlay";
 import { useAuth } from "../lib/auth";
+import { api } from "../lib/api";
+import { healthLine, labModeFromHealth } from "../lib/lab";
 
 const navItems = [
   { to: "/today", label: "Today", icon: Sunrise, tid: "nav-today" },
@@ -96,11 +99,12 @@ const WINDOW_TITLES = {
   "/letters": "Sealed Letters",
   "/first-gift": "First Gift",
   "/settings": "Settings",
+  "/lab": "Lab",
   "/avatar-studio": "Avatar Studio",
   "/setup/keys": "API Keys",
 };
 
-function SidebarContent({ user, logout, onNavigate, navigateRoot }) {
+function SidebarContent({ user, logout, onNavigate, navigateRoot, items = navItems }) {
   return (
     <>
       <button
@@ -119,7 +123,7 @@ function SidebarContent({ user, logout, onNavigate, navigateRoot }) {
       </button>
 
       <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon;
           return (
             <NavLink
@@ -191,6 +195,33 @@ export default function AppLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [coachReopen, setCoachReopen] = useState(0);
+  const [labOn, setLabOn] = useState(false);
+  const [boxHealth, setBoxHealth] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/health")
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        if (data.box || data.lab_mode) setBoxHealth(data);
+        if (!labModeFromHealth(data)) return;
+        api.get("/lab/status")
+          .then(() => {
+            if (!cancelled) setLabOn(true);
+          })
+          .catch(() => {
+            if (!cancelled) setLabOn(false);
+          });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const dockItems = labOn
+    ? [...navItems, { to: "/lab", label: "Lab", icon: FlaskConical, tid: "nav-lab" }]
+    : navItems;
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -206,6 +237,7 @@ export default function AppLayout() {
   const sidebarProps = {
     user,
     logout,
+    items: dockItems,
     onNavigate: () => setDrawerOpen(false),
     navigateRoot: () => {
       setDrawerOpen(false);
@@ -215,6 +247,7 @@ export default function AppLayout() {
 
   const title =
     WINDOW_TITLES[location.pathname] ||
+    (location.pathname.startsWith("/lab") ? "Lab" : null) ||
     (location.pathname.startsWith("/assignments") ? "Assignments" : null) ||
     (location.pathname.startsWith("/rooms/") ? "Room" : "Heirloom");
   const menuCtx = useMemo(
@@ -223,8 +256,9 @@ export default function AppLayout() {
       logout,
       setCaptureOpen,
       reopenSetupCoach: () => setCoachReopen((n) => n + 1),
+      labMode: labOn,
     }),
-    [navigate, logout]
+    [navigate, logout, labOn]
   );
   const menus = useMemo(
     () => getWindowMenus(location.pathname, menuCtx),
@@ -246,7 +280,7 @@ export default function AppLayout() {
 
       <div className="studio-body">
         <aside data-testid="app-sidebar" className="studio-dock hidden lg:flex">
-          {navItems.map((item) => {
+          {dockItems.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
@@ -313,6 +347,14 @@ export default function AppLayout() {
 
       <footer className="studio-statusbar" data-testid="studio-statusbar">
         <span>Heirloom Studio</span>
+        {boxHealth ? (
+          <>
+            <span className="mx-2">·</span>
+            <button type="button" onClick={() => navigate("/lab")} data-testid="box-health">
+              {healthLine(boxHealth)}
+            </button>
+          </>
+        ) : null}
         <span className="mx-2">·</span>
         <button type="button" onClick={() => navigate("/mixer")}>
           Mixer

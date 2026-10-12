@@ -66,6 +66,17 @@ async def _decide(user: dict, approval_id: str, decision: str) -> dict:
     if not outcome.idempotent:
         await store.replace_approval(outcome.approval)
         await store.replace_assignment(outcome.assignment)
+    try:
+        from routers.lab import note_approval_decision
+
+        note_approval_decision(
+            user,
+            decision,
+            executed=bool(outcome.executed),
+            idempotent=bool(outcome.idempotent),
+        )
+    except Exception:  # noqa: BLE001 — lab notes must not block a decision
+        pass
     return {
         "approval": public_approval(outcome.approval),
         "assignment": public_assignment(outcome.assignment),
