@@ -1,0 +1,19 @@
+[Unit]
+Description=Heirloom Observer capture
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/var/lib/heirloom/box.env
+ExecStart=/usr/local/bin/heirloom-observer
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=heirloom-observer
+Group=video
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/heirloom/observer /run/heirloom-observer
+
+[Install]
+WantedBy=multi-user.target
