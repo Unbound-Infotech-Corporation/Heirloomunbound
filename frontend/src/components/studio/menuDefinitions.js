@@ -321,6 +321,26 @@ function withLabWindow(menus, ctx) {
   });
 }
 
+function withObserverWindow(menus, ctx) {
+  if (!ctx?.observerMode) return menus;
+  return menus.map((menu) => {
+    if (menu.label !== "Window") return menu;
+    if ((menu.items || []).some((item) => item.label === "Observer")) return menu;
+    return {
+      ...menu,
+      items: [
+        ...(menu.items || []),
+        { sep: true },
+        { label: "Observer", onClick: go(ctx.navigate, "/observer"), hint: "what I learned" },
+      ],
+    };
+  });
+}
+
+function withBoxWindows(menus, ctx) {
+  return withObserverWindow(withLabWindow(menus, ctx), ctx);
+}
+
 export function getWindowMenus(pathname, ctx) {
   const factory = ROUTE_MENUS[pathname]
     || (pathname.startsWith("/assignments") ? ROUTE_MENUS["/assignments"] : null)
@@ -333,11 +353,11 @@ export function getWindowMenus(pathname, ctx) {
       modelsMenu(ctx.navigate),
       commonWindow(ctx.navigate),
     ];
-  return withLabWindow(menus, ctx);
+  return withBoxWindows(menus, ctx);
 }
 
 export function getAppMenubarItems(ctx) {
-  return withLabWindow([
+  return withBoxWindows([
     {
       label: "File",
       items: [

@@ -10,6 +10,7 @@ import {
   Database,
   Feather,
   FlaskConical,
+  Eye,
   Home,
   Image as ImageIcon,
   ListTodo,
@@ -40,6 +41,7 @@ import TourOverlay from "./TourOverlay";
 import { useAuth } from "../lib/auth";
 import { api } from "../lib/api";
 import { healthLine, labModeFromHealth } from "../lib/lab";
+import { observerEnabled } from "../lib/observer";
 
 const navItems = [
   { to: "/today", label: "Today", icon: Sunrise, tid: "nav-today" },
@@ -100,6 +102,7 @@ const WINDOW_TITLES = {
   "/first-gift": "First Gift",
   "/settings": "Settings",
   "/lab": "Lab",
+  "/observer": "Observer",
   "/avatar-studio": "Avatar Studio",
   "/setup/keys": "API Keys",
 };
@@ -196,6 +199,7 @@ export default function AppLayout() {
   const [captureOpen, setCaptureOpen] = useState(false);
   const [coachReopen, setCoachReopen] = useState(0);
   const [labOn, setLabOn] = useState(false);
+  const [observerOn, setObserverOn] = useState(false);
   const [boxHealth, setBoxHealth] = useState(null);
 
   useEffect(() => {
@@ -203,7 +207,16 @@ export default function AppLayout() {
     api.get("/health")
       .then(({ data }) => {
         if (cancelled || !data) return;
-        if (data.box || data.lab_mode) setBoxHealth(data);
+        if (data.box || data.lab_mode || data.observer) setBoxHealth(data);
+        if (observerEnabled(data)) {
+          api.get("/observer/status")
+            .then(() => {
+              if (!cancelled) setObserverOn(true);
+            })
+            .catch(() => {
+              if (!cancelled) setObserverOn(false);
+            });
+        }
         if (!labModeFromHealth(data)) return;
         api.get("/lab/status")
           .then(() => {
@@ -219,9 +232,11 @@ export default function AppLayout() {
     };
   }, []);
 
-  const dockItems = labOn
-    ? [...navItems, { to: "/lab", label: "Lab", icon: FlaskConical, tid: "nav-lab" }]
-    : navItems;
+  const dockItems = [
+    ...navItems,
+    ...(labOn ? [{ to: "/lab", label: "Lab", icon: FlaskConical, tid: "nav-lab" }] : []),
+    ...(observerOn ? [{ to: "/observer", label: "Observer", icon: Eye, tid: "nav-observer" }] : []),
+  ];
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -248,6 +263,7 @@ export default function AppLayout() {
   const title =
     WINDOW_TITLES[location.pathname] ||
     (location.pathname.startsWith("/lab") ? "Lab" : null) ||
+    (location.pathname.startsWith("/observer") ? "Observer" : null) ||
     (location.pathname.startsWith("/assignments") ? "Assignments" : null) ||
     (location.pathname.startsWith("/rooms/") ? "Room" : "Heirloom");
   const menuCtx = useMemo(
@@ -257,8 +273,9 @@ export default function AppLayout() {
       setCaptureOpen,
       reopenSetupCoach: () => setCoachReopen((n) => n + 1),
       labMode: labOn,
+      observerMode: observerOn,
     }),
-    [navigate, logout, labOn]
+    [navigate, logout, labOn, observerOn]
   );
   const menus = useMemo(
     () => getWindowMenus(location.pathname, menuCtx),

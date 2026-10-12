@@ -9,6 +9,7 @@ Headless Ubuntu Server 24.04 install under `box/`. Product version stays **0.5.1
 - Lab mode (`HEIRLOOM_LAB_MODE=1`) is owner-only and off in the paid product. Heirs and callers get 404. Approvals still gate send, post, delete, and spend.
 - AI disclosure on outbound send/post is off unless `HEIRLOOM_AI_DISCLOSURE=1`. The installer turns it on so the approval card shows the label before anything is sent.
 - `heirloom-box status` and `GET /api/health`. Nightly Mongo + vault backup and a local markdown lab report stay on the machine.
+- Observer (`--observer`, off in product builds) watches a UVC HDMI capture card on the lab box and writes notes. See `box/OBSERVER.md`. Version stays **0.5.1** / **0.3.0**.
 
 **Not a WinUI sitting.** Script checks and unit tests are evidence the box code runs. A real GPU, bare-metal Ubuntu, and Tailscale login are still unchecked.
 

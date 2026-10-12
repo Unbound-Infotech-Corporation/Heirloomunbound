@@ -6,6 +6,7 @@ import FirstGiftInvite from "../components/FirstGiftInvite";
 import AssistantPicker from "../components/studio/AssistantPicker";
 import LabVote from "../components/studio/LabVote";
 import { speakerLabel } from "../lib/assistants";
+import { watchedSourceLabel } from "../lib/observer";
 
 const TOOL_META = {
   search_archive: { label: "searching your archive", icon: Search },
@@ -166,6 +167,7 @@ export default function Twin() {
     const toolTrace = [];
     let specialistName = "";
     let labTurnId = "";
+    let sourceLabel = "";
     await streamSSE(
       "/twin/message",
       {
@@ -193,6 +195,7 @@ export default function Twin() {
               specialist_name: specialistName || undefined,
               specialist_id: selectedAssistant || undefined,
               lab_turn_id: labTurnId || undefined,
+              source_label: sourceLabel || undefined,
             },
           ],
         }));
@@ -212,6 +215,8 @@ export default function Twin() {
           specialistName = data.name;
         } else if (eventName === "lab" && data?.lab_turn_id) {
           labTurnId = data.lab_turn_id;
+        } else if (eventName === "source" && data?.source_label) {
+          sourceLabel = data.source_label;
         } else if (eventName === "tool") {
           // Merge start + result rows by id so the chip updates in place
           const idx = toolTrace.findIndex((t) => t.id === data.id);
@@ -448,6 +453,11 @@ export default function Twin() {
                 )}
                 {/* Per-message tool trace (persisted after the reply finishes) */}
                 <LabVote turnId={m.lab_turn_id} enabled={labOn} />
+                {watchedSourceLabel(m.source_label) ? (
+                  <div className="overline mt-2" data-testid={`twin-source-${i}`}>
+                    {watchedSourceLabel(m.source_label)}
+                  </div>
+                ) : null}
                 {m.tool_trace && m.tool_trace.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-3" data-testid={`tool-trace-${i}`}>
                     {m.tool_trace.map((t) => (
