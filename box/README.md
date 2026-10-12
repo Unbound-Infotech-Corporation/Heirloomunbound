@@ -11,9 +11,9 @@ A former game server is the intended machine. Ubuntu Server 24.04 LTS, no monito
 | Piece | Need |
 |---|---|
 | CPU | 4 cores. More helps when Ollama is on CPU. |
-| RAM | 16 GB. 32 GB is more comfortable once Mongo, Ollama, and the web stack are up. |
+| RAM | Reference lab machine: 32 GB. 16 GB still boots the stack; the capture ring stays at 64 MiB so it does not compete with Mongo and Ollama. |
 | Disk | 100 GB free under `/var/lib/heirloom` (models, Mongo, vault, backups). |
-| GPU | Optional NVIDIA. No GPU means CPU Ollama. The installer skips the driver and the container toolkit when `lspci` and `nvidia-smi` see nothing. |
+| GPU | Reference lab card: NVIDIA RTX 3090, 24 GB. No GPU means CPU Ollama. The installer skips the driver and the container toolkit when `lspci` and `nvidia-smi` see nothing. |
 | Network | Ethernet on the LAN. SSH for a headless login. Ports 22, 80, and 443. |
 | HDMI capture | Optional, lab only. See [OBSERVER.md](OBSERVER.md). UVC devices such as the EVGA XR1. Off unless you pass `--observer`. |
 
@@ -30,6 +30,8 @@ The installer sets `OLLAMA_TWIN_MODEL` from the first GPU's VRAM. Qwen2.5 weight
 | 40 GB and above | `qwen2.5:72b` |
 
 No GPU, or a driver that is not answering yet, is 0 MiB and selects `qwen2.5:3b`. Change the model later by editing `/var/lib/heirloom/box.env` and re-running the installer. Leave `OLLAMA_TWIN_MODEL` unset on a non-box process and the code default stays `llama3.1`.
+
+With `--observer` on the reference box (RTX 3090, 24 GB, 32 GB RAM), the chat model is `qwen2.5:14b` and the vision model is `qwen2.5vl:7b`. `qwen2.5:32b` does not leave room for vision. The pair, the 19 GB estimate, and the unload schedule are in [OBSERVER.md](OBSERVER.md).
 
 Do not install XTTS-v2, F5-TTS weights, or LivePortrait bundled face models. Optional speech on the box is Chatterbox (MIT), behind `--with-chatterbox`.
 

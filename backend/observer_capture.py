@@ -10,6 +10,10 @@ from pathlib import Path
 
 _RAM_ROOTS = ("/run/", "/dev/shm/")
 _PREFER = ("xr1", "evga", "uvc", "usb video", "usb2.0 camera", "capture")
+# 32 GB system RAM also holds Ubuntu, Docker, Mongo, and any Ollama spill.
+DEFAULT_RING_SLOTS = 4
+DEFAULT_RAM_BUDGET_BYTES = 64 * 1024 * 1024
+MAX_RAM_BUDGET_BYTES = 256 * 1024 * 1024
 
 
 class IdleClock:
@@ -33,6 +37,56 @@ class IdleClock:
         if self.started is None:
             return 0.0
         return max(0.0, now - self.started)
+
+
+def ring_slot_count(raw: str | int | None = None) -> int:
+    """How many gray thumbnails to keep. Capped so a bad setting cannot grow the ring."""
+    if raw is None:
+        raw = os.environ.get("OBSERVER_RING_SLOTS", str(DEFAULT_RING_SLOTS))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = DEFAULT_RING_SLOTS
+    return max(1, min(value, 8))
+
+
+def ram_budget_bytes(raw: str | int | None = None) -> int:
+    """Byte cap for ``/run/heirloom-observer``. Default 64 MiB on the 32 GB box."""
+    if raw is None:
+        raw = os.environ.get("OBSERVER_RAM_BUDGET_BYTES", str(DEFAULT_RAM_BUDGET_BYTES))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = DEFAULT_RAM_BUDGET_BYTES
+    return max(1024 * 1024, min(value, MAX_RAM_BUDGET_BYTES))
+
+
+def trim_ram_dir(root: Path, budget_bytes: int) -> int:
+    """Delete oldest files until the directory is within ``budget_bytes``."""
+    if budget_bytes < 0:
+        raise ValueError("RAM budget must be >= 0")
+    files = [path for path in root.iterdir() if path.is_file()]
+    files.sort(key=lambda path: path.stat().st_mtime)
+    total = 0
+    sized: list[tuple[Path, int]] = []
+    for path in files:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        sized.append((path, size))
+        total += size
+    removed = 0
+    for path, size in sized:
+        if total <= budget_bytes:
+            break
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        total -= size
+        removed += 1
+    return removed
 
 
 def assert_ram_dir(path: Path | str) -> Path:

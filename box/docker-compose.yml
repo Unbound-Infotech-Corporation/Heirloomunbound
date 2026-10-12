@@ -11,6 +11,8 @@ services:
   ollama:
     image: ollama/ollama:latest
     restart: unless-stopped
+    env_file:
+      - /var/lib/heirloom/box.env
     volumes:
       - /var/lib/heirloom/ollama:/root/.ollama
     ports:

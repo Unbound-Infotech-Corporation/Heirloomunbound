@@ -14,8 +14,11 @@ from observer_capture import (
     ffmpeg_grab_command,
     is_no_signal,
     pick_capture_device,
+    ram_budget_bytes,
+    ring_slot_count,
     sample_interval_s,
     scene_delta,
+    trim_ram_dir,
 )
 from observer_learn import (
     count_switches,
@@ -25,7 +28,16 @@ from observer_learn import (
     suppressed,
     tokenize,
 )
-from observer_models import vision_model_for_vram_mib, vision_model_license
+from observer_models import (
+    REFERENCE_VRAM_MIB,
+    keep_alive_payload,
+    models_fit,
+    observer_pair_for_vram_mib,
+    residency_for,
+    same_model,
+    vision_model_for_vram_mib,
+    vision_model_license,
+)
 from observer_pipeline import consider_frame
 from observer_privacy import pause_decision, screen_is_sensitive
 from observer_prompt import (
@@ -349,6 +361,44 @@ def test_capture_rate_ring_and_device_pick():
     clock = IdleClock()
     assert clock.update(True, 10) is None
     assert clock.update(False, 25) == pytest.approx(15)
+
+
+def test_rtx_3090_pair_fits_and_a_32b_chat_model_does_not():
+    assert REFERENCE_VRAM_MIB == 24576
+    plan = observer_pair_for_vram_mib(24576)
+    assert plan.twin == "qwen2.5:14b"
+    assert plan.vision == "qwen2.5vl:7b"
+    assert plan.fits is True
+    assert plan.mode == "shared"
+    assert plan.max_loaded == 2
+    assert plan.vision_keep_alive == "45s"
+    assert plan.expected_mib == 19456
+    assert vision_model_license(plan.twin) == "Apache-2.0"
+    assert vision_model_license(plan.vision) == "Apache-2.0"
+    assert models_fit("qwen2.5:32b", "qwen2.5vl:7b", 24576) is False
+    crowded = residency_for("qwen2.5:32b", "qwen2.5vl:7b", 24576)
+    assert crowded.fits is False
+    assert crowded.mode == "exclusive"
+    assert crowded.max_loaded == 1
+    assert keep_alive_payload(crowded.vision_keep_alive) == 0
+    assert same_model("qwen2.5:14b:latest", "qwen2.5:14b") is True
+    small = observer_pair_for_vram_mib(8192)
+    assert small.twin == "qwen2.5:3b"
+    assert small.vision == "moondream"
+    assert small.fits is True
+    assert ring_slot_count(4) == 4
+    assert ring_slot_count(99) == 8
+    assert ram_budget_bytes(64 * 1024 * 1024) == 64 * 1024 * 1024
+    assert ram_budget_bytes(1024 * 1024 * 1024) == 256 * 1024 * 1024
+
+
+def test_ram_ring_stays_inside_its_budget(tmp_path: Path):
+    for index in range(6):
+        path = tmp_path / f"ring-{index}.gray"
+        path.write_bytes(b"x" * 100)
+    removed = trim_ram_dir(tmp_path, 250)
+    assert removed == 4
+    assert sum(path.stat().st_size for path in tmp_path.iterdir()) <= 250
 
 
 def test_vision_table_is_commercially_licensed():

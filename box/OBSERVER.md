@@ -42,18 +42,42 @@ No signal (PC asleep, cable out, black frame) is logged as idle time and does no
 
 Scene change is the fraction of gray pixels that differ from the previous thumbnail. At or above `0.35`, the sampler bursts.
 
+## Reference machine
+
+The lab Twin Box is an NVIDIA RTX 3090 (24 GB VRAM, `nvidia-smi` reports 24576 MiB) and 32 GB of system RAM. `--observer` tunes the pair for that card. Sizes below are the Ollama library card sizes rounded up to MiB, not a measurement taken on this machine.
+
+| Role | Tag | Weights | License |
+|---|---|---|---|
+| Chat | `qwen2.5:14b` | 9216 MiB (about 9 GB) | Apache-2.0 |
+| Vision | `qwen2.5vl:7b` | 6144 MiB (about 6 GB) | Apache-2.0 |
+| Headroom | KV cache, the vision pass, CUDA | 4096 MiB (4 GB) | |
+| Expected while both are resident | | **19456 MiB (about 19 GB)** | |
+| Left on the 3090 | | about 5 GB | |
+
+`qwen2.5:32b` is the chat default for a 24 GB card when Observer is off, and it is about 20 GB (20480 MiB). 20480 + 6144 + 4096 is 30720 MiB, which is more than 24576. That pair does not fit. The installer therefore switches the chat model to `qwen2.5:14b` when `--observer` is on and logs that the 32B tag was too big to sit beside vision.
+
+Schedule, so a later override cannot fill the card:
+
+- `OLLAMA_MAX_LOADED_MODELS=2` and `OLLAMA_KEEP_ALIVE=30m` on the Ollama container (it reads `/var/lib/heirloom/box.env`). The chat model stays warm for half an hour.
+- Each vision request sends `keep_alive` of `45s` (`OBSERVER_VISION_KEEP_ALIVE`). A burst reuses the vision weights, then Ollama drops them.
+- If the configured tags do not fit (for example chat forced back to `qwen2.5:32b`), the daemon lists `/api/ps` and unloads the chat model with `keep_alive: 0` before the vision call. The vision request then uses `keep_alive: 0`, so it does not stay loaded. The next chat loads the chat model again. That path is exclusive: one model on the GPU at a time.
+
+System RAM stays mostly for Ubuntu, Docker, Mongo, and any Ollama spill. The capture ring is not a framebuffer:
+
+| Knob | Reference value |
+|---|---|
+| `OBSERVER_RING_SLOTS` | `4` gray thumbnails (160×90). The cap is 8. |
+| `OBSERVER_RAM_BUDGET_BYTES` | `67108864` (64 MiB) under `/run/heirloom-observer`. Values above 256 MiB are clamped. |
+| Analysis frame | One 640×360 JPEG in that directory, deleted after the privacy check. |
+| Highlight | Only when clips are on. Encoded in the same RAM directory, then moved or deleted. |
+
 ## Vision model
 
-The installer writes `OLLAMA_OBSERVER_MODEL` and `OBSERVER_VRAM_MIB` from the first GPU. The same table lives in `backend/observer_models.py` and `heirloom_observer_model_for_vram_mib` in `box/lib/models.sh`.
+The installer writes the pair from `heirloom_observer_residency_for_vram_mib` / `observer_pair_for_vram_mib`, plus `OBSERVER_VRAM_MIB`. On the 3090 that is the table above. Smaller cards step down to the strongest Apache-2.0 pair that still fits with the 4 GB headroom (`qwen2.5:7b` + `qwen2.5vl:7b`, then 7B + `qwen2.5vl:3b`, then 3B + `qwen2.5vl:3b`, then 3B + `moondream`). If nothing fits together, Observer loads one model at a time. No GPU selects OCR.
 
-| VRAM | Tag | License |
-|---|---|---|
-| none / 0 | *(empty — OCR + heuristics)* | none |
-| under 6 GB | `moondream` | Apache-2.0 |
-| 6 GB up to under 12 GB | `qwen2.5vl:3b` | Apache-2.0 |
-| 12 GB and above | `qwen2.5vl:7b` | Apache-2.0 |
+A vision-only ladder remains in `vision_model_for_vram_mib` for callers that are not sharing the GPU with chat: under 6 GB `moondream`, under 12 GB `qwen2.5vl:3b`, otherwise `qwen2.5vl:7b`. The installer does not use that ladder when `--observer` is set.
 
-Qwen2.5-VL 32B and Qwen3-VL are not pulled automatically. Set `OLLAMA_OBSERVER_MODEL` yourself if you want one of those, and only if the license on the weights you pull is one you can use. Llama-based LLaVA is not in this table: the Llama community license is not an unrestricted commercial license.
+Qwen2.5-VL 32B and Qwen3-VL are not pulled automatically. Set `OLLAMA_OBSERVER_MODEL` yourself if you want one of those, and only if the license on the weights you pull is one you can use. A tag that is not in the weight table is treated as too big to share the GPU, so the daemon unloads chat before it runs. Llama-based LLaVA is not selected: the Llama community license is not an unrestricted commercial license.
 
 No GPU, or a driver that is not answering, selects OCR (Tesseract, English) plus the activity heuristics. PaddleOCR is not installed.
 

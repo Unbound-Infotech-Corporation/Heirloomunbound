@@ -339,12 +339,14 @@ write_env() {
   local model="$1"
   local observer_model="$2"
   local vram="$3"
+  local max_loaded="${4:-1}"
+  local vision_keep="${5:-45s}"
   local secret=""
   log "Writing ${env_file} (local connector key only; no GitHub or vendor tokens)"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would set HEIRLOOM_LLM_PROVIDER=ollama OLLAMA_TWIN_MODEL=${model} HEIRLOOM_LAB_MODE=1"
     if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
-      log "would set HEIRLOOM_OBSERVER=1 OLLAMA_OBSERVER_MODEL=${observer_model:-ocr} OBSERVER_VRAM_MIB=${vram} OBSERVER_CLIPS=0"
+      log "would set HEIRLOOM_OBSERVER=1 OLLAMA_OBSERVER_MODEL=${observer_model:-ocr} OBSERVER_VRAM_MIB=${vram} OLLAMA_MAX_LOADED_MODELS=${max_loaded} OBSERVER_VISION_KEEP_ALIVE=${vision_keep} OBSERVER_RAM_BUDGET_BYTES=67108864 OBSERVER_CLIPS=0"
     fi
     return 0
   fi
@@ -374,6 +376,11 @@ write_env() {
     upsert_env OBSERVER_DISK_CAP_BYTES "536870912" "${env_file}"
     upsert_env OBSERVER_HOTKEY_PHRASE '"HEIRLOOM PAUSE"' "${env_file}"
     upsert_env OBSERVER_VRAM_MIB "${vram}" "${env_file}"
+    upsert_env OLLAMA_MAX_LOADED_MODELS "${max_loaded}" "${env_file}"
+    upsert_env OLLAMA_KEEP_ALIVE "30m" "${env_file}"
+    upsert_env OBSERVER_VISION_KEEP_ALIVE "${vision_keep}" "${env_file}"
+    upsert_env OBSERVER_RING_SLOTS "4" "${env_file}"
+    upsert_env OBSERVER_RAM_BUDGET_BYTES "67108864" "${env_file}"
   fi
   if ! grep -q '^CONNECTOR_SECRET_KEY=.\+' "${env_file}"; then
     secret="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
@@ -513,7 +520,7 @@ print_next() {
 }
 
 main() {
-  local mib="" model="" observer_model=""
+  local mib="" model="" observer_model="" solo="" max_loaded="1" vision_keep="45s" expected=""
   NEED_REBOOT=0
   USE_GPU=0
   parse_args "$@"
@@ -529,11 +536,17 @@ main() {
   log "Heirloom Twin Box installer root=${ROOT} dry_run=${DRY_RUN} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER}"
   require_ubuntu
   mib="$(vram_mib)"
-  model="$(heirloom_model_for_vram_mib "${mib}")"
-  observer_model="$(heirloom_observer_model_for_vram_mib "${mib}")"
-  log "VRAM MiB=${mib} default model=${model} (Apache-2.0 Qwen2.5)"
+  solo="$(heirloom_model_for_vram_mib "${mib}")"
+  model="${solo}"
+  observer_model=""
   if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
-    log "Observer vision model=${observer_model:-ocr} (Apache-2.0, or OCR when VRAM is 0)"
+    IFS=$'\t' read -r model observer_model max_loaded vision_keep expected <<< "$(heirloom_observer_residency_for_vram_mib "${mib}")"
+    log "VRAM MiB=${mib} observer pair twin=${model} vision=${observer_model:-ocr} max_loaded=${max_loaded} vision_keep_alive=${vision_keep} expected_mib=${expected:-0} (Apache-2.0)"
+    if [[ "${solo}" != "${model}" ]]; then
+      log "Chat model ${solo} does not fit beside the vision model on this GPU; Observer uses ${model}"
+    fi
+  else
+    log "VRAM MiB=${mib} default model=${model} (Apache-2.0 Qwen2.5)"
   fi
   if gpu_present && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
     USE_GPU=1
@@ -548,7 +561,7 @@ main() {
   harden_ssh
   configure_ufw
   write_tree
-  write_env "${model}" "${observer_model}" "${mib}"
+  write_env "${model}" "${observer_model}" "${mib}" "${max_loaded}" "${vision_keep}"
   write_compose_args
   write_cron
   install_observer

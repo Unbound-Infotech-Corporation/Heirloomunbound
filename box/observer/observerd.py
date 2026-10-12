@@ -27,10 +27,18 @@ from observer_capture import (  # noqa: E402
     ffmpeg_gray_command,
     is_no_signal,
     pick_capture_device,
+    ram_budget_bytes,
+    ring_slot_count,
     sample_interval_s,
     scene_delta,
+    trim_ram_dir,
 )
-from observer_models import vision_model_for_vram_mib  # noqa: E402
+from observer_models import (  # noqa: E402
+    keep_alive_payload,
+    observer_pair_for_vram_mib,
+    residency_for,
+    same_model,
+)
 from observer_pipeline import consider_frame  # noqa: E402
 from observer_privacy import pause_decision  # noqa: E402
 from observer_store import (  # noqa: E402
@@ -122,10 +130,57 @@ def ocr_image(path: Path) -> str:
 
 
 def vision_model_name() -> str:
-    override = (os.environ.get("OLLAMA_OBSERVER_MODEL") or "").strip()
-    if override:
-        return override
-    return vision_model_for_vram_mib(os.environ.get("OBSERVER_VRAM_MIB", "0"))
+    if "OLLAMA_OBSERVER_MODEL" in os.environ:
+        return (os.environ.get("OLLAMA_OBSERVER_MODEL") or "").strip()
+    return observer_pair_for_vram_mib(os.environ.get("OBSERVER_VRAM_MIB", "0")).vision
+
+
+def twin_model_name() -> str:
+    configured = (os.environ.get("OLLAMA_TWIN_MODEL") or "").strip()
+    if configured:
+        return configured
+    return observer_pair_for_vram_mib(os.environ.get("OBSERVER_VRAM_MIB", "0")).twin
+
+
+def _ollama_json(url: str, path: str, payload: dict | None = None, timeout: float = 10) -> dict:
+    import json
+    import urllib.request
+
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        f"{url}{path}",
+        data=data,
+        headers={"Content-Type": "application/json"} if data is not None else {},
+        method="POST" if data is not None else "GET",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    return body if isinstance(body, dict) else {}
+
+
+def release_twin_if_exclusive(url: str, twin: str, vision: str) -> str:
+    """Unload the chat model before vision when both cannot reside on the GPU.
+
+    Returns the vision ``keep_alive`` value. A shared pair keeps the chat model
+    loaded and lets the vision model expire after a short burst.
+    """
+    plan = residency_for(twin, vision, os.environ.get("OBSERVER_VRAM_MIB", "0"))
+    override = (os.environ.get("OBSERVER_VISION_KEEP_ALIVE") or "").strip()
+    if plan.fits or not twin or not vision:
+        return override or plan.vision_keep_alive
+    # Exclusive: do not honor a long keep-alive. The vision weights must leave
+    # before the chat model is loaded again.
+    try:
+        loaded = _ollama_json(url, "/api/ps")
+    except (OSError, ValueError):
+        return "0"
+    names = [str(item.get("name") or "") for item in loaded.get("models") or [] if isinstance(item, dict)]
+    if any(same_model(name, twin) for name in names):
+        try:
+            _ollama_json(url, "/api/generate", {"model": twin, "keep_alive": 0})
+        except (OSError, ValueError):
+            return "0"
+    return "0"
 
 
 def ollama_see(image: Path, model: str) -> dict | None:
@@ -137,9 +192,11 @@ def ollama_see(image: Path, model: str) -> dict | None:
     import urllib.request
 
     url = (os.environ.get("OBSERVER_OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
+    keep = release_twin_if_exclusive(url, twin_model_name(), model)
     payload = {
         "model": model,
         "stream": False,
+        "keep_alive": keep_alive_payload(keep),
         "messages": [
             {
                 "role": "user",
@@ -231,7 +288,14 @@ def main() -> int:
     hotkey = os.environ.get("OBSERVER_HOTKEY_PHRASE", "HEIRLOOM PAUSE")
     quiet = os.environ.get("OBSERVER_QUIET_HOURS", "")
     model_name = vision_model_name() or "ocr"
+    ring_slots = ring_slot_count()
+    ram_budget = ram_budget_bytes()
     ring_slot = 0
+    plan = residency_for(
+        twin_model_name(),
+        "" if model_name == "ocr" else model_name,
+        os.environ.get("OBSERVER_VRAM_MIB", "0"),
+    )
 
     while True:
         now_dt = datetime.now().astimezone()
@@ -244,6 +308,7 @@ def main() -> int:
                 signal="paused",
                 fps=0,
                 model=model_name,
+                residency=plan.mode,
                 paused=True,
                 pause_reason=reason,
                 idle_seconds=0,
@@ -259,6 +324,7 @@ def main() -> int:
                 signal="no-device",
                 fps=0,
                 model=model_name,
+                residency=plan.mode,
                 paused=False,
                 pause_reason="",
             )
@@ -277,6 +343,7 @@ def main() -> int:
                 signal="no-signal",
                 fps=base_fps,
                 model=model_name,
+                residency=plan.mode,
                 paused=False,
                 pause_reason="",
                 idle_seconds=int(idle.current(time.monotonic())),
@@ -298,9 +365,10 @@ def main() -> int:
                 ]
             )
         previous = gray
-        ring = ram / f"ring-{ring_slot % 8}.gray"
+        ring = ram / f"ring-{ring_slot % ring_slots}.gray"
         ring.write_bytes(gray)
         ring_slot += 1
+        trim_ram_dir(ram, ram_budget)
 
         now_mono = time.monotonic()
         if analysis_due(scene_delta=delta, since_last_s=now_mono - last_analysis):
@@ -348,6 +416,7 @@ def main() -> int:
                     keep_highlight(store, str(device["path"]), ram, _env_float("OBSERVER_CLIP_SECONDS", 8))
             if clips_enabled():
                 store.prune(cap_bytes=disk_cap_bytes())
+            trim_ram_dir(ram, ram_budget)
             last_analysis = now_mono
 
         _write_status(
@@ -357,6 +426,7 @@ def main() -> int:
             signal="signal",
             fps=round(1.0 / interval, 2),
             model=model_name,
+            residency=plan.mode,
             paused=False,
             pause_reason="",
             idle_seconds=0,
