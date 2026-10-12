@@ -788,6 +788,39 @@ async def run_twin_turn(
     backend_used = twin_backend or pack.twin_backend
 
     tool_trace: list[dict] = []
+    from llm_provider import complete_openai_chat, resolve_llm_provider, uses_ollama
+
+    if uses_ollama(resolve_llm_provider()):
+        history = list(pack.history)
+        history.append({"role": "user", "content": text})
+        messages = [{"role": "system", "content": system}, *history]
+        try:
+            completed = await complete_openai_chat(messages)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"Local twin (Ollama) failed: {exc!s}") from exc
+        reply = completed.text
+        backend_used = "ollama"
+        ts = _now_iso()
+        receipt = _receipt_for_role(role, tool_trace, reply=reply)
+        if persist:
+            await _persist_pair(
+                user_id, conversation_id, text, reply, ts,
+                source=source, tool_trace=tool_trace, receipt=receipt,
+            )
+            if summarise:
+                try:
+                    asyncio.create_task(_safe_summarise(user_id, conversation_id))
+                except Exception:  # noqa: BLE001
+                    pass
+        return TwinTurnResult(
+            reply=reply,
+            tool_trace=tool_trace,
+            conversation_id=conversation_id,
+            ts=ts,
+            backend=backend_used,
+            receipt=receipt,
+        )
+
     if backend_used == "ollama":
         from local_inference import ollama_chat, ollama_ready_at
         from studio_compute import resolve_ollama_url

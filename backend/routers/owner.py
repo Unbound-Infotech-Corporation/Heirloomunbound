@@ -5,6 +5,7 @@ each turn to itself, one Clone, or Assist (Do).
 """
 from __future__ import annotations
 
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -50,6 +51,7 @@ async def owner_chat(body: OwnerChatReq, user: dict = Depends(get_current_user))
         raise HTTPException(status_code=403, detail="account_inactive")
 
     conv = await ensure_conversation(user["user_id"], kind="companion_owner")
+    started = time.perf_counter()
     try:
         result = await run_owner_turn(
             user,
@@ -66,6 +68,9 @@ async def owner_chat(body: OwnerChatReq, user: dict = Depends(get_current_user))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
+        from routers.lab import note_chat_reply
+
+        note_chat_reply(user, route="owner", started=started, error=str(exc), model="")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     await live_publish_turn(user["user_id"], "user", body.text, source="web_owner")
@@ -81,4 +86,19 @@ async def owner_chat(body: OwnerChatReq, user: dict = Depends(get_current_user))
     }
     if result.action:
         out["action"] = result.action
+    from routers.lab import note_chat_reply
+
+    handler = ""
+    if result.handoff:
+        handler = str(result.handoff.get("handler") or "")
+    route = handler or result.rail or "owner"
+    turn_id = note_chat_reply(
+        user,
+        route=route,
+        started=started,
+        approval=result.approval,
+        model=result.backend,
+    )
+    if turn_id:
+        out["lab_turn_id"] = turn_id
     return out

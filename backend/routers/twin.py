@@ -1,5 +1,6 @@
 """Talk to Your Twin: chat that speaks AS the user, grounded in archive."""
 import json
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -26,6 +27,16 @@ from owner_pairing import pairing_prefs_from_user
 from twin_runtime import PC_ABILITY_IDS, build_assistant_system, build_twin_system, tools_for_turn
 
 router = APIRouter(prefix="/twin", tags=["twin"])
+
+
+def _lab_sse(user: dict, *, route: str, started: float, error: str | None = None, model: str = "") -> str:
+    """SSE frame for a local lab turn id. Empty when lab mode is off or the caller is an heir."""
+    from routers.lab import note_chat_reply
+
+    turn_id = note_chat_reply(user, route=route, started=started, error=error, model=model)
+    if not turn_id:
+        return ""
+    return "event: lab\ndata: " + json.dumps({"lab_turn_id": turn_id}) + "\n\n"
 
 
 class StartTwinReq(BaseModel):
@@ -164,6 +175,13 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             # PC specialists do not speak as the twin — Sit / Assist owns that.
             enabled_tools = tools_for_turn("assistant", enabled_ids)
             enabled_tools = filter_tools_for_specialist(enabled_tools, specialist)
+    started = time.perf_counter()
+    if specialist and specialist_turn.get("role") == "assistant":
+        lab_route = "assist"
+    elif specialist:
+        lab_route = "clone"
+    else:
+        lab_route = "twin"
 
     # ---- Music intent short-circuit (only if the Music ability is on) ----
     music_query = detect_music_intent(payload.message) if "music" in enabled_ids else None
@@ -208,6 +226,9 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 "url": result["url"],
                 "queued": result["queued"],
             }) + "\n\n"
+            lab_line = _lab_sse(user, route=lab_route, started=started)
+            if lab_line:
+                yield lab_line
             yield "event: done\ndata: {}\n\n"
 
         return StreamingResponse(
@@ -260,6 +281,9 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 "ok": result.get("ok", False),
                 "status": result.get("status", 0),
             }) + "\n\n"
+            lab_line = _lab_sse(user, route=lab_route, started=started)
+            if lab_line:
+                yield lab_line
             yield "event: done\ndata: {}\n\n"
 
         return StreamingResponse(
@@ -312,6 +336,68 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
 
     # Only expose the tools from abilities the owner has enabled (+ core memory).
     active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
+
+    from llm_provider import complete_openai_chat, resolve_llm_provider, uses_ollama
+
+    if uses_ollama(resolve_llm_provider()):
+        ollama_messages = list(initial_messages)
+        ollama_messages.append({"role": "user", "content": message_text})
+
+        async def gen_local():
+            full = ""
+            error = None
+            try:
+                if specialist_id:
+                    yield "event: specialist\ndata: " + json.dumps({
+                        "clone_id": specialist_id,
+                        "assistant_id": specialist_id,
+                        "name": specialist_name,
+                    }) + "\n\n"
+                completed = await complete_openai_chat(ollama_messages)
+                full = completed.text
+                if full:
+                    yield "data: " + json.dumps({"text": full}) + "\n\n"
+            except Exception as exc:  # noqa: BLE001
+                error = str(exc)
+                yield "event: error\ndata: " + json.dumps({"error": error}) + "\n\n"
+            else:
+                assistant_turn = {
+                    "role": "assistant",
+                    "content": full,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                }
+                if specialist_id:
+                    assistant_turn["specialist_id"] = specialist_id
+                    assistant_turn["clone_id"] = specialist_id
+                if specialist_name:
+                    assistant_turn["specialist_name"] = specialist_name
+                await db.conversations.update_one(
+                    {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},
+                    {
+                        "$push": {"messages": {"$each": [user_turn, assistant_turn]}},
+                        "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
+                    },
+                )
+                try:
+                    await maybe_summarise_episode(user["user_id"], payload.conversation_id)
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    await live_publish_turn(user["user_id"], "user", payload.message, source="web")
+                    await live_publish_turn(user["user_id"], "assistant", full, source="web")
+                except Exception:  # noqa: BLE001
+                    pass
+            lab_line = _lab_sse(user, route=lab_route, started=started, error=error, model="ollama")
+            if lab_line:
+                yield lab_line
+            if error is None:
+                yield "event: done\ndata: {}\n\n"
+
+        return StreamingResponse(
+            gen_local(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
 
     chat = (
         LlmChat(
@@ -384,6 +470,9 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 yield "data: " + json.dumps({"text": full}) + "\n\n"
         except Exception as exc:  # noqa: BLE001
             yield "event: error\ndata: " + json.dumps({"error": str(exc)}) + "\n\n"
+            lab_line = _lab_sse(user, route=lab_route, started=started, error=str(exc))
+            if lab_line:
+                yield lab_line
             return
 
         assistant_turn = {
@@ -417,6 +506,9 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             await live_publish_turn(user["user_id"], "assistant", full, source="web")
         except Exception:  # noqa: BLE001
             pass
+        lab_line = _lab_sse(user, route=lab_route, started=started)
+        if lab_line:
+            yield lab_line
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(

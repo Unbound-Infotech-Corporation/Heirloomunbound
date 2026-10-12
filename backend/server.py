@@ -27,6 +27,8 @@ if _SENTRY_DSN:
     )
 
 from fastapi import APIRouter, FastAPI, Request
+
+from box_health import health_payload
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
@@ -54,6 +56,7 @@ from routers import (
     heir_portal,
     heirs,
     interviewer,
+    lab,
     letters,
     live,
     memory,
@@ -125,6 +128,17 @@ async def root():
     return {"app": "digital-heirloom", "status": "ok"}
 
 
+@api_router.get("/health")
+async def health():
+    """Liveness for the Twin Box and the studio status bar. No secrets."""
+    return health_payload()
+
+
+@api_router.get("/health/ping")
+async def health_ping():
+    return {"status": "ok"}
+
+
 @api_router.get("/build")
 async def build_info():
     """What this live API can bake into HeirloomDesktop.zip.
@@ -180,6 +194,7 @@ api_router.include_router(capture.router)
 api_router.include_router(reminders.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(sources.router)
+api_router.include_router(lab.router)
 api_router.include_router(letters.router)
 api_router.include_router(heir_portal.router)
 api_router.include_router(personality.router)

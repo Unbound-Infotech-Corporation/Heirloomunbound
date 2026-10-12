@@ -4,6 +4,7 @@ import { ArrowRight, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link
 import { api, streamSSE } from "../lib/api";
 import FirstGiftInvite from "../components/FirstGiftInvite";
 import AssistantPicker from "../components/studio/AssistantPicker";
+import LabVote from "../components/studio/LabVote";
 import { speakerLabel } from "../lib/assistants";
 
 const TOOL_META = {
@@ -68,12 +69,14 @@ export default function Twin() {
   const [abilities, setAbilities] = useState([]);
   const [assistants, setAssistants] = useState([]);
   const [selectedAssistant, setSelectedAssistant] = useState(null);
+  const [labOn, setLabOn] = useState(false);
   const [searchParams] = useSearchParams();
   const roomId = (searchParams.get("room") || "").trim();
 
   useEffect(() => {
     api.get("/abilities").then(({ data }) => setAbilities(data.abilities || [])).catch(() => {});
     api.get("/clones").then(({ data }) => setAssistants(data.clones || [])).catch(() => {});
+    api.get("/lab/status").then(() => setLabOn(true)).catch(() => setLabOn(false));
   }, []);
 
   const toggleAbility = async (ab) => {
@@ -162,6 +165,7 @@ export default function Twin() {
     let action = null;
     const toolTrace = [];
     let specialistName = "";
+    let labTurnId = "";
     await streamSSE(
       "/twin/message",
       {
@@ -188,6 +192,7 @@ export default function Twin() {
               tool_trace: toolTrace.length ? toolTrace : undefined,
               specialist_name: specialistName || undefined,
               specialist_id: selectedAssistant || undefined,
+              lab_turn_id: labTurnId || undefined,
             },
           ],
         }));
@@ -205,6 +210,8 @@ export default function Twin() {
           action = data;
         } else if (eventName === "specialist" && data?.name) {
           specialistName = data.name;
+        } else if (eventName === "lab" && data?.lab_turn_id) {
+          labTurnId = data.lab_turn_id;
         } else if (eventName === "tool") {
           // Merge start + result rows by id so the chip updates in place
           const idx = toolTrace.findIndex((t) => t.id === data.id);
@@ -440,6 +447,7 @@ export default function Twin() {
                   </div>
                 )}
                 {/* Per-message tool trace (persisted after the reply finishes) */}
+                <LabVote turnId={m.lab_turn_id} enabled={labOn} />
                 {m.tool_trace && m.tool_trace.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-3" data-testid={`tool-trace-${i}`}>
                     {m.tool_trace.map((t) => (

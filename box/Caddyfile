@@ -1,0 +1,20 @@
+{
+	admin off
+}
+
+:80 {
+	redir https://{host}{uri} permanent
+}
+
+:443 {
+	tls internal
+	encode gzip
+	handle /api/* {
+		reverse_proxy api:8001
+	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

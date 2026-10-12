@@ -1,5 +1,17 @@
 # Heirloom Unbound — living status
 
+## Twin Box (lab machine)
+
+Headless Ubuntu Server 24.04 install under `box/`. Product version stays **0.5.1**. FastAPI app version stays **0.3.0**. The WinUI studio is not part of the box and the installer does not launch it.
+
+- `sudo bash box/install.sh` (`--dry-run`, `--dev-tools`, `--tailscale`, `--with-chatterbox`). Log: `/var/log/heirloom-box-install.log`.
+- `HEIRLOOM_LLM_PROVIDER=ollama` uses Ollama's OpenAI-compatible `/v1/chat/completions`. Unset, empty, and the existing provider names stay on the Emergent path.
+- Lab mode (`HEIRLOOM_LAB_MODE=1`) is owner-only and off in the paid product. Heirs and callers get 404. Approvals still gate send, post, delete, and spend.
+- AI disclosure on outbound send/post is off unless `HEIRLOOM_AI_DISCLOSURE=1`. The installer turns it on so the approval card shows the label before anything is sent.
+- `heirloom-box status` and `GET /api/health`. Nightly Mongo + vault backup and a local markdown lab report stay on the machine.
+
+**Not a WinUI sitting.** Script checks and unit tests are evidence the box code runs. A real GPU, bare-metal Ubuntu, and Tailscale login are still unchecked.
+
 ## Models Studio local voice (this pass)
 
 Standalone engines only — **no Pinokio**. Companion probes Voicebox (`:17493`), Qwen3-TTS (`:8001` `/v1/models`), and LatentSync (`:7860`) like Ollama. Auto TTS: Voicebox → Qwen3-TTS → ElevenLabs clone → Piper → OpenAI. Window → Voice and Window → Terminal (Send ticket `HU-…`, redacted bundle). Provision coach never curls installers.
