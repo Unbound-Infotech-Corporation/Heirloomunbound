@@ -1,0 +1,28 @@
+[Unit]
+Description=Heirloom Presence cameras
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/var/lib/heirloom/box.env
+ExecStart=/usr/local/bin/heirloom-presence
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=heirloom-presence
+Group=video
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/heirloom/presence /run/heirloom-presence
+DeviceAllow=/dev/video0 rw
+DeviceAllow=/dev/video1 rw
+DeviceAllow=/dev/video2 rw
+DeviceAllow=/dev/video3 rw
+DeviceAllow=/dev/video4 rw
+DeviceAllow=/dev/video5 rw
+DeviceAllow=/dev/nvidiactl rw
+DeviceAllow=/dev/nvidia0 rw
+DeviceAllow=/dev/nvidia-uvm rw
+
+[Install]
+WantedBy=multi-user.target

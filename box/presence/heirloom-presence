@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Host-side launcher for the Presence daemon. The repo root is recorded by box/install.sh.
+if [[ -z "${BASH_VERSION:-}" ]]; then
+  echo "heirloom-presence requires bash." >&2
+  exit 1
+fi
+set -euo pipefail
+
+if [[ ! -r /etc/heirloom/root ]]; then
+  echo "Missing /etc/heirloom/root. Run box/install.sh first." >&2
+  exit 1
+fi
+ROOT="$(tr -d '[:space:]' < /etc/heirloom/root)"
+if [[ ! -f "${ROOT}/box/presence/presenced.py" ]]; then
+  echo "Presence daemon is not in ${ROOT}." >&2
+  exit 1
+fi
+export PYTHONPATH="${ROOT}/backend${PYTHONPATH:+:${PYTHONPATH}}"
+exec /usr/bin/python3 "${ROOT}/box/presence/presenced.py"
