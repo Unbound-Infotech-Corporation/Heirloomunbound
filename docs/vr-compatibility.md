@@ -8,9 +8,13 @@ Primary runtime on PC: **OpenXR**. Fallback: **WebXR** in the browser (Quest
 Browser, or Chrome/Edge riding the active OpenXR runtime). SteamVR is the
 OpenXR bridge for Index, Vive, ALVR, Pico Connect, and PSVR2.
 
+PSVR2 with Sony's PC adapter is **Windows only**. The Twin Box does not run
+the visor. Room VR stays off until the owner turns it on. The coach's
+**Try Enter in VR** is a runtime check and does not enable Room VR mode.
+
 In the studio: **Rooms → VR setup coach** (`/rooms/vr`) and **Headset matrix**
-(`/rooms/vr/matrix`). Sit → **Enter in VR** probes WebXR and sends you to the
-coach when a runtime is missing.
+(`/rooms/vr/matrix`). The Room has a VR switch. It does not enter a headset
+on its own.
 
 Public Help copies (no login): `/support/vr` and `/support/vr/matrix`. Heirs
 do not get Rooms; these Help pages are setup guidance only.
@@ -90,16 +94,18 @@ Official WMR-for-SteamVR is **gone** on Windows 11 24H2. Do not install old Mixe
 3. **ALVR** via SideQuest.
 4. Virtual Desktop: paid optional.
 
-### PSVR2 (Tier B) — not ALVR
+### PSVR2 (Tier B) — Windows only, not ALVR
 
-You need the **Sony PC adapter** (paid hardware, CFI-ZVP1). Software is free:
+You need the **Sony PC adapter** (paid hardware, CFI-ZVP1) on **Windows**. Software is free. There is no path on the Twin Box (headless Ubuntu) and no ALVR client.
 
 1. Steam → SteamVR → [PlayStation VR2 App](https://store.steampowered.com/app/2580190/PlayStationVR2_App/).
 2. Adapter USB 3.0 Type-A **directly** into the PC (no hub).
 3. **DisplayPort 1.4** from the adapter **directly** into the GPU. No USB-C DisplayPort, no HDMI converters.
 4. Power the adapter, power the headset.
 5. Bluetooth for Sense controllers (compatible USB adapter if the board has none).
-6. Finish setup in the PSVR2 App (firmware lives there — keep it installed).
+6. Finish setup in the PSVR2 App (firmware lives there — keep it installed). SteamVR is the OpenXR runtime Chrome and Edge will use.
+
+**Eye tracking.** The headset has eye cameras on a PlayStation 5. Sony's PC adapter and the PlayStation VR2 App do not expose them to applications. SteamVR does not currently offer `XR_EXT_eye_gaze_interaction` for PSVR2, and WebXR in Chrome and Edge does not surface that extension to the page. HDR and headset haptics are also PS5 features. Heirloom asks for a gaze reference space only when the owner opts in, and the Room continues when the runtime refuses. See `docs/VR.md`.
 
 Sony docs: [set up](https://www.playstation.com/en-us/support/hardware/pc-ps-vr2-set-up/), [prepare](https://www.playstation.com/en-us/support/hardware/pc-prepare-ps-vr2/), [troubleshoot](https://www.playstation.com/en-us/support/hardware/pc-ps-vr2-troubleshoot/).
 

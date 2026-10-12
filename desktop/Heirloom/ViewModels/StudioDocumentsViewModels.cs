@@ -1619,6 +1619,9 @@ public partial class SettingsViewModel : ObservableObject
         _applying = true;
         BackendUrl = host.Settings.Current.BackendUrl;
         Autostart = host.Settings.Current.Autostart;
+        VrMode = host.Settings.Current.VrMode;
+        VrGaze = host.Settings.Current.VrGaze;
+        host.Settings.Changed += PullStoredVr;
         LibraryPath = host.Settings.Current.LibraryPath;
         VersionLine = $"Heirloom {host.Version}  ·  {host.BuildId}  ·  Unbound Infotech";
         SelectedScheme = ThemeService.Schemes.First(s => s.Id == ThemeService.NormalizeScheme(host.Settings.Current.ColorScheme));
@@ -1640,6 +1643,8 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _backendUrl;
     [ObservableProperty] private string _libraryPath;
     [ObservableProperty] private bool _autostart;
+    [ObservableProperty] private bool _vrMode;
+    [ObservableProperty] private bool _vrGaze;
     [ObservableProperty] private string _versionLine;
     [ObservableProperty] private string _sessionToken = "";
     [ObservableProperty] private string _deviceToken = "";
@@ -1652,6 +1657,66 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private double _inspectorWidth;
     [ObservableProperty] private string _chromeFolder;
     [ObservableProperty] private string _chromeHint;
+
+    private void PullStoredVr()
+    {
+        if (_applying)
+        {
+            return;
+        }
+
+        _applying = true;
+        VrMode = _host.Settings.Current.VrMode;
+        VrGaze = _host.Settings.Current.VrGaze;
+        _applying = false;
+    }
+
+    partial void OnVrModeChanged(bool value) => PersistVr(value, gaze: null);
+
+    partial void OnVrGazeChanged(bool value) => PersistVr(enabled: null, gaze: value);
+
+    private void PersistVr(bool? enabled, bool? gaze)
+    {
+        if (_applying)
+        {
+            return;
+        }
+
+        if (!_host.CanEdit)
+        {
+            _applying = true;
+            VrMode = _host.Settings.Current.VrMode;
+            VrGaze = _host.Settings.Current.VrGaze;
+            _applying = false;
+            return;
+        }
+
+        var current = new VrPrefs(_host.Settings.Current.VrMode, _host.Settings.Current.VrGaze);
+        var decision = enabled is bool nextEnabled
+            ? VrModeCore.Toggle(current, nextEnabled, gesture: true, VrSurface.Settings, sessionActive: false)
+            : VrModeCore.Gaze(current, gaze ?? current.GazeEnabled, gesture: true);
+        _host.Settings.Current.VrMode = decision.Prefs.Enabled;
+        _host.Settings.Current.VrGaze = decision.Prefs.GazeEnabled;
+        _host.Settings.Save();
+        _ = PushVrAsync(decision.Prefs);
+    }
+
+    private async Task PushVrAsync(VrPrefs prefs)
+    {
+        try
+        {
+            if (!_host.Api.HasDeviceToken && !_host.Api.HasSession)
+            {
+                return;
+            }
+
+            await _host.Api.PutAsync("/studio/vr", new { enabled = prefs.Enabled, gaze_enabled = prefs.GazeEnabled }).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            /* Local settings keep the switch when the box is unreachable. */
+        }
+    }
 
     partial void OnSelectedSchemeChanged(ChromeChoice value) => LiveApply();
     partial void OnSelectedChromeChanged(ChromeChoice value) => LiveApply();
@@ -1737,6 +1802,11 @@ public partial class SettingsViewModel : ObservableObject
     {
         _host.Settings.Current.BackendUrl = BackendUrl.Trim();
         _host.Settings.Current.Autostart = Autostart;
+        if (_host.CanEdit)
+        {
+            _host.Settings.Current.VrMode = VrMode;
+            _host.Settings.Current.VrGaze = VrGaze;
+        }
         WriteChrome();
         _host.Settings.Save();
         ThemeService.Apply(_host.Settings.Current);

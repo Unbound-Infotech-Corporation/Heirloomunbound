@@ -40,8 +40,22 @@ describe("VR runtime probe", () => {
     expect(items.find((i) => i.id === "runtime_json").ok).toBe(true);
   });
 
-  test("enterRoomVr refuses without WebXR", async () => {
+  test("enterRoomVr refuses without a user gesture, before it asks the runtime", async () => {
+    const requestSession = jest.fn();
     const result = await enterRoomVr({
+      gesture: false,
+      xr: { isSessionSupported: async () => true, requestSession },
+      win: { isSecureContext: true },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe(ENTER_CODES.no_gesture);
+    expect(result.session).toBeNull();
+    expect(requestSession).not.toHaveBeenCalled();
+  });
+
+  test("enterRoomVr refuses without WebXR once the owner has turned it on", async () => {
+    const result = await enterRoomVr({
+      gesture: true,
       xr: undefined,
       win: { isSecureContext: true, document: { createElement: () => ({ getContext: () => null }) } },
     });

@@ -16,6 +16,7 @@ from observer_store import (
     status_public,
 )
 from owner_pairing import is_owner_audience
+from vr_mode import accept_gaze, clamp_vr_prefs
 
 router = APIRouter(prefix="/observer", tags=["observer"])
 
@@ -23,6 +24,21 @@ router = APIRouter(prefix="/observer", tags=["observer"])
 class FeedbackReq(BaseModel):
     note_id: str = Field(..., min_length=4, max_length=80)
     vote: str = Field(..., min_length=2, max_length=32)
+
+
+class GazeArea(BaseModel):
+    model_config = {"extra": "ignore"}
+
+    area: str = Field(..., min_length=2, max_length=32)
+    dwell_ms: int = Field(..., ge=0, le=30 * 60 * 1000)
+
+
+class GazeReq(BaseModel):
+    """Attention summaries only. Extra fields, including a raw stream, are ignored."""
+
+    model_config = {"extra": "ignore"}
+
+    summaries: list[GazeArea] = Field(default_factory=list, max_length=8)
 
 
 def _gate(user: dict) -> ObserverStore:
@@ -67,6 +83,33 @@ async def observer_digest(user: dict = Depends(get_current_user)):
         "day": datetime.now(timezone.utc).date().isoformat(),
         "notes": store.digest_notes(),
         "markdown": store.digest_section(),
+    }
+
+
+@router.post("/vr-gaze")
+async def observer_vr_gaze(body: GazeReq, user: dict = Depends(get_current_user)):
+    """Owner opt-in attention summary. Heirs get 404. A pause writes nothing."""
+    store = _gate(user)
+    prefs = clamp_vr_prefs(user.get("studio_vr"))
+    paused = bool(store.read_state().get("paused")) if observer_enabled() else False
+    decision = accept_gaze(
+        [item.model_dump() for item in body.summaries],
+        audience=user.get("audience") or "owner",
+        heir_surface=bool(user.get("heir_surface")),
+        gaze_enabled=bool(prefs["gaze_enabled"]),
+        paused=paused,
+        observer_on=observer_enabled(),
+    )
+    if decision.get("status") == 404:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not decision.get("stored"):
+        return {"stored": False, "reason": decision.get("reason") or "skipped"}
+    result = store.add_gaze_note(decision.get("note"))
+    note = result.get("note")
+    return {
+        "stored": bool(result.get("stored")),
+        "reason": result.get("reason") or decision.get("reason"),
+        "note": {"id": note.get("id"), "source": note.get("source"), "text": note.get("text")} if note else None,
     }
 
 

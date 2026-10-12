@@ -50,6 +50,10 @@ describe("VR compatibility catalog", () => {
     const bodies = checklistForPath("psvr2_adapter").map((s) => s.body).join(" ");
     expect(bodies.toLowerCase()).toMatch(/alvr/);
     expect(bodies).toMatch(/DisplayPort|DP 1\.4/);
+    expect(psvr.windows_only).toBe(true);
+    expect(psvr.eye_tracking.pc_exposed).toBe(false);
+    expect(psvr.eye_tracking.extension).toBe("XR_EXT_eye_gaze_interaction");
+    expect(bodies).toMatch(/Windows/);
   });
 
   test("Virtual Desktop is paid optional, never a crack", () => {

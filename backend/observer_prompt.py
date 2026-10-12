@@ -70,6 +70,8 @@ def notes_for_prompt(notes: list[dict], *, audience: str, heir_surface: bool = F
     heir = heir_surface or (audience or "").strip().lower() == "heir"
     picked: list[dict] = []
     for note in notes:
+        if str(note.get("source") or "") == "vr_gaze":
+            continue
         status = str(note.get("status") or "pending").strip().lower()
         if status == "accepted":
             picked.append(note)

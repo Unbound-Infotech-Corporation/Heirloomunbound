@@ -279,8 +279,17 @@
       "recommended_path": "psvr2_adapter",
       "simple_path": "psvr2_adapter",
       "paths": ["psvr2_adapter", "steamvr", "openxr", "webxr"],
-      "pain": "Not ALVR. Requires Sony's paid PC adapter plus a DisplayPort 1.4 GPU output and Bluetooth for Sense. Software (SteamVR + PSVR2 App) is free.",
+      "pain": "Windows only, via Sony's PC adapter and SteamVR. Not ALVR. Eye tracking, HDR, and headset haptics stay on the PlayStation 5 and are not exposed to PC apps.",
       "pc_ok": true,
+      "windows_only": true,
+      "os": ["windows"],
+      "host_note": "VR renders on this Windows PC. The Twin Box is a separate machine on the LAN.",
+      "eye_tracking": {
+        "hardware": true,
+        "pc_exposed": false,
+        "extension": "XR_EXT_eye_gaze_interaction",
+        "note": "PSVR2 eye cameras are a PlayStation 5 feature. Sony's PC adapter and the PlayStation VR2 App do not expose them to SteamVR or OpenXR apps. WebXR in Chrome and Edge does not surface XR_EXT_eye_gaze_interaction. If a runtime later advertises that extension, Heirloom can send aggregated attention only. The Room still runs when gaze is missing."
+      },
       "art": "psvr2"
     },
     {
@@ -408,7 +417,7 @@
       "runtime": "openxr",
       "software": ["steam", "steamvr", "psvr2_app", "openxr"],
       "pc": true,
-      "blurb": "Paid Sony adapter + free PlayStation VR2 App on Steam + SteamVR. DisplayPort 1.4 and Bluetooth. Not ALVR."
+      "blurb": "Windows only. Paid Sony adapter + free PlayStation VR2 App on Steam + SteamVR. DisplayPort 1.4 and Bluetooth. Not ALVR. Eye tracking is not exposed on PC."
     },
     "oasis": {
       "label": "Oasis (community WMR → SteamVR)",
@@ -603,6 +612,11 @@
     ],
     "psvr2_adapter": [
       {
+        "title": "Windows only",
+        "body": "Sony's PC adapter and the PlayStation VR2 App run on Windows through SteamVR. They do not run on the Twin Box. VR renders on this PC and talks to the box over the LAN.",
+        "art": "check"
+      },
+      {
         "title": "You need the Sony PC adapter",
         "body": "CFI-ZVP1, paid hardware. There is no ALVR path for PSVR2. Software is free; the adapter is not.",
         "art": "psvr2"
@@ -625,8 +639,13 @@
       },
       {
         "title": "Finish in the PSVR2 App",
-        "body": "Open the Steam app, complete play area and firmware. SteamVR should see the headset. Then Heirloom Sit → Enter in VR.",
+        "body": "Open the Steam app, complete play area and firmware. SteamVR should see the headset. In the Room, turn VR on yourself. Opening the page does not enter the headset.",
         "art": "sit"
+      },
+      {
+        "title": "Eye tracking stays on the PlayStation 5",
+        "body": "The headset has eye cameras, but Sony does not expose them to PC apps. SteamVR and WebXR will not provide XR_EXT_eye_gaze_interaction for PSVR2. The eye-tracking switch can stay on; the Room continues without gaze.",
+        "art": "check"
       }
     ],
     "oasis": [

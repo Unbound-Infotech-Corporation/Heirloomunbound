@@ -7,6 +7,7 @@ import HowWeWorkFields from "../components/memory/HowWeWorkFields";
 import SafeTopicsFields from "../components/memory/SafeTopicsFields";
 import StandingRoutinesFields from "../components/memory/StandingRoutinesFields";
 import AssistantsPanel from "../components/studio/AssistantsPanel";
+import VrSettingsSection from "../components/studio/VrSettingsSection";
 import { api, API_BASE } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { nextSafeTopics, pairingFromMe, pairingPayload } from "../lib/memoryStudio";
@@ -306,6 +307,8 @@ export default function Settings() {
       </section>
 
       <ConnectorsSection />
+
+      <VrSettingsSection />
 
       <Link
         to="/memory"

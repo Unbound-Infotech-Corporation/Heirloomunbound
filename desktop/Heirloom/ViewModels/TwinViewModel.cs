@@ -55,6 +55,15 @@ public partial class TwinViewModel : ObservableObject
         _host = host;
         Mixer = mixer;
         SpeakReplies = host.Settings.Current.SpeakReplies;
+        _vrHydrating = true;
+        var vrLaunch = VrModeCore.Launch(host.Settings.Current.VrMode, host.Settings.Current.VrGaze, headsetConnected: true);
+        VrMode = vrLaunch.Prefs.Enabled;
+        VrGaze = vrLaunch.Prefs.GazeEnabled;
+        VrStatus = vrLaunch.Prefs.Enabled
+            ? "VR preference is on. The headset view is the browser Room on this PC. This window stays on the normal screen."
+            : "VR is off. This window stays on the normal screen.";
+        _vrHydrating = false;
+        host.Settings.Changed += PullStoredVr;
         Persona = host.Settings.Current.TwinPersona;
         GroundedOnly = host.CanEdit
             ? host.Settings.Current.GroundedOnly
@@ -88,6 +97,9 @@ public partial class TwinViewModel : ObservableObject
     [ObservableProperty] private string _avatarState = "listening";
     [ObservableProperty] private bool _groundedOnly;
     [ObservableProperty] private bool _speakReplies;
+    [ObservableProperty] private bool _vrMode;
+    [ObservableProperty] private bool _vrGaze;
+    [ObservableProperty] private string _vrStatus = "VR is off. This window stays on the normal screen.";
     [ObservableProperty] private string _persona = "family";
     [ObservableProperty] private string _lastCitation = "No memories cited yet.";
     [ObservableProperty] private bool _isBusy;
@@ -103,6 +115,70 @@ public partial class TwinViewModel : ObservableObject
     private CancellationTokenSource? _jobCts;
     private int _sitting;
     private bool _pttOpen;
+    private bool _vrHydrating;
+
+    private void PullStoredVr()
+    {
+        _vrHydrating = true;
+        VrMode = _host.Settings.Current.VrMode;
+        VrGaze = _host.Settings.Current.VrGaze;
+        _vrHydrating = false;
+    }
+
+    partial void OnVrModeChanged(bool value) => ApplyVrSwitch(value, gaze: null);
+
+    partial void OnVrGazeChanged(bool value) => ApplyVrSwitch(enabled: null, gaze: value);
+
+    /// <summary>
+    /// Persist the owner's switches. This window has no WebXR session, so the
+    /// decision is the settings surface: nothing is launched.
+    /// </summary>
+    private void ApplyVrSwitch(bool? enabled, bool? gaze)
+    {
+        if (_vrHydrating)
+        {
+            return;
+        }
+
+        if (!CanEdit)
+        {
+            _vrHydrating = true;
+            VrMode = _host.Settings.Current.VrMode;
+            VrGaze = _host.Settings.Current.VrGaze;
+            _vrHydrating = false;
+            VrStatus = "Heir sitting. VR stays with the owner.";
+            return;
+        }
+
+        var current = new VrPrefs(_host.Settings.Current.VrMode, _host.Settings.Current.VrGaze);
+        var decision = enabled is bool nextEnabled
+            ? VrModeCore.Toggle(current, nextEnabled, gesture: true, VrSurface.Settings, sessionActive: false)
+            : VrModeCore.Gaze(current, gaze ?? current.GazeEnabled, gesture: true);
+        _host.Settings.Current.VrMode = decision.Prefs.Enabled;
+        _host.Settings.Current.VrGaze = decision.Prefs.GazeEnabled;
+        _host.Settings.Save();
+        VrStatus = decision.Prefs.Enabled
+            ? "VR preference is on. The headset view is the browser Room on this PC (SteamVR). This window stays on the normal screen."
+            : "VR is off. This window stays on the normal screen.";
+        _ = PushVrAsync(decision.Prefs);
+    }
+
+    private async Task PushVrAsync(VrPrefs prefs)
+    {
+        try
+        {
+            if (!_host.Api.HasDeviceToken && !_host.Api.HasSession)
+            {
+                return;
+            }
+
+            await _host.Api.PutAsync("/studio/vr", new { enabled = prefs.Enabled, gaze_enabled = prefs.GazeEnabled }).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            /* settings.json already holds the switch. */
+        }
+    }
 
     partial void OnGroundedOnlyChanged(bool value)
     {
