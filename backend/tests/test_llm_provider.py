@@ -63,17 +63,21 @@ def test_complete_openai_chat_posts_and_notes_tokens():
             "usage": {"prompt_tokens": 4, "completion_tokens": 2},
         }
 
-    completed = asyncio.run(complete_openai_chat(
-        [{"role": "user", "content": "Hi"}],
-        model="qwen2.5:3b",
-        base_url="http://ollama:11434",
-        poster=poster,
-    ))
+    async def _run():
+        completed = await complete_openai_chat(
+            [{"role": "user", "content": "Hi"}],
+            model="qwen2.5:3b",
+            base_url="http://ollama:11434",
+            poster=poster,
+        )
+        # Same task as the chat routers, which read usage after the completion.
+        return completed, take_usage()
+
+    completed, usage = asyncio.run(_run())
     assert completed.text == "from ollama"
     assert seen["url"].endswith("/v1/chat/completions")
     assert seen["body"]["model"] == "qwen2.5:3b"
     assert seen["body"]["stream"] is False
-    usage = take_usage()
     assert usage["prompt_tokens"] == 4
     assert usage["completion_tokens"] == 2
     assert usage["model"] == "qwen2.5:3b"

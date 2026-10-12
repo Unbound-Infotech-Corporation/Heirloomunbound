@@ -247,6 +247,16 @@ def render_report(turns: list[Mapping[str, Any]], *, day: str) -> str:
     else:
         for name in sorted(routes):
             lines.append(f"- {name}: {routes[name]}")
+    lines.extend(["", "## Errors"])
+    errors = 0
+    for row in turns:
+        err = str(row.get("error") or "").strip()
+        if not err:
+            continue
+        errors += 1
+        lines.append(f"- {row.get('route') or 'unknown'}: {err}")
+    if errors == 0:
+        lines.append("- (none)")
     lines.extend(["", "## Notes"])
     notes = 0
     for row in turns:

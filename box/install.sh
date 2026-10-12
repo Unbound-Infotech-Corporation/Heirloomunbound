@@ -166,10 +166,14 @@ install_base() {
     python3 python3-venv python3-pip
   if [[ "${DRY_RUN}" -eq 0 ]]; then
     systemctl enable --now docker
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+      usermod -aG docker "${SUDO_USER}"
+      log "Added ${SUDO_USER} to the docker group. Open a new login, then heirloom-box status works without sudo."
+    fi
     echo 'unattended-upgrades unattended-upgrades/enable_auto_updates boolean true' | debconf-set-selections
     dpkg-reconfigure -f noninteractive unattended-upgrades
   else
-    log "would enable docker and unattended-upgrades"
+    log "would enable docker and unattended-upgrades, and add the installing user to the docker group"
   fi
 }
 

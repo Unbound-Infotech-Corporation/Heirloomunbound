@@ -42,6 +42,10 @@ compose() {
   else
     args+=(-f "${root}/box/docker-compose.yml")
   fi
+  if ! docker compose version >/dev/null 2>&1; then
+    printf 'docker compose is not installed\n' >&2
+    return 1
+  fi
   docker compose "${args[@]}" "$@"
 }
 

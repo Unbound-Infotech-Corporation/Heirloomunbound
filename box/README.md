@@ -81,7 +81,7 @@ Unset, those flags stay off. Windows, the public web app, and the existing Emerg
 
 ## First login
 
-From the machine itself, or from SSH:
+From the machine itself, or from SSH. The installer adds the user who ran `sudo` to the `docker` group. Open a new login so that group applies, then:
 
 ```bash
 heirloom-box status
