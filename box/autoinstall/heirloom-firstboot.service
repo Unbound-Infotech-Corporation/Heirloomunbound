@@ -1,0 +1,20 @@
+[Unit]
+Description=Heirloom Twin Box first boot
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/heirloom-firstboot/done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/heirloom-firstboot
+User=root
+RemainAfterExit=no
+Restart=on-failure
+RestartSec=30
+RestartPreventExitStatus=42
+TimeoutStartSec=infinity
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

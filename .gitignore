@@ -35,6 +35,10 @@ dist
 *token.json*
 *credentials.json*
 
+# Twin Box autoinstall output. config.env matches *.env above and stays untracked.
+box/autoinstall/out/
+box/autoinstall/payload/
+
 # Logs and debug files
 npm-debug.log*
 yarn-debug.log*

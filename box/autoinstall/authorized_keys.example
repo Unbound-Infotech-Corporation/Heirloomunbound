@@ -1,0 +1,3 @@
+# One public key per line. Lines starting with # are ignored.
+# Example:
+# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyMaterialOnlyNotARealKey twinbox

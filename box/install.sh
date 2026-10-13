@@ -11,6 +11,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=box/lib/models.sh
 source "${ROOT}/box/lib/models.sh"
+# shellcheck source=box/lib/nvidia-stack.sh
+source "${ROOT}/box/lib/nvidia-stack.sh"
 
 LOG_PATH="/var/log/heirloom-box-install.log"
 DRY_RUN=0
@@ -19,13 +21,15 @@ WITH_TAILSCALE=0
 WITH_CHATTERBOX=0
 WITH_OBSERVER=0
 WITH_PRESENCE=0
+UNATTENDED=0
 export DEBIAN_FRONTEND=noninteractive
 
 usage() {
   cat <<'EOF'
-Usage: sudo bash box/install.sh [--dry-run] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--presence]
+Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--presence]
 
   --dry-run           print the plan and write the log; change nothing
+  --unattended        answer package and license prompts automatically; exit 75 if a reboot is required before containers start
   --dev-tools         git, gh, Node.js LTS, Python 3.12, uv, Cursor CLI, Claude Code
   --tailscale         install Tailscale; you run `tailscale up` yourself
   --with-chatterbox   optional MIT Chatterbox TTS container
@@ -68,6 +72,7 @@ parse_args() {
   for arg in "$@"; do
     case "${arg}" in
       --dry-run) DRY_RUN=1 ;;
+      --unattended) UNATTENDED=1 ;;
       --dev-tools) DEV_TOOLS=1 ;;
       --tailscale) WITH_TAILSCALE=1 ;;
       --with-chatterbox) WITH_CHATTERBOX=1 ;;
@@ -183,35 +188,66 @@ install_base() {
   fi
 }
 
+read_autoinstall_flag() {
+  local key="$1"
+  local file="/etc/heirloom/autoinstall.env"
+  local line
+  [[ -r "${file}" ]] || return 1
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ "${line}" == "${key}="* ]] || continue
+    printf '%s\n' "${line#*=}"
+    return 0
+  done < "${file}"
+  return 1
+}
+
+apply_unattended() {
+  if [[ "${UNATTENDED}" -ne 1 ]]; then
+    return 0
+  fi
+  export DEBIAN_FRONTEND=noninteractive
+  export NEEDRESTART_MODE=a
+  export APT_LISTCHANGES_FRONTEND=none
+  export UCF_FORCE_CONFFOLD=1
+  export DEBCONF_NONINTERACTIVE_SEEN=true
+  export CI=1
+  export NONINTERACTIVE=1
+  log "Unattended mode: apt, debconf, needrestart, and package prompts are answered automatically. Ollama pulls stay non-interactive."
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    return 0
+  fi
+  cat > /etc/apt/apt.conf.d/99heirloom-unattended <<'EOF'
+Dpkg::Options {
+   "--force-confdef";
+   "--force-confold";
+};
+APT::Get::Assume-Yes "true";
+EOF
+  install -d -m 0755 /etc/needrestart/conf.d
+  # Literal Perl for needrestart. The dollar sign must not expand.
+  # shellcheck disable=SC2016
+  printf '%s\n' '$nrconf{restart} = "a";' > /etc/needrestart/conf.d/heirloom.conf
+}
+
 install_nvidia() {
   if ! gpu_present; then
-    log "No NVIDIA GPU detected. Ollama will run on CPU. Skipping driver and container toolkit."
+    log "No NVIDIA GPU detected. Ollama will run on CPU. Skipping the driver, CUDA toolkit, cuDNN, and container toolkit."
     return 0
   fi
-  log "NVIDIA GPU detected"
-  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
-    log "nvidia-smi already answers. Skipping the driver package."
-  else
-    log "Installing nvidia-driver-550-server. Reboot, then re-run box/install.sh before GPU containers start."
-    run apt-get install -y nvidia-driver-550-server
+  log "NVIDIA GPU detected. Using the official CUDA apt repo (cuda-keyring) instead of ubuntu-drivers."
+  if [[ -r /etc/heirloom/nvidia.env ]]; then
+    heirloom_load_env_file /etc/heirloom/nvidia.env
+  fi
+  if [[ -r /etc/heirloom/autoinstall.env ]]; then
+    heirloom_load_env_file /etc/heirloom/autoinstall.env
+  fi
+  export HEIRLOOM_NVIDIA_BRANCH="${NVIDIA_DRIVER_BRANCH:-${HEIRLOOM_NVIDIA_BRANCH:-latest}}"
+  export HEIRLOOM_NVIDIA_MODULES="${NVIDIA_KERNEL_MODULES:-${HEIRLOOM_NVIDIA_MODULES:-open}}"
+  heirloom_nvidia_install_stack
+  if [[ "${DRY_RUN}" -eq 0 ]] && { ! command -v nvidia-smi >/dev/null 2>&1 || ! nvidia-smi >/dev/null 2>&1; }; then
     NEED_REBOOT=1
+    log "The NVIDIA driver is installed and nvidia-smi does not answer yet. Reboot before GPU containers start."
   fi
-  log "Installing the NVIDIA container toolkit"
-  if [[ "${DRY_RUN}" -eq 1 ]]; then
-    log "would add the NVIDIA container toolkit apt repo, install it, and restart Docker"
-    return 0
-  fi
-  install -d -m 0755 /usr/share/keyrings
-  rm -f /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-    | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-  curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-    | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
-    | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
-  apt-get update
-  apt-get install -y nvidia-container-toolkit
-  nvidia-ctk runtime configure --runtime=docker
-  systemctl restart docker
 }
 
 install_tailscale() {
@@ -289,6 +325,23 @@ install_dev_tools() {
 
 harden_ssh() {
   local dropin="/etc/ssh/sshd_config.d/99-heirloom-box.conf"
+  local allow_pw=""
+  allow_pw="$(read_autoinstall_flag SSH_PASSWORD_AUTH || true)"
+  if [[ "${allow_pw}" == "yes" ]]; then
+    log "SSH password login stays on because SSH_PASSWORD_AUTH=yes. Root login stays off."
+    if [[ "${DRY_RUN}" -eq 1 ]]; then
+      return 0
+    fi
+    install -d -m 0755 /etc/ssh/sshd_config.d
+    cat > "${dropin}" <<'EOF'
+PasswordAuthentication yes
+KbdInteractiveAuthentication yes
+PermitRootLogin no
+PubkeyAuthentication yes
+EOF
+    systemctl reload ssh || true
+    return 0
+  fi
   if ! ssh_keys_present; then
     log "SSH password login stays on until ~/.ssh/authorized_keys exists. Add a key, then re-run box/install.sh."
     return 0
@@ -617,6 +670,7 @@ print_next() {
   if [[ "${NEED_REBOOT}" -eq 1 ]]; then
     log "Reboot so the NVIDIA driver loads, then re-run: sudo bash box/install.sh"
   fi
+  log "Driver upgrades later: sudo heirloom-box update-drivers"
 }
 
 main() {
@@ -637,7 +691,8 @@ main() {
     printf 'Re-run as root: sudo bash box/install.sh\n' >&2
     exit 1
   fi
-  log "Heirloom Twin Box installer root=${ROOT} dry_run=${DRY_RUN} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} presence=${WITH_PRESENCE}"
+  log "Heirloom Twin Box installer root=${ROOT} dry_run=${DRY_RUN} unattended=${UNATTENDED} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} presence=${WITH_PRESENCE}"
+  apply_unattended
   require_ubuntu
   mib="$(vram_mib)"
   solo="$(heirloom_model_for_vram_mib "${mib}")"
@@ -670,6 +725,11 @@ main() {
   write_cron
   install_observer
   install_presence
+  if [[ "${NEED_REBOOT}" -eq 1 && "${UNATTENDED}" -eq 1 ]]; then
+    log "Unattended mode stops before containers start because the NVIDIA driver needs a reboot."
+    log "Reboot, then run the same box/install.sh command again."
+    exit 75
+  fi
   start_stack "${model}" "${observer_model}"
   print_next
 }
