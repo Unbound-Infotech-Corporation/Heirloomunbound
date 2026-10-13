@@ -36,6 +36,8 @@ class Disk:
     type: str
     size: str
     model: str
+    id_serial: str = ""
+    id_serial_short: str = ""
 
 
 @dataclass(frozen=True)
@@ -100,6 +102,8 @@ def load_inventory(path: str, sysfs_root: str) -> list[Disk]:
                 type=str(raw.get("type") or "").strip().lower(),
                 size=str(raw.get("size") or "").strip(),
                 model=str(raw.get("model") or "").strip(),
+                id_serial=normalize_serial(raw.get("id_serial")),
+                id_serial_short=normalize_serial(raw.get("id_serial_short")),
             )
         )
     return disks
@@ -123,6 +127,40 @@ def is_removable_or_usb(disk: Disk) -> bool:
     return False
 
 
+def identifiers(disk: Disk) -> set[str]:
+    found: set[str] = set()
+    for value in (disk.serial, disk.id_serial, disk.id_serial_short):
+        value = normalize_serial(value)
+        if value:
+            found.add(value)
+    return found
+
+
+def safe_udev_serial(value: str) -> str:
+    """Serial subiquity can match as ID_SERIAL without treating it as a glob."""
+    value = normalize_serial(value)
+    if not value or "\n" in value or "\r" in value:
+        return ""
+    if re.search(r"[*?[]", value):
+        return ""
+    return value
+
+
+def device_path(disk: Disk) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9]+", disk.name):
+        raise ValueError(f"Refusing device name {disk.name!r}.")
+    return f"/dev/{disk.name}"
+
+
+def match_specs(disk: Disk) -> list[dict[str, str]]:
+    specs: list[dict[str, str]] = []
+    udev = safe_udev_serial(disk.id_serial)
+    if udev:
+        specs.append({"serial": udev})
+    specs.append({"path": device_path(disk)})
+    return specs
+
+
 def decide(serial: str, disks: list[Disk], cdrom_names: set[str]) -> Decision:
     serial = normalize_serial(serial)
     if serial == "" or serial == PLACEHOLDER:
@@ -140,7 +178,7 @@ def decide(serial: str, disks: list[Disk], cdrom_names: set[str]) -> Decision:
     exact = [
         disk
         for disk in disks
-        if disk.type == "disk" and normalize_serial(disk.serial) == serial
+        if disk.type == "disk" and serial in identifiers(disk)
     ]
     if not exact:
         return Decision(
@@ -164,31 +202,50 @@ def decide(serial: str, disks: list[Disk], cdrom_names: set[str]) -> Decision:
     return Decision(EXIT_OK, f"Matched /dev/{disk.name} serial {serial}.", disk)
 
 
-def replace_placeholder(text: str, serial: str) -> str:
+def render_match_block(indent: str, disk: Disk) -> str:
+    child = indent + "  "
+    lines = [f"{indent}match:"]
+    for spec in match_specs(disk):
+        key, value = next(iter(spec.items()))
+        lines.append(f"{child}- {key}: {json.dumps(value)}")
+    return "\n".join(lines)
+
+
+def replace_match_block(text: str, disk: Disk) -> str:
     if text.count(PLACEHOLDER) != 1:
         raise ValueError(
             f"{PLACEHOLDER} must appear exactly once in the autoinstall file "
             f"(found {text.count(PLACEHOLDER)})."
         )
-    quoted = '"' + PLACEHOLDER + '"'
-    replacement = json.dumps(serial)
-    if quoted in text:
-        return text.replace(quoted, replacement, 1)
-    pattern = re.compile(r"(serial:\s*)" + re.escape(PLACEHOLDER) + r"\b")
-    updated, count = pattern.subn(lambda match: match.group(1) + replacement, text, count=1)
+    pattern = re.compile(
+        r"^(?P<indent>[ \t]*)match:[ \t]*\n"
+        r"(?P=indent)[ \t]+serial:[ \t]*(?:\"|')?"
+        + re.escape(PLACEHOLDER)
+        + r"(?:\"|')?[ \t]*$",
+        re.MULTILINE,
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        return render_match_block(match.group("indent"), disk)
+
+    updated, count = pattern.subn(repl, text, count=1)
     if count != 1:
-        raise ValueError("Could not replace the storage serial placeholder.")
+        raise ValueError("Could not replace the storage match placeholder.")
+    if PLACEHOLDER in updated:
+        raise ValueError("Placeholder serial survived the rewrite. Refusing to continue.")
+    path = device_path(disk)
+    if json.dumps(path) not in updated:
+        raise ValueError("Resolved device path was not written into the autoinstall file.")
+    udev = safe_udev_serial(disk.id_serial)
+    if udev and json.dumps(udev) not in updated:
+        raise ValueError("udev ID_SERIAL was not written into the autoinstall file.")
     return updated
 
 
 def write_match(autoinstall_path: str, record_path: str, serial: str, disk: Disk) -> None:
     with open(autoinstall_path, encoding="utf-8") as handle:
         original = handle.read()
-    updated = replace_placeholder(original, serial)
-    if PLACEHOLDER in updated:
-        raise ValueError("Placeholder serial survived the rewrite. Refusing to continue.")
-    if json.dumps(serial) not in updated:
-        raise ValueError("Resolved serial was not written into the autoinstall file.")
+    updated = replace_match_block(original, disk)
     parent = os.path.dirname(record_path)
     if parent:
         os.makedirs(parent, mode=0o755, exist_ok=True)
@@ -198,18 +255,23 @@ def write_match(autoinstall_path: str, record_path: str, serial: str, disk: Disk
     with open(temporary, "w", encoding="utf-8") as handle:
         handle.write(updated)
     os.replace(temporary, autoinstall_path)
+    udev = safe_udev_serial(disk.id_serial)
+    shown = disk.serial or disk.id_serial_short or udev
     record = (
         "# Disk the installer is allowed to erase. Written by resolve-disk.sh\n"
-        "# after the serial matched exactly one internal, non-removable disk.\n"
+        "# after the owner serial matched exactly one internal, non-removable disk.\n"
+        "# match.serial is udev ID_SERIAL. match.path is that disk in this boot.\n"
         "storage:\n"
         "  layout:\n"
         "    name: direct\n"
-        "    match:\n"
-        f"      serial: {json.dumps(serial)}\n"
-        f"device: /dev/{disk.name}\n"
+        f"{render_match_block('    ', disk)}\n"
+        f"device: {device_path(disk)}\n"
+        f"owner_serial: {json.dumps(serial)}\n"
+        f"lsblk_serial: {json.dumps(shown)}\n"
+        f"udev_serial: {json.dumps(udev)}\n"
         f"name: {json.dumps(disk.name)}\n"
         f"tran: {json.dumps(disk.tran)}\n"
-        f"removable: false\n"
+        "removable: false\n"
     )
     record_temporary = record_path + ".heirloom-tmp"
     with open(record_temporary, "w", encoding="utf-8") as handle:
@@ -260,14 +322,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.autoinstall:
         try:
             record = args.record or "/run/heirloom-autoinstall/storage-match.yaml"
-            write_match(args.autoinstall, record, decision.disk.serial, decision.disk)
+            write_match(args.autoinstall, record, normalize_serial(args.serial), decision.disk)
         except (OSError, ValueError) as exc:
             print(f"HEIRLOOM_DISK_ABORT code={EXIT_CONFIG} {exc}", file=sys.stderr)
             return EXIT_CONFIG
 
+    disk = decision.disk
+    shown = disk.serial or disk.id_serial_short or disk.id_serial
+    udev = safe_udev_serial(disk.id_serial) or "none"
     print(
-        f"HEIRLOOM_DISK_MATCH device=/dev/{decision.disk.name} "
-        f"serial={decision.disk.serial} tran={decision.disk.tran or 'unknown'}"
+        f"HEIRLOOM_DISK_MATCH device={device_path(disk)} "
+        f"serial={shown} tran={disk.tran or 'unknown'} "
+        f"udev_serial={udev} path={device_path(disk)}"
     )
     print(decision.message, file=sys.stderr)
     return EXIT_OK

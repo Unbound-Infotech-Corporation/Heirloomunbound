@@ -26,6 +26,8 @@ lsblk -d -o NAME,MODEL,SIZE,SERIAL,TRAN,RM
 
 Use the SERIAL of the internal system disk. `RM` is `0`. `TRAN` is `sata` or `nvme`. Skip anything with `TRAN` of `usb` and skip the USB stick you booted from.
 
+That value is the short serial. The installer compares a longer udev name (`ID_SERIAL`, often the model plus the serial). The stick keeps your short serial in its config. On the Twin Box it checks that exactly one internal disk has it, then tells the installer to use that disk's udev serial and its device path.
+
 From Windows, open PowerShell as Administrator:
 
 ```powershell

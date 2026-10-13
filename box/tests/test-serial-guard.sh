@@ -38,8 +38,9 @@ import sys
 dest = sys.argv[1]
 devices = []
 for raw in sys.argv[2:]:
-    name, serial, tran, rm, typ = raw.split("|")
-    devices.append({
+    parts = raw.split("|")
+    name, serial, tran, rm, typ = parts[:5]
+    device = {
         "name": name,
         "serial": serial,
         "tran": tran,
@@ -47,7 +48,12 @@ for raw in sys.argv[2:]:
         "type": typ,
         "size": "1T",
         "model": "test",
-    })
+    }
+    if len(parts) > 5 and parts[5]:
+        device["id_serial"] = parts[5]
+    if len(parts) > 6 and parts[6]:
+        device["id_serial_short"] = parts[6]
+    devices.append(device)
 with open(dest, "w", encoding="utf-8") as handle:
     json.dump({"blockdevices": devices}, handle)
 PY
@@ -164,21 +170,103 @@ fi
 python3 - "${TMP}/work.yaml" <<'PY'
 import pathlib, sys
 text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-if text.count("HEIRLOOMTESTDISK01") != 1:
-    raise SystemExit(f"serial count {text.count('HEIRLOOMTESTDISK01')}")
+if 'path: "/dev/sda"' not in text:
+    raise SystemExit("missing path match")
+if "serial:" in text:
+    raise SystemExit("short serial was written without a udev ID_SERIAL")
+if "HEIRLOOMTESTDISK01" in text:
+    raise SystemExit("owner serial leaked into the installer match")
 PY
 grep -F 'device: /dev/sda' "${TMP}/storage-match.yaml" >/dev/null
+grep -F 'path: "/dev/sda"' "${TMP}/storage-match.yaml" >/dev/null
 if grep -F 'sdb' "${TMP}/storage-match.yaml" >/dev/null; then
   printf 'record named the USB disk\n' >&2
   exit 1
 fi
 grep -F 'HEIRLOOM_DISK_MATCH' "${TMP}/stdout" >/dev/null
+grep -F 'path=/dev/sda' "${TMP}/stdout" >/dev/null
 
 # The same match against the inner autoinstall document subiquity reloads.
 cp "${TMP}/inner.yaml" "${TMP}/work.yaml"
 code="$(run_guard "HEIRLOOMTESTDISK01" "${TMP}/ok.json" "${TMP}/work.yaml" "sr0")"
 expect_code "inner yaml" "${code}" 0
-grep -F 'serial: "HEIRLOOMTESTDISK01"' "${TMP}/work.yaml" >/dev/null
+grep -F 'path: "/dev/sda"' "${TMP}/work.yaml" >/dev/null
+if grep -F 'serial:' "${TMP}/work.yaml" >/dev/null; then
+  printf 'inner yaml kept a serial match\n' >&2
+  exit 1
+fi
+
+# Owner short serial, udev ID_SERIAL is the string Subiquity compares.
+write_inventory "${TMP}/udev.json" \
+  "sda|HEIRLOOMTESTDISK01|sata|0|disk|QEMU_QEMU_HARDDISK_HEIRLOOMTESTDISK01|HEIRLOOMTESTDISK01" \
+  "sdb|USBDISKSERIAL9|usb|1|disk"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard "HEIRLOOMTESTDISK01" "${TMP}/udev.json" "${TMP}/work.yaml" "sr0")"
+expect_code "udev serial" "${code}" 0
+grep -F 'serial: "QEMU_QEMU_HARDDISK_HEIRLOOMTESTDISK01"' "${TMP}/work.yaml" >/dev/null
+grep -F 'path: "/dev/sda"' "${TMP}/work.yaml" >/dev/null
+python3 - "${TMP}/work.yaml" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+# The short serial may appear only inside the longer udev serial.
+short = text.replace("QEMU_QEMU_HARDDISK_HEIRLOOMTESTDISK01", "")
+if "HEIRLOOMTESTDISK01" in short:
+    raise SystemExit("short serial written as its own match value")
+PY
+
+# The owner may paste the long udev serial instead of the lsblk column.
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard "QEMU_QEMU_HARDDISK_HEIRLOOMTESTDISK01" "${TMP}/udev.json" "${TMP}/work.yaml" "sr0")"
+expect_code "owner pasted ID_SERIAL" "${code}" 0
+grep -F 'path: "/dev/sda"' "${TMP}/work.yaml" >/dev/null
+
+# A glob character in ID_SERIAL must not become the match pattern.
+write_inventory "${TMP}/glob.json" \
+  "nvme0n1|DISKSERIALGLOB1|nvme|0|disk|VENDOR_DISK_*_DISKSERIALGLOB1|DISKSERIALGLOB1"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard "DISKSERIALGLOB1" "${TMP}/glob.json" "${TMP}/work.yaml")"
+expect_code "glob udev serial" "${code}" 0
+grep -F 'path: "/dev/nvme0n1"' "${TMP}/work.yaml" >/dev/null
+if grep -F 'serial:' "${TMP}/work.yaml" >/dev/null; then
+  printf 'globbed udev serial was written into the match\n' >&2
+  exit 1
+fi
+
+# The same owner string on one disk's short serial and another's udev serial.
+write_inventory "${TMP}/cross.json" \
+  "sda|SHARED_SERIAL1|sata|0|disk" \
+  "nvme0n1|OTHERDISK12345|nvme|0|disk|SHARED_SERIAL1|"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard "SHARED_SERIAL1" "${TMP}/cross.json" "${TMP}/work.yaml")"
+expect_code "cross identifier" "${code}" 12
+assert_unchanged "${TMP}/work.yaml"
+
+# Live udevadm enrichment fills ID_SERIAL before the match is written.
+mkdir -p "${TMP}/bin"
+cat > "${TMP}/bin/udevadm" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" | grep -q sda || exit 1
+printf '%s\n' 'ID_SERIAL=ENRICHED_ID_SERIAL_01'
+printf '%s\n' 'ID_SERIAL_SHORT=HEIRLOOMTESTDISK01'
+EOF
+chmod +x "${TMP}/bin/udevadm"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(
+  PATH="${TMP}/bin:${PATH}" HEIRLOOM_ENRICH_UDEV=1 \
+    HEIRLOOM_TARGET_DISK_SERIAL="HEIRLOOMTESTDISK01" \
+    HEIRLOOM_DISK_INVENTORY="${TMP}/ok.json" \
+    HEIRLOOM_CDROM_NAMES="sr0" \
+    HEIRLOOM_AUTOINSTALL_YAML="${TMP}/work.yaml" \
+    HEIRLOOM_STORAGE_MATCH="${TMP}/storage-match.yaml" \
+    HEIRLOOM_RESOLVE_LOG="${TMP}/resolve.log" \
+    HEIRLOOM_SYSFS_BLOCK="${TMP}/sysfs" \
+    HEIRLOOM_AUTOINSTALL_ENV="${TMP}/empty.env" \
+    bash "${GUARD}" >"${TMP}/stdout" 2>"${TMP}/stderr"
+  printf '%s\n' "$?"
+)"
+expect_code "udev enrich" "${code}" 0
+grep -F 'serial: "ENRICHED_ID_SERIAL_01"' "${TMP}/work.yaml" >/dev/null
+grep -F 'path: "/dev/sda"' "${TMP}/work.yaml" >/dev/null
 
 # Missing autoinstall file.
 rm -f "${TMP}/missing.yaml"

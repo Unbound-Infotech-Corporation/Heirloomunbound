@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Early command for the Ubuntu autoinstall.
-# Resolves TARGET_DISK_SERIAL to exactly one internal disk and writes that
-# serial into /autoinstall.yaml. Subiquity reloads that file after early
-# commands, and only then may it partition. Any other result exits non-zero,
-# which aborts the install before a disk is erased.
+# Resolves TARGET_DISK_SERIAL to exactly one internal disk, then writes the
+# match Subiquity actually compares: udev ID_SERIAL when it is present, and
+# the path of that disk. lsblk's SERIAL is often the short serial, and
+# layout match.serial is ID_SERIAL, so writing the short value aborts.
+# Subiquity reloads /autoinstall.yaml after early commands, and only then
+# may it partition. Any other result exits non-zero, which aborts the
+# install before a disk is erased.
 #
 # This script does not partition or erase disks. A non-zero exit aborts autoinstall.
 if [[ -z "${BASH_VERSION:-}" ]]; then
@@ -76,11 +79,59 @@ write_inventory() {
   lsblk -d -J -o NAME,SERIAL,TRAN,RM,TYPE,SIZE,MODEL > "${dest}"
 }
 
+enrich_udev() {
+  local dest="$1"
+  if ! command -v udevadm >/dev/null 2>&1; then
+    log "udevadm is not available. The installer match will use the device path."
+    return 0
+  fi
+  python3 - "${dest}" <<'PY'
+import json
+import subprocess
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    payload = json.load(handle)
+devices = payload.get("blockdevices", []) if isinstance(payload, dict) else payload
+if not isinstance(devices, list):
+    raise SystemExit(0)
+for device in devices:
+    if not isinstance(device, dict):
+        continue
+    name = str(device.get("name") or "").strip()
+    if not name or "/" in name:
+        continue
+    try:
+        output = subprocess.check_output(
+            ["udevadm", "info", "-q", "property", "-n", f"/dev/{name}"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        continue
+    props = {}
+    for line in output.splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            props[key] = value.strip()
+    if props.get("ID_SERIAL"):
+        device["id_serial"] = props["ID_SERIAL"]
+    if props.get("ID_SERIAL_SHORT"):
+        device["id_serial_short"] = props["ID_SERIAL_SHORT"]
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+PY
+}
+
 main() {
   local serial inventory cdrom autoinstall record output code
   serial="$(read_serial)"
   inventory="$(mktemp)"
   write_inventory "${inventory}"
+  if [[ -z "${HEIRLOOM_DISK_INVENTORY:-}" || "${HEIRLOOM_ENRICH_UDEV:-}" == 1 ]]; then
+    enrich_udev "${inventory}"
+  fi
   cdrom="$(cdrom_names)"
   autoinstall="${HEIRLOOM_AUTOINSTALL_YAML:-/autoinstall.yaml}"
   record="${HEIRLOOM_STORAGE_MATCH:-/run/heirloom-autoinstall/storage-match.yaml}"
