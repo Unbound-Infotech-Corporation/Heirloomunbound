@@ -13,7 +13,7 @@ A former game server is the intended machine. Ubuntu Server 24.04 LTS, no monito
 | CPU | 4 cores. More helps when Ollama is on CPU. |
 | RAM | Reference lab machine: 32 GB. 16 GB still boots the stack; the capture ring stays at 64 MiB so it does not compete with Mongo and Ollama. |
 | Disk | 100 GB free under `/var/lib/heirloom` (models, Mongo, vault, backups). |
-| GPU | Reference lab card: NVIDIA RTX 3090, 24 GB. No GPU means CPU Ollama. The installer skips the driver and the container toolkit when `lspci` and `nvidia-smi` see nothing. |
+| GPU | Reference lab card: NVIDIA RTX 3090, 24 GB. No GPU means CPU Ollama. The installer skips the driver, CUDA, and the container toolkit when `lspci` and `nvidia-smi` see nothing. The unattended USB path installs the latest production driver from NVIDIA's CUDA apt repo and refuses to continue until `nvidia-smi` reports the 3090. |
 | Network | Ethernet on the LAN. SSH for a headless login. Ports 22, 80, and 443. |
 | HDMI capture | Optional, lab only. See [OBSERVER.md](OBSERVER.md). UVC devices such as the EVGA XR1. Off unless you pass `--observer`. |
 | USB webcams | Optional, lab only. See [PRESENCE.md](PRESENCE.md). One or more UVC cameras on the box. Off unless you pass `--presence`. |
@@ -40,6 +40,10 @@ Do not install XTTS-v2, F5-TTS weights, or LivePortrait bundled face models. Opt
 
 ## Install from a fresh Ubuntu USB
 
+The unattended path is one USB stick that installs Ubuntu Server 24.04 and Heirloom with no prompts. It erases only the disk whose serial you put in `box/autoinstall/config.env`. Boot that stick only on the Twin Box. The steps, including Secure Boot and how to flash the ISO, are in [AUTOINSTALL.md](AUTOINSTALL.md).
+
+A manual install still works:
+
 1. Write Ubuntu Server 24.04 LTS to a USB stick and install it on the lab machine. Create a normal user. Add that user's SSH public key during the Ubuntu installer if you can.
 2. Copy this repo onto the machine, or clone it. `git` is installed by `box/install.sh` so later updates work.
 3. From the repo root:
@@ -61,6 +65,7 @@ sudo bash box/install.sh --presence --with-chatterbox
 | Flag | What it does |
 |---|---|
 | `--dry-run` | Writes the plan to the log and changes nothing. |
+| `--unattended` | Answers apt, debconf, and package prompts automatically. Ollama pulls stay non-interactive. If the NVIDIA driver needs a reboot, the script exits 75 before containers start. |
 | `--dev-tools` | git, GitHub CLI, Node.js 22, Python 3.12, uv, Cursor CLI, Claude Code. |
 | `--tailscale` | Installs Tailscale. You log in yourself. |
 | `--with-chatterbox` | Optional Chatterbox TTS container on `127.0.0.1:8010`. |
@@ -74,7 +79,7 @@ What a real run installs:
 - Docker Engine and the Compose plugin, MongoDB 7 as a container (no host port), the API on `127.0.0.1:8001`, and the built web UI behind Caddy.
 - Caddy on ports 80 and 443 with an internal CA (`tls internal`). HTTP redirects to HTTPS.
 - Ollama on `127.0.0.1:11434`, then `ollama pull` of the VRAM model.
-- NVIDIA driver `nvidia-driver-550-server` and the NVIDIA container toolkit only when a GPU is present. If the driver was just installed, reboot and run the installer again before GPU containers start.
+- The latest production NVIDIA driver from the official CUDA apt repository (`cuda-keyring`, package `nvidia-open`) when a GPU is present, plus the CUDA toolkit, cuDNN, `nvtop`, and the NVIDIA container toolkit. `NVIDIA_DRIVER_BRANCH=latest` is the default. A branch such as `580` installs `nvidia-driver-pinning-580` first. The RTX 3090 uses the open kernel modules. `ubuntu-drivers` is not used. If `nvidia-smi` does not answer yet, reboot and run the installer again before GPU containers start. Later upgrades: `sudo heirloom-box update-drivers`.
 - Hardened OpenSSH (public-key only, root login off) only when some `authorized_keys` file is non-empty. A fresh install without a key keeps password login so you are not locked out.
 - `unattended-upgrades`.
 - `ufw`: deny incoming, allow OpenSSH, `80/tcp`, and `443/tcp`.
@@ -170,9 +175,10 @@ heirloom-box presence status
 heirloom-box presence pause
 heirloom-box presence resume
 heirloom-box presence forget
+sudo heirloom-box update-drivers
 sudo bash box/install.sh --help
 ```
 
 ## What this environment did not prove
 
-A cloud agent can shellcheck the scripts, unit-test provider selection, the lab fence, the Observer privacy filter, and Presence (debounce, enrollment purge, unknown faces, the heir fence, thresholds, pause), build the web app, and dry-run the installer. It cannot prove a real NVIDIA GPU, a bare-metal Ubuntu Server install from USB, a Tailscale login, a real UVC capture card, a real webcam, a real face, or a vision model answering from GPU VRAM.
+A cloud agent can shellcheck the scripts, unit-test provider selection, the lab fence, the Observer privacy filter, and Presence (debounce, enrollment purge, unknown faces, the heir fence, thresholds, pause), build the web app, dry-run the installer, and test the autoinstall serial guard. It cannot prove a real NVIDIA GPU, a flashed USB stick in the Twin Box, a Tailscale login, a real UVC capture card, a real webcam, a real face, or a vision model answering from GPU VRAM. QEMU coverage of the autoinstall ISO, when the run produced it, is recorded in the change that added `box/autoinstall/`.

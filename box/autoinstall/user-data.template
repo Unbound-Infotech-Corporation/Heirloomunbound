@@ -1,0 +1,33 @@
+#cloud-config
+# Heirloom Twin Box autoinstall for Ubuntu Server 24.04.
+# Boot this USB only on the Twin Box.
+# The storage serial below matches no real disk. resolve-disk.sh replaces it
+# only after TARGET_DISK_SERIAL matches exactly one internal, non-removable disk.
+# If that check fails, the install stops and no disk is erased.
+autoinstall:
+  version: 1
+  interactive-sections: []
+  locale: "__LOCALE__"
+  keyboard:
+    layout: "__KEYBOARD_LAYOUT__"
+  identity:
+    hostname: "__HOSTNAME__"
+    username: "__USERNAME__"
+    password: "__PASSWORD_HASH__"
+  ssh:
+    install-server: true
+    allow-pw: __SSH_ALLOW_PW__
+    authorized-keys: []
+  updates: security
+  shutdown: reboot
+  storage:
+    layout:
+      name: direct
+      match:
+        serial: "HEIRLOOM-REFUSE-NO-DISK-MATCH"
+  early-commands:
+    - ["bash", "/cdrom/heirloom/resolve-disk.sh"]
+  late-commands:
+    - ["bash", "/cdrom/heirloom/late.sh"]
+  user-data:
+    timezone: "__TIMEZONE__"

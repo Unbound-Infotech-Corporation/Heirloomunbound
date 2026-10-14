@@ -8,11 +8,13 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: heirloom-box <status|backup|report|observer|presence>
+Usage: heirloom-box <status|backup|report|observer|presence|update-drivers>
 
   status             services, GPU, disk, observer, presence, last backup, last report, /api/health
   backup             Mongo archive + vault tarball, 14 copies kept
   report             nightly local markdown under /var/lib/heirloom/lab-reports
+  update-drivers     install or upgrade the CUDA-repo NVIDIA driver, CUDA toolkit, cuDNN, nvtop, and the container toolkit
+                     add --dry-run to print the plan
   observer status    capture device, signal, fps, model, pause, notes today, disk used
   observer pause     stop understanding until resume (also pauses Presence)
   observer resume    clear a manual, web, or hotkey pause
@@ -203,6 +205,38 @@ cmd_backup() {
   printf '%s\n' "${dest}"
 }
 
+cmd_update_drivers() {
+  local dry=0
+  if [[ "${1:-}" == "--dry-run" ]]; then
+    dry=1
+  elif [[ -n "${1:-}" ]]; then
+    usage >&2
+    exit 2
+  fi
+  local root script
+  root="$(read_root)"
+  script=""
+  if [[ -n "${root}" && -f "${root}/box/lib/nvidia-stack.sh" ]]; then
+    script="${root}/box/lib/nvidia-stack.sh"
+  elif [[ -f /usr/local/lib/heirloom/nvidia-stack.sh ]]; then
+    script="/usr/local/lib/heirloom/nvidia-stack.sh"
+  else
+    echo "nvidia-stack.sh was not found. Run box/install.sh from a checkout of this repo." >&2
+    exit 1
+  fi
+  local -a args=(--upgrade)
+  if [[ "${dry}" -eq 1 ]]; then
+    args+=(--dry-run)
+  elif [[ "${EUID}" -ne 0 ]]; then
+    echo "Re-run as root: sudo heirloom-box update-drivers" >&2
+    exit 1
+  fi
+  bash "${script}" "${args[@]}"
+  if [[ "${dry}" -eq 0 ]] && [[ -f /var/run/reboot-required || -f /run/heirloom-nvidia-reboot-needed ]]; then
+    printf '%s\n' "Reboot to load the new NVIDIA driver, then run: nvidia-smi"
+  fi
+}
+
 cmd_report() {
   local root
   root="$(read_root)"
@@ -226,6 +260,10 @@ main() {
     presence)
       shift
       cmd_presence "${1:-}"
+      ;;
+    update-drivers)
+      shift
+      cmd_update_drivers "${1:-}"
       ;;
     -h|--help|help|"") usage ;;
     *)
