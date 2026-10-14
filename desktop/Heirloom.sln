@@ -7,6 +7,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Heirloom", "Heirloom\Heirlo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Heirloom.Tests", "Heirloom.Tests\Heirloom.Tests.csproj", "{8F2A1C4E-9B70-4D3A-A1E6-2C5D8F0A1B33}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Heirloom.BoxCore", "Heirloom.BoxCore\Heirloom.BoxCore.csproj", "{C4E1A90B-6D27-4F58-9A11-7B3E2D0C8F41}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Heirloom.Companion", "Heirloom.Companion\Heirloom.Companion.csproj", "{D5F2B01C-7E38-4069-8B22-8C4F3E1D9A52}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +28,13 @@ Global
 		{8F2A1C4E-9B70-4D3A-A1E6-2C5D8F0A1B33}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8F2A1C4E-9B70-4D3A-A1E6-2C5D8F0A1B33}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8F2A1C4E-9B70-4D3A-A1E6-2C5D8F0A1B33}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C4E1A90B-6D27-4F58-9A11-7B3E2D0C8F41}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C4E1A90B-6D27-4F58-9A11-7B3E2D0C8F41}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C4E1A90B-6D27-4F58-9A11-7B3E2D0C8F41}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C4E1A90B-6D27-4F58-9A11-7B3E2D0C8F41}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D5F2B01C-7E38-4069-8B22-8C4F3E1D9A52}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D5F2B01C-7E38-4069-8B22-8C4F3E1D9A52}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D5F2B01C-7E38-4069-8B22-8C4F3E1D9A52}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D5F2B01C-7E38-4069-8B22-8C4F3E1D9A52}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

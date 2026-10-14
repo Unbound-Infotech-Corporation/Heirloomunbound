@@ -402,7 +402,7 @@ public partial class StudioShellViewModel : ObservableObject
     public void ReopenFirstRun()
     {
         Settings.ReopenSetup();
-        FirstRun.ResetToWelcome();
+        FirstRun.ResetToChoose();
         ShowFirstRun = true;
     }
 

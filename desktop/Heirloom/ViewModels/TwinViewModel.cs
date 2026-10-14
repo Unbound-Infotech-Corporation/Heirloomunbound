@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Heirloom.BoxCore;
 using Heirloom.Services;
 
 using Microsoft.UI.Xaml;
@@ -595,7 +596,8 @@ public partial class TwinViewModel : ObservableObject
             reply = TwinPrompt.MissReply(grounded);
         }
 
-        if (string.IsNullOrWhiteSpace(reply))
+        var remoteTwin = BoxLink.TwinUsesRemoteApi(_host.Settings.Current.RunMode);
+        if (string.IsNullOrWhiteSpace(reply) && !remoteTwin)
         {
             await _host.Ollama.ProbeAsync(cancellationToken).ConfigureAwait(true);
             var model = _host.Ollama.ChatModel;
@@ -608,7 +610,7 @@ public partial class TwinViewModel : ObservableObject
             }
         }
 
-        if (string.IsNullOrWhiteSpace(reply) && (!grounded || pack.HasPassages))
+        if (string.IsNullOrWhiteSpace(reply) && (remoteTwin || !grounded || pack.HasPassages))
         {
             using var cloudTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cloudTimeout.CancelAfter(TimeSpan.FromSeconds(25));

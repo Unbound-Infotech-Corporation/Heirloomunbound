@@ -1,12 +1,13 @@
 {
 	admin off
+	default_sni {$HEIRLOOM_LAN_IP:localhost}
 }
 
 :80 {
 	redir https://{host}{uri} permanent
 }
 
-:443 {
+localhost, {$HEIRLOOM_LAN_IP:127.0.0.1} {
 	tls internal
 	encode gzip
 	handle /api/* {

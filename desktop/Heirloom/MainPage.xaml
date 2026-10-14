@@ -2127,6 +2127,33 @@
                                 Glyph="&#xE8B7;"
                                 Label="Open buttons folder" />
                             <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Drop square PNGs named dock-twin.png, action-file.png, and so on. Simple silhouettes search faster than photos." />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Twin Box" />
+                            <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Connect this PC to the Twin Box for Twin, clones, assignments, approvals, presence, and observer. Assist still runs on this computer. VR stays off until you turn it on below." />
+                            <Grid MinHeight="32" Width="320">
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource StudioOverline}" Text="Connect to my Twin Box" />
+                                <ToggleSwitch
+                                    HorizontalAlignment="Right"
+                                    AutomationProperties.Name="Connect to my Twin Box"
+                                    IsOn="{x:Bind ViewModel.Settings.ConnectToBox, Mode=TwoWay}" />
+                            </Grid>
+                            <StackPanel Spacing="4">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Box address" />
+                                <TextBox
+                                    AutomationProperties.Name="Twin Box address"
+                                    Text="{x:Bind ViewModel.Settings.BoxUrl, Mode=TwoWay}" />
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="{x:Bind ViewModel.Settings.BoxCertLine, Mode=OneWay}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button
+                                    Command="{x:Bind ViewModel.Settings.ShowBoxCertificateCommand}"
+                                    Content="Show certificate"
+                                    Style="{StaticResource StudioButtonQuiet}" />
+                                <Button
+                                    AutomationProperties.Name="Pin this certificate"
+                                    Command="{x:Bind ViewModel.Settings.PinBoxCertificateCommand}"
+                                    Content="Pin this certificate"
+                                    Style="{StaticResource StudioButtonQuiet}" />
+                            </StackPanel>
                             <TextBlock Style="{StaticResource StudioOverline}" Text="Account" />
                             <StackPanel Spacing="4">
                                 <TextBlock Style="{StaticResource StudioOverline}" Text="Backend URL" />
@@ -2388,6 +2415,79 @@
                             Style="{StaticResource StudioMuted}"
                             Text="{x:Bind ViewModel.FirstRun.Body, Mode=OneWay}"
                             TextWrapping="Wrap" />
+
+                        <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.FirstRun.ChooseVis, Mode=OneWay}">
+                            <Button
+                                MinHeight="52"
+                                Padding="20,14"
+                                HorizontalAlignment="Stretch"
+                                AutomationProperties.Name="Run Heirloom on this PC"
+                                Command="{x:Bind ViewModel.FirstRun.ChooseThisPcCommand}"
+                                Content="Run Heirloom on this PC"
+                                FontSize="16"
+                                Style="{StaticResource StudioButtonPrimary}" />
+                            <Button
+                                MinHeight="52"
+                                Padding="20,14"
+                                HorizontalAlignment="Stretch"
+                                AutomationProperties.Name="Connect to my Twin Box"
+                                Command="{x:Bind ViewModel.FirstRun.ChooseBoxCommand}"
+                                Content="Connect to my Twin Box"
+                                FontSize="16"
+                                Style="{StaticResource StudioButtonSecondary}" />
+                            <Button
+                                HorizontalAlignment="Left"
+                                Command="{x:Bind ViewModel.FirstRun.SkipCommand}"
+                                Content="I'll look around first"
+                                Style="{StaticResource StudioButtonQuiet}" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.FirstRun.BoxVis, Mode=OneWay}">
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Box address" />
+                            <TextBox
+                                AutomationProperties.Name="Twin Box address"
+                                PlaceholderText="https://192.168.0.111"
+                                Text="{x:Bind ViewModel.FirstRun.BoxUrl, Mode=TwoWay}" />
+                            <Button
+                                HorizontalAlignment="Left"
+                                Command="{x:Bind ViewModel.FirstRun.CheckCertificateCommand}"
+                                Content="Show the certificate"
+                                Style="{StaticResource StudioButtonSecondary}" />
+                            <TextBlock
+                                Style="{StaticResource StudioMuted}"
+                                Text="{x:Bind ViewModel.FirstRun.BoxFingerprint, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                            <Button
+                                HorizontalAlignment="Left"
+                                AutomationProperties.Name="This is my box"
+                                Command="{x:Bind ViewModel.FirstRun.ConfirmCertificateCommand}"
+                                Content="This is my box"
+                                Style="{StaticResource StudioButtonPrimary}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Owner email" />
+                            <TextBox
+                                AutomationProperties.Name="Owner email"
+                                Text="{x:Bind ViewModel.FirstRun.BoxEmail, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Password" />
+                            <PasswordBox
+                                AutomationProperties.Name="Owner password"
+                                PasswordChanged="OnBoxPasswordChanged" />
+                            <Button
+                                MinHeight="44"
+                                HorizontalAlignment="Stretch"
+                                Command="{x:Bind ViewModel.FirstRun.ConnectBoxCommand}"
+                                Content="Connect"
+                                Style="{StaticResource StudioButtonPrimary}" />
+                            <Button
+                                HorizontalAlignment="Left"
+                                Command="{x:Bind ViewModel.FirstRun.ChooseThisPcCommand}"
+                                Content="Use this PC instead"
+                                Style="{StaticResource StudioButtonQuiet}" />
+                            <TextBlock
+                                Style="{StaticResource StudioMuted}"
+                                Text="{x:Bind ViewModel.FirstRun.Fault, Mode=OneWay}"
+                                TextWrapping="Wrap"
+                                Visibility="{x:Bind ViewModel.FirstRun.FaultVis, Mode=OneWay}" />
+                        </StackPanel>
 
                         <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.FirstRun.WelcomeVis, Mode=OneWay}">
                             <Button

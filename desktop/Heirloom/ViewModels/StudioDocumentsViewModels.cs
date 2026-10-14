@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Heirloom.BoxCore;
 using Heirloom.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -1618,6 +1619,9 @@ public partial class SettingsViewModel : ObservableObject
         _host = host;
         _applying = true;
         BackendUrl = host.Settings.Current.BackendUrl;
+        BoxUrl = string.IsNullOrWhiteSpace(host.Settings.Current.BoxUrl) ? BoxLink.DefaultBoxUrl : host.Settings.Current.BoxUrl;
+        ConnectToBox = BoxLink.IsBoxClient(host.Settings.Current.RunMode);
+        BoxCertLine = CertLine(host.Settings.Current.BoxCertSha256);
         Autostart = host.Settings.Current.Autostart;
         VrMode = host.Settings.Current.VrMode;
         VrGaze = host.Settings.Current.VrGaze;
@@ -1641,6 +1645,9 @@ public partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<ChromeChoice> DockEdges => ThemeService.DockEdges;
 
     [ObservableProperty] private string _backendUrl;
+    [ObservableProperty] private string _boxUrl;
+    [ObservableProperty] private bool _connectToBox;
+    [ObservableProperty] private string _boxCertLine = "Certificate not pinned yet.";
     [ObservableProperty] private string _libraryPath;
     [ObservableProperty] private bool _autostart;
     [ObservableProperty] private bool _vrMode;
@@ -1801,6 +1808,8 @@ public partial class SettingsViewModel : ObservableObject
     public void Save()
     {
         _host.Settings.Current.BackendUrl = BackendUrl.Trim();
+        _host.Settings.Current.RunMode = ConnectToBox ? BoxLink.Box : BoxLink.Local;
+        _host.Settings.Current.BoxUrl = BoxLink.Normalize(BoxUrl);
         _host.Settings.Current.Autostart = Autostart;
         if (_host.CanEdit)
         {
@@ -1823,6 +1832,12 @@ public partial class SettingsViewModel : ObservableObject
             _host.Settings.Save();
         }
 
+        if (BoxLink.StartsLocalModels(_host.Settings.Current.RunMode))
+        {
+            _ = _host.Whisper.EnsureAsync();
+            _ = _host.Ollama.ProbeAsync();
+        }
+
         if (!string.IsNullOrWhiteSpace(SessionToken))
         {
             _host.Auth.SetSessionToken(SessionToken);
@@ -1837,6 +1852,58 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     public event Action? Saved;
+
+    [RelayCommand]
+    public async Task ShowBoxCertificateAsync()
+    {
+        try
+        {
+            var offer = await BoxClient.OfferTrustAsync(BoxUrl).ConfigureAwait(true);
+            _pendingPin = offer.PinSha256;
+            _pendingPem = offer.CaPem;
+            BoxCertLine = "Fingerprint " + FormatFingerprint(offer.PinSha256) + ". Pin it if this is your box.";
+        }
+        catch (Exception ex)
+        {
+            _pendingPin = "";
+            _pendingPem = null;
+            BoxCertLine = "Could not read the box certificate. " + ex.Message;
+        }
+    }
+
+    [RelayCommand]
+    public void PinBoxCertificate()
+    {
+        if (string.IsNullOrWhiteSpace(_pendingPin))
+        {
+            BoxCertLine = "Show the certificate first.";
+            return;
+        }
+
+        _host.Settings.Current.BoxCertSha256 = _pendingPin;
+        _host.Settings.Current.BoxCaPem = _pendingPem ?? "";
+        _host.Settings.Current.BoxUrl = BoxLink.Normalize(BoxUrl);
+        _host.Settings.Save();
+        BoxCertLine = "Pinned " + FormatFingerprint(_pendingPin);
+    }
+
+    private string _pendingPin = "";
+    private string? _pendingPem;
+
+    private static string CertLine(string pin) =>
+        string.IsNullOrWhiteSpace(pin) ? "Certificate not pinned yet." : "Pinned " + FormatFingerprint(pin);
+
+    private static string FormatFingerprint(string hex)
+    {
+        var clean = CertificatePin.Normalize(hex);
+        var parts = new List<string>();
+        for (var i = 0; i < clean.Length; i += 2)
+        {
+            parts.Add(clean.Substring(i, Math.Min(2, clean.Length - i)));
+        }
+
+        return string.Join(" ", parts);
+    }
 
     [RelayCommand]
     public async Task BrowseVaultAsync()

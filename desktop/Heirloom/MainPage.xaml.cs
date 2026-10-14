@@ -76,6 +76,14 @@ public sealed partial class MainPage : Page
         KeyboardAccelerators.Add(accel);
     }
 
+    private void OnBoxPasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender is PasswordBox box)
+        {
+            ViewModel.FirstRun.BoxPassword = box.Password;
+        }
+    }
+
     private void SyncChrome()
     {
         Splash.Visibility = ViewModel.ShowSplash ? Visibility.Visible : Visibility.Collapsed;

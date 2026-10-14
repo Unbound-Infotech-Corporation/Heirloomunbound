@@ -1,0 +1,28 @@
+<Window
+    x:Class="Heirloom.Companion.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Heirloom Companion"
+    Width="460"
+    SizeToContent="Height"
+    ResizeMode="NoResize"
+    WindowStartupLocation="CenterScreen">
+    <StackPanel Margin="20" >
+        <TextBlock FontSize="18" Text="Twin Box" />
+        <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Text="The tray shows whether the box is answering. It never restarts the box or this PC." />
+        <TextBlock Margin="0,14,0,4" Text="Box address" />
+        <TextBox x:Name="Address" />
+        <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="Show the certificate" Click="OnShowCertificate" />
+        <TextBlock x:Name="Fingerprint" Margin="0,8,0,0" TextWrapping="Wrap" />
+        <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="This is my box" Click="OnPin" />
+        <TextBlock Margin="0,14,0,4" Text="Owner email" />
+        <TextBox x:Name="Email" />
+        <TextBlock Margin="0,8,0,4" Text="Password" />
+        <PasswordBox x:Name="Password" />
+        <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="Sign in" Click="OnSignIn" />
+        <CheckBox x:Name="StartAtLogin" Margin="0,14,0,0" Content="Start at login" />
+        <CheckBox x:Name="Toasts" Margin="0,8,0,0" Content="Tell me when the box drops or returns" />
+        <TextBlock x:Name="Status" Margin="0,12,0,0" TextWrapping="Wrap" />
+        <Button Margin="0,14,0,0" HorizontalAlignment="Left" Content="Save" Click="OnSave" IsDefault="True" />
+    </StackPanel>
+</Window>

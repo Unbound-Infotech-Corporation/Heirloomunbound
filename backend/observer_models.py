@@ -177,6 +177,29 @@ def keep_alive_payload(raw: str) -> int | str:
     return text
 
 
+def parse_vision_reply(content: str) -> dict | None:
+    """Parse an Ollama vision reply. qwen2.5vl wraps JSON in ```json fences."""
+    import json
+
+    text = (content or "").strip()
+    if not text:
+        return None
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return {"summary": text}
+        return parsed if isinstance(parsed, dict) else {"summary": text}
+    return {"summary": text}
+
+
 def vision_model_license(tag: str) -> str:
     name = (tag or "").strip().lower()
     if not name:

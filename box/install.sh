@@ -22,11 +22,14 @@ WITH_CHATTERBOX=0
 WITH_OBSERVER=0
 WITH_PRESENCE=0
 UNATTENDED=0
+NVME_POWER_FIX=0
+DATA_ROOT="${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}"
+LAN_IP=""
 export DEBIAN_FRONTEND=noninteractive
 
 usage() {
   cat <<'EOF'
-Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--presence]
+Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--presence] [--nvme-power-fix]
 
   --dry-run           print the plan and write the log; change nothing
   --unattended        answer package and license prompts automatically; exit 75 if a reboot is required before containers start
@@ -35,6 +38,7 @@ Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tail
   --with-chatterbox   optional MIT Chatterbox TTS container
   --observer          watch the HDMI capture card and learn notes on this lab box
   --presence          watch USB webcams and greet people the owner has taught
+  --nvme-power-fix    add nvme_core.default_ps_max_latency_us=0 to GRUB (Samsung 970 dropouts). Does not reboot.
 EOF
 }
 
@@ -78,6 +82,7 @@ parse_args() {
       --with-chatterbox) WITH_CHATTERBOX=1 ;;
       --observer) WITH_OBSERVER=1 ;;
       --presence) WITH_PRESENCE=1 ;;
+      --nvme-power-fix) NVME_POWER_FIX=1 ;;
       -h|--help) usage; exit 0 ;;
       *)
         printf 'Unknown flag: %s\n' "${arg}" >&2
@@ -373,29 +378,65 @@ configure_ufw() {
   ufw --force enable
 }
 
+ensure_owner_group() {
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    log "would ensure group heirloom owns ${DATA_ROOT}"
+    return 0
+  fi
+  if ! getent group heirloom >/dev/null 2>&1; then
+    groupadd --system heirloom
+  fi
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    usermod -aG heirloom "${SUDO_USER}" || true
+  fi
+}
+
 write_tree() {
-  log "Preparing /var/lib/heirloom and /etc/heirloom"
-  run install -d -m 0750 /var/lib/heirloom
-  run install -d -m 0750 /var/lib/heirloom/vault
-  run install -d -m 0750 /var/lib/heirloom/lab
-  run install -d -m 0750 /var/lib/heirloom/lab-reports
-  run install -d -m 0750 /var/lib/heirloom/backups
-  run install -d -m 0750 /var/lib/heirloom/mongo
-  run install -d -m 0750 /var/lib/heirloom/ollama
-  run install -d -m 0750 /var/lib/heirloom/caddy
-  run install -d -m 0750 /var/lib/heirloom/caddy-config
+  log "Preparing ${DATA_ROOT} and /etc/heirloom"
+  ensure_owner_group
+  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}"
+  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/vault"
+  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/lab"
+  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/lab-reports"
+  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/backups"
+  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/mongo"
+  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/ollama"
+  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/caddy"
+  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/caddy-config"
   if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
-    run install -d -m 0750 /var/lib/heirloom/observer
+    run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/observer"
   fi
   if [[ "${WITH_PRESENCE}" -eq 1 ]]; then
-    run install -d -m 0750 /var/lib/heirloom/presence
-    run install -d -m 0750 /var/lib/heirloom/presence/models
+    run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/presence"
+    run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/presence/models"
   fi
   run install -d -m 0755 /etc/heirloom
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    log "would write ${DATA_ROOT}/pause.json mode 0640 group heirloom"
+    return 0
+  fi
+  if [[ ! -s "${DATA_ROOT}/pause.json" ]]; then
+    printf '%s\n' '{"paused": false, "reason": ""}' > "${DATA_ROOT}/pause.json"
+  fi
+  chgrp heirloom "${DATA_ROOT}/pause.json" || true
+  chmod 0640 "${DATA_ROOT}/pause.json" || true
+  printf '%s\n' "${DATA_ROOT}" > /etc/heirloom/data-root
+}
+
+detect_lan_ip() {
+  hostname -I 2>/dev/null | awk '{print $1}' || true
+}
+
+gpu_name() {
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    printf '%s\n' ""
+    return 0
+  fi
+  nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true
 }
 
 write_env() {
-  local env_file="/var/lib/heirloom/box.env"
+  local env_file="${DATA_ROOT}/box.env"
   local model="$1"
   local observer_model="$2"
   local vram="$3"
@@ -404,7 +445,7 @@ write_env() {
   local secret=""
   log "Writing ${env_file} (local connector key only; no GitHub or vendor tokens)"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    log "would set HEIRLOOM_LLM_PROVIDER=ollama OLLAMA_TWIN_MODEL=${model} HEIRLOOM_LAB_MODE=1"
+    log "would set HEIRLOOM_DATA_ROOT=${DATA_ROOT} HEIRLOOM_LAN_IP=${LAN_IP:-127.0.0.1} HEIRLOOM_LLM_PROVIDER=ollama OLLAMA_TWIN_MODEL=${model} HEIRLOOM_LAB_MODE=1"
     if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
       log "would set HEIRLOOM_OBSERVER=1 OLLAMA_OBSERVER_MODEL=${observer_model:-ocr} OBSERVER_VRAM_MIB=${vram} OLLAMA_MAX_LOADED_MODELS=${max_loaded} OBSERVER_VISION_KEEP_ALIVE=${vision_keep} OBSERVER_RAM_BUDGET_BYTES=67108864 OBSERVER_CLIPS=0"
     fi
@@ -415,20 +456,25 @@ write_env() {
     return 0
   fi
   touch "${env_file}"
-  chmod 600 "${env_file}"
+  chmod 0640 "${env_file}"
+  chgrp heirloom "${env_file}" || true
   upsert_env MONGO_URL "mongodb://mongo:27017" "${env_file}"
   upsert_env DB_NAME "heirloom" "${env_file}"
   upsert_env HEIRLOOM_BOX "1" "${env_file}"
+  upsert_env HEIRLOOM_DATA_ROOT "${DATA_ROOT}" "${env_file}"
+  upsert_env HEIRLOOM_LAN_IP "${LAN_IP}" "${env_file}"
+  upsert_env HEIRLOOM_PAUSE_FILE "${DATA_ROOT}/pause.json" "${env_file}"
+  upsert_env HEIRLOOM_CADDY_ROOT "${DATA_ROOT}/caddy/caddy/pki/authorities/local/root.crt" "${env_file}"
   upsert_env HEIRLOOM_LLM_PROVIDER "ollama" "${env_file}"
   upsert_env OLLAMA_BASE_URL "http://ollama:11434" "${env_file}"
   upsert_env OLLAMA_TWIN_MODEL "${model}" "${env_file}"
   upsert_env HEIRLOOM_LAB_MODE "1" "${env_file}"
-  upsert_env HEIRLOOM_LAB_DIR "/var/lib/heirloom/lab" "${env_file}"
-  upsert_env HEIRLOOM_LAB_REPORT_DIR "/var/lib/heirloom/lab-reports" "${env_file}"
+  upsert_env HEIRLOOM_LAB_DIR "${DATA_ROOT}/lab" "${env_file}"
+  upsert_env HEIRLOOM_LAB_REPORT_DIR "${DATA_ROOT}/lab-reports" "${env_file}"
   upsert_env HEIRLOOM_AI_DISCLOSURE "1" "${env_file}"
   if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
     upsert_env HEIRLOOM_OBSERVER "1" "${env_file}"
-    upsert_env HEIRLOOM_OBSERVER_DIR "/var/lib/heirloom/observer" "${env_file}"
+    upsert_env HEIRLOOM_OBSERVER_DIR "${DATA_ROOT}/observer" "${env_file}"
     upsert_env OLLAMA_OBSERVER_MODEL "${observer_model}" "${env_file}"
     upsert_env OBSERVER_OLLAMA_URL "http://127.0.0.1:11434" "${env_file}"
     upsert_env OBSERVER_SAMPLE_FPS "2" "${env_file}"
@@ -452,7 +498,7 @@ write_env() {
       speak="1"
     fi
     upsert_env HEIRLOOM_PRESENCE "1" "${env_file}"
-    upsert_env HEIRLOOM_PRESENCE_DIR "/var/lib/heirloom/presence" "${env_file}"
+    upsert_env HEIRLOOM_PRESENCE_DIR "${DATA_ROOT}/presence" "${env_file}"
     upsert_env PRESENCE_FPS "3" "${env_file}"
     upsert_env PRESENCE_VRAM_BUDGET_MIB "512" "${env_file}"
     upsert_env PRESENCE_THRESHOLD "0.36" "${env_file}"
@@ -465,15 +511,23 @@ write_env() {
     secret="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
     upsert_env CONNECTOR_SECRET_KEY "${secret}" "${env_file}"
   fi
-  chmod 600 "${env_file}"
+  local gpu
+  gpu="$(gpu_name)"
+  if [[ -n "${gpu}" ]]; then
+    upsert_env HEIRLOOM_GPU_NAME "${gpu}" "${env_file}"
+  fi
+  chmod 0640 "${env_file}"
+  chgrp heirloom "${env_file}" || true
 }
 
 write_compose_args() {
   local file="/etc/heirloom/compose.args"
   log "Recording compose files in ${file}"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
+    log "would pass HEIRLOOM_LAN_IP=${LAN_IP} to the web container only"
     return 0
   fi
+  install -d -m 0755 /etc/heirloom
   {
     printf '%s\n' "-f"
     printf '%s\n' "${ROOT}/box/docker-compose.yml"
@@ -481,13 +535,36 @@ write_compose_args() {
       printf '%s\n' "-f"
       printf '%s\n' "${ROOT}/box/docker-compose.gpu.yml"
     fi
+    if [[ -n "${LAN_IP}" && "${LAN_IP}" != "127.0.0.1" ]]; then
+      printf '%s\n' "-f"
+      printf '%s\n' "${ROOT}/box/docker-compose.lan.yml"
+    fi
     if [[ "${WITH_CHATTERBOX}" -eq 1 ]]; then
       printf '%s\n' "--profile"
       printf '%s\n' "chatterbox"
     fi
   } > "${file}"
+  {
+    printf 'HEIRLOOM_DATA_ROOT=%s\n' "${DATA_ROOT}"
+    printf 'HEIRLOOM_LAN_IP=%s\n' "${LAN_IP}"
+  } > /etc/heirloom/compose.env
+  chmod 644 /etc/heirloom/compose.env
   printf '%s\n' "${ROOT}" > /etc/heirloom/root
+  printf '%s\n' "${DATA_ROOT}" > /etc/heirloom/data-root
+  install -d -m 0755 /usr/local/lib/heirloom
+  install -m 0644 "${ROOT}/box/lib/box-env.sh" /usr/local/lib/heirloom/box-env.sh
   install -m 0755 "${ROOT}/box/heirloom-box" /usr/local/bin/heirloom-box
+}
+
+install_unit() {
+  local src="$1"
+  local dest="$2"
+  if [[ "${DATA_ROOT}" == "/var/lib/heirloom" ]]; then
+    install -m 0644 "${src}" "${dest}"
+    return 0
+  fi
+  sed "s#/var/lib/heirloom#${DATA_ROOT}#g" "${src}" > "${dest}"
+  chmod 0644 "${dest}"
 }
 
 write_cron() {
@@ -526,7 +603,7 @@ install_observer() {
     return 0
   fi
   install -m 0755 "${ROOT}/box/observer/heirloom-observer" /usr/local/bin/heirloom-observer
-  install -m 0644 "${ROOT}/box/observer/heirloom-observer.service" /etc/systemd/system/heirloom-observer.service
+  install_unit "${ROOT}/box/observer/heirloom-observer.service" /etc/systemd/system/heirloom-observer.service
   install -d -m 0755 /etc/udev/rules.d
   install -m 0644 "${ROOT}/box/observer/99-heirloom-observer.rules" /etc/udev/rules.d/99-heirloom-observer.rules
   install -d -m 0755 /etc/heirloom
@@ -560,19 +637,19 @@ install_presence() {
     log "would touch /etc/heirloom/presence.enabled and systemctl enable --now heirloom-presence.service"
     return 0
   fi
-  install -d -m 0750 /var/lib/heirloom/presence/models
+  install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/presence/models"
   download_presence_model \
     "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" \
-    /var/lib/heirloom/presence/models/face_detection_yunet_2023mar.onnx \
+    "${DATA_ROOT}/presence/models/face_detection_yunet_2023mar.onnx" \
     "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/LICENSE" \
-    /var/lib/heirloom/presence/models/face_detection_yunet.LICENSE
+    "${DATA_ROOT}/presence/models/face_detection_yunet.LICENSE"
   download_presence_model \
     "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx" \
-    /var/lib/heirloom/presence/models/face_recognition_sface_2021dec.onnx \
+    "${DATA_ROOT}/presence/models/face_recognition_sface_2021dec.onnx" \
     "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/LICENSE" \
-    /var/lib/heirloom/presence/models/face_recognition_sface.LICENSE
+    "${DATA_ROOT}/presence/models/face_recognition_sface.LICENSE"
   install -m 0755 "${ROOT}/box/presence/heirloom-presence" /usr/local/bin/heirloom-presence
-  install -m 0644 "${ROOT}/box/presence/heirloom-presence.service" /etc/systemd/system/heirloom-presence.service
+  install_unit "${ROOT}/box/presence/heirloom-presence.service" /etc/systemd/system/heirloom-presence.service
   install -d -m 0755 /etc/udev/rules.d
   install -m 0644 "${ROOT}/box/presence/99-heirloom-presence.rules" /etc/udev/rules.d/99-heirloom-presence.rules
   install -d -m 0755 /etc/heirloom
@@ -617,9 +694,17 @@ start_stack() {
   local model="$1"
   local observer_model="$2"
   local -a args=()
+  export HEIRLOOM_DATA_ROOT="${DATA_ROOT}"
+  export HEIRLOOM_LAN_IP="${LAN_IP}"
+  if [[ -r /etc/heirloom/compose.env ]]; then
+    args+=(--env-file /etc/heirloom/compose.env)
+  fi
   args+=(-f "${ROOT}/box/docker-compose.yml")
   if [[ "${USE_GPU}" -eq 1 ]]; then
     args+=(-f "${ROOT}/box/docker-compose.gpu.yml")
+  fi
+  if [[ -n "${LAN_IP}" && "${LAN_IP}" != "127.0.0.1" ]]; then
+    args+=(-f "${ROOT}/box/docker-compose.lan.yml")
   fi
   if [[ "${WITH_CHATTERBOX}" -eq 1 ]]; then
     args+=(--profile chatterbox)
@@ -643,12 +728,45 @@ start_stack() {
   fi
 }
 
+apply_nvme_power_fix() {
+  local grub="/etc/default/grub"
+  local needle="nvme_core.default_ps_max_latency_us=0"
+  if [[ "${NVME_POWER_FIX}" -eq 0 ]]; then
+    return 0
+  fi
+  log "NVMe power fix requested for Samsung 970-series dropouts (${needle})"
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    log "would back up ${grub} and add ${needle}. This installer does not reboot."
+    return 0
+  fi
+  if [[ ! -f "${grub}" ]]; then
+    log "GRUB defaults were not found at ${grub}. The NVMe power fix was skipped."
+    return 0
+  fi
+  if grep -q "${needle}" "${grub}"; then
+    log "NVMe power fix is already in ${grub}"
+    return 0
+  fi
+  cp -a "${grub}" "${grub}.heirloom-bak"
+  if grep -q '^GRUB_CMDLINE_LINUX_DEFAULT="' "${grub}"; then
+    sed -i "s/^GRUB_CMDLINE_LINUX_DEFAULT=\"/GRUB_CMDLINE_LINUX_DEFAULT=\"${needle} /" "${grub}"
+  elif grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' "${grub}"; then
+    printf '\n%s\n' "GRUB_CMDLINE_LINUX=\"${needle}\"" >> "${grub}"
+  else
+    printf 'GRUB_CMDLINE_LINUX_DEFAULT="%s"\n' "${needle}" >> "${grub}"
+  fi
+  if command -v update-grub >/dev/null 2>&1; then
+    update-grub || log "update-grub did not finish. The backup is ${grub}.heirloom-bak"
+  fi
+  log "NVMe power fix is in GRUB. Reboot when you are ready. This installer will not reboot the machine."
+}
+
 print_next() {
-  local ip=""
-  ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  local ip="${LAN_IP}"
   log "Install plan finished (dry-run=${DRY_RUN})."
   log "From another PC on the LAN: https://${ip:-this-machine}/"
-  log "Trust Caddy's local CA after the first real start: /var/lib/heirloom/caddy/caddy/pki/authorities/local/root.crt"
+  log "Trust Caddy's local CA after the first real start: ${DATA_ROOT}/caddy/caddy/pki/authorities/local/root.crt"
+  log "Owner sign-in, once: sudo heirloom-box set-owner you@example.com"
   log "Status: heirloom-box status"
   if [[ "${DEV_TOOLS}" -eq 1 ]]; then
     log "Dev tools are on this machine. Sign in yourself. The installer did not save tokens."
@@ -678,6 +796,18 @@ main() {
   NEED_REBOOT=0
   USE_GPU=0
   parse_args "$@"
+  DATA_ROOT="${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}"
+  case "${DATA_ROOT}" in
+    /*) ;;
+    *)
+      printf 'HEIRLOOM_DATA_ROOT must be an absolute path\n' >&2
+      exit 2
+      ;;
+  esac
+  LAN_IP="$(detect_lan_ip | tr -d '[:space:]')"
+  if [[ -z "${LAN_IP}" ]]; then
+    LAN_IP="127.0.0.1"
+  fi
   prepare_log
   if [[ "${WITH_OBSERVER}" -eq 0 && -f /etc/heirloom/observer.enabled ]]; then
     WITH_OBSERVER=1
@@ -691,7 +821,7 @@ main() {
     printf 'Re-run as root: sudo bash box/install.sh\n' >&2
     exit 1
   fi
-  log "Heirloom Twin Box installer root=${ROOT} dry_run=${DRY_RUN} unattended=${UNATTENDED} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} presence=${WITH_PRESENCE}"
+  log "Heirloom Twin Box installer root=${ROOT} data=${DATA_ROOT} lan=${LAN_IP} dry_run=${DRY_RUN} unattended=${UNATTENDED} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} presence=${WITH_PRESENCE} nvme_power_fix=${NVME_POWER_FIX}"
   apply_unattended
   require_ubuntu
   mib="$(vram_mib)"
@@ -719,6 +849,7 @@ main() {
   install_dev_tools
   harden_ssh
   configure_ufw
+  apply_nvme_power_fix
   write_tree
   write_env "${model}" "${observer_model}" "${mib}" "${max_loaded}" "${vision_keep}"
   write_compose_args

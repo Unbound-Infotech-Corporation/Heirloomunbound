@@ -1,0 +1,181 @@
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Windows;
+using System.Windows.Controls;
+using H.NotifyIcon;
+using Heirloom.BoxCore;
+
+namespace Heirloom.Companion;
+
+internal sealed class TrayController : IDisposable
+{
+    private readonly CompanionStore _store = new();
+    private readonly CancellationTokenSource _stop = new();
+    private readonly TaskbarIcon _icon = new();
+    private BoxSnapshot _snapshot = TrayStatus.Describe(false, null, BoxLink.DefaultBoxUrl, null);
+    private bool? _wasReachable;
+    private TimeSpan _delay = PollSchedule.Healthy;
+    private Icon? _current;
+
+    public void Start()
+    {
+        ApplyAutostart(_store.Autostart);
+        _icon.ToolTipText = "Heirloom Twin Box";
+        Paint(BoxLamp.Red);
+        RebuildMenu();
+        _icon.ForceCreate();
+        _ = PollAsync(_stop.Token);
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var url = _store.BoxUrl;
+            var probe = await BoxClient.HealthAsync(url, _store.Pin, _store.CaPem, cancellationToken).ConfigureAwait(true);
+            var next = TrayStatus.Describe(probe.Reachable, probe.LatencyMs, url, probe.Body);
+            var healthy = next.Lamp != BoxLamp.Red;
+            _delay = PollSchedule.Next(_delay, healthy);
+            MaybeToast(next);
+            _snapshot = next;
+            _wasReachable = next.Reachable;
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                _icon.ToolTipText = next.Tooltip;
+                Paint(next.Lamp);
+                RebuildMenu();
+            });
+            try
+            {
+                await Task.Delay(_delay, cancellationToken).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private void MaybeToast(BoxSnapshot next)
+    {
+        if (!_store.Toasts || _wasReachable is null || _wasReachable == next.Reachable)
+        {
+            return;
+        }
+
+        var title = next.Reachable ? "Twin Box is back" : "Twin Box is offline";
+        var body = next.Reachable ? "Observer status is updating again." : "The box did not answer.";
+        Application.Current.Dispatcher.Invoke(() => _icon.ShowNotification(title, body));
+    }
+
+    private void Paint(BoxLamp lamp)
+    {
+        var next = LampIcon.Create(lamp);
+        _icon.Icon = next;
+        _current?.Dispose();
+        _current = next;
+    }
+
+    private void RebuildMenu()
+    {
+        var menu = new ContextMenu();
+        foreach (var line in _snapshot.Tooltip.Split('\n'))
+        {
+            menu.Items.Add(new MenuItem { Header = line, IsEnabled = false });
+        }
+
+        menu.Items.Add(new Separator());
+        var pause = new MenuItem { Header = TrayStatus.PauseVerb(_snapshot.ObserverPaused) };
+        pause.IsEnabled = _snapshot.Reachable && !string.IsNullOrWhiteSpace(_store.Session());
+        pause.Click += async (_, _) => await TogglePauseAsync().ConfigureAwait(true);
+        menu.Items.Add(pause);
+        if (string.IsNullOrWhiteSpace(_store.Session()))
+        {
+            menu.Items.Add(new MenuItem { Header = "Sign in to pause Observer", IsEnabled = false });
+        }
+
+        var open = new MenuItem { Header = "Open Twin" };
+        open.Click += (_, _) => OpenTwin();
+        menu.Items.Add(open);
+        var settings = new MenuItem { Header = "Settings" };
+        settings.Click += (_, _) => new SettingsWindow(_store).Show();
+        menu.Items.Add(settings);
+        var quit = new MenuItem { Header = "Quit" };
+        quit.Click += (_, _) => Application.Current.Shutdown();
+        menu.Items.Add(quit);
+        _icon.ContextMenu = menu;
+    }
+
+    private async Task TogglePauseAsync()
+    {
+        var token = _store.Session();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        var pause = !_snapshot.ObserverPaused;
+        await BoxClient.SetObserverPausedAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, pause).ConfigureAwait(true);
+    }
+
+    private void OpenTwin()
+    {
+        var studio = ResolveStudio();
+        if (studio is not null)
+        {
+            Process.Start(new ProcessStartInfo(studio) { UseShellExecute = true });
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo(BoxLink.WebHome(_store.BoxUrl)) { UseShellExecute = true });
+    }
+
+    private static string? ResolveStudio()
+    {
+        var beside = Path.Combine(AppContext.BaseDirectory, "Heirloom.exe");
+        if (File.Exists(beside))
+        {
+            return beside;
+        }
+
+        var sibling = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Heirloom", "Heirloom.exe"));
+        return File.Exists(sibling) ? sibling : null;
+    }
+
+    internal static void ApplyAutostart(bool enabled)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        const string name = "Heirloom Companion";
+        using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+            @"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
+        if (key is null)
+        {
+            return;
+        }
+
+        if (!enabled)
+        {
+            key.DeleteValue(name, throwOnMissingValue: false);
+            return;
+        }
+
+        var exe = Environment.ProcessPath;
+        if (!string.IsNullOrWhiteSpace(exe))
+        {
+            key.SetValue(name, "\"" + exe + "\"");
+        }
+    }
+
+    public void Dispose()
+    {
+        _stop.Cancel();
+        _current?.Dispose();
+        _icon.Dispose();
+        _stop.Dispose();
+    }
+}

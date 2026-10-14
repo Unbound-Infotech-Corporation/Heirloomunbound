@@ -1,0 +1,13 @@
+/workspace/desktop/Heirloom.BoxCore/bin/Debug/net8.0/Heirloom.BoxCore.deps.json
+/workspace/desktop/Heirloom.BoxCore/bin/Debug/net8.0/Heirloom.BoxCore.dll
+/workspace/desktop/Heirloom.BoxCore/bin/Debug/net8.0/Heirloom.BoxCore.pdb
+/workspace/desktop/Heirloom.BoxCore/obj/Debug/net8.0/Heirloom.BoxCore.csproj.AssemblyReference.cache
+/workspace/desktop/Heirloom.BoxCore/obj/Debug/net8.0/Heirloom.BoxCore.GeneratedMSBuildEditorConfig.editorconfig
+/workspace/desktop/Heirloom.BoxCore/obj/Debug/net8.0/Heirloom.BoxCore.AssemblyInfoInputs.cache
+/workspace/desktop/Heirloom.BoxCore/obj/Debug/net8.0/Heirloom.BoxCore.AssemblyInfo.cs
+/workspace/desktop/Heirloom.BoxCore/obj/Debug/net8.0/Heirloom.BoxCore.csproj.CoreCompileInputs.cache
+/workspace/desktop/Heirloom.BoxCore/obj/Debug/net8.0/Heirloom.BoxCore.sourcelink.json
+/workspace/desktop/Heirloom.BoxCore/obj/Debug/net8.0/Heirloom.BoxCore.dll
+/workspace/desktop/Heirloom.BoxCore/obj/Debug/net8.0/refint/Heirloom.BoxCore.dll
+/workspace/desktop/Heirloom.BoxCore/obj/Debug/net8.0/Heirloom.BoxCore.pdb
+/workspace/desktop/Heirloom.BoxCore/obj/Debug/net8.0/ref/Heirloom.BoxCore.dll

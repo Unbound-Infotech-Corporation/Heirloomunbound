@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "+OMEIGHEocM=",
+  "success": true,
+  "projectFilePath": "/workspace/desktop/Heirloom.BoxCore/Heirloom.BoxCore.csproj",
+  "expectedPackageFiles": [
+    "/home/ubuntu/.nuget/packages/system.security.cryptography.protecteddata/8.0.0/system.security.cryptography.protecteddata.8.0.0.nupkg.sha512",
+    "/home/ubuntu/.nuget/packages/microsoft.windowsdesktop.app.ref/8.0.32/microsoft.windowsdesktop.app.ref.8.0.32.nupkg.sha512"
+  ],
+  "logs": []
+}

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Heirloom.BoxCore;
 using Heirloom.Services;
 using Microsoft.UI.Xaml;
 
@@ -851,6 +852,11 @@ Confirm is required for buying, paying, deleting, or typing a password.
 """;
         var prompt = "OWNER ASKED:\n" + user + "\n\nALREADY DONE:\n" +
                      (observations.Count == 0 ? "(nothing yet)" : string.Join("\n", observations));
+        if (!BoxLink.StartsLocalModels(_host.Settings.Current.RunMode))
+        {
+            return null;
+        }
+
         await _host.Ollama.ProbeAsync(cancellationToken).ConfigureAwait(true);
         var model = _host.Ollama.ChatModel;
         if (_host.Ollama.IsReachable && !string.IsNullOrWhiteSpace(model))
@@ -877,6 +883,16 @@ Confirm is required for buying, paying, deleting, or typing a password.
 
     private async Task CloudFallbackAsync(string text, List<string> observations, CancellationToken cancellationToken)
     {
+        if (!BoxLink.AssistCloudFallback(_host.Settings.Current.RunMode))
+        {
+            var localReply = SilenceCopy(observations);
+            ClearNow();
+            Lines.Add(new ChatLine("assist", localReply));
+            Status = "Assist stays on this PC.";
+            await MaybeSpeakAsync(localReply).ConfigureAwait(true);
+            return;
+        }
+
         var payload = text;
         if (observations.Count > 0)
         {

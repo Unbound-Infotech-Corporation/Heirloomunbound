@@ -36,8 +36,12 @@ def observer_enabled(raw: Optional[str] = None) -> bool:
 
 def observer_dir(raw: Optional[str] = None) -> Path:
     if raw is None:
-        raw = os.environ.get("HEIRLOOM_OBSERVER_DIR", DEFAULT_DIR)
-    text = (raw or "").strip() or DEFAULT_DIR
+        raw = os.environ.get("HEIRLOOM_OBSERVER_DIR", "")
+    text = (raw or "").strip()
+    if not text:
+        from box_pause import data_root
+
+        text = str(data_root() / "observer")
     return Path(text)
 
 

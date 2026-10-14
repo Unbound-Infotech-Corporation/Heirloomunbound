@@ -10,22 +10,30 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
+
+def data_root() -> Path:
+    raw = (os.environ.get("HEIRLOOM_DATA_ROOT") or "/var/lib/heirloom").strip()
+    return Path(raw or "/var/lib/heirloom")
+
+
 DEFAULT_PATH = "/var/lib/heirloom/pause.json"
 _MANUAL = frozenset({"cli", "web", "hotkey"})
 
 
 def pause_path(raw: Optional[str] = None) -> Path:
     if raw is None:
-        raw = os.environ.get("HEIRLOOM_PAUSE_FILE", DEFAULT_PATH)
-    text = (raw or "").strip() or DEFAULT_PATH
+        raw = os.environ.get("HEIRLOOM_PAUSE_FILE", "")
+    text = (raw or "").strip()
+    if not text:
+        text = str(data_root() / "pause.json")
     return Path(text)
 
 
 def read_pause(path: Optional[Path] = None) -> dict:
     file = path or pause_path()
-    if not file.is_file():
-        return {"paused": False, "reason": ""}
     try:
+        if not file.is_file():
+            return {"paused": False, "reason": ""}
         loaded = json.loads(file.read_text(encoding="utf-8") or "null")
     except (OSError, json.JSONDecodeError):
         return {"paused": False, "reason": ""}
@@ -43,6 +51,10 @@ def write_pause(paused: bool, reason: str, path: Optional[Path] = None) -> dict:
     tmp = file.with_suffix(file.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
     tmp.replace(file)
+    try:
+        os.chmod(file, 0o640)
+    except OSError:
+        pass
     return payload
 
 

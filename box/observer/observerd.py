@@ -36,6 +36,7 @@ from observer_capture import (  # noqa: E402
 from observer_models import (  # noqa: E402
     keep_alive_payload,
     observer_pair_for_vram_mib,
+    parse_vision_reply,
     residency_for,
     same_model,
 )
@@ -222,13 +223,7 @@ def ollama_see(image: Path, model: str) -> dict | None:
     except (OSError, ValueError):
         return None
     content = ((body.get("message") or {}).get("content") or "").strip()
-    if content.startswith("{") and content.endswith("}"):
-        try:
-            parsed = json.loads(content)
-        except ValueError:
-            return {"summary": content}
-        return parsed if isinstance(parsed, dict) else {"summary": content}
-    return {"summary": content} if content else None
+    return parse_vision_reply(content)
 
 
 def keep_highlight(store: ObserverStore, device: str, ram: Path, seconds: float) -> None:

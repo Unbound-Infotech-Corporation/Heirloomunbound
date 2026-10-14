@@ -1,3 +1,6 @@
+using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
+using Heirloom.BoxCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Heirloom.Services;
@@ -42,6 +45,41 @@ public sealed class AppHost : IDisposable
         services.AddHttpClient<HeirloomApiClient>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(60);
+        }).ConfigurePrimaryHttpMessageHandler(() =>
+        {
+            var handler = new HttpClientHandler();
+            handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
+            {
+                var current = Settings.Current;
+                var boxHost = "";
+                try
+                {
+                    boxHost = new Uri(BoxLink.ApiBase(current.RunMode, current.BoxUrl, current.BackendUrl)).Host;
+                }
+                catch (UriFormatException)
+                {
+                    boxHost = "";
+                }
+
+                X509Certificate2? leaf = cert is null ? null : new X509Certificate2(cert);
+                try
+                {
+                    return CertificatePin.Validate(
+                        BoxLink.IsBoxClient(current.RunMode),
+                        boxHost,
+                        current.BoxCertSha256,
+                        current.BoxCaPem,
+                        message.RequestUri?.Host,
+                        leaf,
+                        chain,
+                        errors);
+                }
+                finally
+                {
+                    leaf?.Dispose();
+                }
+            };
+            return handler;
         });
         services.AddSingleton<OllamaService>();
         services.AddSingleton<MixerSessionService>();
@@ -95,9 +133,15 @@ public sealed class AppHost : IDisposable
         Mixer.Start();
         Vault.Open();
         AutostartService.Apply(Settings.Current.Autostart);
+        Auth.LoadBoxSession();
         Poller.Start();
-        _ = Whisper.EnsureAsync();
-        _ = Ollama.ProbeAsync();
+        var pending = !Settings.Current.SetupComplete && !Settings.Current.SetupSkipped;
+        if (BoxLink.StartsLocalModels(Settings.Current.RunMode) && !pending)
+        {
+            _ = Whisper.EnsureAsync();
+            _ = Ollama.ProbeAsync();
+        }
+
         await Task.CompletedTask;
     }
 

@@ -6,7 +6,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# emergentintegrations==0.2.0 is not on PyPI. The extra index is the Emergent package host.
+RUN pip install --no-cache-dir --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ -r /app/requirements.txt
 COPY backend/ /app/
 
 EXPOSE 8001

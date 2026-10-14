@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "dgSpecHash": "7ncda2LnkNM=",
+  "success": true,
+  "projectFilePath": "/workspace/desktop/Heirloom.Companion/Heirloom.Companion.csproj",
+  "expectedPackageFiles": [
+    "/home/ubuntu/.nuget/packages/h.generatedicons.system.drawing/2.3.0/h.generatedicons.system.drawing.2.3.0.nupkg.sha512",
+    "/home/ubuntu/.nuget/packages/h.notifyicon/2.3.0/h.notifyicon.2.3.0.nupkg.sha512",
+    "/home/ubuntu/.nuget/packages/h.notifyicon.wpf/2.3.0/h.notifyicon.wpf.2.3.0.nupkg.sha512",
+    "/home/ubuntu/.nuget/packages/microsoft.win32.systemevents/9.0.1/microsoft.win32.systemevents.9.0.1.nupkg.sha512",
+    "/home/ubuntu/.nuget/packages/system.drawing.common/9.0.1/system.drawing.common.9.0.1.nupkg.sha512",
+    "/home/ubuntu/.nuget/packages/system.security.cryptography.protecteddata/8.0.0/system.security.cryptography.protecteddata.8.0.0.nupkg.sha512",
+    "/home/ubuntu/.nuget/packages/microsoft.windowsdesktop.app.ref/8.0.32/microsoft.windowsdesktop.app.ref.8.0.32.nupkg.sha512"
+  ],
+  "logs": []
+}

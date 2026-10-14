@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Heirloom.BoxCore;
 using Heirloom.Services;
 using Microsoft.UI.Xaml;
 
@@ -14,7 +15,10 @@ public partial class FirstRunViewModel : ObservableObject
     {
         _host = host;
         LibraryPath = host.Settings.Current.LibraryPath;
-        ResetToWelcome();
+        BoxUrl = string.IsNullOrWhiteSpace(host.Settings.Current.BoxUrl)
+            ? BoxLink.DefaultBoxUrl
+            : host.Settings.Current.BoxUrl;
+        ResetToChoose();
     }
 
     public event EventHandler<string>? RequestClose;
@@ -36,7 +40,14 @@ public partial class FirstRunViewModel : ObservableObject
     [ObservableProperty] private string _mindDetail = "So your Twin can answer as you";
     [ObservableProperty] private string _pictureState = "Waiting";
     [ObservableProperty] private string _pictureDetail = "A moving likeness, if this computer can do it";
-    [ObservableProperty] private Visibility _welcomeVis = Visibility.Visible;
+    [ObservableProperty] private string _boxUrl = BoxLink.DefaultBoxUrl;
+    [ObservableProperty] private string _boxEmail = "";
+    [ObservableProperty] private string _boxPassword = "";
+    [ObservableProperty] private string _boxFingerprint = "";
+    [ObservableProperty] private bool _boxPinned;
+    [ObservableProperty] private Visibility _chooseVis = Visibility.Visible;
+    [ObservableProperty] private Visibility _boxVis = Visibility.Collapsed;
+    [ObservableProperty] private Visibility _welcomeVis = Visibility.Collapsed;
     [ObservableProperty] private Visibility _workingVis = Visibility.Collapsed;
     [ObservableProperty] private Visibility _doneVis = Visibility.Collapsed;
     [ObservableProperty] private Visibility _faultVis = Visibility.Collapsed;
@@ -67,6 +78,21 @@ public partial class FirstRunViewModel : ObservableObject
         RetryCommand.NotifyCanExecuteChanged();
     }
 
+    public void ResetToChoose()
+    {
+        try { _work?.Cancel(); } catch { /* disposed */ }
+        Phase = "choose";
+        Title = "Where should Heirloom run?";
+        Body = "Run Heirloom on this PC, or connect to the Twin Box on your network. Assist on this computer stays here either way. A headset stays off until you turn Room VR on in Settings.";
+        Fault = "";
+        IsBusy = false;
+        BoxPinned = false;
+        BoxFingerprint = "";
+        _pendingPin = "";
+        _pendingPem = null;
+        NotifyChrome();
+    }
+
     public void ResetToWelcome()
     {
         try { _work?.Cancel(); } catch { /* disposed */ }
@@ -93,6 +119,8 @@ public partial class FirstRunViewModel : ObservableObject
             return;
         }
 
+        _host.Settings.Current.RunMode = BoxLink.Local;
+        _host.Settings.Save();
         IsBusy = true;
         Fault = "";
         Phase = "working";
@@ -133,6 +161,8 @@ public partial class FirstRunViewModel : ObservableObject
             _host.Settings.Current.SetupComplete = report.VaultOk;
             _host.Settings.Current.SetupSkipped = false;
             _host.Settings.Save();
+            _ = _host.Whisper.EnsureAsync();
+            _ = _host.Ollama.ProbeAsync();
             Title = report.Headline;
             Body = report.Body;
             Summary = CountReady();
@@ -164,6 +194,127 @@ public partial class FirstRunViewModel : ObservableObject
         try { _work?.Cancel(); } catch { /* disposed */ }
     }
 
+    [RelayCommand]
+    public void ChooseThisPc()
+    {
+        _host.Settings.Current.RunMode = BoxLink.Local;
+        _host.Settings.Save();
+        Phase = "welcome";
+        Title = "Let's get your Twin ready";
+        Body = WelcomeBody;
+        Fault = "";
+        NotifyChrome();
+    }
+
+    [RelayCommand]
+    public void ChooseBox()
+    {
+        Phase = "box";
+        Title = "Connect to my Twin Box";
+        Body = "Type the address printed for the box. Heirloom will show the certificate fingerprint. Pin it only if it matches the box. Then sign in with the owner email and password. This PC will not download models.";
+        Fault = "";
+        BoxPinned = false;
+        BoxFingerprint = "";
+        NotifyChrome();
+    }
+
+    [RelayCommand]
+    public async Task CheckCertificateAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        Fault = "";
+        BoxPinned = false;
+        try
+        {
+            var offer = await BoxClient.OfferTrustAsync(BoxUrl).ConfigureAwait(true);
+            _pendingPin = offer.PinSha256;
+            _pendingPem = offer.CaPem;
+            BoxFingerprint = FormatFingerprint(offer.PinSha256);
+            Title = "Does this fingerprint match your box?";
+        }
+        catch (Exception ex)
+        {
+            _pendingPin = "";
+            _pendingPem = null;
+            BoxFingerprint = "";
+            Fault = "Could not read the box certificate. " + ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+            NotifyChrome();
+        }
+    }
+
+    [RelayCommand]
+    public void ConfirmCertificate()
+    {
+        if (string.IsNullOrWhiteSpace(_pendingPin))
+        {
+            Fault = "Show the certificate first, then pin it.";
+            return;
+        }
+
+        BoxPinned = true;
+        Fault = "";
+        Body = "Pinned. Sign in with the owner email and password for the box.";
+    }
+
+    [RelayCommand]
+    public async Task ConnectBoxAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        if (!BoxPinned || string.IsNullOrWhiteSpace(_pendingPin))
+        {
+            Fault = "Pin the box certificate before signing in.";
+            return;
+        }
+
+        IsBusy = true;
+        Fault = "";
+        try
+        {
+            var token = await BoxClient.LoginAsync(BoxUrl, BoxEmail, BoxPassword, _pendingPin, _pendingPem).ConfigureAwait(true);
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                Fault = "The box did not accept that email and password.";
+                return;
+            }
+
+            var current = _host.Settings.Current;
+            current.RunMode = BoxLink.Box;
+            current.BoxUrl = BoxLink.Normalize(BoxUrl);
+            current.BoxCertSha256 = _pendingPin;
+            current.BoxCaPem = _pendingPem ?? "";
+            current.SetupComplete = true;
+            current.SetupSkipped = false;
+            current.VrMode = false;
+            current.VrGaze = false;
+            _host.Settings.Save();
+            BoxPassword = "";
+            _host.Auth.SetSessionToken(token);
+            RequestClose?.Invoke(this, "twin");
+        }
+        catch (Exception ex)
+        {
+            Fault = "Could not sign in to the box. " + ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+            NotifyChrome();
+        }
+    }
+
     [RelayCommand(CanExecute = nameof(CanSkip))]
     public void Skip()
     {
@@ -189,7 +340,22 @@ public partial class FirstRunViewModel : ObservableObject
 
     private bool CanGetReady() => !IsBusy;
     private bool CanStop() => IsBusy;
-    private bool CanSkip() => !IsBusy && Phase == "welcome";
+    private bool CanSkip() => !IsBusy && (Phase == "welcome" || Phase == "choose");
+
+    private string _pendingPin = "";
+    private string? _pendingPem;
+
+    private static string FormatFingerprint(string hex)
+    {
+        var clean = CertificatePin.Normalize(hex);
+        var parts = new List<string>();
+        for (var i = 0; i < clean.Length; i += 2)
+        {
+            parts.Add(clean.Substring(i, Math.Min(2, clean.Length - i)));
+        }
+
+        return string.Join(" ", parts);
+    }
     private bool CanRetry() => !IsBusy && (Phase == "working" && !string.IsNullOrWhiteSpace(Fault) || Phase == "done" && !MindOk);
 
     private void FinishInto(string room)
@@ -253,6 +419,8 @@ public partial class FirstRunViewModel : ObservableObject
 
     private void NotifyChrome()
     {
+        ChooseVis = Phase == "choose" ? Visibility.Visible : Visibility.Collapsed;
+        BoxVis = Phase == "box" ? Visibility.Visible : Visibility.Collapsed;
         WelcomeVis = Phase == "welcome" ? Visibility.Visible : Visibility.Collapsed;
         WorkingVis = Phase == "working" ? Visibility.Visible : Visibility.Collapsed;
         DoneVis = Phase == "done" ? Visibility.Visible : Visibility.Collapsed;
