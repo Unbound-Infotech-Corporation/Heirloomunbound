@@ -16,6 +16,9 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Heirloom.BoxCore\Heirloom.BoxCore.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="..\Heirloom\Services\AssignmentCore.cs" Link="AssignmentCore.cs" />
     <Compile Include="..\Heirloom\Services\ConnectorCore.cs" Link="ConnectorCore.cs" />
     <Compile Include="..\Heirloom\Services\AssistCore.cs" Link="AssistCore.cs" />

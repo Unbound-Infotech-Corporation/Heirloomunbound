@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Heirloom.BoxCore;
 
 namespace Heirloom.Services;
 
@@ -92,7 +93,7 @@ public sealed class HeirloomApiClient
 
     public async Task<byte[]?> PostForBytesAsync(string path, object? body, CancellationToken cancellationToken = default)
     {
-        var baseUrl = _settings.Current.BackendUrl.TrimEnd('/');
+        var baseUrl = ApiBase();
         if (!path.StartsWith('/'))
         {
             path = "/" + path;
@@ -104,7 +105,7 @@ public sealed class HeirloomApiClient
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Post, baseUrl + path);
-        var token = _credentials.DeviceToken;
+        var token = TokenFor(path, useDevice: true);
         if (!string.IsNullOrWhiteSpace(token))
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -150,9 +151,25 @@ public sealed class HeirloomApiClient
         return await SendContentAsync(method, path, content, useDevice, cancellationToken).ConfigureAwait(false);
     }
 
+    private string ApiBase()
+    {
+        var current = _settings.Current;
+        return BoxLink.ApiBase(current.RunMode, current.BoxUrl, current.BackendUrl);
+    }
+
+    private string? TokenFor(string path, bool useDevice)
+    {
+        if (BoxLink.UsesOwnerSession(_settings.Current.RunMode, path))
+        {
+            return _credentials.SessionToken;
+        }
+
+        return useDevice ? _credentials.DeviceToken : _credentials.SessionToken;
+    }
+
     private async Task<JsonElement?> SendContentAsync(HttpMethod method, string path, HttpContent? content, bool useDevice, CancellationToken cancellationToken)
     {
-        var baseUrl = _settings.Current.BackendUrl.TrimEnd('/');
+        var baseUrl = ApiBase();
         if (!path.StartsWith('/'))
         {
             path = "/" + path;
@@ -164,7 +181,7 @@ public sealed class HeirloomApiClient
         }
 
         using var request = new HttpRequestMessage(method, baseUrl + path);
-        var token = useDevice ? _credentials.DeviceToken : _credentials.SessionToken;
+        var token = TokenFor(path, useDevice);
         if (!string.IsNullOrWhiteSpace(token))
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);

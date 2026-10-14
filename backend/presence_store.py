@@ -36,8 +36,12 @@ def presence_enabled(raw: Optional[str] = None) -> bool:
 
 def presence_dir(raw: Optional[str] = None) -> Path:
     if raw is None:
-        raw = os.environ.get("HEIRLOOM_PRESENCE_DIR", DEFAULT_DIR)
-    text = (raw or "").strip() or DEFAULT_DIR
+        raw = os.environ.get("HEIRLOOM_PRESENCE_DIR", "")
+    text = (raw or "").strip()
+    if not text:
+        from box_pause import data_root
+
+        text = str(data_root() / "presence")
     return Path(text)
 
 

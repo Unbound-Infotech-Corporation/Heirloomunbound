@@ -1,0 +1,52 @@
+using System.IO;
+using Heirloom.BoxCore;
+
+namespace Heirloom.Companion;
+
+public sealed class CompanionStore
+{
+    public string SettingsPath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Heirloom",
+        "settings.json");
+
+    public string Root => Path.GetDirectoryName(SettingsPath) ?? ".";
+
+    public string BoxUrl
+    {
+        get => BoxLink.Normalize(SettingsPatch.ReadString(SettingsPath, SettingsPatch.BoxUrl, BoxLink.DefaultBoxUrl));
+        set => Patch(new Dictionary<string, object?> { [SettingsPatch.BoxUrl] = BoxLink.Normalize(value) });
+    }
+
+    public string Pin => SettingsPatch.ReadString(SettingsPath, SettingsPatch.BoxCertSha256, "");
+
+    public string CaPem => SettingsPatch.ReadString(SettingsPath, SettingsPatch.BoxCaPem, "");
+
+    public bool Toasts
+    {
+        get => SettingsPatch.ReadBool(SettingsPath, SettingsPatch.CompanionToasts, true);
+        set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionToasts] = value });
+    }
+
+    public bool Autostart
+    {
+        get => SettingsPatch.ReadBool(SettingsPath, SettingsPatch.CompanionAutostart, false);
+        set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionAutostart] = value });
+    }
+
+    public void SaveTrust(string url, string pin, string? pem)
+    {
+        Patch(new Dictionary<string, object?>
+        {
+            [SettingsPatch.BoxUrl] = BoxLink.Normalize(url),
+            [SettingsPatch.BoxCertSha256] = pin,
+            [SettingsPatch.BoxCaPem] = pem ?? "",
+        });
+    }
+
+    public string? Session() => DpapiBoxSession.TryRead(DpapiBoxSession.SessionFile(Root));
+
+    public void SaveSession(string token) => DpapiBoxSession.Save(DpapiBoxSession.SessionFile(Root), token);
+
+    private void Patch(IReadOnlyDictionary<string, object?> values) => SettingsPatch.Write(SettingsPath, values);
+}

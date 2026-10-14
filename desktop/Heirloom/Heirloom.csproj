@@ -47,6 +47,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Heirloom.BoxCore\Heirloom.BoxCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="H.NotifyIcon.WinUI" Version="2.3.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.8" />

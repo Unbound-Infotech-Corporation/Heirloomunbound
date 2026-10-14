@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using Heirloom.BoxCore;
 using Windows.System;
 
 namespace Heirloom.Services;
@@ -20,11 +20,45 @@ public sealed class AuthService
 
     public async Task OpenSignInAsync()
     {
-        var url = _settings.Current.BackendUrl.TrimEnd('/') + "/login";
+        var current = _settings.Current;
+        var url = BoxLink.IsBoxClient(current.RunMode)
+            ? BoxLink.WebHome(current.BoxUrl)
+            : current.BackendUrl.TrimEnd('/') + "/login";
         await Launcher.LaunchUriAsync(new Uri(url));
     }
 
-    public void SetSessionToken(string token) => _credentials.SessionToken = token.Trim();
+    public void LoadBoxSession()
+    {
+        if (!BoxLink.IsBoxClient(_settings.Current.RunMode))
+        {
+            return;
+        }
+
+        var token = DpapiBoxSession.TryRead(DpapiBoxSession.SessionFile(AppPaths.Root));
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            _credentials.SessionToken = token;
+        }
+    }
+
+    public void SetSessionToken(string token)
+    {
+        var value = token.Trim();
+        _credentials.SessionToken = value;
+        if (!BoxLink.IsBoxClient(_settings.Current.RunMode) || value.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            DpapiBoxSession.Save(DpapiBoxSession.SessionFile(AppPaths.Root), value);
+        }
+        catch (PlatformNotSupportedException)
+        {
+            // PasswordVault still holds the token on this Windows session.
+        }
+    }
 
     public async Task<string?> RegisterDeviceAsync(string name, CancellationToken cancellationToken = default)
     {

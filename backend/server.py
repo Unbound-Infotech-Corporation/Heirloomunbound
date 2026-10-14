@@ -141,6 +141,30 @@ async def health_ping():
     return {"status": "ok"}
 
 
+@api_router.get("/box/ca")
+async def box_ca():
+    """Caddy's local root, so a Windows client can pin it. Public by design."""
+    from pathlib import Path
+
+    from fastapi import HTTPException
+    from fastapi.responses import Response
+
+    from box_owner import box_mode
+
+    if not box_mode():
+        raise HTTPException(status_code=404, detail="Not found")
+    root = (os.environ.get("HEIRLOOM_DATA_ROOT") or "/var/lib/heirloom").strip() or "/var/lib/heirloom"
+    default = str(Path(root) / "caddy" / "caddy" / "pki" / "authorities" / "local" / "root.crt")
+    path = Path((os.environ.get("HEIRLOOM_CADDY_ROOT") or default).strip() or default)
+    try:
+        pem = path.read_text(encoding="utf-8")
+    except OSError:
+        raise HTTPException(status_code=404, detail="The box certificate is not ready yet") from None
+    if "BEGIN CERTIFICATE" not in pem:
+        raise HTTPException(status_code=404, detail="The box certificate is not ready yet")
+    return Response(content=pem, media_type="application/x-pem-file")
+
+
 @api_router.get("/build")
 async def build_info():
     """What this live API can bake into HeirloomDesktop.zip.
@@ -254,9 +278,10 @@ def _cors_allowed_origins() -> list[str]:
 
 
 def _cors_origin_regex() -> str | None:
-    """Allow Emergent preview/sub-domain origins via regex without baking exact URLs."""
-    # Permit https://<anything>.emergentagent.com and http(s)://localhost:* for dev
-    return r"^(https://[a-zA-Z0-9-]+\.emergentagent\.com|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?)$"
+    """Allow Emergent preview origins. A Twin Box also allows private LAN HTTPS."""
+    from box_cors import origin_regex
+
+    return origin_regex()
 
 
 _allowed = _cors_allowed_origins()

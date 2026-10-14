@@ -20,8 +20,8 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
+from box_desktop import client_chat_mode, resolve_desktop_user
 from deps import db
-from routers.companion import get_device_user
 from routers.live import publish_avatar as live_publish_avatar
 from routers.live import publish_turn as live_publish_turn
 
@@ -51,7 +51,7 @@ def _did_auth(user: dict) -> str:
 
 # ---------------- Identity (used by the app for the welcome bar) ----------------
 @router.get("/me")
-async def desktop_me(ctx: dict = Depends(get_device_user)):
+async def desktop_me(ctx: dict = Depends(resolve_desktop_user)):
     user = ctx["user"]
     return {
         "user_id": user["user_id"],
@@ -96,7 +96,7 @@ async def _ensure_companion_conv(user_id: str, kind: str = "companion_twin") -> 
 
 
 @router.get("/conversation")
-async def get_conversation(ctx: dict = Depends(get_device_user), limit: int = 80):
+async def get_conversation(ctx: dict = Depends(resolve_desktop_user), limit: int = 80):
     """Return the most-recent N turns of the shared companion conversation."""
     user = ctx["user"]
     conv = await _ensure_companion_conv(user["user_id"])
@@ -110,7 +110,7 @@ async def get_conversation(ctx: dict = Depends(get_device_user), limit: int = 80
 
 
 @router.post("/chat")
-async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
+async def desktop_chat(body: ChatReq, ctx: dict = Depends(resolve_desktop_user)):
     """Send a text message; persist + return a reply.
 
     mode=twin (default): grounded sitting — no PC control tools.
@@ -132,6 +132,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(get_device_user)):
     if audience not in {"owner", "heir", "caller"}:
         audience = "owner"
     mode = resolve_chat_mode(body.mode, audience=audience)
+    mode = client_chat_mode(mode, (ctx.get("device") or {}).get("device_id"))
     if mode == "owner":
         kind = "companion_owner"
     elif mode == "assistant":
@@ -232,7 +233,7 @@ class TalkReq(BaseModel):
 
 
 @router.post("/avatar/talk")
-async def desktop_avatar_talk(payload: TalkReq, ctx: dict = Depends(get_device_user)):
+async def desktop_avatar_talk(payload: TalkReq, ctx: dict = Depends(resolve_desktop_user)):
     """Kick off a D-ID talking-head render for `text`. Same shape as
     `/avatar/talk` but device-token authed."""
     user = ctx["user"]
@@ -289,7 +290,7 @@ async def desktop_avatar_talk(payload: TalkReq, ctx: dict = Depends(get_device_u
 
 
 @router.get("/avatar/talk/{talk_id}")
-async def desktop_avatar_poll(talk_id: str, ctx: dict = Depends(get_device_user)):
+async def desktop_avatar_poll(talk_id: str, ctx: dict = Depends(resolve_desktop_user)):
     user = ctx["user"]
     rec = await db.avatar_talks.find_one(
         {"talk_id": talk_id, "user_id": user["user_id"]}, {"_id": 0}
@@ -338,7 +339,7 @@ class CaptureReq(BaseModel):
 
 
 @router.post("/capture")
-async def desktop_capture(body: CaptureReq, ctx: dict = Depends(get_device_user)):
+async def desktop_capture(body: CaptureReq, ctx: dict = Depends(resolve_desktop_user)):
     from owner_pairing import is_owner_audience
 
     if not is_owner_audience(body.audience or "owner"):
@@ -361,7 +362,7 @@ async def desktop_capture(body: CaptureReq, ctx: dict = Depends(get_device_user)
 
 # ---------------- Recent memories sidebar ----------------
 @router.get("/memories/recent")
-async def desktop_memories(ctx: dict = Depends(get_device_user), limit: int = 20):
+async def desktop_memories(ctx: dict = Depends(resolve_desktop_user), limit: int = 20):
     user = ctx["user"]
     cursor = (
         db.entries.find(
@@ -388,7 +389,7 @@ def _brain_pack_ollama_url(user: dict) -> str | None:
 
 
 @router.post("/brain-pack")
-async def desktop_brain_pack(body: BrainPackReq, ctx: dict = Depends(get_device_user)):
+async def desktop_brain_pack(body: BrainPackReq, ctx: dict = Depends(resolve_desktop_user)):
     """Return the twin system prompt + history for on-device Ollama inference."""
     from twin_runtime import build_brain_pack, ensure_conversation
 
@@ -420,7 +421,7 @@ class LocalCompleteReq(BaseModel):
 
 
 @router.post("/chat/local-complete")
-async def desktop_local_complete(body: LocalCompleteReq, ctx: dict = Depends(get_device_user)):
+async def desktop_local_complete(body: LocalCompleteReq, ctx: dict = Depends(resolve_desktop_user)):
     """Persist a turn that was inferred locally (Ollama) on the dedicated PC."""
     from twin_runtime import _persist_pair, _safe_summarise, ensure_conversation
     import asyncio
@@ -467,7 +468,7 @@ class SpeakReq(BaseModel):
 
 
 @router.post("/speak")
-async def desktop_speak(payload: SpeakReq, ctx: dict = Depends(get_device_user)):
+async def desktop_speak(payload: SpeakReq, ctx: dict = Depends(resolve_desktop_user)):
     """Synthesize `text` through the user's cloned ElevenLabs voice and stream
     back the MP3 bytes. Returns 400 if the user hasn't configured a voice
     (the desktop app falls back to silent waveform animation in that case).
@@ -537,7 +538,7 @@ async def desktop_speak(payload: SpeakReq, ctx: dict = Depends(get_device_user))
 
 
 @router.get("/voice/status")
-async def desktop_voice_status(ctx: dict = Depends(get_device_user)):
+async def desktop_voice_status(ctx: dict = Depends(resolve_desktop_user)):
     """Cheap pre-flight check the desktop app calls at boot — lets the avatar
     panel decide whether Waveform mode should attempt TTS or stay silent."""
     user = ctx["user"]

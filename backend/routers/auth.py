@@ -6,7 +6,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from deps import db, get_current_user
 from owner_pairing import PAIRING_STYLES, pairing_prefs_from_user
@@ -79,6 +79,70 @@ async def create_session(request: Request, response: Response):
         "name": name,
         "picture": picture,
     }
+
+
+class BoxLoginReq(BaseModel):
+    email: str = Field(..., min_length=3, max_length=200)
+    password: str = Field(..., min_length=1, max_length=256)
+
+
+@router.post("/box-login")
+async def box_login(body: BoxLoginReq, response: Response):
+    """Owner password on a Twin Box. Hidden unless this process is the box."""
+    from box_owner import box_mode, password_path, verify_owner_password
+
+    if not box_mode():
+        raise HTTPException(status_code=404, detail="Not found")
+    if not password_path().is_file():
+        raise HTTPException(status_code=503, detail="Owner sign-in is not set up on this box yet")
+    if not verify_owner_password(body.email, body.password):
+        raise HTTPException(status_code=401, detail="Email or password did not match")
+
+    email = body.email.strip().lower()
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        user_id = existing["user_id"]
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"last_login": datetime.now(timezone.utc).isoformat(), "audience": "owner"}},
+        )
+        name = existing.get("name") or ""
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        name = email.split("@", 1)[0]
+        await db.users.insert_one({
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "picture": "",
+            "audience": "owner",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "last_login": datetime.now(timezone.utc).isoformat(),
+        })
+
+    session_token = secrets_token()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    await db.user_sessions.insert_one({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        max_age=7 * 24 * 60 * 60,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
+    )
+    return {"user_id": user_id, "email": email, "name": name, "session_token": session_token}
+
+
+def secrets_token() -> str:
+    import secrets
+    return secrets.token_urlsafe(32)
 
 
 @router.get("/me")

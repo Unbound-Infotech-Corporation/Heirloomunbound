@@ -1,0 +1,7 @@
+# Added by box/install.sh only when HEIRLOOM_LAN_IP is a real LAN address.
+# Loopback stays in docker-compose.yml so a missing IP does not publish on every interface.
+services:
+  web:
+    ports:
+      - "${HEIRLOOM_LAN_IP}:80:80"
+      - "${HEIRLOOM_LAN_IP}:443:443"

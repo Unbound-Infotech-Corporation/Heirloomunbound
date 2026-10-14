@@ -1,10 +1,11 @@
-# Heirloom Twin Box. Data lives under /var/lib/heirloom, not in the git tree.
+# Heirloom Twin Box. Host data lives under HEIRLOOM_DATA_ROOT (default /var/lib/heirloom).
+# The API listens on 127.0.0.1 only. Other PCs reach it through Caddy on the LAN.
 services:
   mongo:
     image: mongo:7
     restart: unless-stopped
     volumes:
-      - /var/lib/heirloom/mongo:/data/db
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/mongo:/data/db
     networks:
       - heirloom
 
@@ -12,9 +13,9 @@ services:
     image: ollama/ollama:latest
     restart: unless-stopped
     env_file:
-      - /var/lib/heirloom/box.env
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/box.env
     volumes:
-      - /var/lib/heirloom/ollama:/root/.ollama
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/ollama:/root/.ollama
     ports:
       - "127.0.0.1:11434:11434"
     networks:
@@ -26,13 +27,15 @@ services:
       dockerfile: box/Dockerfile.api
     restart: unless-stopped
     env_file:
-      - /var/lib/heirloom/box.env
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/box.env
     volumes:
-      - /var/lib/heirloom/vault:/var/lib/heirloom/vault
-      - /var/lib/heirloom/lab:/var/lib/heirloom/lab
-      - /var/lib/heirloom/lab-reports:/var/lib/heirloom/lab-reports
-      - /var/lib/heirloom/observer:/var/lib/heirloom/observer
-      - /var/lib/heirloom/presence:/var/lib/heirloom/presence
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/vault:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/vault
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab-reports:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab-reports
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/observer:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/observer
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/presence:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/presence
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy:ro
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/pause.json:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/pause.json
     depends_on:
       - mongo
       - ollama
@@ -46,12 +49,14 @@ services:
       context: ..
       dockerfile: box/Dockerfile.web
     restart: unless-stopped
+    environment:
+      HEIRLOOM_LAN_IP: ${HEIRLOOM_LAN_IP:-127.0.0.1}
     ports:
-      - "80:80"
-      - "443:443"
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
     volumes:
-      - /var/lib/heirloom/caddy:/data
-      - /var/lib/heirloom/caddy-config:/config
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy:/data
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy-config:/config
     depends_on:
       - api
     networks:

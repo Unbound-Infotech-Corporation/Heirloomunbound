@@ -8,11 +8,12 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: heirloom-box <status|backup|report|observer|presence|update-drivers>
+Usage: heirloom-box <status|backup|report|observer|presence|update-drivers|set-owner>
 
   status             services, GPU, disk, observer, presence, last backup, last report, /api/health
   backup             Mongo archive + vault tarball, 14 copies kept
-  report             nightly local markdown under /var/lib/heirloom/lab-reports
+  report             nightly local markdown under the data root's lab-reports
+  set-owner EMAIL    set the owner email and password (password read from the prompt, not saved in the log)
   update-drivers     install or upgrade the CUDA-repo NVIDIA driver, CUDA toolkit, cuDNN, nvtop, and the container toolkit
                      add --dry-run to print the plan
   observer status    capture device, signal, fps, model, pause, notes today, disk used
@@ -24,6 +25,30 @@ Usage: heirloom-box <status|backup|report|observer|presence|update-drivers>
   presence resume    clear the shared pause
   presence forget    delete every enrolled face on this box
 EOF
+}
+
+data_root() {
+  if [[ -r /etc/heirloom/data-root ]]; then
+    tr -d '[:space:]' < /etc/heirloom/data-root
+    return 0
+  fi
+  printf '%s\n' "${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}"
+}
+
+source_box_env_lib() {
+  local root lib
+  root="$(read_root)"
+  lib=""
+  if [[ -n "${root}" && -f "${root}/box/lib/box-env.sh" ]]; then
+    lib="${root}/box/lib/box-env.sh"
+  elif [[ -f /usr/local/lib/heirloom/box-env.sh ]]; then
+    lib="/usr/local/lib/heirloom/box-env.sh"
+  fi
+  if [[ -z "${lib}" ]]; then
+    return 1
+  fi
+  # shellcheck source=lib/box-env.sh
+  source "${lib}"
 }
 
 read_root() {
@@ -40,10 +65,26 @@ read_root() {
   printf '%s\n' ""
 }
 
+export_compose_env() {
+  local root ip
+  root="$(data_root)"
+  export HEIRLOOM_DATA_ROOT="${root}"
+  ip=""
+  if [[ -r "${root}/box.env" ]]; then
+    ip="$(awk -F= '/^HEIRLOOM_LAN_IP=/{val=substr($0, index($0, "=") + 1)} END {print val}' "${root}/box.env")"
+  fi
+  ip="${ip//$'\r'/}"
+  export HEIRLOOM_LAN_IP="${ip:-${HEIRLOOM_LAN_IP:-127.0.0.1}}"
+}
+
 compose() {
   local root="$1"
   shift
   local -a args=()
+  export_compose_env
+  if [[ -r /etc/heirloom/compose.env ]]; then
+    args+=(--env-file /etc/heirloom/compose.env)
+  fi
   if [[ -r /etc/heirloom/compose.args ]]; then
     local line
     while IFS= read -r line; do
@@ -79,17 +120,19 @@ cmd_status() {
     printf 'no NVIDIA GPU answering nvidia-smi\n'
   fi
 
+  local data
+  data="$(data_root)"
   printf '\n## disk\n'
-  if [[ -d /var/lib/heirloom ]]; then
-    df -h /var/lib/heirloom || true
+  if [[ -d "${data}" ]]; then
+    df -h "${data}" || true
   else
-    printf '/var/lib/heirloom is not created yet\n'
+    printf '%s is not created yet\n' "${data}"
   fi
 
   printf '\n## last backup\n'
   local last=""
-  if [[ -d /var/lib/heirloom/backups ]]; then
-    last="$(find /var/lib/heirloom/backups -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1 || true)"
+  if [[ -d "${data}/backups" ]]; then
+    last="$(find "${data}/backups" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1 || true)"
   fi
   if [[ -n "${last}" ]]; then
     printf '%s\n' "${last}"
@@ -99,8 +142,8 @@ cmd_status() {
 
   printf '\n## last report\n'
   local report=""
-  if [[ -d /var/lib/heirloom/lab-reports ]]; then
-    report="$(find /var/lib/heirloom/lab-reports -maxdepth 1 -name 'lab-report-*.md' | sort | tail -n 1 || true)"
+  if [[ -d "${data}/lab-reports" ]]; then
+    report="$(find "${data}/lab-reports" -maxdepth 1 -name 'lab-report-*.md' | sort | tail -n 1 || true)"
   fi
   if [[ -n "${report}" ]]; then
     printf '%s\n' "${report}"
@@ -125,13 +168,30 @@ cmd_status() {
   fi
 }
 
+run_box_python() {
+  local root="$1"
+  local module="$2"
+  shift 2
+  local env_file
+  env_file="$(data_root)/box.env"
+  (
+    if source_box_env_lib; then
+      load_box_env "${env_file}"
+    fi
+    # PYTHONPATH is only for this python process.
+    # shellcheck disable=SC2030
+    export PYTHONPATH="${root}/backend${PYTHONPATH:+:${PYTHONPATH}}"
+    python3 -m "${module}" "$@"
+  )
+}
+
 print_observer() {
   local root="$1"
   if [[ -z "${root}" || ! -f "${root}/backend/observer_cli.py" ]]; then
     printf 'observer module is not in the install root\n'
     return 0
   fi
-  PYTHONPATH="${root}/backend${PYTHONPATH:+:${PYTHONPATH}}" python3 -m observer_cli status \
+  run_box_python "${root}" observer_cli status \
     || printf 'observer status failed\n'
 }
 
@@ -141,7 +201,7 @@ print_presence() {
     printf 'presence module is not in the install root\n'
     return 0
   fi
-  PYTHONPATH="${root}/backend${PYTHONPATH:+:${PYTHONPATH}}" python3 -m presence_cli status \
+  run_box_python "${root}" presence_cli status \
     || printf 'presence status failed\n'
 }
 
@@ -160,7 +220,7 @@ cmd_presence() {
     echo "Run box/install.sh before heirloom-box presence." >&2
     exit 1
   fi
-  PYTHONPATH="${root}/backend${PYTHONPATH:+:${PYTHONPATH}}" python3 -m presence_cli "${action}"
+  run_box_python "${root}" presence_cli "${action}"
 }
 
 cmd_observer() {
@@ -178,7 +238,7 @@ cmd_observer() {
     echo "Run box/install.sh before heirloom-box observer." >&2
     exit 1
   fi
-  PYTHONPATH="${root}/backend${PYTHONPATH:+:${PYTHONPATH}}" python3 -m observer_cli "${action}"
+  run_box_python "${root}" observer_cli "${action}"
 }
 
 cmd_backup() {
@@ -188,16 +248,18 @@ cmd_backup() {
     echo "Run box/install.sh before heirloom-box backup." >&2
     exit 1
   fi
+  local data
+  data="$(data_root)"
   stamp="$(date -u +%Y%m%d-%H%M%S)"
-  dest="/var/lib/heirloom/backups/${stamp}"
+  dest="${data}/backups/${stamp}"
   mkdir -p "${dest}"
   compose "${root}" exec -T mongo mongodump --archive > "${dest}/mongo.archive"
-  if [[ -d /var/lib/heirloom/vault ]]; then
-    tar -C /var/lib/heirloom -czf "${dest}/vault.tgz" vault
+  if [[ -d "${data}/vault" ]]; then
+    tar -C "${data}" -czf "${dest}/vault.tgz" vault
   else
     printf 'vault directory missing\n' > "${dest}/vault-missing.txt"
   fi
-  mapfile -t old < <(find /var/lib/heirloom/backups -mindepth 1 -maxdepth 1 -type d | sort | head -n -14 || true)
+  mapfile -t old < <(find "${data}/backups" -mindepth 1 -maxdepth 1 -type d | sort | head -n -14 || true)
   local dir
   for dir in "${old[@]+"${old[@]}"}"; do
     rm -rf "${dir}"
@@ -237,6 +299,31 @@ cmd_update_drivers() {
   fi
 }
 
+cmd_set_owner() {
+  local email="${1:-}"
+  local root data password
+  root="$(read_root)"
+  data="$(data_root)"
+  if [[ -z "${email}" || "${email}" != *@* ]]; then
+    echo "Usage: heirloom-box set-owner you@example.com" >&2
+    exit 2
+  fi
+  if [[ -z "${root}" || ! -f "${root}/backend/box_owner.py" ]]; then
+    echo "Run box/install.sh before heirloom-box set-owner." >&2
+    exit 1
+  fi
+  if [[ -t 0 ]]; then
+    read -r -s -p "Owner password (8 or more characters): " password
+    printf '\n'
+  else
+    IFS= read -r password
+  fi
+  # shellcheck disable=SC2031
+  printf '%s' "${password}" | HEIRLOOM_DATA_ROOT="${data}" PYTHONPATH="${root}/backend${PYTHONPATH:+:${PYTHONPATH}}" \
+    python3 -m box_owner set "${email}"
+  password=""
+}
+
 cmd_report() {
   local root
   root="$(read_root)"
@@ -264,6 +351,10 @@ main() {
     update-drivers)
       shift
       cmd_update_drivers "${1:-}"
+      ;;
+    set-owner)
+      shift
+      cmd_set_owner "${1:-}"
       ;;
     -h|--help|help|"") usage ;;
     *)
