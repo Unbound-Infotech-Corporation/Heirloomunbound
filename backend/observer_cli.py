@@ -31,6 +31,13 @@ def format_status() -> str:
         f"notes today: {payload.get('notes_today') or 0}",
         f"disk used: {disk_label}",
     ]
+    audio = payload.get("audio") if isinstance(payload.get("audio"), dict) else {}
+    for name, label in (("system", "system audio"), ("mic", "microphone")):
+        stream = audio.get(name) if isinstance(audio.get(name), dict) else {}
+        device = stream.get("device") or stream.get("source") or "off"
+        lines.append(f"{label}: {stream.get('status') or 'off'} ({device})")
+    if audio.get("model"):
+        lines.append(f"whisper: {audio.get('model')}")
     return "\n".join(lines) + "\n"
 
 

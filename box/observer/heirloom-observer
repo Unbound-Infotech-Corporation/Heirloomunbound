@@ -16,4 +16,15 @@ if [[ ! -f "${ROOT}/box/observer/observerd.py" ]]; then
   exit 1
 fi
 export PYTHONPATH="${ROOT}/backend${PYTHONPATH:+:${PYTHONPATH}}"
-exec /usr/bin/python3 "${ROOT}/box/observer/observerd.py"
+DATA_ROOT=""
+if [[ -r /etc/heirloom/data-root ]]; then
+  DATA_ROOT="$(tr -d '[:space:]' < /etc/heirloom/data-root)"
+fi
+if [[ -z "${DATA_ROOT}" ]]; then
+  DATA_ROOT="/var/lib/heirloom"
+fi
+PY="/usr/bin/python3"
+if [[ -x "${DATA_ROOT}/observer/venv/bin/python" ]]; then
+  PY="${DATA_ROOT}/observer/venv/bin/python"
+fi
+exec "${PY}" "${ROOT}/box/observer/observerd.py"

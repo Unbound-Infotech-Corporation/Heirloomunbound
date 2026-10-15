@@ -47,6 +47,35 @@ public class BoxClientTests
         Assert.Contains("llama3.1", snap.Tooltip);
         Assert.Contains("4 notes today", snap.Tooltip);
         Assert.Equal("Pause Observer", TrayStatus.PauseVerb(snap.ObserverPaused));
+        Assert.Equal("System audio: off", TrayStatus.StreamLine("System audio", snap.SystemAudio));
+    }
+
+    [Fact]
+    public void Audio_lines_name_each_stream_and_the_pc_sends_only_the_fallback()
+    {
+        const string json = """
+            {
+              "observer": {
+                "paused": false,
+                "signal": "signal",
+                "fps": 2,
+                "notes_today": 1,
+                "audio": {
+                  "system": {"enabled": true, "source": "xr1", "status": "hearing", "device": "EVGA XR1 Lite"},
+                  "mic": {"enabled": true, "source": "waiting", "status": "waiting", "device": ""}
+                }
+              }
+            }
+            """;
+        var snap = TrayStatus.Describe(true, 12, "https://192.168.0.111", json);
+        Assert.Contains("System audio: hearing · EVGA XR1 Lite", snap.Tooltip);
+        Assert.Contains("Microphone: waiting", snap.Tooltip);
+        Assert.False(TrayStatus.CompanionShouldSend(snap.SystemAudio));
+        Assert.True(TrayStatus.CompanionShouldSend(snap.MicAudio));
+        var tone = new byte[] { 0, 0, 0x10, 0x3e, 0, 0, 0x10, 0xbe };
+        var pcm = PcmConvert.ToS16Mono16k(tone, channels: 2, sampleRate: 16000, ieeeFloat: true);
+        Assert.NotEmpty(pcm);
+        Assert.Equal(0, pcm.Length % 2);
     }
 
     [Fact]

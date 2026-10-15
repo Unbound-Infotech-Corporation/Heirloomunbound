@@ -20,6 +20,7 @@ DEV_TOOLS=0
 WITH_TAILSCALE=0
 WITH_CHATTERBOX=0
 WITH_OBSERVER=0
+WITH_OBSERVER_AUDIO=0
 WITH_PRESENCE=0
 UNATTENDED=0
 NVME_POWER_FIX=0
@@ -29,14 +30,15 @@ export DEBIAN_FRONTEND=noninteractive
 
 usage() {
   cat <<'EOF'
-Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--presence] [--nvme-power-fix]
+Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--observer-audio] [--presence] [--nvme-power-fix]
 
   --dry-run           print the plan and write the log; change nothing
   --unattended        answer package and license prompts automatically; exit 75 if a reboot is required before containers start
   --dev-tools         git, gh, Node.js LTS, Python 3.12, uv, Cursor CLI, Claude Code
   --tailscale         install Tailscale; you run `tailscale up` yourself
   --with-chatterbox   optional MIT Chatterbox TTS container
-  --observer          watch the HDMI capture card and learn notes on this lab box
+  --observer          watch the HDMI capture card, including system audio and the mic
+  --observer-audio    same as --observer; installs ALSA capture and faster-whisper
   --presence          watch USB webcams and greet people the owner has taught
   --nvme-power-fix    add nvme_core.default_ps_max_latency_us=0 to GRUB (Samsung 970 dropouts). Does not reboot.
 EOF
@@ -80,7 +82,8 @@ parse_args() {
       --dev-tools) DEV_TOOLS=1 ;;
       --tailscale) WITH_TAILSCALE=1 ;;
       --with-chatterbox) WITH_CHATTERBOX=1 ;;
-      --observer) WITH_OBSERVER=1 ;;
+      --observer) WITH_OBSERVER=1; WITH_OBSERVER_AUDIO=1 ;;
+      --observer-audio) WITH_OBSERVER=1; WITH_OBSERVER_AUDIO=1 ;;
       --presence) WITH_PRESENCE=1 ;;
       --nvme-power-fix) NVME_POWER_FIX=1 ;;
       -h|--help) usage; exit 0 ;;
@@ -344,7 +347,7 @@ KbdInteractiveAuthentication yes
 PermitRootLogin no
 PubkeyAuthentication yes
 EOF
-    systemctl reload ssh || true
+    systemctl try-reload-or-restart ssh || true
     return 0
   fi
   if ! ssh_keys_present; then
@@ -362,7 +365,7 @@ KbdInteractiveAuthentication no
 PermitRootLogin no
 PubkeyAuthentication yes
 EOF
-  systemctl reload ssh
+  systemctl try-reload-or-restart ssh
 }
 
 configure_ufw() {
@@ -448,6 +451,7 @@ write_env() {
     log "would set HEIRLOOM_DATA_ROOT=${DATA_ROOT} HEIRLOOM_LAN_IP=${LAN_IP:-127.0.0.1} HEIRLOOM_LLM_PROVIDER=ollama OLLAMA_TWIN_MODEL=${model} HEIRLOOM_LAB_MODE=1"
     if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
       log "would set HEIRLOOM_OBSERVER=1 OLLAMA_OBSERVER_MODEL=${observer_model:-ocr} OBSERVER_VRAM_MIB=${vram} OLLAMA_MAX_LOADED_MODELS=${max_loaded} OBSERVER_VISION_KEEP_ALIVE=${vision_keep} OBSERVER_RAM_BUDGET_BYTES=67108864 OBSERVER_CLIPS=0"
+      log "would set OBSERVER_AUDIO=1 OBSERVER_AUDIO_SPOOL=/run/heirloom-observer/audio and a faster-whisper model"
     fi
     if [[ "${WITH_PRESENCE}" -eq 1 ]]; then
       log "would set HEIRLOOM_PRESENCE=1 PRESENCE_FPS=3 PRESENCE_VRAM_BUDGET_MIB=512 PRESENCE_UNKNOWN_THUMBNAILS=0 PRESENCE_THRESHOLD=0.36"
@@ -491,6 +495,19 @@ write_env() {
     upsert_env OBSERVER_VISION_KEEP_ALIVE "${vision_keep}" "${env_file}"
     upsert_env OBSERVER_RING_SLOTS "4" "${env_file}"
     upsert_env OBSERVER_RAM_BUDGET_BYTES "67108864" "${env_file}"
+    upsert_env OBSERVER_AUDIO "1" "${env_file}"
+    upsert_env OBSERVER_AUDIO_SPOOL "/run/heirloom-observer/audio" "${env_file}"
+    upsert_env OBSERVER_WHISPER_CACHE "${DATA_ROOT}/observer/whisper" "${env_file}"
+    local whisper_model="small"
+    if [[ "${vram}" =~ ^[0-9]+$ ]] && [[ "${vram}" -ge 20000 ]]; then
+      whisper_model="medium"
+    fi
+    local whisper_device="cpu"
+    if [[ "${USE_GPU:-0}" -eq 1 ]]; then
+      whisper_device="cuda"
+    fi
+    upsert_env OBSERVER_WHISPER_MODEL "${whisper_model}" "${env_file}"
+    upsert_env OBSERVER_WHISPER_DEVICE "${whisper_device}" "${env_file}"
   fi
   if [[ "${WITH_PRESENCE}" -eq 1 ]]; then
     local speak="0"
@@ -595,10 +612,13 @@ install_observer() {
     log "Observer not requested. Product builds leave it off."
     return 0
   fi
-  log "Observer requested. Installing ffmpeg, v4l-utils, tesseract-ocr, the systemd unit, and the udev rule."
-  run apt-get install -y ffmpeg v4l-utils tesseract-ocr
+  log "Observer requested. Installing ffmpeg, v4l-utils, tesseract-ocr, alsa-utils, the systemd unit, and the udev rule."
+  log "Observer audio: faster-whisper in ${DATA_ROOT}/observer/venv. Transcripts only; PCM stays in /run."
+  run apt-get install -y ffmpeg v4l-utils tesseract-ocr alsa-utils python3-venv
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would install /usr/local/bin/heirloom-observer, heirloom-observer.service, and 99-heirloom-observer.rules"
+    log "would write /etc/tmpfiles.d/heirloom-observer.conf for /run/heirloom-observer/audio"
+    log "would create ${DATA_ROOT}/observer/venv and pip install faster-whisper"
     log "would touch /etc/heirloom/observer.enabled and systemctl enable --now heirloom-observer.service"
     return 0
   fi
@@ -606,9 +626,17 @@ install_observer() {
   install_unit "${ROOT}/box/observer/heirloom-observer.service" /etc/systemd/system/heirloom-observer.service
   install -d -m 0755 /etc/udev/rules.d
   install -m 0644 "${ROOT}/box/observer/99-heirloom-observer.rules" /etc/udev/rules.d/99-heirloom-observer.rules
+  install -d -m 0755 /etc/tmpfiles.d
+  install -m 0644 "${ROOT}/box/observer/heirloom-observer.tmpfiles" /etc/tmpfiles.d/heirloom-observer.conf
+  if command -v systemd-tmpfiles >/dev/null 2>&1; then
+    systemd-tmpfiles --create /etc/tmpfiles.d/heirloom-observer.conf || true
+  else
+    install -d -m 0755 /run/heirloom-observer/audio/system /run/heirloom-observer/audio/mic
+  fi
   install -d -m 0755 /etc/heirloom
   touch /etc/heirloom/observer.enabled
   chmod 644 /etc/heirloom/observer.enabled
+  install_observer_audio_venv
   systemctl daemon-reload
   systemctl enable --now heirloom-observer.service || log "heirloom-observer did not start; heirloom-box status will show why"
   if command -v udevadm >/dev/null 2>&1; then
@@ -616,8 +644,18 @@ install_observer() {
     udevadm trigger --subsystem-match=video4linux || true
   fi
   if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
-    usermod -aG video "${SUDO_USER}" || true
+    usermod -aG video,audio "${SUDO_USER}" || true
   fi
+}
+
+install_observer_audio_venv() {
+  local py="${DATA_ROOT}/observer/venv/bin/python"
+  install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/observer"
+  if [[ ! -x "${py}" ]]; then
+    python3 -m venv "${DATA_ROOT}/observer/venv"
+  fi
+  "${DATA_ROOT}/observer/venv/bin/pip" install --upgrade pip
+  "${DATA_ROOT}/observer/venv/bin/pip" install 'faster-whisper>=1.1.0,<2'
 }
 
 install_presence() {
@@ -778,8 +816,9 @@ print_next() {
     log "Tailscale login, when you want it: sudo tailscale up"
   fi
   if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
-    log "Observer is on for this box. Pause with: heirloom-box observer pause"
-    log "Wiring and privacy rules: box/OBSERVER.md"
+    log "Observer is on for this box, with separate system-audio and microphone streams."
+    log "Pause with: heirloom-box observer pause"
+    log "Wiring, audio, and privacy rules: box/OBSERVER.md"
   fi
   if [[ "${WITH_PRESENCE}" -eq 1 ]]; then
     log "Presence is on for this box. Pause with: heirloom-box presence pause"
@@ -811,6 +850,7 @@ main() {
   prepare_log
   if [[ "${WITH_OBSERVER}" -eq 0 && -f /etc/heirloom/observer.enabled ]]; then
     WITH_OBSERVER=1
+    WITH_OBSERVER_AUDIO=1
     log "Observer marker /etc/heirloom/observer.enabled is present; keeping Observer on"
   fi
   if [[ "${WITH_PRESENCE}" -eq 0 && -f /etc/heirloom/presence.enabled ]]; then
@@ -821,7 +861,7 @@ main() {
     printf 'Re-run as root: sudo bash box/install.sh\n' >&2
     exit 1
   fi
-  log "Heirloom Twin Box installer root=${ROOT} data=${DATA_ROOT} lan=${LAN_IP} dry_run=${DRY_RUN} unattended=${UNATTENDED} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} presence=${WITH_PRESENCE} nvme_power_fix=${NVME_POWER_FIX}"
+  log "Heirloom Twin Box installer root=${ROOT} data=${DATA_ROOT} lan=${LAN_IP} dry_run=${DRY_RUN} unattended=${UNATTENDED} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} observer_audio=${WITH_OBSERVER_AUDIO} presence=${WITH_PRESENCE} nvme_power_fix=${NVME_POWER_FIX}"
   apply_unattended
   require_ubuntu
   mib="$(vram_mib)"

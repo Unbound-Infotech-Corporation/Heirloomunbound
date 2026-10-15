@@ -10,6 +10,13 @@ from pathlib import Path
 
 _RAM_ROOTS = ("/run/", "/dev/shm/")
 _PREFER = ("xr1", "evga", "uvc", "usb video", "usb2.0 camera", "capture")
+# EVGA XR1 Lite is a USB 2.0 UVC device. With no HDMI lock it falls back to 720x480.
+CAPTURE_WIDTH = 1280
+CAPTURE_HEIGHT = 720
+FALLBACK_WIDTH = 720
+FALLBACK_HEIGHT = 480
+CAPTURE_PIXEL_FORMAT = "yuyv422"
+SIGNAL_STALL_S = 3.0
 # 32 GB system RAM also holds Ubuntu, Docker, Mongo, and any Ollama spill.
 DEFAULT_RING_SLOTS = 4
 DEFAULT_RAM_BUDGET_BYTES = 64 * 1024 * 1024
@@ -139,9 +146,74 @@ def scene_delta(prev: bytes, curr: bytes) -> float:
 
 
 def is_no_signal(gray: bytes, *, threshold: int = 12) -> bool:
+    """Brightness-only check. Prefer ``signal_verdict`` for size, content, and timing."""
     if not gray:
         return True
     return (sum(gray) / len(gray)) < threshold
+
+
+def frame_is_flat(gray: bytes, *, mean_limit: float = 12.0, stdev_limit: float = 4.0) -> bool:
+    """A black, blue, or other solid field. A real picture has more spread."""
+    if not gray:
+        return True
+    count = len(gray)
+    mean = sum(gray) / count
+    if mean < mean_limit:
+        return True
+    variance = sum((byte - mean) ** 2 for byte in gray) / count
+    return (variance ** 0.5) < stdev_limit
+
+
+def parse_v4l2_format(text: str) -> tuple[int | None, int | None, str]:
+    """Read ``v4l2-ctl --get-fmt-video``. Missing fields stay empty."""
+    import re
+
+    match = re.search(r"Width/Height\s*:\s*(\d+)\s*/\s*(\d+)", text or "")
+    pixel = re.search(r"Pixel Format\s*:\s*'([^']+)'", text or "")
+    if not match:
+        return None, None, pixel.group(1) if pixel else ""
+    return int(match.group(1)), int(match.group(2)), pixel.group(1) if pixel else ""
+
+
+def geometry_is_live(width: int | None, height: int | None) -> bool:
+    """The XR1 Lite picture is 1280x720. 720x480 is the no-signal mode."""
+    return width == CAPTURE_WIDTH and height == CAPTURE_HEIGHT
+
+
+def stderr_reports_fallback(text: str) -> bool:
+    folded = (text or "").lower()
+    return "720x480" in folded or "720 x 480" in folded
+
+
+def signal_verdict(
+    *,
+    gray: bytes,
+    width: int | None = None,
+    height: int | None = None,
+    gap_s: float | None = None,
+    repeated: bool = False,
+    grab_error: str = "",
+    stderr: str = "",
+    stall_s: float = SIGNAL_STALL_S,
+) -> tuple[bool, str]:
+    """Return ``(live, reason)``. A live picture is 1280x720 with real content.
+
+    No signal is the fallback 720x480 mode, a flat field, a failed grab, or a
+    frame that is still the previous picture after the capture stalled.
+    """
+    if grab_error or stderr_reports_fallback(stderr):
+        return False, "no-signal"
+    if not gray:
+        return False, "no-signal"
+    known_size = width is not None and height is not None
+    bad_size = known_size and not geometry_is_live(width, height)
+    flat = frame_is_flat(gray)
+    stalled = gap_s is not None and gap_s >= stall_s
+    if bad_size or flat:
+        return False, "no-signal"
+    if stalled and repeated:
+        return False, "no-signal"
+    return True, "signal"
 
 
 def pick_capture_device(devices: list[dict]) -> dict | None:
@@ -174,11 +246,15 @@ def ffmpeg_grab_command(
     device: str,
     dest: Path,
     *,
-    width: int = 1920,
-    height: int = 1080,
-    input_format: str | None = "mjpeg",
+    width: int = CAPTURE_WIDTH,
+    height: int = CAPTURE_HEIGHT,
+    input_format: str | None = CAPTURE_PIXEL_FORMAT,
 ) -> list[str]:
-    """One scaled frame from V4L2. ``dest`` must already be a RAM path."""
+    """One scaled frame from V4L2. ``dest`` must already be a RAM path.
+
+    The input size is requested explicitly. The XR1 Lite otherwise negotiates
+    720x480 when HDMI has no lock.
+    """
     assert_ram_dir(dest.parent)
     command = [
         "ffmpeg",
@@ -231,6 +307,10 @@ def ffmpeg_clip_command(
         "nobuffer",
         "-f",
         "v4l2",
+        "-input_format",
+        CAPTURE_PIXEL_FORMAT,
+        "-video_size",
+        f"{CAPTURE_WIDTH}x{CAPTURE_HEIGHT}",
         "-i",
         device,
         "-t",
@@ -247,9 +327,17 @@ def ffmpeg_clip_command(
     ]
 
 
-def ffmpeg_gray_command(device: str, *, width: int = 160, height: int = 90) -> list[str]:
-    """Raw gray thumbnail on stdout for scene-change and no-signal checks."""
-    return [
+def ffmpeg_gray_command(
+    device: str,
+    *,
+    width: int = 160,
+    height: int = 90,
+    input_width: int = CAPTURE_WIDTH,
+    input_height: int = CAPTURE_HEIGHT,
+    input_format: str | None = CAPTURE_PIXEL_FORMAT,
+) -> list[str]:
+    """Raw gray thumbnail on stdout. The card is asked for 1280x720 YUYV first."""
+    command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
@@ -258,15 +346,24 @@ def ffmpeg_gray_command(device: str, *, width: int = 160, height: int = 90) -> l
         "nobuffer",
         "-f",
         "v4l2",
-        "-i",
-        device,
-        "-frames:v",
-        "1",
-        "-vf",
-        f"scale={width}:{height}",
-        "-f",
-        "rawvideo",
-        "-pix_fmt",
-        "gray",
-        "pipe:1",
     ]
+    if input_format:
+        command.extend(["-input_format", input_format])
+    command.extend(
+        [
+            "-video_size",
+            f"{input_width}x{input_height}",
+            "-i",
+            device,
+            "-frames:v",
+            "1",
+            "-vf",
+            f"scale={width}:{height}",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "gray",
+            "pipe:1",
+        ]
+    )
+    return command

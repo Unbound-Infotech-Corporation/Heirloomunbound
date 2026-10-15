@@ -13,10 +13,16 @@ internal sealed class TrayController : IDisposable
     private readonly CompanionStore _store = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly TaskbarIcon _icon = new();
+    private readonly AudioPump _audio;
     private BoxSnapshot _snapshot = TrayStatus.Describe(false, null, BoxLink.DefaultBoxUrl, null);
     private bool? _wasReachable;
     private TimeSpan _delay = PollSchedule.Healthy;
     private Icon? _current;
+
+    public TrayController()
+    {
+        _audio = new AudioPump(_store);
+    }
 
     public void Start()
     {
@@ -39,6 +45,7 @@ internal sealed class TrayController : IDisposable
             _delay = PollSchedule.Next(_delay, healthy);
             MaybeToast(next);
             _snapshot = next;
+            _audio.Note(next);
             _wasReachable = next.Reachable;
             await Application.Current.Dispatcher.InvokeAsync(() =>
             {
@@ -90,6 +97,8 @@ internal sealed class TrayController : IDisposable
         pause.IsEnabled = _snapshot.Reachable && !string.IsNullOrWhiteSpace(_store.Session());
         pause.Click += async (_, _) => await TogglePauseAsync().ConfigureAwait(true);
         menu.Items.Add(pause);
+        menu.Items.Add(StreamItem("system", _snapshot.SystemAudio, _store.SystemAudio));
+        menu.Items.Add(StreamItem("mic", _snapshot.MicAudio, _store.MicAudio));
         if (string.IsNullOrWhiteSpace(_store.Session()))
         {
             menu.Items.Add(new MenuItem { Header = "Sign in to pause Observer", IsEnabled = false });
@@ -105,6 +114,37 @@ internal sealed class TrayController : IDisposable
         quit.Click += (_, _) => Application.Current.Shutdown();
         menu.Items.Add(quit);
         _icon.ContextMenu = menu;
+    }
+
+    private MenuItem StreamItem(string source, AudioStreamView reported, bool localOn)
+    {
+        var on = _snapshot.Reachable ? reported.Enabled : localOn;
+        var label = source == "mic" ? "Microphone" : "System audio";
+        var item = new MenuItem
+        {
+            Header = on ? "Turn " + label.ToLowerInvariant() + " off" : "Turn " + label.ToLowerInvariant() + " on",
+            IsEnabled = _snapshot.Reachable && !string.IsNullOrWhiteSpace(_store.Session()),
+        };
+        item.Click += async (_, _) => await ToggleStreamAsync(source, !on).ConfigureAwait(true);
+        return item;
+    }
+
+    private async Task ToggleStreamAsync(string source, bool enabled)
+    {
+        if (source == "mic")
+        {
+            _store.MicAudio = enabled;
+        }
+        else
+        {
+            _store.SystemAudio = enabled;
+        }
+
+        var token = _store.Session();
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            await BoxClient.SetAudioStreamAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, source, enabled).ConfigureAwait(true);
+        }
     }
 
     private async Task TogglePauseAsync()
@@ -174,6 +214,7 @@ internal sealed class TrayController : IDisposable
     public void Dispose()
     {
         _stop.Cancel();
+        _audio.Dispose();
         _current?.Dispose();
         _icon.Dispose();
         _stop.Dispose();

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/api";
-import { feedbackLabel } from "../../lib/observer";
+import { audioStreamLine, feedbackLabel } from "../../lib/observer";
 
 const VOTES = [
   ["thats_me", "That's me"],
@@ -39,6 +39,13 @@ export default function ObserverPanel({ showIntro = false }) {
   const setPaused = (paused) => {
     setBusy(paused ? "pause" : "resume");
     api.post(paused ? "/observer/pause" : "/observer/resume")
+      .then(() => load())
+      .finally(() => setBusy(""));
+  };
+
+  const setAudio = (key, enabled) => {
+    setBusy(key);
+    api.put("/observer/audio", { [key]: enabled })
       .then(() => load())
       .finally(() => setBusy(""));
   };
@@ -94,6 +101,43 @@ export default function ObserverPanel({ showIntro = false }) {
             Resume
           </button>
         </div>
+        {status?.audio ? (
+          <div className="mt-4" data-testid="observer-audio">
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              {audioStreamLine(status.audio.system, "System audio")}
+            </p>
+            <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
+              {audioStreamLine(status.audio.mic, "Microphone")}
+            </p>
+            <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              Transcripts only. The two streams stay separate.
+            </p>
+            <div className="mt-3 flex gap-4">
+              <label className="text-sm" style={{ color: "var(--text-primary)" }}>
+                <input
+                  type="checkbox"
+                  className="mr-2"
+                  data-testid="observer-audio-system"
+                  checked={!!status.audio.system?.enabled}
+                  disabled={busy === "system"}
+                  onChange={(event) => setAudio("system", event.target.checked)}
+                />
+                System audio
+              </label>
+              <label className="text-sm" style={{ color: "var(--text-primary)" }}>
+                <input
+                  type="checkbox"
+                  className="mr-2"
+                  data-testid="observer-audio-mic"
+                  checked={!!status.audio.mic?.enabled}
+                  disabled={busy === "mic"}
+                  onChange={(event) => setAudio("mic", event.target.checked)}
+                />
+                Microphone
+              </label>
+            </div>
+          </div>
+        ) : null}
       </section>
       <section className="surface p-5" data-testid="observer-digest">
         <div className="overline mb-2">What I learned about you</div>

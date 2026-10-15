@@ -13,6 +13,8 @@ public static class SettingsPatch
     public const string BoxCaPem = "box_ca_pem";
     public const string CompanionAutostart = "companion_autostart";
     public const string CompanionToasts = "companion_toasts";
+    public const string CompanionAudioSystem = "companion_audio_system";
+    public const string CompanionAudioMic = "companion_audio_mic";
     public const string RunMode = "run_mode";
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };

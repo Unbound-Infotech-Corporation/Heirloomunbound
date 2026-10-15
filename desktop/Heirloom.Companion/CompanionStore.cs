@@ -34,6 +34,18 @@ public sealed class CompanionStore
         set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionAutostart] = value });
     }
 
+    public bool SystemAudio
+    {
+        get => SettingsPatch.ReadBool(SettingsPath, SettingsPatch.CompanionAudioSystem, true);
+        set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionAudioSystem] = value });
+    }
+
+    public bool MicAudio
+    {
+        get => SettingsPatch.ReadBool(SettingsPath, SettingsPatch.CompanionAudioMic, true);
+        set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionAudioMic] = value });
+    }
+
     public void SaveTrust(string url, string pin, string? pem)
     {
         Patch(new Dictionary<string, object?>

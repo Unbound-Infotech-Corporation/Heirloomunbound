@@ -58,6 +58,7 @@ Useful flags, which can be combined:
 sudo bash box/install.sh --dry-run
 sudo bash box/install.sh --dev-tools --tailscale --with-chatterbox
 sudo bash box/install.sh --observer
+sudo bash box/install.sh --observer-audio
 sudo bash box/install.sh --presence
 sudo bash box/install.sh --presence --with-chatterbox
 ```
@@ -69,7 +70,8 @@ sudo bash box/install.sh --presence --with-chatterbox
 | `--dev-tools` | git, GitHub CLI, Node.js 22, Python 3.12, uv, Cursor CLI, Claude Code. |
 | `--tailscale` | Installs Tailscale. You log in yourself. |
 | `--with-chatterbox` | Optional Chatterbox TTS container on `127.0.0.1:8010`. |
-| `--observer` | Lab only. Watches a UVC HDMI capture card and writes learned notes. Product installs leave this off. |
+| `--observer` | Lab only. Watches a UVC HDMI capture card, its HDMI audio, and a microphone, and writes learned notes. Product installs leave this off. |
+| `--observer-audio` | Same as `--observer`. Names the audio install directly. |
 | `--presence` | Lab only. Watches USB webcams and greets people the owner has taught. Product installs leave this off. |
 
 The script is idempotent. It uses `set -euo pipefail` and appends to `/var/log/heirloom-box-install.log`. A non-root dry-run that cannot write that path uses `$TMPDIR/heirloom-box-install.log`.
@@ -84,7 +86,7 @@ What a real run installs:
 - `unattended-upgrades`.
 - `ufw`: deny incoming, allow OpenSSH, `80/tcp`, and `443/tcp`.
 - Nightly cron: `03:00` `heirloom-box backup` (Mongo archive + vault tarball, 14 copies), `03:15` `heirloom-box report` (markdown under `/var/lib/heirloom/lab-reports`, 30 files).
-- With `--observer`: `ffmpeg`, `v4l-utils`, Tesseract, `heirloom-observer.service`, a udev rule for UVC replug, `HEIRLOOM_OBSERVER=1`, and a `03:20` digest. The marker `/etc/heirloom/observer.enabled` keeps Observer on when you later run the installer without the flag. Wiring, privacy rules, and the vision-model table are in [OBSERVER.md](OBSERVER.md).
+- With `--observer` or `--observer-audio`: `ffmpeg`, `v4l-utils`, Tesseract, `alsa-utils`, a venv with faster-whisper, `heirloom-observer.service`, a udev rule for UVC replug, `HEIRLOOM_OBSERVER=1`, `OBSERVER_AUDIO=1`, and a `03:20` digest. The marker `/etc/heirloom/observer.enabled` keeps Observer on when you later run the installer without the flag. Wiring, the two audio streams, privacy rules, and the vision-model table are in [OBSERVER.md](OBSERVER.md).
 - With `--presence`: `python3-opencv`, `v4l-utils`, `ffmpeg`, YuNet (MIT) and SFace (Apache-2.0), `heirloom-presence.service`, and a udev rule. The marker `/etc/heirloom/presence.enabled` keeps Presence on later. Cameras, consent, and the GPU budget are in [PRESENCE.md](PRESENCE.md). `--with-chatterbox` turns on spoken greetings. Unknown-face thumbnails stay off.
 
 Data lives under `/var/lib/heirloom` (mongo, ollama, vault, lab JSONL, reports, backups, Caddy). The env file is `/var/lib/heirloom/box.env` mode `600`. The installer generates a local `CONNECTOR_SECRET_KEY` once. It never writes a GitHub token, mailbox password, or vendor key.

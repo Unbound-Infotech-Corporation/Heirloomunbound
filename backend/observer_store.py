@@ -9,10 +9,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 from observer_learn import (
+    fingerprint,
+    normalize_note_text,
     notes_from_observations,
     render_digest_section,
+    same_note_text,
     suppressed,
     tokenize,
+    transcript_note,
 )
 from vr_mode import VR_GAZE_SOURCE
 
@@ -187,8 +191,13 @@ class ObserverStore:
         return self.set_paused(True, "hotkey")
 
     def add_observations(self, rows: list[dict]) -> list[dict]:
-        """Append allowed observations and any new notes. Dropped frames are not rows."""
+        """Append allowed observations and any new notes. Dropped frames are not rows.
+
+        The same sentence is not written again while it is still the recent
+        picture. Identical notes are also skipped when the draft is built.
+        """
         self.root.mkdir(parents=True, exist_ok=True)
+        recent = _read_jsonl(self.observations_path)[-12:]
         for row in rows:
             if row.get("dropped"):
                 _append_jsonl(
@@ -201,24 +210,98 @@ class ObserverStore:
                     },
                 )
                 continue
+            text = str(row.get("text") or "")
+            activity = str(row.get("activity") or "unknown")
+            channel = str(row.get("channel") or "")
+            if text and _recent_duplicate(recent, text=text, activity=activity, channel=channel):
+                continue
+            stored = {
+                "ts": row.get("ts") or _now().isoformat(),
+                "activity": activity,
+                "app": row.get("app") or "",
+                "title": row.get("title") or "",
+                "game": row.get("game") or "",
+                "text": text,
+                "owner_phrases": row.get("owner_phrases") or [],
+                "scene_delta": row.get("scene_delta") or 0,
+                "source": "observer",
+                "channel": channel,
+                "presence": row.get("presence") or "",
+                "presence_note": row.get("presence_note") or "",
+                "presence_people": row.get("presence_people") or [],
+            }
+            _append_jsonl(self.observations_path, stored)
+            recent.append(stored)
+        return self._generate_notes()
+
+    def add_transcript(self, row: dict) -> dict:
+        """Merge one labeled transcript into the timeline and the note memory.
+
+        The text is the transcript. PCM is not written here.
+        """
+        channel = str(row.get("channel") or "")
+        if channel not in {"mic", "system"}:
+            return {"stored": False, "reason": "channel"}
+        if bool(self.read_state().get("paused")):
+            return {"stored": False, "reason": "paused"}
+        self.root.mkdir(parents=True, exist_ok=True)
+        moment = str(row.get("ts") or _now().isoformat())
+        if row.get("dropped"):
             _append_jsonl(
                 self.observations_path,
                 {
-                    "ts": row.get("ts") or _now().isoformat(),
-                    "activity": row.get("activity") or "unknown",
-                    "app": row.get("app") or "",
-                    "title": row.get("title") or "",
-                    "game": row.get("game") or "",
-                    "text": row.get("text") or "",
-                    "owner_phrases": row.get("owner_phrases") or [],
-                    "scene_delta": row.get("scene_delta") or 0,
+                    "ts": moment,
+                    "dropped": True,
+                    "reason": str(row.get("reason") or "sensitive"),
                     "source": "observer",
-                    "presence": row.get("presence") or "",
-                    "presence_note": row.get("presence_note") or "",
-                    "presence_people": row.get("presence_people") or [],
+                    "channel": channel,
+                    "activity": "speech" if channel == "mic" else "heard",
                 },
             )
-        return self._generate_notes()
+            return {"stored": False, "reason": str(row.get("reason") or "sensitive")}
+        text = str(row.get("text") or "").strip()
+        if not text:
+            return {"stored": False, "reason": "empty"}
+        activity = str(row.get("activity") or ("speech" if channel == "mic" else "heard"))
+        recent = _read_jsonl(self.observations_path)[-12:]
+        if _recent_duplicate(recent, text=text, activity=activity, channel=channel):
+            return {"stored": False, "reason": "duplicate"}
+        _append_jsonl(
+            self.observations_path,
+            {
+                "ts": moment,
+                "activity": activity,
+                "app": "",
+                "title": text[:120],
+                "game": "",
+                "text": text,
+                "source": "observer",
+                "channel": channel,
+                "scene_delta": 0,
+            },
+        )
+        if _note_exists(self.read_notes(), text):
+            return {"stored": True, "reason": "duplicate", "note": None}
+        note = transcript_note(channel=channel, text=text, created_at=moment)
+        _append_jsonl(self.notes_path, note)
+        return {"stored": True, "reason": "", "note": note}
+
+    def audio_toggle(self, key: str) -> bool:
+        state = self.read_state()
+        if key in state:
+            return bool(state.get(key))
+        return _flag("OBSERVER_AUDIO")
+
+    def set_audio_toggles(self, *, system: Optional[bool] = None, mic: Optional[bool] = None) -> dict:
+        state = self.read_state()
+        if system is not None:
+            state["audio_system"] = bool(system)
+        if mic is not None:
+            state["audio_mic"] = bool(mic)
+        if "hotkey_phrase" not in state:
+            state["hotkey_phrase"] = os.environ.get("OBSERVER_HOTKEY_PHRASE", "HEIRLOOM PAUSE")
+        self.write_state(state)
+        return {"system": self.audio_toggle("audio_system"), "mic": self.audio_toggle("audio_mic")}
 
     def _generate_notes(self) -> list[dict]:
         existing = self.read_notes()
@@ -228,13 +311,17 @@ class ObserverStore:
             _read_jsonl(self.observations_path),
             suppressions=self.read_suppressions(),
         )
+        known_text = {normalize_note_text(str(row.get("text") or "")) for row in existing}
         for note in drafts:
-            if note["fingerprint"] in known:
+            folded = normalize_note_text(str(note.get("text") or ""))
+            if note["fingerprint"] in known or (folded and folded in known_text):
                 continue
             if not note.get("created_at"):
                 note["created_at"] = _now().isoformat()
             _append_jsonl(self.notes_path, note)
             known.add(note["fingerprint"])
+            if folded:
+                known_text.add(folded)
             created.append(note)
         return created
 
@@ -530,6 +617,7 @@ def status_public(store: Optional[ObserverStore] = None) -> dict:
     except OSError:
         used = int(status.get("disk_bytes") or 0)
         notes_today = int(status.get("notes_today") or 0)
+    audio = _audio_public(status if enabled else {}, state if enabled else {})
     return {
         "enabled": enabled,
         "paused": paused if enabled else False,
@@ -539,4 +627,66 @@ def status_public(store: Optional[ObserverStore] = None) -> dict:
         "model": str(status.get("model") or ""),
         "notes_today": notes_today,
         "disk_bytes": used,
+        "audio": audio,
     }
+
+
+def _audio_public(status: dict, state: dict) -> dict:
+    """Stream status for ``/api/health``. No PCM and no transcript text."""
+    recorded = status.get("audio") if isinstance(status.get("audio"), dict) else {}
+    installed = _flag("OBSERVER_AUDIO") or bool(recorded.get("installed"))
+
+    def enabled(key: str, stream: dict) -> bool:
+        if key in state:
+            return bool(state.get(key))
+        if "enabled" in stream:
+            return bool(stream.get("enabled"))
+        return installed
+
+    def stream(name: str, key: str) -> dict:
+        raw = recorded.get(name) if isinstance(recorded.get(name), dict) else {}
+        on = enabled(key, raw)
+        status_name = str(raw.get("status") or ("off" if not on else "waiting"))
+        if not on:
+            status_name = "off"
+        return {
+            "enabled": on,
+            "source": str(raw.get("source") or "off"),
+            "status": status_name,
+            "device": str(raw.get("device") or ""),
+        }
+
+    return {
+        "installed": installed,
+        "transcripts_only": True,
+        "model": str(recorded.get("model") or ""),
+        "system": stream("system", "audio_system"),
+        "mic": stream("mic", "audio_mic"),
+    }
+
+
+def _recent_duplicate(rows: list[dict], *, text: str, activity: str, channel: str) -> bool:
+    """Skip a sentence that repeats the latest row of the same stream.
+
+    An alternating pattern (a death, a retry, the same death) stays, so a
+    habit can still be counted. A still screen does not write the same note
+    again.
+    """
+    for prev in reversed(rows):
+        if str(prev.get("channel") or "") != channel:
+            continue
+        if str(prev.get("activity") or "") != activity:
+            continue
+        return same_note_text(str(prev.get("text") or ""), text)
+    return False
+
+
+def _note_exists(notes: list[dict], text: str) -> bool:
+    digest = fingerprint(text)
+    folded = normalize_note_text(text)
+    for note in notes:
+        if note.get("fingerprint") == digest:
+            return True
+        if folded and normalize_note_text(str(note.get("text") or "")) == folded:
+            return True
+    return False
