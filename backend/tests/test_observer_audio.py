@@ -274,6 +274,13 @@ def test_install_reloads_ssh_safely():
     assert "systemctl try-reload-or-restart ssh" in text
     assert "systemctl reload ssh" not in text
     assert "--observer-audio" in text
+    assert "nvidia-cublas-cu12" in text
+    assert "nvidia-cudnn-cu12>=9,<10" in text
+    assert "LD_LIBRARY_PATH" in text
+    assert "systemctl restart heirloom-observer.service" in text
+    assert "systemctl enable --now heirloom-observer.service" not in text
+    main = text.split("main() {", 1)[1]
+    assert main.index('write_env "') < main.index("install_observer")
 
 
 def test_duplicate_note_text_is_not_rewritten(tmp_path: Path):
@@ -287,3 +294,97 @@ def test_duplicate_note_text_is_not_rewritten(tmp_path: Path):
     )
     media = [row for row in store.read_notes() if "match" in row["text"].lower()]
     assert len({normalize_note_text(row["text"]) for row in media}) == len(media)
+
+
+def test_transcription_failure_stays_an_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("HEIRLOOM_OBSERVER", "1")
+    monkeypatch.setenv("HEIRLOOM_OBSERVER_DIR", str(tmp_path))
+
+    def boom(_pcm: bytes) -> str:
+        raise RuntimeError("Library libcublas.so.12 is not found or cannot be loaded")
+
+    tone = _tone(440, 0.2)
+    failed = audio_iteration(
+        devices=[],
+        system_enabled=True,
+        mic_enabled=True,
+        paused=False,
+        companion_system=tone,
+        companion_mic=b"\x00" * 4000,
+        transcribe=boom,
+    )
+    assert failed["system"]["status"] == "error"
+    assert failed["system"]["status"] != "silent"
+    assert "libcublas.so.12" in failed["system"]["error"]
+    assert failed["mic"]["status"] == "silent"
+    quiet = audio_iteration(
+        devices=[],
+        system_enabled=True,
+        mic_enabled=False,
+        paused=False,
+        companion_system=b"\x00" * 4000,
+        transcribe=boom,
+        prior_faults=failed["faults"],
+    )
+    assert quiet["system"]["status"] == "error"
+    assert "libcublas.so.12" in quiet["system"]["error"]
+
+    store = ObserverStore(tmp_path)
+    store.write_status(
+        {
+            "audio": {
+                "installed": True,
+                "model": "medium",
+                "system": failed["system"],
+                "mic": {"enabled": True, "source": "c920", "status": "silent", "device": "C920", "error": ""},
+            }
+        }
+    )
+    from observer_store import status_public
+
+    health = status_public(store)
+    assert health["audio"]["system"]["status"] == "error"
+    assert "libcublas.so.12" in health["audio"]["system"]["error"]
+
+
+def test_capture_card_name_is_not_a_repeating_habit(tmp_path: Path):
+    from observer_learn import habit_identity, is_capture_device_label, notes_from_observations
+
+    assert is_capture_device_label("EVGA XR1 Lite Capture Box Video") is True
+    assert is_capture_device_label("Terminal") is False
+    assert habit_identity("Often in Terminal during work (6 samples this stretch).") == habit_identity(
+        "Often in Terminal during work."
+    )
+    card_rows = [
+        {
+            "ts": f"2026-10-12T15:{index:02d}:00+00:00",
+            "activity": "work",
+            "app": "EVGA XR1 Lite Capture Box Video",
+            "title": "EVGA XR1 Lite Capture Box Video",
+            "text": f"desktop {index}",
+        }
+        for index in range(8)
+    ]
+    assert all("xr1" not in note["text"].lower() for note in notes_from_observations(card_rows))
+
+    store = ObserverStore(tmp_path)
+    store.root.mkdir(parents=True, exist_ok=True)
+    store.notes_path.write_text(
+        '{"id":"obs_oldhabit","source":"observer","kind":"habit","text":"Often in Terminal during work (4 samples this stretch).",'
+        '"confidence":0.7,"created_at":"2026-10-12T16:00:00+00:00","status":"pending","fingerprint":"old","tokens":[],"topics":["terminal","work"]}\n',
+        encoding="utf-8",
+    )
+    store.add_observations(
+        [
+            {
+                "ts": f"2026-10-12T16:{index:02d}:00+00:00",
+                "activity": "work",
+                "app": "Terminal",
+                "title": f"edit {index}",
+                "text": f"line {index}",
+            }
+            for index in range(1, 6)
+        ]
+    )
+    habits = [note for note in store.read_notes() if note["kind"] == "habit" and "Terminal" in note["text"]]
+    assert len(habits) == 1

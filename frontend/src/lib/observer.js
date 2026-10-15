@@ -28,9 +28,11 @@ export function audioStreamLine(stream, label) {
   if (!stream || typeof stream !== "object" || stream.enabled === false || stream.status === "off") {
     return `${label}: off`;
   }
-  const status = stream.status || "waiting";
+  const detail = stream.status === "error" && stream.error
+    ? `error (${stream.error})`
+    : (stream.status || "waiting");
   const where = stream.device || (stream.source && stream.source !== "off" && stream.source !== "waiting" ? stream.source : "");
-  return where ? `${label}: ${status} · ${where}` : `${label}: ${status}`;
+  return where ? `${label}: ${detail} · ${where}` : `${label}: ${detail}`;
 }
 
 export function watchedSourceLabel(label) {

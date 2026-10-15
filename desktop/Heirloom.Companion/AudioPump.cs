@@ -1,4 +1,5 @@
 using Heirloom.BoxCore;
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
 namespace Heirloom.Companion;

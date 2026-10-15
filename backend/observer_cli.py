@@ -35,7 +35,10 @@ def format_status() -> str:
     for name, label in (("system", "system audio"), ("mic", "microphone")):
         stream = audio.get(name) if isinstance(audio.get(name), dict) else {}
         device = stream.get("device") or stream.get("source") or "off"
-        lines.append(f"{label}: {stream.get('status') or 'off'} ({device})")
+        status_name = str(stream.get("status") or "off")
+        if status_name == "error" and stream.get("error"):
+            status_name = f"error: {stream.get('error')}"
+        lines.append(f"{label}: {status_name} ({device})")
     if audio.get("model"):
         lines.append(f"whisper: {audio.get('model')}")
     return "\n".join(lines) + "\n"

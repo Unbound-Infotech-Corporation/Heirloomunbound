@@ -13,6 +13,7 @@ from observer_learn import (
     normalize_note_text,
     notes_from_observations,
     render_digest_section,
+    habit_identity,
     same_note_text,
     suppressed,
     tokenize,
@@ -312,10 +313,23 @@ class ObserverStore:
             suppressions=self.read_suppressions(),
         )
         known_text = {normalize_note_text(str(row.get("text") or "")) for row in existing}
+        known_habits = {
+            habit_identity(str(row.get("text") or ""))
+            for row in existing
+            if str(row.get("kind") or "") == "habit"
+        }
         for note in drafts:
             folded = normalize_note_text(str(note.get("text") or ""))
+            if note.get("kind") == "habit":
+                ident = habit_identity(str(note.get("text") or ""))
+                if ident and ident in known_habits:
+                    continue
             if note["fingerprint"] in known or (folded and folded in known_text):
                 continue
+            if note.get("kind") == "habit":
+                ident = habit_identity(str(note.get("text") or ""))
+                if ident:
+                    known_habits.add(ident)
             if not note.get("created_at"):
                 note["created_at"] = _now().isoformat()
             _append_jsonl(self.notes_path, note)
@@ -649,11 +663,15 @@ def _audio_public(status: dict, state: dict) -> dict:
         status_name = str(raw.get("status") or ("off" if not on else "waiting"))
         if not on:
             status_name = "off"
+        error = str(raw.get("error") or "").strip()
+        if status_name != "error":
+            error = ""
         return {
             "enabled": on,
             "source": str(raw.get("source") or "off"),
             "status": status_name,
             "device": str(raw.get("device") or ""),
+            "error": error[:160],
         }
 
     return {
