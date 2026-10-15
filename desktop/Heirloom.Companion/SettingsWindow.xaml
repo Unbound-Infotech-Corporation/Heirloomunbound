@@ -22,6 +22,10 @@
         <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="Sign in" Click="OnSignIn" />
         <CheckBox x:Name="StartAtLogin" Margin="0,14,0,0" Content="Start at login" />
         <CheckBox x:Name="Toasts" Margin="0,8,0,0" Content="Tell me when the box drops or returns" />
+        <CheckBox x:Name="SystemAudio" Margin="0,14,0,0" Content="System audio" />
+        <TextBlock Margin="24,2,0,0" TextWrapping="Wrap" Text="The capture card hears HDMI first. This PC sends speaker loopback only when the card is quiet." />
+        <CheckBox x:Name="MicAudio" Margin="0,8,0,0" Content="Microphone" />
+        <TextBlock Margin="24,2,0,0" TextWrapping="Wrap" Text="This PC sends the default microphone. A C920 on the box is used instead when it is plugged in." />
         <TextBlock x:Name="Status" Margin="0,12,0,0" TextWrapping="Wrap" />
         <Button Margin="0,14,0,0" HorizontalAlignment="Left" Content="Save" Click="OnSave" IsDefault="True" />
     </StackPanel>
