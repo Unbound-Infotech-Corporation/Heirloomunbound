@@ -10,13 +10,20 @@ public enum BoxLamp
     Green,
 }
 
+public sealed record AudioStreamView(bool Enabled, string Source, string Status, string Device)
+{
+    public static AudioStreamView Off { get; } = new(false, "off", "off", "");
+}
+
 public sealed record BoxSnapshot(
     BoxLamp Lamp,
     string Address,
     int? LatencyMs,
     bool Reachable,
     bool ObserverPaused,
-    string Tooltip);
+    string Tooltip,
+    AudioStreamView SystemAudio,
+    AudioStreamView MicAudio);
 
 public static class TrayStatus
 {
@@ -72,10 +79,16 @@ public static class TrayStatus
 
         var host = string.IsNullOrWhiteSpace(address) ? BoxLink.DefaultBoxUrl : address.Trim();
         var paused = false;
+        var systemAudio = AudioStreamView.Off;
+        var micAudio = AudioStreamView.Off;
         var lines = new List<string> { Head(host, latencyMs, lamp) };
         if (health is { } body)
         {
             lines.Add(ObserverLine(body, out paused));
+            systemAudio = AudioLine(body, "system");
+            micAudio = AudioLine(body, "mic");
+            lines.Add(StreamLine("System audio", systemAudio));
+            lines.Add(StreamLine("Microphone", micAudio));
             lines.Add(PresenceLine(body));
             var gpu = GpuLine(body);
             if (gpu.Length > 0)
@@ -92,7 +105,61 @@ public static class TrayStatus
             lines.Add("The Twin Box answered, but Observer did not report a signal.");
         }
 
-        return new BoxSnapshot(lamp, host, latencyMs, reachable && health is not null, paused, string.Join('\n', lines));
+        return new BoxSnapshot(
+            lamp,
+            host,
+            latencyMs,
+            reachable && health is not null,
+            paused,
+            string.Join('\n', lines),
+            systemAudio,
+            micAudio);
+    }
+
+    public static bool CompanionShouldSend(AudioStreamView stream)
+    {
+        if (!stream.Enabled || stream.Status is "off" or "paused")
+        {
+            return false;
+        }
+
+        return stream.Source is "companion" or "waiting";
+    }
+
+    public static string StreamLine(string label, AudioStreamView stream)
+    {
+        if (!stream.Enabled || stream.Status == "off")
+        {
+            return label + ": off";
+        }
+
+        var where = stream.Device.Length > 0 ? stream.Device : stream.Source;
+        if (where.Length == 0 || where == "off" || where == "waiting")
+        {
+            return label + ": " + stream.Status;
+        }
+
+        return label + ": " + stream.Status + " · " + where;
+    }
+
+    private static AudioStreamView AudioLine(JsonElement health, string name)
+    {
+        if (!health.TryGetProperty("observer", out var observer) || observer.ValueKind != JsonValueKind.Object)
+        {
+            return AudioStreamView.Off;
+        }
+
+        if (!observer.TryGetProperty("audio", out var audio) || audio.ValueKind != JsonValueKind.Object)
+        {
+            return AudioStreamView.Off;
+        }
+
+        if (!audio.TryGetProperty(name, out var stream) || stream.ValueKind != JsonValueKind.Object)
+        {
+            return AudioStreamView.Off;
+        }
+
+        return new AudioStreamView(Flag(stream, "enabled"), Text(stream, "source"), Text(stream, "status"), Text(stream, "device"));
     }
 
     public static string PauseVerb(bool paused) => paused ? "Resume Observer" : "Pause Observer";

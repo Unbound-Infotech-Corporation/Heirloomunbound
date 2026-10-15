@@ -11,6 +11,7 @@ Restart=on-failure
 RestartSec=2
 RuntimeDirectory=heirloom-observer
 Group=video
+SupplementaryGroups=audio
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/var/lib/heirloom/observer /run/heirloom-observer

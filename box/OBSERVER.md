@@ -28,7 +28,9 @@ Supported cards are UVC devices that show up as `/dev/video*`. Internal Elgato 4
 
 A replug is picked up two ways: the daemon re-scans `/sys/class/video4linux` every loop, and `box/observer/99-heirloom-observer.rules` asks systemd to start `heirloom-observer.service` when a video4linux device is added. The unit uses `Restart=on-failure`.
 
-No signal (PC asleep, cable out, black frame) is logged as idle time and does not become a note full of empty frames. When the picture returns, the idle stretch is one observation.
+No signal (PC asleep, cable out, a flat frame, or a picture that does not change after the grab stalls) is logged as idle time and does not become a note full of empty frames. The daemon asks the card for 1280×720 YUYV. A negotiated 720×480 frame is no signal. When the picture returns, the idle stretch is one observation.
+
+Identical notes are kept once. A later frame with the same sentence does not add another row.
 
 ## What it samples
 
@@ -37,7 +39,7 @@ No signal (PC asleep, cable out, black frame) is logged as idle time and does no
 | `OBSERVER_SAMPLE_FPS` | `2` | Gray thumbnails while the picture is calm. |
 | `OBSERVER_BURST_FPS` | `8` | Sampling when the scene change is high (games, fast motion). |
 | Analysis | 15 s calm, 4 s burst | OCR and the vision model. They do not run at the sample rate. |
-| Resolution | 1080p, then 720p | `ffmpeg` / v4l2 MJPEG grab. The stored analysis frame is scaled to 640×360 in RAM and deleted. |
+| Resolution | 1280×720 YUYV | Requested explicitly. With no HDMI lock the XR1 Lite falls back to 720×480, and that size is no signal. The stored analysis frame is scaled to 640×360 in RAM and deleted. |
 | `OBSERVER_OLLAMA_URL` | `http://127.0.0.1:11434` | Host Ollama. The daemon does not call a cloud vision API. |
 
 Scene change is the fraction of gray pixels that differ from the previous thumbnail. At or above `0.35`, the sampler bursts.
@@ -122,6 +124,30 @@ Nightly, when Observer is on:
 
 Heirs do not get this page. `/api/observer/*` is 404 for an heir or a caller. The heir Twin may use notes the owner has accepted. It never receives pending notes, clips, or frames.
 
+## Audio
+
+Two streams, labeled by where they came from. They are never mixed into one transcript.
+
+| Stream | First source | Fallback |
+|---|---|---|
+| System audio | ALSA capture whose name contains `XR1` (`arecord -l`) | The companion sends WASAPI loopback of the default speakers |
+| Microphone | A Logitech C920 on the box, when it is plugged in | The companion sends the default WASAPI microphone |
+
+A mic window that matches the system window (correlation and energy) is dropped as speaker bleed. Silence is skipped before Whisper. The box runs faster-whisper (`medium` on a 20 GB-class GPU, otherwise `small`) on CUDA, with the model's VAD as well as the energy check.
+
+Notes are labeled `User said` for the microphone and `Watching/heard` for system audio. Both join the same observation timeline and the same note memory as the vision notes.
+
+What is stored is the transcript. PCM lives in `/run/heirloom-observer/audio` only until the window is read, then it is deleted. Files older than 30 seconds are deleted too.
+
+Each stream has its own switch:
+
+- `/observer` checkboxes, `PUT /api/observer/audio`
+- The companion tray menu and the companion Settings window
+
+`GET /api/health` reports both under `observer.audio` (`source`, `status`, `device`). The companion shows those lines and sends a stream only when the box is waiting on that PC.
+
+The privacy filter and the shared pause switch apply to transcripts. A paused Observer discards audio instead of transcribing it.
+
 ## Privacy
 
 Before OCR text is stored and before Ollama is called, the frame is dropped when the text or the device name looks like:
@@ -172,8 +198,11 @@ heirloom-box observer digest
 
 ```bash
 sudo bash box/install.sh --observer
+sudo bash box/install.sh --observer-audio
 ```
 
-That installs `ffmpeg`, `v4l-utils`, and `tesseract-ocr`, writes `/etc/heirloom/observer.enabled`, enables `heirloom-observer.service`, and pulls the vision tag when VRAM selected one. A later `sudo bash box/install.sh` without the flag keeps Observer on while that marker file exists. A dry-run does not create the marker.
+`--observer-audio` is the same switch as `--observer`. Both install `ffmpeg`, `v4l-utils`, `tesseract-ocr`, `alsa-utils`, a Python venv with faster-whisper, `/etc/heirloom/observer.enabled`, and `heirloom-observer.service`, and pull the vision tag when VRAM selected one. A later `sudo bash box/install.sh` without the flag keeps Observer on while that marker file exists. A dry-run does not create the marker.
+
+On the Windows PC, OBS sends the main monitor to the EVGA HDMI input with desktop audio on that output. The companion tray is signed in. System audio and Microphone in the tray are the two switches. HDMI audio is used while `arecord -l` shows the XR1. The companion sends speaker loopback only when that device is absent, and it sends the microphone when the box has no C920.
 
 `--dry-run --observer` prints the plan and does not install packages, write the marker, or start the service.

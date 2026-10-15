@@ -12,6 +12,7 @@ from observer_capture import (
     assert_ram_dir,
     ffmpeg_clip_command,
     ffmpeg_grab_command,
+    ffmpeg_gray_command,
     is_no_signal,
     pick_capture_device,
     ram_budget_bytes,
@@ -59,6 +60,8 @@ def test_observer_defaults_off(monkeypatch):
     assert observer_enabled() is False
     payload = health_payload()
     assert payload["observer"]["enabled"] is False
+    assert payload["observer"]["audio"]["transcripts_only"] is True
+    assert payload["observer"]["audio"]["system"]["status"] == "off"
     assert payload["version"] == "0.5.1"
 
 
@@ -344,7 +347,12 @@ def test_capture_rate_ring_and_device_pick():
         assert_ram_dir("/var/lib/heirloom/observer")
     command = ffmpeg_grab_command("/dev/video0", Path("/run/heirloom-observer/frame.jpg"))
     assert "v4l2" in command
-    assert "1920x1080" in command
+    assert "1280x720" in command
+    assert "yuyv422" in command
+    assert "1920x1080" not in command
+    gray = ffmpeg_gray_command("/dev/video0")
+    assert "1280x720" in gray
+    assert "yuyv422" in gray
     clip = ffmpeg_clip_command("/dev/video0", Path("/run/heirloom-observer/highlight.mkv"), seconds=8)
     assert "-an" in clip
     assert "8" in clip

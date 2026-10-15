@@ -1,9 +1,10 @@
-"""Owner observer API. Heirs receive 404. Clips are never returned."""
+"""Owner observer API. Heirs receive 404. Clips and raw audio are never returned."""
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from deps import get_current_user
@@ -33,6 +34,13 @@ class GazeArea(BaseModel):
     dwell_ms: int = Field(..., ge=0, le=30 * 60 * 1000)
 
 
+class AudioToggleReq(BaseModel):
+    """Turn one stream off without touching the other. Omitted fields stay as they are."""
+
+    system: bool | None = None
+    mic: bool | None = None
+
+
 class GazeReq(BaseModel):
     """Attention summaries only. Extra fields, including a raw stream, are ignored."""
 
@@ -54,6 +62,52 @@ async def observer_status(user: dict = Depends(get_current_user)):
     payload["source_label"] = WATCHED_SOURCE
     payload["clips_enabled"] = bool(clips_enabled()) and bool(payload["enabled"])
     return payload
+
+
+@router.put("/audio")
+async def observer_audio_toggles(body: AudioToggleReq, user: dict = Depends(get_current_user)):
+    """Separate on/off switches for system audio and the microphone."""
+    store = _gate(user)
+    if not observer_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    store.set_audio_toggles(system=body.system, mic=body.mic)
+    return status_public(store)
+
+
+@router.post("/audio/{source}")
+async def observer_audio_chunk(source: str, request: Request, user: dict = Depends(get_current_user)):
+    """Companion PCM for one stream. The body is deleted after the daemon reads it."""
+    store = _gate(user)
+    if not observer_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    if source not in {"system", "mic"}:
+        raise HTTPException(status_code=404, detail="Not found")
+    from box_pause import merged_state
+    from observer_audio import accept_companion_chunk, spool_dir
+    from observer_privacy import pause_decision
+
+    paused, _reason = pause_decision(
+        merged_state(store.read_state()),
+        now=datetime.now().astimezone(),
+        quiet_hours=os.environ.get("OBSERVER_QUIET_HOURS", ""),
+        hotkey_phrase=os.environ.get("OBSERVER_HOTKEY_PHRASE", "HEIRLOOM PAUSE"),
+    )
+    enabled = store.audio_toggle("audio_system" if source == "system" else "audio_mic")
+    body = await request.body()
+    result = accept_companion_chunk(
+        source=source,
+        pcm=body,
+        paused=paused,
+        enabled=enabled,
+        spool=spool_dir(),
+    )
+    if result["reason"] == "too-large":
+        raise HTTPException(status_code=413, detail="Audio window is too long")
+    if result["reason"] in {"empty", "alignment"}:
+        raise HTTPException(status_code=400, detail="PCM must be 16-bit little-endian mono")
+    if not result["accepted"]:
+        raise HTTPException(status_code=409, detail=result["reason"])
+    return {"accepted": True, "source": source, "bytes": result["bytes"]}
 
 
 @router.post("/pause")

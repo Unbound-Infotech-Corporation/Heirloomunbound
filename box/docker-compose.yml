@@ -33,6 +33,7 @@ services:
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab-reports:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab-reports
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/observer:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/observer
+      - /run/heirloom-observer:/run/heirloom-observer
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/presence:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/presence
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy:ro
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/pause.json:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/pause.json

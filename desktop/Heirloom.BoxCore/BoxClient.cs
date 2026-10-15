@@ -164,6 +164,60 @@ public static class BoxClient
         return response.IsSuccessStatusCode;
     }
 
+    public static async Task<bool> SetAudioStreamAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        string source,
+        bool enabled,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken))
+        {
+            return false;
+        }
+
+        var payload = source == "mic"
+            ? JsonSerializer.Serialize(new { mic = enabled })
+            : JsonSerializer.Serialize(new { system = enabled });
+        using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(15));
+        using var request = new HttpRequestMessage(HttpMethod.Put, Api(baseUrl, "/api/observer/audio"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return response.IsSuccessStatusCode;
+    }
+
+    public static async Task<bool> PostAudioAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        string source,
+        byte[] pcm,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken) || pcm.Length == 0)
+        {
+            return false;
+        }
+
+        if (source is not ("system" or "mic"))
+        {
+            return false;
+        }
+
+        using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(15));
+        using var request = new HttpRequestMessage(HttpMethod.Post, Api(baseUrl, "/api/observer/audio/" + source));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
+        request.Headers.TryAddWithoutValidation("X-Heirloom-Sample-Rate", PcmConvert.TargetRate.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        request.Content = new ByteArrayContent(pcm);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return response.IsSuccessStatusCode;
+    }
+
     public static HttpClient Create(string baseUrl, string? pin, string? caPem, TimeSpan timeout)
     {
         var host = new Uri(BoxLink.Normalize(baseUrl)).Host;

@@ -24,6 +24,15 @@ export function feedbackLabel(vote) {
   return "";
 }
 
+export function audioStreamLine(stream, label) {
+  if (!stream || typeof stream !== "object" || stream.enabled === false || stream.status === "off") {
+    return `${label}: off`;
+  }
+  const status = stream.status || "waiting";
+  const where = stream.device || (stream.source && stream.source !== "off" && stream.source !== "waiting" ? stream.source : "");
+  return where ? `${label}: ${status} · ${where}` : `${label}: ${status}`;
+}
+
 export function watchedSourceLabel(label) {
   if (!label) return "";
   return String(label).includes(WATCHED_SOURCE) ? WATCHED_SOURCE : "";

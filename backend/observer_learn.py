@@ -76,6 +76,21 @@ def _light_stem(word: str) -> str:
     return stem if len(stem) >= 4 else ""
 
 
+_TRANSCRIPT_ACTIVITIES = frozenset({"speech", "heard"})
+
+
+def normalize_note_text(text: str) -> str:
+    """Compare notes without case, punctuation, or extra spaces."""
+    folded = re.sub(r"[^a-z0-9\s]", " ", (text or "").lower())
+    return re.sub(r"\s+", " ", folded).strip()
+
+
+def same_note_text(left: str, right: str) -> bool:
+    a = normalize_note_text(left)
+    b = normalize_note_text(right)
+    return bool(a) and a == b
+
+
 def fingerprint(text: str) -> str:
     tokens = sorted(set(tokenize(text)))
     return hashlib.sha256(" ".join(tokens).encode("utf-8")).hexdigest()[:16]
@@ -269,8 +284,17 @@ def notes_from_observations(
     *,
     suppressions: list[dict] | None = None,
 ) -> list[dict]:
-    """Structured notes. Caller still runs suppression; this filters too."""
+    """Structured notes. Caller still runs suppression; this filters too.
+
+    Transcript rows already became speech notes. They stay out of habit and
+    workflow drafts so a spoken line is not also "often in User said".
+    """
     blocked = list(suppressions or [])
+    observations = [
+        row
+        for row in observations
+        if not row.get("channel") and str(row.get("activity") or "") not in _TRANSCRIPT_ACTIVITIES
+    ]
     sessions = segment_sessions(observations)
     drafts: list[dict] = []
     drafts.extend(_workflow_notes(sessions))
@@ -286,6 +310,13 @@ def notes_from_observations(
         seen.add(note["fingerprint"])
         kept.append(note)
     return kept
+
+
+def transcript_note(*, channel: str, text: str, created_at: str = "") -> dict:
+    """One memory row for a transcript. Mic and system audio stay separate kinds."""
+    kind = "speech" if channel == "mic" else "heard"
+    topics = ["user said"] if channel == "mic" else ["watching heard"]
+    return _make_note(kind=kind, text=text, confidence=0.82, topics=topics, created_at=created_at)
 
 
 def _make_note(
