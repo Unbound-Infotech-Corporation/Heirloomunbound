@@ -133,7 +133,9 @@ Two streams, labeled by where they came from. They are never mixed into one tran
 | System audio | ALSA capture whose name contains `XR1` (`arecord -l`) | The companion sends WASAPI loopback of the default speakers |
 | Microphone | A Logitech C920 on the box, when it is plugged in | The companion sends the default WASAPI microphone |
 
-A mic window that matches the system window (correlation and energy) is dropped as speaker bleed. Silence is skipped before Whisper. The box runs faster-whisper (`medium` on a 20 GB-class GPU, otherwise `small`) on CUDA, with the model's VAD as well as the energy check.
+A mic window that matches the system window (correlation and energy) is dropped as speaker bleed. Silence is skipped before Whisper. The box runs faster-whisper (`medium` on a 20 GB-class GPU, otherwise `small`) on CUDA, with the model's VAD as well as the energy check. The installer puts `nvidia-cublas-cu12` and `nvidia-cudnn-cu12` (9.x) in the observer venv and points `LD_LIBRARY_PATH` at them, because a CUDA 13 driver does not provide `libcublas.so.12`. A failed transcription stays `error` on `GET /api/health` until a later window succeeds.
+
+The capture card's own name (for example `EVGA XR1 Lite Capture Box Video`) is not an app. Habit notes do not say "Often in" that device, and a habit is not written again on every analysis.
 
 Notes are labeled `User said` for the microphone and `Watching/heard` for system audio. Both join the same observation timeline and the same note memory as the vision notes.
 
@@ -201,7 +203,7 @@ sudo bash box/install.sh --observer
 sudo bash box/install.sh --observer-audio
 ```
 
-`--observer-audio` is the same switch as `--observer`. Both install `ffmpeg`, `v4l-utils`, `tesseract-ocr`, `alsa-utils`, a Python venv with faster-whisper, `/etc/heirloom/observer.enabled`, and `heirloom-observer.service`, and pull the vision tag when VRAM selected one. A later `sudo bash box/install.sh` without the flag keeps Observer on while that marker file exists. A dry-run does not create the marker.
+`--observer-audio` is the same switch as `--observer`. Both install `ffmpeg`, `v4l-utils`, `tesseract-ocr`, `alsa-utils`, a Python venv with faster-whisper plus the CUDA 12 cublas/cudnn wheels, `/etc/heirloom/observer.enabled`, and `heirloom-observer.service`, and pull the vision tag when VRAM selected one. Audio settings are written to `box.env` before the service is restarted, so a daemon that was already running picks them up. A later `sudo bash box/install.sh` without the flag keeps Observer on while that marker file exists. A dry-run does not create the marker.
 
 On the Windows PC, OBS sends the main monitor to the EVGA HDMI input with desktop audio on that output. The companion tray is signed in. System audio and Microphone in the tray are the two switches. HDMI audio is used while `arecord -l` shows the XR1. The companion sends speaker loopback only when that device is absent, and it sends the microphone when the box has no C920.
 

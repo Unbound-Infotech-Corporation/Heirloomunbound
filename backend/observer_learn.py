@@ -118,6 +118,28 @@ def _parse_ts(value: Any) -> Optional[datetime]:
         return None
 
 
+_CAPTURE_MARKERS = ("xr1", "evga", "uvc", "usb video", "capture box", "video capture")
+
+
+def is_capture_device_label(name: str) -> bool:
+    """True when the string is the HDMI capture card, not a program the owner opened.
+
+    The XR1 enumerates as a name like ``EVGA XR1 Lite Capture Box Video``. That
+    label is the camera, so it cannot become "Often in …".
+    """
+    folded = re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
+    if not folded or len(folded.split()) > 12:
+        return False
+    return any(marker in folded for marker in _CAPTURE_MARKERS)
+
+
+def habit_identity(text: str) -> str:
+    """Same habit ignoring the sample count, which changes every analysis."""
+    folded = normalize_note_text(text)
+    folded = re.sub(r"\b\d+\s+samples this stretch\b", "", folded)
+    return re.sub(r"\s+", " ", folded).strip()
+
+
 def classify_activity(text: str, app: str = "") -> tuple[str, str]:
     """Return ``(activity, game)``. Activity is work, play, browsing, media, or unknown."""
     blob = f"{app}\n{text}".lower()
@@ -231,8 +253,9 @@ def _close_session(current: dict) -> dict:
     titles: list[str] = []
     for row in current["rows"]:
         title = str(row.get("title") or row.get("app") or "").strip()
-        if title and title not in titles:
-            titles.append(title)
+        if not title or title in titles or is_capture_device_label(title):
+            continue
+        titles.append(title)
     games = [str(row.get("game") or "") for row in current["rows"] if row.get("game")]
     return {
         "id": f"ses_{uuid.uuid4().hex[:12]}",
@@ -371,17 +394,23 @@ def _habit_notes(observations: list[dict]) -> list[dict]:
     counts: dict[str, int] = {}
     activity_for: dict[str, str] = {}
     for row in observations:
-        app = str(row.get("app") or row.get("title") or "").strip()
+        app = str(row.get("app") or "").strip()
+        title = str(row.get("title") or "").strip()
+        if is_capture_device_label(app):
+            app = ""
+        if is_capture_device_label(title):
+            title = ""
+        app = app or title
         if not app or str(row.get("activity") or "") in {"", "idle", "unknown"}:
             continue
         counts[app] = counts.get(app, 0) + 1
         activity_for[app] = str(row.get("activity") or "unknown")
     notes: list[dict] = []
     for app, count in counts.items():
-        if count < 4:
+        if count < 4 or is_capture_device_label(app):
             continue
         activity = activity_for[app]
-        text = f"Often in {app} during {activity} ({count} samples this stretch)."
+        text = f"Often in {app} during {activity}."
         notes.append(
             _make_note(
                 kind="habit",

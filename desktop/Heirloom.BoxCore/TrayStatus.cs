@@ -10,7 +10,7 @@ public enum BoxLamp
     Green,
 }
 
-public sealed record AudioStreamView(bool Enabled, string Source, string Status, string Device)
+public sealed record AudioStreamView(bool Enabled, string Source, string Status, string Device, string Error = "")
 {
     public static AudioStreamView Off { get; } = new(false, "off", "off", "");
 }
@@ -134,12 +134,18 @@ public static class TrayStatus
         }
 
         var where = stream.Device.Length > 0 ? stream.Device : stream.Source;
-        if (where.Length == 0 || where == "off" || where == "waiting")
+        var status = stream.Status;
+        if (status == "error" && stream.Error.Length > 0)
         {
-            return label + ": " + stream.Status;
+            status = "error (" + stream.Error + ")";
         }
 
-        return label + ": " + stream.Status + " · " + where;
+        if (where.Length == 0 || where == "off" || where == "waiting")
+        {
+            return label + ": " + status;
+        }
+
+        return label + ": " + status + " · " + where;
     }
 
     private static AudioStreamView AudioLine(JsonElement health, string name)
@@ -159,7 +165,7 @@ public static class TrayStatus
             return AudioStreamView.Off;
         }
 
-        return new AudioStreamView(Flag(stream, "enabled"), Text(stream, "source"), Text(stream, "status"), Text(stream, "device"));
+        return new AudioStreamView(Flag(stream, "enabled"), Text(stream, "source"), Text(stream, "status"), Text(stream, "device"), Text(stream, "error"));
     }
 
     public static string PauseVerb(bool paused) => paused ? "Resume Observer" : "Pause Observer";

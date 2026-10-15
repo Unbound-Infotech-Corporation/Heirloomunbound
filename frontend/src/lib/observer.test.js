@@ -40,5 +40,7 @@ describe("observer helpers", () => {
     expect(audioStreamLine({ enabled: true, status: "silent", source: "c920", device: "HD Pro Webcam C920" }, "Microphone"))
       .toBe("Microphone: silent · HD Pro Webcam C920");
     expect(audioStreamLine({ enabled: true, status: "waiting", source: "waiting" }, "Microphone")).toBe("Microphone: waiting");
+    expect(audioStreamLine({ enabled: true, status: "error", source: "xr1", device: "EVGA XR1 Lite", error: "libcublas.so.12 not found" }, "System audio"))
+      .toBe("System audio: error (libcublas.so.12 not found) · EVGA XR1 Lite");
   });
 });

@@ -23,6 +23,7 @@ from observer_audio import (  # noqa: E402
     alsa_device_string,
     audio_iteration,
     drain_chunks,
+    fault_text,
     parse_arecord_listing,
     pick_mic_device,
     pick_system_device,
@@ -55,6 +56,7 @@ from observer_models import (  # noqa: E402
     residency_for,
     same_model,
 )
+from observer_learn import is_capture_device_label  # noqa: E402
 from observer_pipeline import consider_frame  # noqa: E402
 from observer_privacy import pause_decision  # noqa: E402
 from box_pause import merged_state  # noqa: E402
@@ -407,6 +409,7 @@ def _audio_loop(store: ObserverStore, stop: threading.Event) -> None:
     spool = spool_dir()
     hotkey = os.environ.get("OBSERVER_HOTKEY_PHRASE", "HEIRLOOM PAUSE")
     quiet = os.environ.get("OBSERVER_QUIET_HOURS", "")
+    faults = {"system": "", "mic": ""}
     while not stop.is_set():
         try:
             sweep_stale(spool)
@@ -460,7 +463,14 @@ def _audio_loop(store: ObserverStore, stop: threading.Event) -> None:
                 companion_mic=companion_mic,
                 transcribe=_transcribe_pcm,
                 hotkey_phrase=hotkey,
+                prior_faults=faults,
             )
+            reported = result.get("faults") if isinstance(result.get("faults"), dict) else {}
+            for name in ("system", "mic"):
+                message = str(reported.get(name) or "")
+                if message and message != faults.get(name):
+                    print(f"observer audio {name}: {message}", file=sys.stderr)
+            faults = {"system": str(reported.get("system") or ""), "mic": str(reported.get("mic") or "")}
             for note in result["notes"]:
                 if note.get("latch_pause"):
                     store.latch_hotkey()
@@ -485,15 +495,18 @@ def _audio_loop(store: ObserverStore, stop: threading.Event) -> None:
                     "mic": result["mic"],
                 },
             )
-        except Exception:
+        except Exception as exc:
+            message = fault_text(exc)
+            faults = {"system": message, "mic": message}
+            print(f"observer audio: {message}", file=sys.stderr)
             _write_audio_status(
                 store,
                 {
                     "installed": True,
                     "transcripts_only": True,
                     "model": whisper_model_name(),
-                    "system": {"enabled": True, "source": "off", "status": "error", "device": ""},
-                    "mic": {"enabled": True, "source": "off", "status": "error", "device": ""},
+                    "system": {"enabled": True, "source": "off", "status": "error", "device": "", "error": message},
+                    "mic": {"enabled": True, "source": "off", "status": "error", "device": "", "error": message},
                 },
             )
         stop.wait(0.4)
@@ -635,7 +648,9 @@ def main() -> int:
                 return ollama_see(_path, model_name if model_name != "ocr" else "")
 
             use_model = None if model_name == "ocr" else _model
-            result = consider_frame(ocr=ocr, app=str(device.get("name") or ""), model=use_model, hotkey_phrase=hotkey)
+            device_name = str(device.get("name") or "")
+            seen_app = "" if is_capture_device_label(device_name) else device_name
+            result = consider_frame(ocr=ocr, app=seen_app, model=use_model, hotkey_phrase=hotkey)
             jpeg.unlink(missing_ok=True)
             if result["latch_pause"]:
                 store.latch_hotkey()
@@ -646,11 +661,14 @@ def main() -> int:
             else:
                 from presence_cues import attach_presence_fields
 
+                title = result["text"][:120]
+                if is_capture_device_label(title):
+                    title = ""
                 row = {
                     "ts": now_dt.isoformat(),
                     "activity": result["activity"],
-                    "app": str(device.get("name") or ""),
-                    "title": result["text"][:120],
+                    "app": seen_app,
+                    "title": title,
                     "game": result["game"],
                     "text": result["text"],
                     "scene_delta": round(delta, 3),

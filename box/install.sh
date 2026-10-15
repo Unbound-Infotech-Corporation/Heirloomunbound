@@ -618,8 +618,9 @@ install_observer() {
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would install /usr/local/bin/heirloom-observer, heirloom-observer.service, and 99-heirloom-observer.rules"
     log "would write /etc/tmpfiles.d/heirloom-observer.conf for /run/heirloom-observer/audio"
-    log "would create ${DATA_ROOT}/observer/venv and pip install faster-whisper"
-    log "would touch /etc/heirloom/observer.enabled and systemctl enable --now heirloom-observer.service"
+    log "would create ${DATA_ROOT}/observer/venv and pip install faster-whisper nvidia-cublas-cu12 nvidia-cudnn-cu12"
+    log "would write heirloom-observer.service.d/cuda-libs.conf with LD_LIBRARY_PATH for those wheels"
+    log "would touch /etc/heirloom/observer.enabled and systemctl restart heirloom-observer.service after box.env is written"
     return 0
   fi
   install -m 0755 "${ROOT}/box/observer/heirloom-observer" /usr/local/bin/heirloom-observer
@@ -637,12 +638,17 @@ install_observer() {
   touch /etc/heirloom/observer.enabled
   chmod 644 /etc/heirloom/observer.enabled
   install_observer_audio_venv
+  write_observer_library_dropin
   systemctl daemon-reload
-  systemctl enable --now heirloom-observer.service || log "heirloom-observer did not start; heirloom-box status will show why"
+  systemctl enable heirloom-observer.service || log "could not enable heirloom-observer.service"
   if command -v udevadm >/dev/null 2>&1; then
     udevadm control --reload-rules || true
     udevadm trigger --subsystem-match=video4linux || true
   fi
+  # box.env (OBSERVER_AUDIO) is written before this function. enable --now would
+  # leave an already-running daemon on the previous environment, so audio stayed
+  # off until a manual restart. Restart after the venv and the library drop-in.
+  systemctl restart heirloom-observer.service || log "heirloom-observer did not start; heirloom-box status will show why"
   if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
     usermod -aG video,audio "${SUDO_USER}" || true
   fi
@@ -655,7 +661,41 @@ install_observer_audio_venv() {
     python3 -m venv "${DATA_ROOT}/observer/venv"
   fi
   "${DATA_ROOT}/observer/venv/bin/pip" install --upgrade pip
-  "${DATA_ROOT}/observer/venv/bin/pip" install 'faster-whisper>=1.1.0,<2'
+  # nvidia-cublas-cu12 provides libcublas.so.12. The box driver can be CUDA 13,
+  # which does not ship that soname. cudnn 9 is what ctranslate2 loads beside it.
+  "${DATA_ROOT}/observer/venv/bin/pip" install \
+    'faster-whisper>=1.1.0,<2' \
+    'nvidia-cublas-cu12' \
+    'nvidia-cudnn-cu12>=9,<10'
+}
+
+write_observer_library_dropin() {
+  local py="${DATA_ROOT}/observer/venv/bin/python"
+  local drop_dir="/etc/systemd/system/heirloom-observer.service.d"
+  local drop="${drop_dir}/cuda-libs.conf"
+  local site="" dir joined
+  local -a parts=()
+  install -d -m 0755 "${drop_dir}"
+  if [[ -x "${py}" ]]; then
+    site="$("${py}" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])' 2>/dev/null || true)"
+  fi
+  for dir in "${site}/nvidia/cublas/lib" "${site}/nvidia/cudnn/lib"; do
+    if [[ -n "${site}" && -d "${dir}" ]]; then
+      parts+=("${dir}")
+    fi
+  done
+  if [[ ${#parts[@]} -eq 0 ]]; then
+    rm -f "${drop}"
+    log "Observer venv has no nvidia cublas/cudnn lib directory yet; CUDA transcripts will report an error until the wheels are installed."
+    return 0
+  fi
+  joined="$(IFS=:; echo "${parts[*]}")"
+  cat > "${drop}" <<EOF
+[Service]
+Environment=LD_LIBRARY_PATH=${joined}
+EOF
+  chmod 644 "${drop}"
+  log "Observer CUDA libs on LD_LIBRARY_PATH: ${joined}"
 }
 
 install_presence() {

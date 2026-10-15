@@ -351,6 +351,12 @@ def consider_transcript(
     }
 
 
+def fault_text(exc: BaseException) -> str:
+    """One line for health. The journal already has the traceback."""
+    text = str(exc).strip().splitlines()[0] if str(exc).strip() else exc.__class__.__name__
+    return text[:160]
+
+
 def _stream(
     *,
     enabled: bool,
@@ -358,6 +364,7 @@ def _stream(
     source: str,
     device: str,
     status: str,
+    error: str = "",
 ) -> dict:
     if paused and enabled:
         status = "paused"
@@ -365,7 +372,16 @@ def _stream(
         status = "off"
         source = "off"
         device = ""
-    return {"enabled": enabled, "source": source, "status": status, "device": device}
+        error = ""
+    if status != "error":
+        error = ""
+    return {
+        "enabled": enabled,
+        "source": source,
+        "status": status,
+        "device": device,
+        "error": error[:160],
+    }
 
 
 def audio_iteration(
@@ -380,6 +396,7 @@ def audio_iteration(
     companion_mic: bytes = b"",
     transcribe: Optional[Callable[[bytes], str]] = None,
     hotkey_phrase: str = "",
+    prior_faults: dict | None = None,
 ) -> dict:
     """Choose one source per stream, gate crosstalk, and transcribe each alone.
 
@@ -387,12 +404,18 @@ def audio_iteration(
     concatenated.
     """
     notes: list[dict] = []
+    prior = prior_faults if isinstance(prior_faults, dict) else {}
+    faults = {
+        "system": str(prior.get("system") or ""),
+        "mic": str(prior.get("mic") or ""),
+    }
     if paused:
         return {
             "model": whisper_model_name(),
             "system": _stream(enabled=system_enabled, paused=True, source="off", device="", status="paused"),
             "mic": _stream(enabled=mic_enabled, paused=True, source="off", device="", status="paused"),
             "notes": notes,
+            "faults": faults,
         }
 
     system_dev = pick_system_device(devices) if system_enabled else None
@@ -438,18 +461,23 @@ def audio_iteration(
         mic_status = "suppressed"
         mic_pcm = b""
 
+    ran: set[str] = set()
     if transcribe is not None:
         for channel, pcm in (("system", system_pcm), ("mic", mic_pcm)):
             if not pcm or is_silence(pcm):
                 continue
             try:
                 heard = transcribe(pcm)
-            except Exception:
+            except Exception as exc:
+                message = fault_text(exc)
+                faults[channel] = message
                 if channel == "system":
                     system_status = "error"
                 else:
                     mic_status = "error"
                 continue
+            ran.add(channel)
+            faults[channel] = ""
             decision = consider_transcript(heard, channel=channel, paused=False, hotkey_phrase=hotkey_phrase)
             if decision.get("latch_pause") or decision.get("dropped") or decision.get("store"):
                 notes.append(decision)
@@ -459,6 +487,12 @@ def audio_iteration(
                 else:
                     mic_status = "hearing"
 
+    # A quiet follow-up window must not hide a model that just failed.
+    if "system" not in ran and faults["system"] and system_status == "silent":
+        system_status = "error"
+    if "mic" not in ran and faults["mic"] and mic_status == "silent":
+        mic_status = "error"
+
     return {
         "model": whisper_model_name(),
         "system": _stream(
@@ -467,6 +501,7 @@ def audio_iteration(
             source=system_source,
             device=system_device,
             status=system_status,
+            error=faults["system"],
         ),
         "mic": _stream(
             enabled=mic_enabled,
@@ -474,8 +509,10 @@ def audio_iteration(
             source=mic_source,
             device=mic_device,
             status=mic_status,
+            error=faults["mic"],
         ),
         "notes": notes,
+        "faults": faults,
     }
 
 
