@@ -666,13 +666,18 @@ def _audio_public(status: dict, state: dict) -> dict:
 
 
 def _recent_duplicate(rows: list[dict], *, text: str, activity: str, channel: str) -> bool:
+    """Skip a sentence that repeats the latest row of the same stream.
+
+    An alternating pattern (a death, a retry, the same death) stays, so a
+    habit can still be counted. A still screen does not write the same note
+    again.
+    """
     for prev in reversed(rows):
         if str(prev.get("channel") or "") != channel:
             continue
         if str(prev.get("activity") or "") != activity:
             continue
-        if same_note_text(str(prev.get("text") or ""), text):
-            return True
+        return same_note_text(str(prev.get("text") or ""), text)
     return False
 
 

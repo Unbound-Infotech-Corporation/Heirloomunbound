@@ -30,7 +30,7 @@ A replug is picked up two ways: the daemon re-scans `/sys/class/video4linux` eve
 
 No signal (PC asleep, cable out, a flat frame, or a picture that does not change after the grab stalls) is logged as idle time and does not become a note full of empty frames. The daemon asks the card for 1280×720 YUYV. A negotiated 720×480 frame is no signal. When the picture returns, the idle stretch is one observation.
 
-Identical notes are kept once. A later frame with the same sentence does not add another row.
+A still picture that repeats the latest sentence is not written again. A sequence that alternates, such as a death and then a retry, still counts.
 
 ## What it samples
 
