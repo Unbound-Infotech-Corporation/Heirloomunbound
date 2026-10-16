@@ -479,7 +479,7 @@ public sealed class PcToolkit : IDisposable
                 return null;
             }
 
-            var first = line.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+            var first = line.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)[0].Trim();
             return first.Length > 180 ? first[..180] : first;
         }
         catch

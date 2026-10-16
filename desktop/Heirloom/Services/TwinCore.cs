@@ -68,7 +68,7 @@ public static class TwinTokens
     {
         var raw = (query ?? "")
             .ToLowerInvariant()
-            .Split([' ', '\t', '\n', '\r', ',', '.', '?', '!', ';', ':', '"', '\'', '(', ')', '/', '\\', '-'], StringSplitOptions.RemoveEmptyEntries)
+            .Split(new[] { ' ', '\t', '\n', '\r', ',', '.', '?', '!', ';', ':', '"', '\'', '(', ')', '/', '\\', '-' }, StringSplitOptions.RemoveEmptyEntries)
             .Where(t => t.Length > 2 && !Stop.Contains(t))
             .Select(Stem)
             .Distinct(StringComparer.OrdinalIgnoreCase)

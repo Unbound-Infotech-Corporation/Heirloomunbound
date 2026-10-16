@@ -16,6 +16,7 @@ internal sealed class TrayController : IDisposable
     private readonly AudioPump _audio;
     private BoxSnapshot _snapshot = TrayStatus.Describe(false, null, BoxLink.DefaultBoxUrl, null);
     private bool? _wasReachable;
+    private bool _wasCertificate;
     private TimeSpan _delay = PollSchedule.Healthy;
     private Icon? _current;
 
@@ -40,13 +41,14 @@ internal sealed class TrayController : IDisposable
         {
             var url = _store.BoxUrl;
             var probe = await BoxClient.HealthAsync(url, _store.Pin, _store.CaPem, cancellationToken).ConfigureAwait(true);
-            var next = TrayStatus.Describe(probe.Reachable, probe.LatencyMs, url, probe.Body);
+            var next = TrayStatus.Describe(probe.Reachable, probe.LatencyMs, url, probe.Body, probe.Failure);
             var healthy = next.Lamp != BoxLamp.Red;
             _delay = PollSchedule.Next(_delay, healthy);
             MaybeToast(next);
             _snapshot = next;
             _audio.Note(next);
             _wasReachable = next.Reachable;
+            _wasCertificate = next.CertificateFailed;
             await Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 _icon.ToolTipText = next.Tooltip;
@@ -66,13 +68,26 @@ internal sealed class TrayController : IDisposable
 
     private void MaybeToast(BoxSnapshot next)
     {
-        if (!_store.Toasts || _wasReachable is null || _wasReachable == next.Reachable)
+        if (!_store.Toasts || _wasReachable is null)
         {
             return;
         }
 
-        var title = next.Reachable ? "Twin Box is back" : "Twin Box is offline";
-        var body = next.Reachable ? "Observer status is updating again." : "The box did not answer.";
+        if (_wasReachable == next.Reachable && _wasCertificate == next.CertificateFailed)
+        {
+            return;
+        }
+
+        var title = next.Reachable
+            ? "Twin Box is back"
+            : next.CertificateFailed
+                ? "Certificate check failed"
+                : "Twin Box is offline";
+        var body = next.Reachable
+            ? "Observer status is updating again."
+            : next.CertificateFailed
+                ? CertificatePin.CheckFailed
+                : "The box did not answer.";
         Application.Current.Dispatcher.Invoke(() => _icon.ShowNotification(title, body));
     }
 

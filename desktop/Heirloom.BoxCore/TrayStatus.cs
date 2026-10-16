@@ -23,7 +23,8 @@ public sealed record BoxSnapshot(
     bool ObserverPaused,
     string Tooltip,
     AudioStreamView SystemAudio,
-    AudioStreamView MicAudio);
+    AudioStreamView MicAudio,
+    bool CertificateFailed = false);
 
 public static class TrayStatus
 {
@@ -50,7 +51,7 @@ public static class TrayStatus
         return BoxLamp.Amber;
     }
 
-    public static BoxSnapshot Describe(bool reachable, int? latencyMs, string? address, string? healthJson)
+    public static BoxSnapshot Describe(bool reachable, int? latencyMs, string? address, string? healthJson, string? failure = null)
     {
         JsonElement? health = null;
         if (reachable && !string.IsNullOrWhiteSpace(healthJson))
@@ -72,6 +73,8 @@ public static class TrayStatus
             lamp = BoxLamp.Amber;
         }
 
+        var certificateFailed = !reachable &&
+            string.Equals(failure, CertificatePin.CheckFailed, StringComparison.Ordinal);
         if (!reachable)
         {
             lamp = BoxLamp.Red;
@@ -96,6 +99,10 @@ public static class TrayStatus
                 lines.Add(gpu);
             }
         }
+        else if (certificateFailed)
+        {
+            lines.Add(CertificatePin.CheckFailed);
+        }
         else if (!reachable)
         {
             lines.Add("The Twin Box did not answer.");
@@ -113,7 +120,8 @@ public static class TrayStatus
             paused,
             string.Join('\n', lines),
             systemAudio,
-            micAudio);
+            micAudio,
+            certificateFailed);
     }
 
     public static bool CompanionShouldSend(AudioStreamView stream)

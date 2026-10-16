@@ -306,7 +306,9 @@ public partial class FirstRunViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Fault = "Could not sign in to the box. " + ex.Message;
+            Fault = CertificatePin.IsValidationFailure(ex)
+                ? CertificatePin.CheckFailed
+                : "Could not sign in to the box. " + ex.Message;
         }
         finally
         {

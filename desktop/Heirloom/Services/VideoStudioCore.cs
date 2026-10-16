@@ -276,7 +276,7 @@ public static class VideoCatalog
 
     private static string BeatLine(string script, int index)
     {
-        var parts = script.Split(['.', '!', '?'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var parts = script.Split(new[] { '.', '!', '?' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length == 0)
         {
             return script;

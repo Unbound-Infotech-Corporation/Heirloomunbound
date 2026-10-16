@@ -1,4 +1,3 @@
-using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -89,19 +88,42 @@ public static class AppPaths
     public static string AvatarRoot => Path.Combine(Root, "avatar");
     public static string VideoRoot => Path.Combine(AvatarRoot, "films");
     public static string AvatarEngineRoot =>
-        Directory.Exists(@"F:\HeirloomModels") || DriveInfo.GetDrives().Any(d => d.Name.StartsWith("F", StringComparison.OrdinalIgnoreCase))
+        ResolveAvatarEngineRoot(Directory.Exists(@"F:\HeirloomModels"));
+
+    /// <summary>
+    /// F: is the models disk only when HeirloomModels is already there.
+    /// A freshly reset PC can have an empty F: that must not become the engine root.
+    /// </summary>
+    internal static string ResolveAvatarEngineRoot(bool heirloomModelsPresent) =>
+        heirloomModelsPresent
             ? @"F:\HeirloomModels\avatar-engine"
             : Path.Combine(Root, "engines", "avatar");
 
     public static void EnsureDirectories()
     {
         Directory.CreateDirectory(Root);
-        Directory.CreateDirectory(ModelsRoot);
-        Directory.CreateDirectory(Path.Combine(ModelsRoot, "whisper"));
-        Directory.CreateDirectory(ChromeButtons);
-        Directory.CreateDirectory(AvatarRoot);
-        Directory.CreateDirectory(VideoRoot);
-        Directory.CreateDirectory(AvatarEngineRoot);
+        TryCreateDirectory(ModelsRoot);
+        TryCreateDirectory(Path.Combine(ModelsRoot, "whisper"));
+        TryCreateDirectory(ChromeButtons);
+        TryCreateDirectory(AvatarRoot);
+        TryCreateDirectory(VideoRoot);
+        TryCreateDirectory(AvatarEngineRoot);
+    }
+
+    /// <summary>
+    /// Engine, chrome, and media folders are optional. A full or read-only drive must not stop settings from loading.
+    /// </summary>
+    internal static bool TryCreateDirectory(string path)
+    {
+        try
+        {
+            Directory.CreateDirectory(path);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            return false;
+        }
     }
 }
 
