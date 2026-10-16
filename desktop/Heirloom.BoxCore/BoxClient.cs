@@ -8,7 +8,7 @@ using System.Text.Json;
 
 namespace Heirloom.BoxCore;
 
-public sealed record HealthProbe(bool Reachable, int? LatencyMs, string? Body);
+public sealed record HealthProbe(bool Reachable, int? LatencyMs, string? Body, string? Failure = null);
 
 public sealed record TrustOffer(string Host, string LeafSha256, string PinSha256, string? CaPem);
 
@@ -139,7 +139,8 @@ public static class BoxClient
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException or UriFormatException)
         {
             clock.Stop();
-            return new HealthProbe(false, null, null);
+            var failure = CertificatePin.IsValidationFailure(ex) ? CertificatePin.CheckFailed : null;
+            return new HealthProbe(false, null, null, failure);
         }
     }
 

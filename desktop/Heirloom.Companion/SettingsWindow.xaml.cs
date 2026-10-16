@@ -82,7 +82,9 @@ public partial class SettingsWindow : Window
         }
         catch (Exception ex)
         {
-            Status.Text = "Could not sign in. " + ex.Message;
+            Status.Text = CertificatePin.IsValidationFailure(ex)
+                ? CertificatePin.CheckFailed
+                : "Could not sign in. " + ex.Message;
         }
     }
 

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Heirloom.BoxCore;
 
 namespace Heirloom.Services;
 
@@ -76,7 +77,9 @@ public sealed class CommandPoller : IDisposable
                 }
                 else
                 {
-                    LastStatus = "Poll empty";
+                    LastStatus = string.Equals(_api.LastFailure, CertificatePin.CheckFailed, StringComparison.Ordinal)
+                        ? CertificatePin.CheckFailed
+                        : "Poll empty";
                 }
             }
             catch (OperationCanceledException)

@@ -84,6 +84,13 @@ public class BoxClientTests
         var down = TrayStatus.Describe(false, null, "https://192.168.0.111", null);
         Assert.Equal(BoxLamp.Red, down.Lamp);
         Assert.Contains("did not answer", down.Tooltip);
+        Assert.False(down.CertificateFailed);
+
+        var rejected = TrayStatus.Describe(false, null, "https://192.168.0.111", null, CertificatePin.CheckFailed);
+        Assert.Equal(BoxLamp.Red, rejected.Lamp);
+        Assert.True(rejected.CertificateFailed);
+        Assert.Contains(CertificatePin.CheckFailed, rejected.Tooltip);
+        Assert.DoesNotContain("did not answer", rejected.Tooltip);
 
         var odd = TrayStatus.Describe(true, 4, "https://192.168.0.111", "not-json");
         Assert.Equal(BoxLamp.Amber, odd.Lamp);
@@ -167,6 +174,43 @@ public class BoxClientTests
     }
 
     [Fact]
+    public void Pinned_root_accepts_a_leaf_through_the_presented_intermediate()
+    {
+        using var rootKey = RSA.Create(2048);
+        using var intermediateKey = RSA.Create(2048);
+        using var leafKey = RSA.Create(2048);
+        using var root = Issue("heirloom-box-root", rootKey, issuer: null, ca: true);
+        using var intermediate = Issue("heirloom-box-intermediate", intermediateKey, root, ca: true);
+        using var leaf = Issue("heirloom-box-leaf", leafKey, intermediate, ca: false);
+        var rootSha = CertificatePin.Sha256Hex(root.RawData);
+        var rootPem = root.ExportCertificatePem();
+
+        using var presented = new X509Chain();
+        presented.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+        presented.ChainPolicy.DisableCertificateDownloads = true;
+        presented.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+        presented.ChainPolicy.CustomTrustStore.Add(root);
+        presented.ChainPolicy.ExtraStore.Add(intermediate);
+        Assert.True(presented.Build(leaf));
+        Assert.Contains(presented.ChainElements, element => element.Certificate.Thumbprint == intermediate.Thumbprint);
+
+        Assert.False(CertificatePin.BuildsWithPinnedRoot(rootSha, rootPem, leaf));
+        Assert.True(CertificatePin.BuildsWithPinnedRoot(rootSha, rootPem, leaf, presented));
+        Assert.False(CertificatePin.BuildsWithPinnedRoot(
+            CertificatePin.Sha256Hex(intermediate.RawData),
+            rootPem,
+            leaf,
+            presented));
+
+        var wrapped = new HttpRequestException(
+            "The SSL connection could not be established, see inner exception.",
+            new System.Security.Authentication.AuthenticationException(
+                "The remote certificate is invalid according to the validation procedure."));
+        Assert.True(CertificatePin.IsValidationFailure(wrapped));
+        Assert.False(CertificatePin.IsValidationFailure(new HttpRequestException("No such host is known.")));
+    }
+
+    [Fact]
     public void Settings_patch_keeps_other_keys()
     {
         var path = Path.Combine(Path.GetTempPath(), "heirloom-settings-" + Guid.NewGuid().ToString("n") + ".json");
@@ -198,6 +242,33 @@ public class BoxClientTests
     {
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest("CN=heirloom-box-test", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
         return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(2));
+    }
+
+    private static X509Certificate2 Issue(string name, RSA key, X509Certificate2? issuer, bool ca)
+    {
+        var request = new CertificateRequest("CN=" + name, key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509BasicConstraintsExtension(ca, false, 0, true));
+        request.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(request.PublicKey, false));
+        request.CertificateExtensions.Add(new X509KeyUsageExtension(
+            ca ? X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign : X509KeyUsageFlags.DigitalSignature,
+            true));
+        if (!ca)
+        {
+            request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+                new OidCollection { new Oid("1.3.6.1.5.5.7.3.1") },
+                false));
+        }
+
+        if (issuer is null)
+        {
+            return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-2), DateTimeOffset.UtcNow.AddDays(30));
+        }
+
+        var serial = RandomNumberGenerator.GetBytes(8);
+        serial[0] &= 0x7F;
+        using var signed = request.Create(issuer, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(20), serial);
+        return signed.CopyWithPrivateKey(key);
     }
 }

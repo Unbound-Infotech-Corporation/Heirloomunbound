@@ -135,7 +135,7 @@ public sealed class HeirloomApiClient
         }
         catch (Exception ex)
         {
-            LastFailure = "Cloud unreachable: " + ex.Message;
+            LastFailure = FailureText(ex);
             return null;
         }
     }
@@ -213,10 +213,15 @@ public sealed class HeirloomApiClient
         }
         catch (Exception ex)
         {
-            LastFailure = "Cloud unreachable: " + ex.Message;
+            LastFailure = FailureText(ex);
             return null;
         }
     }
+
+    private static string FailureText(Exception ex) =>
+        CertificatePin.IsValidationFailure(ex)
+            ? CertificatePin.CheckFailed
+            : "Cloud unreachable: " + ex.Message;
 
     private static string Trim(string text, int max) =>
         text.Length <= max ? text : text[..max] + "…";
