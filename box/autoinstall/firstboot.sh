@@ -316,6 +316,7 @@ unpack_payload() {
 
 obtain_repo() {
   local dest="${HEIRLOOM_REPO_DIR:-/opt/heirloom}"
+  local code=0
   if [[ -f "${dest}/box/install.sh" ]]; then
     log "Heirloom repo already present at ${dest}"
     printf '%s\n' "${dest}"
@@ -343,8 +344,69 @@ obtain_repo() {
     return 42
   fi
   log "Cloning ${HEIRLOOM_REPO_URL}"
-  git clone --branch "${HEIRLOOM_REPO_REF:-main}" --depth 1 "${HEIRLOOM_REPO_URL}" "${dest}" >> "${LOG_PATH}" 2>&1
+  # obtain_repo runs in a command substitution, where bash ignores set -e
+  # inside functions. A failed clone must be returned or the next line would
+  # publish the path and the boot would look successful.
+  if clone_repo "${dest}"; then
+    code=0
+  else
+    code=$?
+    return "${code}"
+  fi
   printf '%s\n' "${dest}"
+}
+
+# git clone into dest itself leaves that directory behind when the network
+# drops. The next boot then refuses the non-empty path and box/install.sh is
+# still missing. Clone beside dest, and only publish the tree after install.sh
+# is there. A failed attempt removes its partial directory.
+clone_repo() {
+  local dest="$1"
+  local parent staging old
+  if [[ -z "${dest}" || "${dest}" == "/" || "${dest}" != /* ]]; then
+    log "ERROR: refusing repo path ${dest:-<empty>}"
+    return 42
+  fi
+  if [[ -L "${dest}" ]]; then
+    log "ERROR: ${dest} is a symlink. Refusing to replace it."
+    return 42
+  fi
+  parent="$(dirname "${dest}")"
+  if [[ -z "${parent}" || "${parent}" == "/" ]]; then
+    log "ERROR: refusing to clone into ${dest}"
+    return 42
+  fi
+  mkdir -p "${parent}" || return 1
+  while IFS= read -r old; do
+    [[ -n "${old}" ]] || continue
+    rm -rf -- "${old:?}" || return 1
+  done < <(find "${parent}" -mindepth 1 -maxdepth 1 -name '.heirloom-clone.*' -print)
+  staging="$(mktemp -d "${parent}/.heirloom-clone.XXXXXX")" || return 1
+  case "${staging}" in
+    "${parent}/.heirloom-clone."*) ;;
+    *)
+      log "ERROR: unexpected clone directory ${staging}"
+      return 42
+      ;;
+  esac
+  if ! git clone --branch "${HEIRLOOM_REPO_REF:-main}" --depth 1 "${HEIRLOOM_REPO_URL}" "${staging}" >> "${LOG_PATH}" 2>&1; then
+    rm -rf -- "${staging:?}"
+    log "ERROR: git clone failed. Removed the partial checkout so the next attempt can clone again."
+    return 1
+  fi
+  if [[ ! -f "${staging}/box/install.sh" ]]; then
+    rm -rf -- "${staging:?}"
+    log "ERROR: clone does not contain box/install.sh"
+    return 42
+  fi
+  if [[ -e "${dest}" ]]; then
+    rm -rf -- "${dest:?}"
+  fi
+  if ! mv "${staging}" "${dest}"; then
+    rm -rf -- "${staging:?}"
+    log "ERROR: could not move the clone into ${dest}"
+    return 1
+  fi
 }
 
 run_heirloom_install() {
@@ -495,7 +557,7 @@ main() {
         ;;
       gpu-ok)
         bring_up_tailscale
-        root="$(obtain_repo)"
+        root="$(obtain_repo)" || exit $?
         run_heirloom_install "${root}"
         add_user_groups
         write_phase heirloom

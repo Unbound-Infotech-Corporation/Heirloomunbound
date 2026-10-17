@@ -49,6 +49,8 @@ usage() {
 Usage: bash box/autoinstall/build-usb.sh [options]
 
   --config FILE       owner config (default: box/autoinstall/config.env)
+                      A Windows path such as C:\Users\...\config.env is
+                      converted with wslpath. /dev/* and \\.\ paths are refused.
   --iso FILE          Ubuntu 24.04 live-server ISO (downloaded when omitted)
   --output FILE       ISO to write (default: box/autoinstall/out/heirloom-twinbox-autoinstall.iso)
   --render-only DIR   write nocloud/ and heirloom/ and stop (no ISO)
@@ -64,13 +66,54 @@ die() {
   exit 1
 }
 
+# /dev/*, //./ paths, \\.\ physical drives, and a bare Windows drive root.
+raw_device_path() {
+  local path="$1"
+  local prefix=""
+  local windows_drive=$'\\\\.\\'
+  if [[ ${#path} -ge 4 ]]; then
+    prefix="${path:0:4}"
+  fi
+  [[ "${path}" == /dev/* || "${path}" == //.* || "${prefix}" == "${windows_drive}" || "${path}" =~ ^[A-Za-z]:\\?$ ]]
+}
+
+windows_file_path() {
+  local path="$1"
+  local unc=$'\\\\'
+  [[ "${path}" =~ ^[A-Za-z]:[\\/].+ || "${path}" == "${unc}"* ]]
+}
+
+# Owner configs are often written as C:\...\config.env. WSL opens the /mnt/c form.
+# Device paths stay refused. This does not require a .iso suffix.
+to_wsl_path() {
+  local path="$1"
+  local converted=""
+  if [[ -z "${path}" ]]; then
+    printf '\n'
+    return 0
+  fi
+  if raw_device_path "${path}"; then
+    die "Refusing to use ${path}. This script only reads files and writes an ISO file. Flash it with Rufus or balenaEtcher."
+  fi
+  if windows_file_path "${path}"; then
+    command -v wslpath >/dev/null 2>&1 || die "Windows path ${path} needs wslpath so WSL can open it."
+    converted="$(wslpath -a "${path}")" || die "Could not convert ${path} to a WSL path."
+    converted="$(heirloom_trim "${converted}")"
+    if [[ -z "${converted}" ]]; then
+      die "Could not convert ${path} to a WSL path."
+    fi
+    if raw_device_path "${converted}"; then
+      die "Refusing to use ${converted}. This script only reads files and writes an ISO file. Flash it with Rufus or balenaEtcher."
+    fi
+    printf '%s\n' "${converted}"
+    return 0
+  fi
+  printf '%s\n' "${path}"
+}
+
 refuse_output_path() {
   local out="$1"
-  local prefix="${out:0:4}"
-  # \\.\  is a Windows physical-drive path. printf '%b' turns the escapes into those four characters.
-  # $'\\\\.\\' is the four characters backslash backslash dot backslash.
-  local windows_drive=$'\\\\.\\'
-  if [[ "${out}" == /dev/* || "${out}" == //.* || "${prefix}" == "${windows_drive}" ]]; then
+  if raw_device_path "${out}"; then
     die "Refusing to write ${out}. This script only writes an ISO file. Flash it with Rufus or balenaEtcher."
   fi
   if [[ "${out}" != *.iso ]]; then
@@ -241,9 +284,15 @@ EOF
 
 write_iso_config() {
   local dest="$1"
-  awk '
+  # Write the serial the early command compares, without the quotes or
+  # padding the owner file may have used. Passwords stay off the stick.
+  HEIRLOOM_ISO_SERIAL="${TARGET_DISK_SERIAL}" awk '
     index($0, "INITIAL_PASSWORD=") == 1 { next }
     index($0, "PASSWORD_HASH=") == 1 { next }
+    $0 ~ /^[[:space:]]*TARGET_DISK_SERIAL=/ {
+      print "TARGET_DISK_SERIAL=" ENVIRON["HEIRLOOM_ISO_SERIAL"]
+      next
+    }
     { print }
   ' "${CONFIG}" > "${dest}"
   chmod 600 "${dest}" || true
@@ -384,6 +433,7 @@ parse_args() {
 main() {
   local staging iso_cache
   parse_args "$@"
+  CONFIG="$(to_wsl_path "${CONFIG}")" || exit 1
   load_owner_config
   validate_serial
   validate_identity

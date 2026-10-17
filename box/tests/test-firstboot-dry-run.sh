@@ -237,4 +237,122 @@ if [[ -f "${TMP}/apt.log" ]]; then
   exit 1
 fi
 
+# A failed git clone must not leave a directory that makes the next boot refuse to clone.
+mkdir -p "${TMP}/clone-parent/clone-repo/.git" "${TMP}/clone-parent/.heirloom-clone.stale"
+printf 'partial\n' > "${TMP}/clone-parent/clone-repo/.git/HEAD"
+printf 'junk\n' > "${TMP}/clone-parent/clone-repo/KEEPME"
+printf 'stale\n' > "${TMP}/clone-parent/.heirloom-clone.stale/marker"
+cat > "${TMP}/bin/git" <<EOF
+#!/bin/bash
+dest=""
+for arg in "\$@"; do
+  dest="\${arg}"
+done
+printf '%s\n' "\${dest}" >> "${TMP}/git-dests"
+attempts=0
+if [[ -f "${TMP}/git-attempts" ]]; then
+  attempts="\$(cat "${TMP}/git-attempts")"
+fi
+attempts=\$((attempts + 1))
+printf '%s\n' "\${attempts}" > "${TMP}/git-attempts"
+if [[ "\${attempts}" -eq 1 ]]; then
+  mkdir -p "\${dest}/.git"
+  printf 'partial\n' > "\${dest}/.git/config"
+  printf 'simulated clone failure\n' >&2
+  exit 1
+fi
+mkdir -p "\${dest}/box"
+printf '#!/bin/bash\nexit 0\n' > "\${dest}/box/install.sh"
+chmod 755 "\${dest}/box/install.sh"
+exit 0
+EOF
+chmod 755 "${TMP}/bin/git"
+cat > "${TMP}/clone.env" <<'EOF'
+EXPECTED_GPU_NAME=3090
+HEIRLOOM_REPO_URL=https://example.invalid/heirloom.git
+HEIRLOOM_REPO_REF=main
+USERNAME=heirloom-nosuch
+HOSTNAME=heirloom-twinbox
+NVIDIA_DRIVER_BRANCH=latest
+NVIDIA_KERNEL_MODULES=open
+EOF
+printf 'gpu-ok\n' > "${TMP}/gpu-state/phase"
+rm -f "${TMP}/gpu-state/done" "${TMP}/gpu-state/hard-fail" "${TMP}/git-dests" "${TMP}/git-attempts"
+set +e
+PATH="${TMP}/bin:${PATH}" \
+  HEIRLOOM_FIRSTBOOT_SIMULATE_REBOOT=1 \
+  HEIRLOOM_FIRSTBOOT_STATE="${TMP}/gpu-state" \
+  HEIRLOOM_FIRSTBOOT_LOG="${TMP}/clone-fail.log" \
+  HEIRLOOM_AUTOINSTALL_ENV="${TMP}/clone.env" \
+  HEIRLOOM_INSTALL_SH="${TMP}/bin/install-stub.sh" \
+  HEIRLOOM_REPO_DIR="${TMP}/clone-parent/clone-repo" \
+  HEIRLOOM_BOX_BIN="${TMP}/bin/heirloom-box" \
+  bash "${FIRSTBOOT}" >"${TMP}/clone-fail.out" 2>&1
+clone_fail_code=$?
+set -e
+if [[ "${clone_fail_code}" -eq 0 ]]; then
+  printf 'failed clone exited 0\n' >&2
+  cat "${TMP}/clone-fail.log" >&2
+  exit 1
+fi
+grep -F 'Removed the partial checkout' "${TMP}/clone-fail.log" >/dev/null
+if [[ -f "${TMP}/clone-parent/clone-repo/box/install.sh" ]]; then
+  printf 'failed clone published a repo\n' >&2
+  exit 1
+fi
+if [[ ! -f "${TMP}/clone-parent/clone-repo/KEEPME" ]]; then
+  printf 'failed clone deleted the previous incomplete tree\n' >&2
+  exit 1
+fi
+shopt -s nullglob
+stale=("${TMP}/clone-parent"/.heirloom-clone.*)
+shopt -u nullglob
+if [[ ${#stale[@]} -ne 0 ]]; then
+  printf 'partial clone directory left behind: %s\n' "${stale[*]}" >&2
+  exit 1
+fi
+if [[ ! -s "${TMP}/git-dests" ]]; then
+  printf 'git was not invoked\n' >&2
+  exit 1
+fi
+while IFS= read -r git_dest; do
+  if [[ "${git_dest}" == "${TMP}/clone-parent/clone-repo" ]]; then
+    printf 'git clone targeted the final repo directory\n' >&2
+    exit 1
+  fi
+  case "${git_dest}" in
+    "${TMP}/clone-parent/.heirloom-clone."*) ;;
+    *)
+      printf 'git clone target was not a staging directory: %s\n' "${git_dest}" >&2
+      exit 1
+      ;;
+  esac
+done < "${TMP}/git-dests"
+
+printf 'gpu-ok\n' > "${TMP}/gpu-state/phase"
+rm -f "${TMP}/gpu-state/done" "${TMP}/install.args"
+PATH="${TMP}/bin:${PATH}" \
+  HEIRLOOM_FIRSTBOOT_SIMULATE_REBOOT=1 \
+  HEIRLOOM_FIRSTBOOT_STATE="${TMP}/gpu-state" \
+  HEIRLOOM_FIRSTBOOT_LOG="${TMP}/clone-retry.log" \
+  HEIRLOOM_AUTOINSTALL_ENV="${TMP}/clone.env" \
+  HEIRLOOM_INSTALL_SH="${TMP}/bin/install-stub.sh" \
+  HEIRLOOM_REPO_DIR="${TMP}/clone-parent/clone-repo" \
+  HEIRLOOM_BOX_BIN="${TMP}/bin/heirloom-box" \
+  bash "${FIRSTBOOT}" >"${TMP}/clone-retry.out" 2>&1
+[[ -f "${TMP}/clone-parent/clone-repo/box/install.sh" ]]
+if [[ -f "${TMP}/clone-parent/clone-repo/KEEPME" ]]; then
+  printf 'retry left the failed checkout in place\n' >&2
+  exit 1
+fi
+grep -F -- '--unattended --dev-tools --observer --presence' "${TMP}/install.args" >/dev/null
+[[ -f "${TMP}/gpu-state/done" ]]
+shopt -s nullglob
+stale=("${TMP}/clone-parent"/.heirloom-clone.*)
+shopt -u nullglob
+if [[ ${#stale[@]} -ne 0 ]]; then
+  printf 'staging directory survived a successful clone: %s\n' "${stale[*]}" >&2
+  exit 1
+fi
+
 echo "firstboot dry-run ok"
