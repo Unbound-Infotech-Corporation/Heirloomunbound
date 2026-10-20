@@ -88,6 +88,17 @@ FEATURE_MODELS = (
         "default": "auto",
         "local_artifact": None,
     },
+    {
+        "id": "assist",
+        "label": "Assist",
+        "purpose": "Do on this PC. Auto classifies each request (code, reasoning, research, quick chat, vision) and runs the local model you set for that category. Cloud stays off until you turn it on.",
+        "backends": (
+            {"id": "auto", "label": "Auto (task router)"},
+            {"id": "manual", "label": "Manual model"},
+        ),
+        "default": "auto",
+        "local_artifact": "qwen2.5-coder:7b",
+    },
 )
 
 
@@ -176,10 +187,81 @@ def clamp_model_map(raw: dict | None) -> dict[str, str]:
 # LatentSync/MuseTalk). Heirloom Unbound probes them like Ollama — no Pinokio.
 ENGINE_URL_DEFAULTS: dict[str, str] = {
     "ollama_url": "http://127.0.0.1:11434",
+    "llamacpp_url": "http://127.0.0.1:8080/v1",
     "voicebox_url": "http://127.0.0.1:17493",
     "qwen3_tts_url": "http://127.0.0.1:8001",
     "latentsync_url": "http://127.0.0.1:7860",
     "musetalk_url": "http://127.0.0.1:7861",
+}
+
+# Assist (Do / PC) task router. Local OpenAI-compatible servers only unless
+# the owner opts into cloud. A spec matches an installed name when they are
+# equal or the installed name is "<spec>:<tag>". "qwen3" does not match
+# "qwen3-coder".
+ASSIST_CATEGORIES = ("code", "reasoning", "research", "chat", "vision")
+ASSIST_CATEGORY_LABELS = {
+    "code": "Code",
+    "reasoning": "Reasoning",
+    "research": "Research",
+    "chat": "Quick chat",
+    "vision": "Vision",
+}
+ASSIST_BACKENDS = ("ollama", "llamacpp", "cloud")
+ASSIST_PICKERS = ("auto", "manual")
+ASSIST_OPINION_MODES = ("auto", "off", "always")
+ASSIST_DEFAULT_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
+    "code": (
+        ("ollama", "qwen3-coder"),
+        ("ollama", "deepseek-coder-v2"),
+        ("ollama", "qwen2.5-coder"),
+        ("llamacpp", "qwen3-coder"),
+        ("llamacpp", "deepseek-coder"),
+    ),
+    "reasoning": (
+        ("ollama", "deepseek-r1"),
+        ("ollama", "qwen3"),
+        ("llamacpp", "deepseek-r1"),
+        ("ollama", "llama3.1"),
+    ),
+    "research": (
+        ("ollama", "qwen3"),
+        ("ollama", "llama3.1"),
+        ("llamacpp", "qwen3"),
+    ),
+    "chat": (
+        ("ollama", "qwen2.5:3b"),
+        ("ollama", "llama3.2:3b"),
+        ("llamacpp", "qwen2.5-3b"),
+        ("ollama", "llama3.2"),
+    ),
+    "vision": (
+        ("ollama", "qwen2.5vl"),
+        ("ollama", "llava"),
+        ("llamacpp", "llava"),
+    ),
+}
+
+# Which local Assist models each install size pulls. Small pulls none.
+ASSIST_TIER_MODELS: dict[str, tuple[str, ...]] = {
+    "small": (),
+    "medium": ("qwen2.5-coder:7b", "qwen2.5:3b"),
+    "large": (
+        "qwen2.5-coder:7b",
+        "qwen2.5-coder:32b",
+        "deepseek-r1:14b",
+        "qwen2.5:3b",
+        "qwen2.5vl:7b",
+    ),
+    "dedicated": (
+        "qwen2.5-coder:7b",
+        "qwen2.5-coder:32b",
+        "qwen3-coder",
+        "deepseek-coder-v2",
+        "deepseek-r1:14b",
+        "deepseek-r1:32b",
+        "qwen2.5:3b",
+        "qwen2.5vl:7b",
+    ),
 }
 
 COMPUTE_DEFAULTS: dict = {
@@ -218,6 +300,83 @@ def clamp_compute(raw: dict | None) -> dict:
     if src["mode"] != "network":
         src["device_id"] = None
     return src
+
+
+def default_assist_chains() -> dict[str, list[dict[str, str]]]:
+    return {
+        cat: [{"backend": backend, "model": model} for backend, model in slots]
+        for cat, slots in ASSIST_DEFAULT_CHAINS.items()
+    }
+
+
+def _clean_route_slot(raw: object) -> dict[str, str] | None:
+    if not isinstance(raw, dict):
+        return None
+    backend = str(raw.get("backend") or "").strip().lower()
+    model = str(raw.get("model") or "").strip()
+    if backend not in ASSIST_BACKENDS:
+        return None
+    if not model or len(model) > 80:
+        return None
+    if any(ch.isspace() for ch in model):
+        return None
+    return {"backend": backend, "model": model}
+
+
+def clamp_assist_settings(raw: dict | None) -> dict:
+    """Coerce studio_assist. Unknown categories and slots are dropped."""
+    out = {
+        "picker": "auto",
+        "manual_backend": "ollama",
+        "manual_model": "",
+        "second_opinion": "auto",
+        "cloud": {"enabled": False, "base_url": "", "model": ""},
+        "routes": default_assist_chains(),
+    }
+    if not isinstance(raw, dict):
+        return out
+    picker = str(raw.get("picker") or "").strip().lower()
+    if picker in ASSIST_PICKERS:
+        out["picker"] = picker
+    manual_backend = str(raw.get("manual_backend") or "").strip().lower()
+    if manual_backend in ASSIST_BACKENDS:
+        out["manual_backend"] = manual_backend
+    manual_model = str(raw.get("manual_model") or "").strip()
+    if manual_model and len(manual_model) <= 80 and not any(ch.isspace() for ch in manual_model):
+        out["manual_model"] = manual_model
+    opinion = str(raw.get("second_opinion") or "").strip().lower()
+    if opinion in ASSIST_OPINION_MODES:
+        out["second_opinion"] = opinion
+    cloud = raw.get("cloud") if isinstance(raw.get("cloud"), dict) else {}
+    enabled = bool(cloud.get("enabled"))
+    base_url = str(cloud.get("base_url") or "").strip()
+    if base_url and not base_url.startswith(("http://", "https://")):
+        base_url = ""
+    cloud_model = str(cloud.get("model") or "").strip()
+    if len(cloud_model) > 80 or any(ch.isspace() for ch in cloud_model):
+        cloud_model = ""
+    out["cloud"] = {
+        "enabled": enabled,
+        "base_url": base_url[:512],
+        "model": cloud_model,
+    }
+    routes_raw = raw.get("routes")
+    if isinstance(routes_raw, dict):
+        routes = default_assist_chains()
+        for cat in ASSIST_CATEGORIES:
+            if cat not in routes_raw:
+                continue
+            slots = routes_raw.get(cat)
+            if not isinstance(slots, list):
+                continue
+            cleaned = []
+            for slot in slots[:6]:
+                item = _clean_route_slot(slot)
+                if item:
+                    cleaned.append(item)
+            routes[cat] = cleaned
+        out["routes"] = routes
+    return out
 
 
 def engine_url(compute: dict | None, key: str) -> str:

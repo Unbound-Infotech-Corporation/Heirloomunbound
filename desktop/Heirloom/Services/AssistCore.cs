@@ -236,7 +236,7 @@ public static class FileSearchPattern
     }
 }
 
-public sealed record AssistPlan(string Tool, Dictionary<string, string> Args, string? Reply)
+public sealed record AssistPlan(string Tool, Dictionary<string, string> Args, string? Reply, string? ModelBadge = null)
 {
     public string Arg(string key) => Args.TryGetValue(key, out var v) ? v : "";
 }

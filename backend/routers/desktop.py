@@ -196,6 +196,10 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(resolve_desktop_user))
         "tool_trace": result.tool_trace,
         "twin_backend": result.backend,
     }
+    if getattr(result, "model_badge", ""):
+        out["model_badge"] = result.model_badge
+    if getattr(result, "model_detail", None):
+        out["model_detail"] = result.model_detail
     if result.action:
         out["action"] = result.action
     if getattr(result, "source_label", ""):
@@ -225,6 +229,26 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(resolve_desktop_user))
     if turn_id:
         out["lab_turn_id"] = turn_id
     return out
+
+
+class AssistCompleteReq(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    has_image: bool = False
+
+
+@router.post("/assist/complete")
+async def desktop_assist_complete(body: AssistCompleteReq, ctx: dict = Depends(resolve_desktop_user)):
+    """Assist router for the PC app. Twin mode does not use this path."""
+    from assist_router import AssistRouteError, answer_payload, complete_for_user
+
+    user = ctx["user"]
+    try:
+        answer = await complete_for_user(user, body.text, has_image=body.has_image)
+    except AssistRouteError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    payload = answer_payload(answer)
+    payload["ts"] = _now_iso()
+    return payload
 
 
 # ---------------- Avatar (D-ID talking-head) ----------------

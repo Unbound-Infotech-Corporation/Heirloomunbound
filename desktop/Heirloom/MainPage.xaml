@@ -51,6 +51,11 @@
                             Style="{StaticResource StudioRole}"
                             Text="{x:Bind RoleLabel}" />
                         <TextBlock
+                            Style="{StaticResource StudioCaption}"
+                            Text="{x:Bind ModelBadge}"
+                            TextWrapping="Wrap"
+                            Visibility="{x:Bind BadgeVis}" />
+                        <TextBlock
                             Style="{StaticResource StudioText}"
                             Text="{x:Bind Text}"
                             TextWrapping="Wrap" />
@@ -750,7 +755,7 @@
 
                 <controls:StudioDocumentWindow
                     Width="720"
-                    Height="480"
+                    Height="640"
                     Canvas.Left="64"
                     Canvas.Top="40"
                     Activated="OnDocActivated"
@@ -809,6 +814,22 @@
                             <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.OllamaStatus, Mode=OneWay}" TextWrapping="Wrap" />
                             <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.VaultStatus, Mode=OneWay}" TextWrapping="Wrap" />
                             <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.Progress, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Assist routing" />
+                            <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Auto classifies each Do request and runs the local model for that category. A manual pick is one model and does not fall back. Cloud stays off until you turn it on." />
+                            <ComboBox Header="Picker" ItemsSource="{x:Bind ViewModel.Models.AssistPickers}" SelectedItem="{x:Bind ViewModel.Models.AssistPicker, Mode=TwoWay}" />
+                            <ComboBox Header="Manual backend" ItemsSource="{x:Bind ViewModel.Models.AssistBackends}" SelectedItem="{x:Bind ViewModel.Models.AssistManualBackend, Mode=TwoWay}" />
+                            <TextBox Header="Manual model" Text="{x:Bind ViewModel.Models.AssistManualModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <ComboBox Header="Second opinion" ItemsSource="{x:Bind ViewModel.Models.OpinionModes}" SelectedItem="{x:Bind ViewModel.Models.AssistSecondOpinion, Mode=TwoWay}" />
+                            <TextBox Header="Code chain" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72" Text="{x:Bind ViewModel.Models.AssistCodeChain, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Header="Reasoning chain" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" Text="{x:Bind ViewModel.Models.AssistReasoningChain, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Header="Research chain" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" Text="{x:Bind ViewModel.Models.AssistResearchChain, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Header="Quick chat chain" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" Text="{x:Bind ViewModel.Models.AssistChatChain, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Header="Vision chain" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" Text="{x:Bind ViewModel.Models.AssistVisionChain, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <ToggleSwitch Header="Cloud model (opt in)" IsOn="{x:Bind ViewModel.Models.AssistCloudEnabled, Mode=TwoWay}" />
+                            <TextBox Header="Cloud base URL" Text="{x:Bind ViewModel.Models.AssistCloudBaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Header="Cloud model" Text="{x:Bind ViewModel.Models.AssistCloudModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Header="Cloud API key (this PC only)" Text="{x:Bind ViewModel.Models.AssistCloudApiKey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Command="{x:Bind ViewModel.Models.SaveAssistCommand}" Content="Save Assist routing" Style="{StaticResource StudioButtonPrimary}" />
                             <TextBlock Style="{StaticResource StudioOverline}" Text="Extra" />
                             <Button Command="{x:Bind ViewModel.Models.ProvisionCommand}" CommandParameter="dedicated" Content="Dedicated PC" Style="{StaticResource StudioButtonSecondary}" />
                             <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="Heirloom Unbound install sizes: Small 5–12 GB, Medium 40–70 GB, Large 100–160 GB, Dedicated PC 200 GB+ (this machine exists for the twin)." />

@@ -132,6 +132,8 @@ class OwnerTurnResult:
     handoff: Optional[dict] = None
     assignment: Optional[dict] = None
     approval: Optional[dict] = None
+    model_badge: str = ""
+    model_detail: Optional[dict] = None
 
 
 def _norm(text: str) -> str:
@@ -260,6 +262,10 @@ def owner_response_fields(result: OwnerTurnResult) -> dict[str, Any]:
         out["assignment_id"] = result.assignment.get("assignment_id")
     if result.approval:
         out["approval"] = result.approval
+    if result.model_badge:
+        out["model_badge"] = result.model_badge
+    if result.model_detail:
+        out["model_detail"] = result.model_detail
     return out
 
 
@@ -477,6 +483,8 @@ async def run_owner_turn(
         or (twin_res.backend if twin_res and twin_res.backend else "")
         or "cloud_claude"
     )
+    model_badge = (getattr(assist_res, "model_badge", "") or "") if assist_res else ""
+    model_detail = (getattr(assist_res, "model_detail", None) or None) if assist_res else None
     conversation_id = conversation["conversation_id"]
 
     if persist:
@@ -500,6 +508,8 @@ async def run_owner_turn(
             handoff=handoff,
             assignment=None,
             approval=None,
+            model_badge=model_badge or None,
+            model_detail=model_detail,
         )
         if summarise:
             try:
@@ -523,6 +533,8 @@ async def run_owner_turn(
         specialist_id=specialist_id,
         specialist_name=specialist_name,
         handoff=handoff,
+        model_badge=model_badge,
+        model_detail=model_detail,
     )
 
 

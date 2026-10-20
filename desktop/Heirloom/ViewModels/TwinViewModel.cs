@@ -10,22 +10,25 @@ namespace Heirloom.ViewModels;
 
 public sealed class ChatLine
 {
-    public ChatLine(string role, string text, string citation = "")
+    public ChatLine(string role, string text, string citation = "", string modelBadge = "")
     {
         Role = role;
         Text = text;
         Citation = citation;
+        ModelBadge = modelBadge ?? "";
         var you = role == "you";
         var meta = role is "now" or "work";
         YouVis = you ? Visibility.Visible : Visibility.Collapsed;
         MetaVis = meta ? Visibility.Visible : Visibility.Collapsed;
         OtherVis = !you && !meta ? Visibility.Visible : Visibility.Collapsed;
         CiteVis = string.IsNullOrWhiteSpace(citation) ? Visibility.Collapsed : Visibility.Visible;
+        BadgeVis = string.IsNullOrWhiteSpace(ModelBadge) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     public string Role { get; }
     public string Text { get; }
     public string Citation { get; }
+    public string ModelBadge { get; }
     public string RoleLabel => Role switch
     {
         "you" => "You",
@@ -42,6 +45,7 @@ public sealed class ChatLine
     public Visibility MetaVis { get; }
     public Visibility OtherVis { get; }
     public Visibility CiteVis { get; }
+    public Visibility BadgeVis { get; }
     public string Display =>
         RoleLabel + "  ·  " + Text
         + (HasCitation ? "\n" + Citation : "");

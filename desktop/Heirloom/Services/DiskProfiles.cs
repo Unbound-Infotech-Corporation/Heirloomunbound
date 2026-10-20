@@ -11,7 +11,8 @@ public sealed record DiskProfile(
     string Whisper = "base",
     string VaultTier = "lite",
     bool GpuRequired = false,
-    bool MachineRole = false);
+    bool MachineRole = false,
+    IReadOnlyList<string>? DevModels = null);
 
 public static class DiskProfiles
 {
@@ -42,33 +43,36 @@ public static class DiskProfiles
             40,
             70,
             "Small plus Ollama llama3.1, Whisper small, and one voice-clone path.",
-            ["Everything in Small", "Ollama + llama3.1 (~5–8 GB)", "Whisper small", "Qwen3-TTS 0.6B or Voicebox (coach if not listening)", "Waveform", "Vault: transcripts forever, audio 30 days"],
-            ["stt", "tts", "twin", "voice_clone"],
+            ["Everything in Small", "Ollama + llama3.1 (~5–8 GB)", "Whisper small", "Qwen3-TTS 0.6B or Voicebox (coach if not listening)", "Waveform", "Vault: transcripts forever, audio 30 days", "Assist: qwen2.5-coder:7b and qwen2.5:3b"],
+            ["stt", "tts", "twin", "voice_clone", "assist"],
             "small",
-            "partial"),
+            "partial",
+            DevModels: AssistDevModels.Medium),
         new(
             "large",
             "Large",
             100,
             160,
             "Whisper large-v3, stronger twin + vision, Voicebox and Qwen3-TTS 1.7B, LatentSync.",
-            ["Whisper large-v3", "llama3.1 + llava", "Voicebox AND Qwen3-TTS 1.7B — never Pinokio", "LatentSync (+ MuseTalk if license OK)", "Vault: keep every recording"],
-            ["stt", "tts", "twin", "vision", "voicebox", "qwen3_tts", "latentsync", "avatar"],
+            ["Whisper large-v3", "llama3.1 + llava", "Voicebox AND Qwen3-TTS 1.7B — never Pinokio", "LatentSync (+ MuseTalk if license OK)", "Vault: keep every recording", "Assist: qwen2.5-coder:32b, deepseek-r1:14b, qwen2.5vl:7b"],
+            ["stt", "tts", "twin", "vision", "voicebox", "qwen3_tts", "latentsync", "avatar", "assist"],
             "large-v3",
             "full",
-            GpuRequired: true),
+            GpuRequired: true,
+            DevModels: AssistDevModels.Large),
         new(
             "dedicated",
             "Dedicated PC",
             200,
             0,
             "Everything in Large plus a machine that exists for Heirloom Unbound.",
-            ["Everything in Large", "Start with Windows", "Vault / data drive", "Warm engine probes", "Standing routines + live listen toward on", "Overnight maintenance hook"],
-            ["stt", "tts", "twin", "vision", "voicebox", "qwen3_tts", "latentsync", "avatar", "machine_role"],
+            ["Everything in Large", "Start with Windows", "Vault / data drive", "Warm engine probes", "Standing routines + live listen toward on", "Overnight maintenance hook", "Assist: qwen3-coder, deepseek-coder-v2, deepseek-r1:32b"],
+            ["stt", "tts", "twin", "vision", "voicebox", "qwen3_tts", "latentsync", "avatar", "machine_role", "assist"],
             "large-v3",
             "full",
             GpuRequired: true,
-            MachineRole: true),
+            MachineRole: true,
+            DevModels: AssistDevModels.Dedicated),
     ];
 
     public static DiskProfile Resolve(string? id)

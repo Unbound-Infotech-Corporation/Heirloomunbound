@@ -28,8 +28,8 @@ INBOX_DOMAINS = {
 # Backward aliases live in space_profiles. Keep a snapshot for older zips.
 PROFILE_FEATURES = {
     "small": ("stt", "tts"),
-    "medium": ("stt", "tts", "twin", "voice_clone"),
-    "large": ("stt", "tts", "twin", "vision", "voicebox", "qwen3_tts", "latentsync", "avatar"),
+    "medium": ("stt", "tts", "twin", "voice_clone", "assist"),
+    "large": ("stt", "tts", "twin", "vision", "voicebox", "qwen3_tts", "latentsync", "avatar", "assist"),
     "dedicated": (
         "stt",
         "tts",
@@ -39,11 +39,12 @@ PROFILE_FEATURES = {
         "qwen3_tts",
         "latentsync",
         "avatar",
+        "assist",
         "machine_role",
     ),
     "lite": ("stt", "tts"),
-    "full": ("stt", "tts", "twin", "voice_clone"),
-    "max": ("stt", "tts", "twin", "vision", "voicebox", "qwen3_tts", "latentsync", "avatar"),
+    "full": ("stt", "tts", "twin", "voice_clone", "assist"),
+    "max": ("stt", "tts", "twin", "vision", "voicebox", "qwen3_tts", "latentsync", "avatar", "assist"),
 }
 
 _SERVICES = (

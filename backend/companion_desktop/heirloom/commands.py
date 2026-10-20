@@ -364,7 +364,9 @@ def execute(cmd: dict):
                 return _provision_hook(payload)
             from .models import provision
 
-            result = provision(payload.get("features"))
+            settings = config.load_settings()
+            profile_id = settings.get("install_profile") or settings.get("space_profile")
+            result = provision(payload.get("features"), profile_id=profile_id)
             log = result.get("log") or [result.get("detail") or "provisioned"]
             return "ok", "\n".join(str(x) for x in log)
         if kind == "media_key":

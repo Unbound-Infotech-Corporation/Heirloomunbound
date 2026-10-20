@@ -69,6 +69,23 @@ public sealed class AppSettings
     public bool SourceAllowPhotos { get; set; } = true;
     public bool SourceAllowMail { get; set; }
     public bool SourceAllowMessages { get; set; }
+
+    /// <summary>Assist picker: auto (task router) or manual (one model, no fallback).</summary>
+    public string AssistPicker { get; set; } = "auto";
+    public string AssistManualBackend { get; set; } = "ollama";
+    public string AssistManualModel { get; set; } = "";
+    /// <summary>auto = risky code only, always = every code request, off = never.</summary>
+    public string AssistSecondOpinion { get; set; } = "auto";
+    public bool AssistCloudEnabled { get; set; }
+    public string AssistCloudBaseUrl { get; set; } = "";
+    public string AssistCloudModel { get; set; } = "";
+    public string AssistCloudApiKey { get; set; } = "";
+    /// <summary>Empty means the built-in chain. One slot per line: backend/model.</summary>
+    public string AssistCodeChain { get; set; } = "";
+    public string AssistReasoningChain { get; set; } = "";
+    public string AssistResearchChain { get; set; } = "";
+    public string AssistChatChain { get; set; } = "";
+    public string AssistVisionChain { get; set; } = "";
 }
 
 public static class AppPaths

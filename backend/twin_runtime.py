@@ -294,6 +294,8 @@ class TwinTurnResult:
     specialist_id: Optional[str] = None
     specialist_name: Optional[str] = None
     source_label: str = ""
+    model_badge: str = ""
+    model_detail: Optional[dict] = None
 
 
 @dataclass
@@ -828,6 +830,60 @@ async def run_twin_turn(
         from phone_inbound import phone_system_addendum
 
         system += phone_system_addendum(phone_caller_name)
+
+    if (role or "twin").strip().lower() == "assistant" and not phone:
+        from assist_router import AssistRouteError, answer_assist, bases_for_user, settings_for_user
+        from model_router import runtime_probe_from_user
+
+        ollama_base, llamacpp_base = bases_for_user(user)
+        try:
+            routed = await answer_assist(
+                text,
+                system=system,
+                history=list(pack.history),
+                settings=settings_for_user(user),
+                probe=runtime_probe_from_user(user),
+                cloud_key=(user.get("assist_cloud_api_key") or "").strip(),
+                ollama_base=ollama_base,
+                llamacpp_base=llamacpp_base,
+            )
+        except AssistRouteError as exc:
+            raise RuntimeError(str(exc)) from exc
+        ts = _now_iso()
+        tool_trace = []
+        receipt = _receipt_for_role(role, tool_trace, reply=routed.reply)
+        model_detail = {
+            "category": routed.category,
+            "degraded": routed.degraded,
+            "models": routed.models,
+            "attempts": routed.attempts,
+            "second_opinion": routed.second_opinion,
+            "error": routed.error,
+            "drafts": routed.drafts,
+        }
+        if persist:
+            await _persist_pair(
+                user_id, conversation_id, text, routed.reply, ts,
+                source=source, tool_trace=tool_trace, receipt=receipt,
+                model_badge=routed.badge, model_detail=model_detail,
+            )
+            if summarise:
+                try:
+                    asyncio.create_task(_safe_summarise(user_id, conversation_id))
+                except Exception:  # noqa: BLE001
+                    pass
+        return TwinTurnResult(
+            reply=routed.reply,
+            tool_trace=tool_trace,
+            conversation_id=conversation_id,
+            ts=ts,
+            backend=routed.backend,
+            receipt=receipt,
+            source_label=source_label,
+            model_badge=routed.badge,
+            model_detail=model_detail,
+        )
+
     backend_used = twin_backend or pack.twin_backend
 
     tool_trace: list[dict] = []
@@ -1010,6 +1066,8 @@ async def _persist_pair(
     handoff: Optional[dict] = None,
     assignment: Optional[dict] = None,
     approval: Optional[dict] = None,
+    model_badge: Optional[str] = None,
+    model_detail: Optional[dict] = None,
 ) -> None:
     user_turn: dict[str, Any] = {
         "role": "user", "content": user_text, "ts": ts, "source": source,
@@ -1050,6 +1108,10 @@ async def _persist_pair(
             assistant_turn["assignment_id"] = assignment["assignment_id"]
     if approval:
         assistant_turn["approval"] = approval
+    if model_badge:
+        assistant_turn["model_badge"] = model_badge
+    if model_detail:
+        assistant_turn["model_detail"] = model_detail
     await db.conversations.update_one(
         {"conversation_id": conversation_id, "user_id": user_id},
         {

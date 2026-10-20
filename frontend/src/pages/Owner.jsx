@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Loader2 } from "lucide-react";
 import AssistReceipt from "../components/studio/AssistReceipt";
+import ModelBadge from "../components/studio/ModelBadge";
 import LabVote from "../components/studio/LabVote";
 import ApprovalCard from "../components/studio/ApprovalCard";
 import AssistantPicker from "../components/studio/AssistantPicker";
@@ -102,6 +103,8 @@ export default function Owner() {
             handoff_chip: data.handoff_chip,
             assignment: data.assignment,
             assignment_id: data.assignment_id || data.assignment?.assignment_id || data.handoff?.assignment_id,
+            model_badge: data.model_badge || "",
+            model_detail: data.model_detail || null,
             approval: data.approval,
             lab_turn_id: data.lab_turn_id,
           },
@@ -366,6 +369,7 @@ function OwnerAssistantBody({ message, index }) {
             </p>
           ) : null}
           {showReceipt ? <AssistReceipt receipt={message.receipt} testid={`assist-receipt-${index}`} /> : null}
+          <ModelBadge badge={message.model_badge} detail={message.model_detail} />
         </div>
         {message.handoff?.close_loop ? (
           <p className="text-sm" data-testid={`owner-close-${index}`} style={{ color: "var(--text-muted)" }}>
@@ -388,6 +392,7 @@ function OwnerAssistantBody({ message, index }) {
         </p>
       ) : null}
       {showReceipt ? <AssistReceipt receipt={message.receipt} testid={`assist-receipt-${index}`} /> : null}
+      <ModelBadge badge={message.model_badge} detail={message.model_detail} />
     </>
   );
 }

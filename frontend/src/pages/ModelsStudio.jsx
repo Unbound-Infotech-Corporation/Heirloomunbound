@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { api } from "../lib/api";
 import {
   ComputeTargetPanel,
+  AssistRoutePanel,
   FeatureModelPanel,
   StudioPanel,
   StudioTabs,
@@ -60,7 +61,14 @@ export default function ModelsStudio() {
     id: feat.id,
     label: feat.label,
     testId: `models-tab-${feat.id}`,
-    content: <FeatureModelPanel feature={feat} onRefresh={load} />,
+    content: (
+      <>
+        <FeatureModelPanel feature={feat} onRefresh={load} />
+        {feat.id === "assist" ? (
+          <AssistRoutePanel router={catalog?.assist_router} onRefresh={load} />
+        ) : null}
+      </>
+    ),
   }));
 
   const activeFeature = features.find((f) => f.id === activeTab) || features[0];
