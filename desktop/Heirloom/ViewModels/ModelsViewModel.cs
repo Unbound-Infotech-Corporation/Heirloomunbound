@@ -11,12 +11,29 @@ public partial class ModelsViewModel : ObservableObject
     public ModelsViewModel(AppHost host)
     {
         _host = host;
-        ComputeTarget = host.Settings.Current.ComputeTarget;
-        MachineRole = host.Settings.Current.MachineRole;
+        var settings = host.Settings.Current;
+        ComputeTarget = settings.ComputeTarget;
+        MachineRole = settings.MachineRole;
+        AssistPicker = settings.AssistPicker == "manual" ? "manual" : "auto";
+        AssistManualBackend = settings.AssistManualBackend is "llamacpp" or "cloud" ? settings.AssistManualBackend : "ollama";
+        AssistManualModel = settings.AssistManualModel;
+        AssistSecondOpinion = settings.AssistSecondOpinion is "off" or "always" ? settings.AssistSecondOpinion : "auto";
+        AssistCloudEnabled = settings.AssistCloudEnabled;
+        AssistCloudBaseUrl = settings.AssistCloudBaseUrl;
+        AssistCloudModel = settings.AssistCloudModel;
+        AssistCloudApiKey = settings.AssistCloudApiKey;
+        AssistCodeChain = ChainText(settings.AssistCodeChain, "code");
+        AssistReasoningChain = ChainText(settings.AssistReasoningChain, "reasoning");
+        AssistResearchChain = ChainText(settings.AssistResearchChain, "research");
+        AssistChatChain = ChainText(settings.AssistChatChain, "chat");
+        AssistVisionChain = ChainText(settings.AssistVisionChain, "vision");
         _ = RefreshAsync();
     }
 
     public IReadOnlyList<DiskProfile> Profiles => DiskProfiles.All;
+    public IReadOnlyList<string> AssistPickers { get; } = ["auto", "manual"];
+    public IReadOnlyList<string> AssistBackends { get; } = ["ollama", "llamacpp", "cloud"];
+    public IReadOnlyList<string> OpinionModes { get; } = ["auto", "off", "always"];
 
     [ObservableProperty] private string _whisperStatus = "";
     [ObservableProperty] private string _ollamaStatus = "";
@@ -28,6 +45,19 @@ public partial class ModelsViewModel : ObservableObject
     [ObservableProperty] private bool _busy;
     [ObservableProperty] private string _guide =
         "If you already tapped Get everything ready, you can leave this page. These buttons are extra controls.";
+    [ObservableProperty] private string _assistPicker = "auto";
+    [ObservableProperty] private string _assistManualBackend = "ollama";
+    [ObservableProperty] private string _assistManualModel = "";
+    [ObservableProperty] private string _assistSecondOpinion = "auto";
+    [ObservableProperty] private bool _assistCloudEnabled;
+    [ObservableProperty] private string _assistCloudBaseUrl = "";
+    [ObservableProperty] private string _assistCloudModel = "";
+    [ObservableProperty] private string _assistCloudApiKey = "";
+    [ObservableProperty] private string _assistCodeChain = "";
+    [ObservableProperty] private string _assistReasoningChain = "";
+    [ObservableProperty] private string _assistResearchChain = "";
+    [ObservableProperty] private string _assistChatChain = "";
+    [ObservableProperty] private string _assistVisionChain = "";
 
     partial void OnComputeTargetChanged(string value)
     {
@@ -56,6 +86,32 @@ public partial class ModelsViewModel : ObservableObject
 
     [RelayCommand]
     public void SetRole(string role) => MachineRole = role;
+
+    [RelayCommand]
+    public void SaveAssist()
+    {
+        var current = _host.Settings.Current;
+        current.AssistPicker = AssistPicker == "manual" ? "manual" : "auto";
+        current.AssistManualBackend = AssistManualBackend is "llamacpp" or "cloud" ? AssistManualBackend : "ollama";
+        current.AssistManualModel = AssistManualModel.Trim();
+        current.AssistSecondOpinion = AssistSecondOpinion is "off" or "always" ? AssistSecondOpinion : "auto";
+        current.AssistCloudEnabled = AssistCloudEnabled;
+        current.AssistCloudBaseUrl = AssistCloudBaseUrl.Trim();
+        current.AssistCloudModel = AssistCloudModel.Trim();
+        current.AssistCloudApiKey = AssistCloudApiKey.Trim();
+        current.AssistCodeChain = AssistCodeChain.Trim();
+        current.AssistReasoningChain = AssistReasoningChain.Trim();
+        current.AssistResearchChain = AssistResearchChain.Trim();
+        current.AssistChatChain = AssistChatChain.Trim();
+        current.AssistVisionChain = AssistVisionChain.Trim();
+        _host.Settings.Save();
+        Progress = "Assist routing saved on this PC.";
+    }
+
+    private static string ChainText(string stored, string category) =>
+        string.IsNullOrWhiteSpace(stored)
+            ? AssistRouter.FormatChain(AssistRouter.DefaultChains[category])
+            : stored;
 
     [RelayCommand]
     public async Task GetReadyAsync()

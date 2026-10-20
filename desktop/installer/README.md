@@ -10,10 +10,10 @@ Output: `desktop/dist/HeirloomUnboundSetup.exe`
 1. Welcome
 2. License + privacy (local models stay on this PC)
 3. **Choose install size** — four cards
-   - **Small** · 5–12 GB · Whisper + Piper + lite vault. Twin/TTS/avatar cloud Auto. No GPU.
-   - **Medium** · 40–70 GB · Small + Ollama llama3.1 + one voice-clone path.
-   - **Large** · 100–160 GB · Whisper large-v3, stronger twin + vision, Voicebox **and** Qwen3-TTS 1.7B, LatentSync.
-   - **Dedicated PC** · 200 GB+ · Large plus machine role (consent, vault drive, start with Windows, optional power plan, warm engines).
+   - **Small** · 5–12 GB · Whisper + Piper + lite vault. Twin/TTS/avatar cloud Auto. No GPU. No Assist dev models.
+   - **Medium** · 40–70 GB · Small + Ollama llama3.1 + one voice-clone path. Assist pulls `qwen2.5-coder:7b` and `qwen2.5:3b`.
+   - **Large** · 100–160 GB · Whisper large-v3, stronger twin + vision, Voicebox **and** Qwen3-TTS 1.7B, LatentSync. Assist also pulls `qwen2.5-coder:32b`, `deepseek-r1:14b`, `qwen2.5vl:7b`.
+   - **Dedicated PC** · 200 GB+ · Large plus machine role (consent, vault drive, start with Windows, optional power plan, warm engines). Assist also pulls `qwen3-coder`, `deepseek-coder-v2`, `deepseek-r1:32b`.
 4. Install directory (+ vault drive when Dedicated)
 5. Ready
 6. Progress (copies app bits, then runs `provision.bat`)

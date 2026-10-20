@@ -28,10 +28,22 @@ from model_router import (
     resolve_twin_backend,
     runtime_probe_from_user,
 )
+from assist_router import (
+    AssistRouteError,
+    answer_payload,
+    complete_for_user,
+    preview_assist,
+    public_assist_state,
+    readiness as assist_readiness,
+    settings_for_user,
+)
 from studio_defaults import (
+    ASSIST_OPINION_MODES,
+    ASSIST_PICKERS,
     FEATURE_MODELS,
     BACKEND_CREDENTIALS,
     backends_for_feature,
+    clamp_assist_settings,
     clamp_audio,
     clamp_compute,
     clamp_model_map,
@@ -431,6 +443,11 @@ def _feature_readiness(
         else:
             ready = True
             detail = "Portrait + waveform (no third-party key)"
+    elif feature_id == "assist":
+        cfg = settings_for_user(user)
+        effective = cfg["picker"]
+        has_key = bool((user.get("assist_cloud_api_key") or "").strip())
+        ready, detail = assist_readiness(cfg, probe if isinstance(probe, dict) else None, has_key=has_key)
     else:
         effective = chosen_backend
         ready = True
@@ -471,8 +488,9 @@ def _feature_readiness(
             "latentsync",
             "musetalk",
             "auto",
+            "manual",
         }
-        and feature_id in {"stt", "tts", "twin", "vision", "avatar"},
+        and feature_id in {"stt", "tts", "twin", "vision", "avatar", "assist"},
     }
 
 
@@ -546,6 +564,7 @@ async def get_models(user: dict = Depends(get_studio_user)):
         "compute": compute,
         "compute_device_id": device.get("device_id") if device else None,
         "hosted_llm": _llm_available(),
+        "assist_router": public_assist_state(user, merged_probe),
         "updated_at": user.get("studio_models_updated_at"),
     }
 
@@ -587,10 +606,12 @@ async def patch_feature_backend(
     current[feature_id] = backend
     merged = clamp_model_map(current)
     now = _now_iso()
-    await db.users.update_one(
-        {"user_id": user["user_id"]},
-        {"$set": {"studio_models": merged, "studio_models_updated_at": now}},
-    )
+    update = {"studio_models": merged, "studio_models_updated_at": now}
+    if feature_id == "assist":
+        assist = settings_for_user(user)
+        assist["picker"] = merged["assist"]
+        update["studio_assist"] = assist
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
     return {"feature_id": feature_id, "backend": merged[feature_id], "map": merged, "updated_at": now}
 
 
@@ -678,6 +699,111 @@ async def provision_models(payload: ProvisionReq, user: dict = Depends(get_studi
         fid for fid, backend in chosen.items() if backend in {"auto", "local_whisper", "local_piper", "ollama"}
     ]
     return await _queue_provision(user, wanted)
+
+
+class AssistRoutesBody(BaseModel):
+    routes: dict
+    manual_backend: Optional[str] = None
+    manual_model: Optional[str] = None
+    second_opinion: Optional[str] = None
+    picker: Optional[str] = None
+
+
+class AssistCloudBody(BaseModel):
+    enabled: bool = False
+    base_url: str = ""
+    model: str = ""
+    api_key: Optional[str] = None
+
+
+class AssistTextBody(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    has_image: bool = False
+
+
+def _save_assist(user: dict, assist: dict, picker: str | None = None) -> tuple[dict, dict, str]:
+    merged = clamp_assist_settings(assist)
+    models = _user_models(user)
+    if picker in ASSIST_PICKERS:
+        merged["picker"] = picker
+        models["assist"] = picker
+    else:
+        models["assist"] = merged["picker"]
+    now = _now_iso()
+    db_update = {
+        "studio_assist": merged,
+        "studio_models": clamp_model_map(models),
+        "studio_models_updated_at": now,
+    }
+    return merged, db_update, now
+
+
+@router.put("/models/assist-routes")
+async def put_assist_routes(payload: AssistRoutesBody, user: dict = Depends(get_studio_user)):
+    """Replace the per-category Assist routing table. Cloud slots stay inert until opt-in."""
+    if payload.second_opinion is not None and payload.second_opinion not in ASSIST_OPINION_MODES:
+        raise HTTPException(status_code=400, detail="second_opinion must be auto, off, or always")
+    if payload.picker is not None and payload.picker not in ASSIST_PICKERS:
+        raise HTTPException(status_code=400, detail="picker must be auto or manual")
+    if payload.manual_backend is not None and payload.manual_backend not in {"ollama", "llamacpp", "cloud"}:
+        raise HTTPException(status_code=400, detail="manual_backend must be ollama, llamacpp, or cloud")
+    current = settings_for_user(user)
+    current["routes"] = payload.routes
+    if payload.manual_backend is not None:
+        current["manual_backend"] = payload.manual_backend
+    if payload.manual_model is not None:
+        current["manual_model"] = payload.manual_model
+    if payload.second_opinion is not None:
+        current["second_opinion"] = payload.second_opinion
+    merged, update, now = _save_assist(user, current, payload.picker)
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
+    return {"assist_router": public_assist_state({**user, "studio_assist": merged, "studio_models": update["studio_models"]}, runtime_probe_from_user(user)), "updated_at": now}
+
+
+@router.put("/models/assist-cloud")
+async def put_assist_cloud(payload: AssistCloudBody, user: dict = Depends(get_studio_user)):
+    """Opt in to a cloud OpenAI-compatible host. The key is stored and never returned."""
+    current = settings_for_user(user)
+    current["cloud"] = {
+        "enabled": bool(payload.enabled),
+        "base_url": payload.base_url,
+        "model": payload.model,
+    }
+    merged, update, now = _save_assist(user, current)
+    if payload.api_key is not None:
+        update["assist_cloud_api_key"] = payload.api_key.strip()
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
+    stored = {**user, "studio_assist": merged, "studio_models": update["studio_models"]}
+    if payload.api_key is not None:
+        stored["assist_cloud_api_key"] = update["assist_cloud_api_key"]
+    return {"assist_router": public_assist_state(stored, runtime_probe_from_user(user)), "updated_at": now}
+
+
+async def _assist_probe(user: dict) -> dict:
+    device = await resolve_compute_device(db, user)
+    companion = _companion_probe(device)
+    return effective_runtime_probe(
+        user, companion if companion.get("connected") else runtime_probe_from_user(user)
+    )
+
+
+@router.post("/models/assist/preview")
+async def preview_assist_route(payload: AssistTextBody, user: dict = Depends(get_studio_user)):
+    """Classify and resolve. Does not call a model."""
+    cfg = settings_for_user(user)
+    probe = await _assist_probe(user)
+    has_key = bool((user.get("assist_cloud_api_key") or "").strip())
+    return preview_assist(payload.text, settings=cfg, probe=probe, has_key=has_key, has_image=payload.has_image)
+
+
+@router.post("/assist/complete")
+async def studio_assist_complete(payload: AssistTextBody, user: dict = Depends(get_studio_user)):
+    """Run the Assist router and return the reply plus the model badge."""
+    try:
+        answer = await complete_for_user(user, payload.text, has_image=payload.has_image, probe=await _assist_probe(user))
+    except AssistRouteError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return answer_payload(answer)
 
 
 # ---------- First-run setup (desktop + web) ----------

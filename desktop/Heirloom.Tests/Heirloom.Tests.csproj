@@ -22,6 +22,7 @@
     <Compile Include="..\Heirloom\Services\AssignmentCore.cs" Link="AssignmentCore.cs" />
     <Compile Include="..\Heirloom\Services\ConnectorCore.cs" Link="ConnectorCore.cs" />
     <Compile Include="..\Heirloom\Services\AssistCore.cs" Link="AssistCore.cs" />
+    <Compile Include="..\Heirloom\Services\AssistRouter.cs" Link="AssistRouter.cs" />
     <Compile Include="..\Heirloom\Services\TwinCore.cs" Link="TwinCore.cs" />
     <Compile Include="..\Heirloom\Services\VaultService.cs" Link="VaultService.cs" />
     <Compile Include="..\Heirloom\Services\AppSettings.cs" Link="AppSettings.cs" />

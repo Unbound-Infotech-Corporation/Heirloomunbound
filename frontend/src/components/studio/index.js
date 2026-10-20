@@ -1,5 +1,7 @@
 export { default as ComputeTargetPanel } from "./ComputeTargetPanel";
 export { default as FeatureModelPanel } from "./FeatureModelPanel";
+export { default as AssistRoutePanel } from "./AssistRoutePanel";
+export { default as ModelBadge } from "./ModelBadge";
 export { default as VendorHandoff } from "./VendorHandoff";
 export { default as VendorCoach } from "./VendorHandoff";
 export { default as StudioPanel } from "./StudioPanel";

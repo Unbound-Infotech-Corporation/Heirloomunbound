@@ -591,7 +591,17 @@ public partial class AssistantViewModel : ObservableObject
             cancellationToken.ThrowIfCancellationRequested();
             Status = step == 0 && observations.Count == 0 ? "Thinking…" : "Step " + (step + 1) + "…";
             SetNow(Status);
-            var plan = await PlanAsync(text, observations, cancellationToken).ConfigureAwait(true);
+            var outcome = await PlanAsync(text, observations, cancellationToken).ConfigureAwait(true);
+            if (!string.IsNullOrWhiteSpace(outcome.LoudMiss))
+            {
+                ClearNow();
+                Lines.Add(new ChatLine("assist", outcome.LoudMiss));
+                Status = "Assist stopped. Nothing else was substituted.";
+                await MaybeSpeakAsync(outcome.LoudMiss).ConfigureAwait(true);
+                return;
+            }
+
+            var plan = outcome.Plan;
             if (plan is null)
             {
                 if (observations.Count > 0)
@@ -611,7 +621,7 @@ public partial class AssistantViewModel : ObservableObject
             if (!string.IsNullOrWhiteSpace(plan.Reply))
             {
                 ClearNow();
-                Lines.Add(new ChatLine("assist", plan.Reply.Trim()));
+                Lines.Add(new ChatLine("assist", plan.Reply.Trim(), modelBadge: plan.ModelBadge ?? ""));
                 Status = "Done.";
                 await MaybeSpeakAsync(plan.Reply).ConfigureAwait(true);
                 return;
@@ -828,7 +838,11 @@ public partial class AssistantViewModel : ObservableObject
         Lines.Add(new ChatLine("assist", "I need Confirm before I run: " + PendingSummary + ". Confirm is in this document. Cancel leaves it unrun."));
     }
 
-    private async Task<AssistPlan?> PlanAsync(string user, List<string> observations, CancellationToken cancellationToken)
+    private readonly record struct PlanOutcome(AssistPlan? Plan, string? LoudMiss);
+
+    private static readonly HttpClient AssistHttp = new() { Timeout = TimeSpan.FromSeconds(90) };
+
+    private async Task<PlanOutcome> PlanAsync(string user, List<string> observations, CancellationToken cancellationToken)
     {
         var system = """
 You are Heirloom Assist, the copilot on this Windows PC. You work FOR the owner. You are not their digital twin. Never speak in first person as the owner.
@@ -854,31 +868,78 @@ Confirm is required for buying, paying, deleting, or typing a password.
                      (observations.Count == 0 ? "(nothing yet)" : string.Join("\n", observations));
         if (!BoxLink.StartsLocalModels(_host.Settings.Current.RunMode))
         {
-            return null;
+            return new PlanOutcome(null, null);
         }
 
         await _host.Ollama.ProbeAsync(cancellationToken).ConfigureAwait(true);
-        var model = _host.Ollama.ChatModel;
-        if (_host.Ollama.IsReachable && !string.IsNullOrWhiteSpace(model))
+        var settings = AssistSettings.From(_host.Settings.Current);
+        var inventory = AssistInventory.FromOllama(
+            _host.Ollama.IsReachable,
+            _host.Ollama.Models,
+            _host.Ollama.LastError,
+            settings);
+        try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(45));
-            var first = await _host.Ollama.CompleteDetailedAsync(model, prompt, system, timeout.Token).ConfigureAwait(true);
-            var plan = AssistPlanner.Parse(first.Text);
-            if (plan is not null)
+            var answer = await AssistRouter.RunAsync(
+                prompt,
+                system,
+                settings,
+                inventory,
+                CompleteRoutedAsync,
+                cancellationToken,
+                "You are the Heirloom Unbound Assist judge. You work for the owner. You are not their twin. Compare the two drafts and keep the safer change. Return ONLY one JSON object: a tool call, or {\"reply\":\"short fact\"}.").ConfigureAwait(true);
+            var plan = AssistPlanner.Parse(answer.Reply);
+            if (plan is null && !string.IsNullOrWhiteSpace(answer.Reply))
             {
-                return plan;
+                plan = new AssistPlan("", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), answer.Reply.Trim(), answer.Badge);
+            }
+            else if (plan is not null)
+            {
+                plan = plan with { ModelBadge = answer.Badge };
             }
 
-            var second = await _host.Ollama.CompleteDetailedAsync(model, prompt + "\n\nReturn JSON only.", system, timeout.Token).ConfigureAwait(true);
-            plan = AssistPlanner.Parse(second.Text);
-            if (plan is not null)
+            return new PlanOutcome(plan, null);
+        }
+        catch (AssistRouteException ex) when (ex.Attempts.Any(row => row.Status == "failed"))
+        {
+            return new PlanOutcome(null, ex.Message);
+        }
+        catch (AssistRouteException)
+        {
+            return new PlanOutcome(null, null);
+        }
+    }
+
+    private async Task<string> CompleteRoutedAsync(
+        string backend,
+        string model,
+        IReadOnlyList<AssistTurn> messages,
+        CancellationToken cancellationToken)
+    {
+        if (backend == "ollama")
+        {
+            var system = string.Join("\n\n", messages.Where(m => m.Role == "system").Select(m => m.Content));
+            var prompt = string.Join("\n\n", messages.Where(m => m.Role != "system").Select(m => m.Role + ":\n" + m.Content));
+            var first = await _host.Ollama.CompleteDetailedAsync(model, prompt, system, cancellationToken).ConfigureAwait(false);
+            if (first.Ok && AssistPlanner.Parse(first.Text) is not null)
             {
-                return plan;
+                return first.Text!;
             }
+
+            var second = await _host.Ollama.CompleteDetailedAsync(model, prompt + "\n\nReturn JSON only.", system, cancellationToken).ConfigureAwait(false);
+            if (second.Ok)
+            {
+                return second.Text!;
+            }
+
+            throw new InvalidOperationException(second.Error ?? first.Error ?? "Ollama returned an empty reply (" + model + ").");
         }
 
-        return null;
+        var url = backend == "llamacpp"
+            ? AssistRouter.OpenAiChatUrl("http://127.0.0.1:8080/v1")
+            : AssistRouter.OpenAiChatUrl(_host.Settings.Current.AssistCloudBaseUrl);
+        var key = backend == "cloud" ? _host.Settings.Current.AssistCloudApiKey : "";
+        return await AssistRouter.CompleteOpenAiAsync(AssistHttp, url, model, messages, key, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task CloudFallbackAsync(string text, List<string> observations, CancellationToken cancellationToken)
@@ -904,6 +965,7 @@ Confirm is required for buying, paying, deleting, or typing a password.
         var audience = _host.CanEdit ? "owner" : "heir";
         var cloud = await _host.Api.PostAsync("/desktop/chat", new { text = payload, mode = "assistant", audience }, timeout.Token).ConfigureAwait(true);
         string? reply = null;
+        var modelBadge = "";
         if (cloud is { } json)
         {
             if (json.TryGetProperty("reply", out var r))
@@ -911,12 +973,17 @@ Confirm is required for buying, paying, deleting, or typing a password.
                 reply = r.GetString();
             }
 
+            if (json.TryGetProperty("model_badge", out var badge))
+            {
+                modelBadge = badge.GetString() ?? "";
+            }
+
             RememberCloudReceipt(json);
         }
 
         reply ??= SilenceCopy(observations);
         ClearNow();
-        Lines.Add(new ChatLine("assist", reply));
+        Lines.Add(new ChatLine("assist", reply, modelBadge: modelBadge));
         Status = "Answered.";
         await MaybeSpeakAsync(reply).ConfigureAwait(true);
     }

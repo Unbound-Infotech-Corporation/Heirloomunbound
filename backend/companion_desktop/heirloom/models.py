@@ -54,6 +54,18 @@ def engine_urls() -> dict[str, str]:
     return out
 
 
+def _assist_model_present(installed: list[str], tag: str) -> bool:
+    """Match an Ollama tag. qwen2.5-coder matches qwen2.5-coder:7b, not qwen2.5-coder-v2."""
+    wanted = tag.strip().lower()
+    if not wanted:
+        return False
+    for raw in installed:
+        name = str(raw).strip().lower()
+        if name == wanted or name.startswith(wanted + ":"):
+            return True
+    return False
+
+
 def _run(cmd: list[str], timeout: int = 20) -> tuple[int, str]:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -290,6 +302,29 @@ def provision(
                 note("Small install: Ollama is not required. Twin stays cloud Auto.")
             else:
                 note("Ollama not running — cloud Claude stays in charge until you start it.")
+
+    assist_tags: list[str] = []
+    if profile_id and "assist" in wanted:
+        assist_tags = [str(tag) for tag in (space_profile(profile_id).get("dev_models") or [])]
+    if assist_tags:
+        ol = probe_ollama()
+        if ol.get("ready"):
+            installed = [str(m) for m in (ol.get("models") or [])]
+            for tag in assist_tags:
+                if _assist_model_present(installed, tag):
+                    note(f"Assist model {tag} is already installed.")
+                    continue
+                note(f"Pulling {tag} for Assist (Ollama, no Pinokio)…")
+                code, out = _run(["ollama", "pull", tag], timeout=3600)
+                if code != 0:
+                    note(f"Assist model {tag} did not install: {out[-240:]}")
+                else:
+                    note(f"Assist model {tag} installed.")
+                    installed.append(tag)
+        else:
+            note(
+                "Assist dev models were not pulled. Ollama is not running, so nothing was substituted."
+            )
 
     wants_engines = bool(
         wanted & {"tts", "avatar", "voicebox", "qwen3_tts", "latentsync", "voice_clone"}

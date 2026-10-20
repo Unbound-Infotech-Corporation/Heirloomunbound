@@ -75,6 +75,11 @@ public sealed class ProvisionService
             mapped.Report("LatentSync: start the local HTTP engine. MuseTalk only when the license allows. Never Pinokio.");
         }
 
+        if (profile.ProvisionFeatures.Contains("assist"))
+        {
+            await PullAssistModelsAsync(profile.DevModels ?? [], mapped, cancellationToken).ConfigureAwait(false);
+        }
+
         if (profile.MachineRole)
         {
             mapped.Report("Dedicated PC: write install_profile so Models Studio and Terminal know this role.");
@@ -255,6 +260,41 @@ public sealed class ProvisionService
         }
 
         return await PullMindsAsync(pullVision, progress, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task PullAssistModelsAsync(
+        IReadOnlyList<string> tags,
+        IProgress<string> progress,
+        CancellationToken cancellationToken)
+    {
+        if (tags.Count == 0)
+        {
+            return;
+        }
+
+        await _ollama.ProbeAsync(cancellationToken).ConfigureAwait(false);
+        if (!_ollama.IsReachable)
+        {
+            progress.Report("Assist models were not downloaded. The local model server is not running. Nothing was substituted.");
+            return;
+        }
+
+        foreach (var tag in tags)
+        {
+            if (_ollama.Models.Any(name => AssistRouter.ModelMatches(tag, name)))
+            {
+                progress.Report("Assist model " + tag + " is already on this PC.");
+                continue;
+            }
+
+            progress.Report("Assist model " + tag);
+            await _ollama.PullAsync(tag, progress, cancellationToken).ConfigureAwait(false);
+            await _ollama.ProbeAsync(cancellationToken).ConfigureAwait(false);
+            if (!_ollama.Models.Any(name => AssistRouter.ModelMatches(tag, name)))
+            {
+                progress.Report("Assist model " + tag + " is still missing. Nothing was substituted.");
+            }
+        }
     }
 
     private async Task<bool> PullMindsAsync(bool pullVision, IProgress<string> progress, CancellationToken cancellationToken)
