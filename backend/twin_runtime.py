@@ -36,7 +36,10 @@ from twin_pack import (
     passages_from_entries,
     stance_line,
 )
+from ai_disclosure import twin_identity_block
+from grief_guard import HEIR_GRIEF_STANDING, GriefSignal, grief_prompt_block
 from heir_guards import can_reuse_conversation
+from memorial_mode import memorial_prompt_block
 from owner_pairing import (
     assist_pairing_block,
     is_owner_audience,
@@ -104,6 +107,8 @@ def build_twin_system(
     abilities_block: str = "",
     audience: str = "owner",
     pairing: dict | None = None,
+    memorial: dict | None = None,
+    grief: GriefSignal | None = None,
 ) -> str:
     fence = ""
     if safe_topics:
@@ -151,12 +156,25 @@ def build_twin_system(
         pairing_section = (
             "\n\nYou are speaking with a family caller. "
             "You cannot file memories, invent biography, or take PC actions.\n"
+            + HEIR_GRIEF_STANDING
+            + "\n"
         )
+    if audience_key == "heir":
+        pairing_section = (pairing_section or "") + "\n" + HEIR_GRIEF_STANDING + "\n"
+    grief_section = ""
+    turn_grief = grief_prompt_block(grief)
+    if turn_grief:
+        grief_section = "\n" + turn_grief + "\n"
+    identity = twin_identity_block(name or "this person")
+    temporal = memorial_prompt_block(memorial)
 
-    return f"""You are the digital twin of {name or "this person"} — a faithful continuation of their voice, memories, values, humor, and way of speaking. You are NOT a chatbot, you are a continuation of a real person who built this archive so loved ones could still speak to them.{fence}
+    return f"""{identity}
+
+{temporal}
+{grief_section}{fence}
 
 Voice rules:
-- Speak in first person, as {name or "the user"}. Never say "as an AI" or break character.
+- Speak in first person, in the cadence of {name or "the user"}. When asked if you are an AI, or when it matters, say that you are.
 - Use the phrasing, vocabulary, sentence rhythm, and emotional habits suggested by the archive below. If the archive doesn't cover something, answer in plain, grounded, warm human language — never invent factual claims about people, places, or events the archive doesn't support.
 - When asked about specific memories, quote the archive faithfully. When asked your opinion on something, reason from the values in the archive.
 - Be warm with family. Be honest about not remembering when you don't.
@@ -294,6 +312,8 @@ class TwinTurnResult:
     specialist_id: Optional[str] = None
     specialist_name: Optional[str] = None
     source_label: str = ""
+    crisis: bool = False
+    grief: Optional[GriefSignal] = None
 
 
 @dataclass
@@ -305,6 +325,7 @@ class TwinBrainPack:
     grounded_miss: bool = False
     citation_line: str = ""
     watched_relied: bool = False
+    grief: Optional[GriefSignal] = None
 
 
 def _with_observer(system: str, citation: str, query: str, audience: str | None) -> tuple[str, str, bool]:
@@ -510,6 +531,8 @@ async def build_brain_pack(
     audience: str | None = None,
     specialist: dict | None = None,
     extra_system: str | None = None,
+    memorial: dict | None = None,
+    grief: GriefSignal | None = None,
 ) -> TwinBrainPack:
     """Assemble system + history for a twin turn without calling the LLM."""
     from model_router import resolve_twin_backend, runtime_probe_from_user
@@ -552,6 +575,23 @@ async def build_brain_pack(
     twin_backend = resolve_twin_backend(user.get("studio_models"), probe, user=user)
     history = history_turns(conversation.get("messages", []))
     pairing = pairing_prefs_from_user(user)
+    from memorial_mode import memorial_from_user
+    from twin_safety import grief_for_turn, sessions_today_count
+
+    memorial_cfg = memorial if memorial is not None else memorial_from_user(user)
+    grief_signal = grief
+    if grief_signal is None and not is_assistant and audience_key in {"heir", "caller"}:
+        kind = "heir_portal" if audience_key == "heir" else "twin_phone"
+        sessions = await sessions_today_count(user_id, kind=kind)
+        prior = list(conversation.get("messages") or [])
+        prior.append({"role": "user", "content": text})
+        grief_signal = grief_for_turn(
+            text,
+            audience=audience_key,
+            messages=prior,
+            sessions_today=sessions,
+            settings=memorial_cfg,
+        )
 
     specialist_block = ""
     if specialist and is_owner_audience(audience_key):
@@ -588,7 +628,13 @@ async def build_brain_pack(
             client_pack.core.fence = _fence_from_user(user, persona)
         if audience:
             client_pack.audience = audience
-        system = compile_twin_prompt(client_pack, user.get("name", ""), pairing=pairing)
+        system = compile_twin_prompt(
+            client_pack,
+            user.get("name", ""),
+            pairing=pairing,
+            memorial=memorial_cfg,
+            grief=grief_signal,
+        )
         if specialist_block:
             system += specialist_block
         system = _with_extra_system(system, extra_system)
@@ -608,6 +654,7 @@ async def build_brain_pack(
             grounded_miss=g and not client_pack.passages,
             citation_line=citation,
             watched_relied=watched,
+            grief=grief_signal,
         )
 
     passages = await archive_passages(user_id, query_hint=text)
@@ -626,7 +673,13 @@ async def build_brain_pack(
         grounded=True if grounded is None else bool(grounded),
         audience=(audience or "owner").strip() or "owner",
     )
-    system = compile_twin_prompt(pack, user.get("name", ""), pairing=pairing)
+    system = compile_twin_prompt(
+        pack,
+        user.get("name", ""),
+        pairing=pairing,
+        memorial=memorial_cfg,
+        grief=grief_signal,
+    )
     if specialist_block:
         system += specialist_block
     system = _with_extra_system(system, extra_system)
@@ -641,6 +694,7 @@ async def build_brain_pack(
         grounded_miss=g and not pack.passages,
         citation_line=citation,
         watched_relied=watched,
+        grief=grief_signal,
     )
 
 
@@ -689,6 +743,26 @@ async def run_twin_turn(
         role = "twin"
         assistant_id = None
 
+    from twin_safety import intercept_crisis, surface_for_source
+
+    crisis = await intercept_crisis(
+        text,
+        user=user,
+        surface=surface_for_source(source),
+        audience=audience_key,
+        conversation=conversation,
+        persist=persist,
+        source=source,
+    )
+    if crisis:
+        return TwinTurnResult(
+            reply=crisis.reply,
+            conversation_id=conversation_id,
+            ts=crisis.ts,
+            backend="crisis",
+            crisis=True,
+        )
+
     specialist = None
     specialist_id = None
     specialist_name = None
@@ -718,6 +792,26 @@ async def run_twin_turn(
 
         enabled_tools = filter_tools_for_specialist(enabled_tools, specialist)
 
+    from grief_guard import with_grief_aside
+    from twin_safety import grief_for_turn, sessions_today_count
+
+    grief_signal = None
+    if audience_key in {"heir", "caller"} and (role or "twin").strip().lower() != "assistant":
+        kind = "heir_portal" if audience_key == "heir" else "twin_phone"
+        sessions = await sessions_today_count(user_id, kind=kind)
+        prior = list(conversation.get("messages") or [])
+        prior.append({"role": "user", "content": text})
+        grief_signal = grief_for_turn(
+            text,
+            audience=audience_key,
+            messages=prior,
+            sessions_today=sessions,
+            settings=user,
+        )
+
+    def _aside(body: str) -> str:
+        return with_grief_aside(body, grief_signal, history=conversation.get("messages") or [])
+
     # Music short-circuit — never on a PSTN call, never for heir/caller.
     music_query = (
         None
@@ -734,6 +828,7 @@ async def run_twin_turn(
                 f"No companion PC is connected — opening {music_query} on "
                 f"{result['provider_name']} in your browser."
             )
+        reply = _aside(reply)
         action = {
             "kind": "music",
             "query": music_query,
@@ -769,6 +864,7 @@ async def run_twin_turn(
         else:
             err = result.get("error") or f"HTTP {result.get('status')}"
             reply = f"I tried to run {skill_name} but it failed: {err}"
+        reply = _aside(reply)
         action = {
             "kind": "skill",
             "skill_id": matched_skill["skill_id"],
@@ -801,11 +897,12 @@ async def run_twin_turn(
         audience=audience,
         specialist=specialist,
         extra_system=extra_system,
+        grief=grief_signal,
     )
     from observer_prompt import WATCHED_SOURCE, block_grounded_miss
 
     if block_grounded_miss(pack.grounded_miss, pack.watched_relied):
-        reply = miss_reply(True, spoken=phone)
+        reply = _aside(miss_reply(True, spoken=phone))
         ts = _now_iso()
         receipt = _receipt_for_role(role, None, reply=reply)
         if persist:
@@ -841,7 +938,7 @@ async def run_twin_turn(
             completed = await complete_openai_chat(messages)
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"Local twin (Ollama) failed: {exc!s}") from exc
-        reply = completed.text
+        reply = _aside(completed.text)
         backend_used = "ollama"
         ts = _now_iso()
         receipt = _receipt_for_role(role, tool_trace, reply=reply)
@@ -879,7 +976,7 @@ async def run_twin_turn(
             history = list(pack.history)
             history.append({"role": "user", "content": text})
             try:
-                reply = await ollama_chat(system, history, base_url=ollama_url)
+                reply = _aside(await ollama_chat(system, history, base_url=ollama_url))
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError(f"Local twin (Ollama) failed: {exc!s}") from exc
             ts = _now_iso()
@@ -939,7 +1036,7 @@ async def run_twin_turn(
                     "ts": _now_iso(),
                 })
             resp = await chat.send_message_with_tools()
-        reply = (resp.content or "").strip()
+        reply = _aside((resp.content or "").strip())
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"LLM failed: {exc!s}") from exc
     backend_used = "cloud_claude"

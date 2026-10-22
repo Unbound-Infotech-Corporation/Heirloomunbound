@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { api } from "../lib/api";
 import {
   ComputeTargetPanel,
+  MemorialModePanel,
   FeatureModelPanel,
   StudioPanel,
   StudioTabs,
@@ -106,6 +107,7 @@ export default function ModelsStudio() {
         inspectorWidth={300}
         inspector={
           <>
+            <MemorialModePanel />
             <ComputeTargetPanel onSaved={() => load()} />
 
             <StudioPanel title="Dedicated PC" testId="models-probe" defaultOpen>

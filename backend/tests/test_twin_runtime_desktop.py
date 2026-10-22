@@ -60,6 +60,10 @@ def test_build_twin_system_includes_abilities_and_fence():
     assert "Grew up in Vermont" in system
     assert "HOW WE WORK (owner sitting)" in system
     assert "Assist can Do" in system
+    assert "Heirloom, an AI" in system
+    assert "What I remember" in system
+    assert "Never say you are an AI" not in system
+    assert 'Never say "as an AI"' not in system
 
 
 @_needs_twin
@@ -76,6 +80,8 @@ def test_build_twin_system_heir_skips_owner_pairing():
     assert "Assist can Do" not in system
     assert "pairing or productivity" in system
     assert "Grew up in Vermont" in system
+    assert "counselor" in system.lower()
+    assert "Never say you are an AI" not in system
 
 
 @_needs_twin
@@ -228,7 +234,8 @@ def test_compile_twin_prompt_owner_includes_pairing():
     assert "Never invent PC actions" in system
     addendum = phone_system_addendum("Sam")
     assert "speaking with Sam" in addendum
-    assert "Never say you are an AI" in addendum
+    assert "Heirloom, an AI" in addendum
+    assert "Never say you are an AI" not in addendum
 
 
 def test_web_twin_uses_shared_builder_as_owner():

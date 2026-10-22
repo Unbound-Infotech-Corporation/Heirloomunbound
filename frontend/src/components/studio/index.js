@@ -1,4 +1,5 @@
 export { default as ComputeTargetPanel } from "./ComputeTargetPanel";
+export { default as MemorialModePanel } from "./MemorialModePanel";
 export { default as FeatureModelPanel } from "./FeatureModelPanel";
 export { default as VendorHandoff } from "./VendorHandoff";
 export { default as VendorCoach } from "./VendorHandoff";

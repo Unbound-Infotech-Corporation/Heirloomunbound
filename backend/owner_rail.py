@@ -132,6 +132,7 @@ class OwnerTurnResult:
     handoff: Optional[dict] = None
     assignment: Optional[dict] = None
     approval: Optional[dict] = None
+    crisis: bool = False
 
 
 def _norm(text: str) -> str:
@@ -352,6 +353,27 @@ async def run_owner_turn(
     text = (message or "").strip()
     if not text:
         raise ValueError("Empty message")
+
+    from twin_safety import intercept_crisis, surface_for_source
+
+    crisis = await intercept_crisis(
+        text,
+        user=user,
+        surface=surface_for_source(source),
+        audience=audience or "owner",
+        conversation=conversation,
+        persist=persist,
+        source=source,
+    )
+    if crisis:
+        return OwnerTurnResult(
+            reply=crisis.reply,
+            conversation_id=conversation["conversation_id"],
+            ts=crisis.ts,
+            backend="crisis",
+            twin_reply=crisis.reply,
+            crisis=True,
+        )
 
     fenced = not owner_mode_allowed(audience=audience)
     clones: list[dict] = []

@@ -186,9 +186,48 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     if len(text) > 2000:
         raise HTTPException(status_code=400, detail="Message too long")
 
+    from grief_guard import with_grief_aside
+    from memorial_mode import memorial_from_user
     from observer_prompt import attach_observer_context
     from twin_pack import TwinPack, compile_twin_prompt, miss_reply, stance_line
     from twin_runtime import archive_passages, citation_line, _fence_from_user
+    from twin_safety import grief_for_turn, intercept_crisis, sessions_today_count
+
+    crisis = await intercept_crisis(
+        text,
+        user=owner,
+        surface="heir_portal",
+        audience="heir",
+        persist=False,
+        source="heir_portal",
+        heir=heir,
+    )
+    if crisis:
+        session_id = await _persist_portal_turn(
+            owner["user_id"], heir, payload.session_id, text, crisis.reply
+        )
+        return {
+            "reply": crisis.reply,
+            "session_id": session_id,
+            "crisis": True,
+        }
+
+    memorial = memorial_from_user(owner)
+    prior_id = portal_conversation_id(heir["heir_id"], payload.session_id)
+    existing = await db.conversations.find_one(
+        {"conversation_id": prior_id, "user_id": owner["user_id"]},
+        {"_id": 0, "messages": 1},
+    )
+    prior_messages = list((existing or {}).get("messages") or [])
+    prior_messages.append({"role": "user", "content": text})
+    sessions = await sessions_today_count(owner["user_id"], kind="heir_portal")
+    grief = grief_for_turn(
+        text,
+        audience="heir",
+        messages=prior_messages,
+        sessions_today=sessions,
+        settings=memorial,
+    )
 
     passages = await archive_passages(owner["user_id"], query_hint=text)
     pack = TwinPack(
@@ -206,13 +245,18 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     )
     attached = attach_observer_context(pack.citation_line, text, audience="heir")
     if not passages and not attached.relied:
-        reply_text = miss_reply(True)
+        reply_text = with_grief_aside(miss_reply(True), grief, history=prior_messages)
         session_id = await _persist_portal_turn(
             owner["user_id"], heir, payload.session_id, text, reply_text
         )
         return {"reply": reply_text, "session_id": session_id, "citation_line": pack.citation_line}
 
-    system = compile_twin_prompt(pack, owner.get("name", "the owner"))
+    system = compile_twin_prompt(
+        pack,
+        owner.get("name", "the owner"),
+        memorial=memorial,
+        grief=grief,
+    )
     if attached.block:
         system += "\n\n" + attached.block
     system += (
@@ -230,6 +274,7 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     try:
         reply = await chat.send_message(UserMessage(text=text))
         reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+        reply_text = with_grief_aside(reply_text, grief, history=prior_messages)
     except Exception:  # noqa: BLE001
         raise HTTPException(status_code=502, detail="Twin reply failed. Try again.") from None
 

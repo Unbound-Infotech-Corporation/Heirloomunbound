@@ -36,6 +36,8 @@ public sealed class AppSettings
     public bool Autostart { get; set; }
     public string BuildId { get; set; } = "dev";
     public string TwinPersona { get; set; } = "family";
+    public string MemorialMode { get; set; } = "living";
+    public string MemorialDate { get; set; } = "";
     public bool GroundedOnly { get; set; } = true;
     public bool SpeakReplies { get; set; } = true;
     public bool VrMode { get; set; }

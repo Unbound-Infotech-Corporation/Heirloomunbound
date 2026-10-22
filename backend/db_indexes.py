@@ -67,6 +67,8 @@ async def ensure_indexes() -> None:
         ("rooms", [("room_id", 1)], {"unique": True, "name": "room_id_uniq"}),
         ("nudges", [("user_id", 1), ("date", -1)], {"name": "user_date"}),
         ("nudges", [("user_id", 1), ("kind", 1), ("date_key", -1)], {"name": "user_kind_date"}),
+        ("safety_events", [("user_id", 1), ("created_at", -1)], {"name": "user_created"}),
+        ("safety_events", [("event_id", 1)], {"unique": True, "name": "event_id_uniq"}),
 
         # Photos
         ("photos", [("user_id", 1), ("created_at", -1)], {"name": "user_created"}),

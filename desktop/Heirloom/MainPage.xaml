@@ -462,6 +462,19 @@
                                 <TextBlock
                                     VerticalAlignment="Center"
                                     Style="{StaticResource StudioOverline}"
+                                    Text="Memorial" />
+                                <ToggleSwitch
+                                    MinWidth="40"
+                                    AutomationProperties.Name="Memorial mode"
+                                    IsEnabled="{x:Bind ViewModel.Twin.CanEdit, Mode=OneWay}"
+                                    IsOn="{x:Bind ViewModel.Twin.MemorialPosthumous, Mode=TwoWay}"
+                                    OffContent=""
+                                    OnContent="" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    Style="{StaticResource StudioOverline}"
                                     Text="Speak" />
                                 <ToggleSwitch
                                     MinWidth="40"
