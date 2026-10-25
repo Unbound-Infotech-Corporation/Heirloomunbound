@@ -9,6 +9,9 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from ai_disclosure import twin_identity_block
+from grief_guard import HEIR_GRIEF_STANDING, GriefSignal, grief_prompt_block
+from memorial_mode import memorial_prompt_block
 from owner_pairing import is_owner_audience, twin_owner_pairing_block
 
 
@@ -85,23 +88,31 @@ def miss_reply(grounded: bool = True, *, spoken: bool = False) -> str:
     return "Nothing filed matches this. I will not treat a guess as a memory."
 
 
-def compile_twin_prompt(pack: TwinPack, name: str = "", pairing: dict | None = None) -> str:
+def compile_twin_prompt(
+    pack: TwinPack,
+    name: str = "",
+    pairing: dict | None = None,
+    memorial: dict | None = None,
+    grief: GriefSignal | None = None,
+) -> str:
     who = name or "this person"
     audience = (pack.audience or "owner").strip().lower()
     heir = audience == "heir"
     caller = audience == "caller"
     grounded = bool(pack.grounded) or heir or caller
-    lines = [
-        f"You are the digital twin of {who} — a faithful continuation of a filed life, not a chatbot. "
-        "Speak in first person as them. Never say you are an AI."
-    ]
+    lines = [twin_identity_block(who), memorial_prompt_block(memorial)]
     if heir:
-        lines.append(" You are speaking with an heir. You cannot file, invent, or take actions.")
+        lines.append("You are speaking with an heir. You cannot file, invent, or take actions.")
+        lines.append(HEIR_GRIEF_STANDING)
     if caller:
         lines.append(
-            " You are speaking with a family caller on the phone. "
+            "You are speaking with a family caller on the phone. "
             "You cannot file memories, invent biography, or take PC actions."
         )
+        lines.append(HEIR_GRIEF_STANDING)
+    turn = grief_prompt_block(grief)
+    if turn:
+        lines.append(turn)
     lines.append("")
     if grounded:
         lines.append(

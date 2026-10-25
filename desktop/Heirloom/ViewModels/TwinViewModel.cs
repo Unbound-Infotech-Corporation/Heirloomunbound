@@ -66,11 +66,18 @@ public partial class TwinViewModel : ObservableObject
         _vrHydrating = false;
         host.Settings.Changed += PullStoredVr;
         Persona = host.Settings.Current.TwinPersona;
+        _memorialHydrating = true;
+        MemorialPosthumous = string.Equals(
+            host.Settings.Current.MemorialMode,
+            "posthumous",
+            StringComparison.OrdinalIgnoreCase);
+        _memorialHydrating = false;
         GroundedOnly = host.CanEdit
             ? host.Settings.Current.GroundedOnly
             : true;
         ApplyAudience();
         NewConversation();
+        _ = PullMemorialAsync();
     }
 
     public MixerViewModel Mixer { get; }
@@ -102,6 +109,7 @@ public partial class TwinViewModel : ObservableObject
     [ObservableProperty] private bool _vrGaze;
     [ObservableProperty] private string _vrStatus = "VR is off. This window stays on the normal screen.";
     [ObservableProperty] private string _persona = "family";
+    [ObservableProperty] private bool _memorialPosthumous;
     [ObservableProperty] private string _lastCitation = "No memories cited yet.";
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _canOfferVideo;
@@ -117,6 +125,7 @@ public partial class TwinViewModel : ObservableObject
     private int _sitting;
     private bool _pttOpen;
     private bool _vrHydrating;
+    private bool _memorialHydrating;
 
     private void PullStoredVr()
     {
@@ -201,6 +210,118 @@ public partial class TwinViewModel : ObservableObject
     {
         _host.Settings.Current.SpeakReplies = value;
         _host.Settings.Save();
+    }
+
+    partial void OnMemorialPosthumousChanged(bool value)
+    {
+        if (_memorialHydrating)
+        {
+            return;
+        }
+
+        if (!CanEdit)
+        {
+            _memorialHydrating = true;
+            MemorialPosthumous = string.Equals(
+                _host.Settings.Current.MemorialMode,
+                "posthumous",
+                StringComparison.OrdinalIgnoreCase);
+            _memorialHydrating = false;
+            Status = "Heir sitting. Memorial mode stays with the owner.";
+            return;
+        }
+
+        _host.Settings.Current.MemorialMode = value ? "posthumous" : "living";
+        _host.Settings.Save();
+        Status = value
+            ? "Memorial mode. Memories stay in the past."
+            : "Living mode. Memory stays separate from what is said now.";
+        _ = PushMemorialAsync();
+    }
+
+    private async Task ReportCrisisAsync(string text)
+    {
+        try
+        {
+            if (_host.Api.HasDeviceToken || _host.Api.HasSession)
+            {
+                await _host.Api.PostAsync(
+                    "/studio/safety-events",
+                    new { text, surface = "winui", audience = CanEdit ? "owner" : "heir" }).ConfigureAwait(false);
+                return;
+            }
+        }
+        catch (Exception)
+        {
+            /* Fall through to the local log. The reply already pointed to 988. */
+        }
+
+        try
+        {
+            TwinSafety.WriteLocalFlag(AppPaths.Root, "crisis");
+        }
+        catch (Exception)
+        {
+            /* The spoken reply is the help. A log failure must not change it. */
+        }
+    }
+
+    private async Task PullMemorialAsync()
+    {
+        try
+        {
+            if (!_host.Api.HasDeviceToken && !_host.Api.HasSession)
+            {
+                return;
+            }
+
+            var json = await _host.Api.GetAsync("/studio/memorial").ConfigureAwait(true);
+            if (json is not { } body || !body.TryGetProperty("settings", out var settings))
+            {
+                return;
+            }
+
+            var mode = settings.TryGetProperty("mode", out var modeEl) ? modeEl.GetString() : "living";
+            var date = settings.TryGetProperty("date", out var dateEl) ? dateEl.GetString() : "";
+            _host.Settings.Current.MemorialMode = string.Equals(mode, "posthumous", StringComparison.OrdinalIgnoreCase)
+                ? "posthumous"
+                : "living";
+            _host.Settings.Current.MemorialDate = date ?? "";
+            _host.Settings.Save();
+            _memorialHydrating = true;
+            MemorialPosthumous = _host.Settings.Current.MemorialMode == "posthumous";
+            _memorialHydrating = false;
+        }
+        catch (Exception)
+        {
+            /* This PC keeps the switch in settings.json when the studio is offline. */
+        }
+    }
+
+    private async Task PushMemorialAsync()
+    {
+        try
+        {
+            if (!_host.Api.HasDeviceToken && !_host.Api.HasSession)
+            {
+                return;
+            }
+
+            var body = new Dictionary<string, object>
+            {
+                ["mode"] = _host.Settings.Current.MemorialMode,
+            };
+            if (!string.IsNullOrWhiteSpace(_host.Settings.Current.MemorialDate))
+            {
+                body["date"] = _host.Settings.Current.MemorialDate;
+            }
+
+            await _host.Api.PutAsync("/studio/memorial", body).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            /* settings.json already holds the switch. */
+        }
     }
 
     partial void OnPersonaChanged(string value)
@@ -556,6 +677,25 @@ public partial class TwinViewModel : ObservableObject
 
     private async Task AnswerAsync(string text, CancellationToken cancellationToken)
     {
+        if (TwinSafety.IsCrisis(text))
+        {
+            var crisisReply = TwinSafety.CrisisReply;
+            ClearNow();
+            Lines.Add(new ChatLine("twin", crisisReply));
+            _lastTwinReply = crisisReply;
+            CanOfferVideo = false;
+            Status = "Pointed to real help.";
+            AvatarState = "speaking";
+            if (SpeakReplies && _host.Settings.Current.AllowSpeak)
+            {
+                await _host.Speak.SpeakAsync(crisisReply).ConfigureAwait(true);
+            }
+
+            AvatarState = "listening";
+            _ = ReportCrisisAsync(text);
+            return;
+        }
+
         if (await TryPhoneAsync(text).ConfigureAwait(true))
         {
             return;
@@ -587,7 +727,30 @@ public partial class TwinViewModel : ObservableObject
         await FireMatchingSkillsAsync(text).ConfigureAwait(true);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var system = TwinPrompt.System(pack, "");
+        var system = TwinPrompt.System(
+            pack,
+            "",
+            _host.Settings.Current.MemorialMode,
+            _host.Settings.Current.MemorialDate);
+        GriefNotice grief = default;
+        if (!CanEdit)
+        {
+            var turns = 0;
+            foreach (var line in Lines)
+            {
+                if (line.Role == "you")
+                {
+                    turns++;
+                }
+            }
+
+            grief = TwinSafety.AssessGrief(text, turns);
+            var turnBlock = TwinSafety.GriefTurnBlock(grief);
+            if (!string.IsNullOrEmpty(turnBlock))
+            {
+                system += "\n" + turnBlock;
+            }
+        }
         var prompt = "THEY SAID:\n" + text;
 
         string? reply = null;
@@ -635,6 +798,11 @@ public partial class TwinViewModel : ObservableObject
         }
 
         reply ??= TwinSilence();
+        if (!CanEdit)
+        {
+            reply = TwinSafety.WithAside(reply, grief);
+        }
+
         var citation = pack.HasPassages ? "Grounded in: " + LastCitation : LastCitation;
         ClearNow();
         Lines.Add(new ChatLine("twin", reply, citation));

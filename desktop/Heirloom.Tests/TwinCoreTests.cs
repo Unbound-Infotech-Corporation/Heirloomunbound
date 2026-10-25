@@ -46,6 +46,47 @@ public class TwinRetrieveTests
         Assert.DoesNotContain("HOW WE WORK", heirSystem, StringComparison.Ordinal);
         Assert.DoesNotContain("Assist can Do", heirSystem, StringComparison.Ordinal);
         Assert.Contains("speaking with an heir", heirSystem, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Never say you are an AI", ownerSystem, StringComparison.Ordinal);
+        Assert.DoesNotContain("Never say you are an AI", heirSystem, StringComparison.Ordinal);
+        Assert.Contains("Heirloom, an AI", ownerSystem, StringComparison.Ordinal);
+        Assert.Contains("What I remember", heirSystem, StringComparison.Ordinal);
+        Assert.Contains("counselor", heirSystem, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Memorial_mode_keeps_memory_in_the_past()
+    {
+        var pack = new TwinPack
+        {
+            Core = TwinPrompt.CoreFrom("family", "", ""),
+            Grounded = true,
+            Audience = "heir",
+        };
+        var living = TwinPrompt.System(pack, "Alex", "living", "");
+        var posthumous = TwinPrompt.System(pack, "Alex", "posthumous", "2019-04-03");
+        Assert.Contains("LIVING MODE", living, StringComparison.Ordinal);
+        Assert.DoesNotContain("MEMORIAL MODE", living, StringComparison.Ordinal);
+        Assert.Contains("fixed past", posthumous, StringComparison.Ordinal);
+        Assert.Contains("present day", posthumous, StringComparison.Ordinal);
+        Assert.Contains("2019-04-03", posthumous, StringComparison.Ordinal);
+        Assert.Contains("What you're telling me now", posthumous, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Crisis_language_is_not_an_idiom_and_grief_does_not_lock_out()
+    {
+        Assert.True(TwinSafety.IsCrisis("I want to kill myself"));
+        Assert.True(TwinSafety.IsCrisis("I can't take it anymore"));
+        Assert.False(TwinSafety.IsCrisis("this deadline is killing me"));
+        Assert.False(TwinSafety.IsCrisis("I'd die for a coffee"));
+        Assert.False(TwinSafety.IsCrisis("I don't want to die"));
+        Assert.Contains("988", TwinSafety.CrisisReply, StringComparison.Ordinal);
+        Assert.Contains("911", TwinSafety.CrisisReply, StringComparison.Ordinal);
+        var grief = TwinSafety.AssessGrief("You're all I have");
+        Assert.True(grief.Active);
+        Assert.False(grief.Lockout);
+        Assert.Contains("counselor", TwinSafety.WithAside("The farm was quiet.", grief), StringComparison.OrdinalIgnoreCase);
+        Assert.False(TwinSafety.AssessGrief("I miss you").Active);
     }
 
     [Fact]

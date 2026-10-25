@@ -396,6 +396,29 @@ async def desktop_brain_pack(body: BrainPackReq, ctx: dict = Depends(resolve_des
     user = ctx["user"]
     if user.get("account_status") == "refunded":
         raise HTTPException(status_code=403, detail="account_inactive")
+    from twin_safety import intercept_crisis
+
+    audience = (body.audience or "owner").strip().lower() or "owner"
+    crisis = await intercept_crisis(
+        body.text,
+        user=user,
+        surface="voice",
+        audience=audience,
+        persist=False,
+        source="voice",
+        allow_local=True,
+    )
+    if crisis:
+        return {
+            "system": "",
+            "history": [],
+            "conversation_id": "",
+            "twin_backend": "crisis",
+            "ollama_model": "",
+            "ollama_url": None,
+            "crisis": True,
+            "reply": crisis.reply,
+        }
     conv = await ensure_conversation(user["user_id"], kind="companion_twin")
     try:
         pack = await build_brain_pack(
@@ -410,6 +433,8 @@ async def desktop_brain_pack(body: BrainPackReq, ctx: dict = Depends(resolve_des
         "twin_backend": pack.twin_backend,
         "ollama_model": os.environ.get("OLLAMA_TWIN_MODEL", "llama3.1"),
         "ollama_url": _brain_pack_ollama_url(user),
+        "crisis": False,
+        "reply": "",
     }
 
 
@@ -430,17 +455,44 @@ async def desktop_local_complete(body: LocalCompleteReq, ctx: dict = Depends(res
     if user.get("account_status") == "refunded":
         raise HTTPException(status_code=403, detail="account_inactive")
 
+    from grief_guard import with_grief_aside
+    from twin_safety import grief_for_turn, intercept_crisis, sessions_today_count
+
+    audience = "owner"
+    crisis = await intercept_crisis(
+        body.text,
+        user=user,
+        surface="voice",
+        audience=audience,
+        persist=False,
+        source=body.source or "desktop_local",
+    )
+    reply = body.reply.strip()
+    if crisis:
+        reply = crisis.reply
     conv = await ensure_conversation(
         user["user_id"],
         kind="companion_twin",
         conversation_id=body.conversation_id,
     )
+    if not crisis:
+        sessions = await sessions_today_count(user["user_id"], kind="companion_twin")
+        prior = list(conv.get("messages") or [])
+        prior.append({"role": "user", "content": body.text.strip()})
+        grief = grief_for_turn(
+            body.text,
+            audience=audience,
+            messages=prior,
+            sessions_today=sessions,
+            settings=user,
+        )
+        reply = with_grief_aside(reply, grief, history=prior)
     ts = _now_iso()
     await _persist_pair(
         user["user_id"],
         conv["conversation_id"],
         body.text.strip(),
-        body.reply.strip(),
+        reply,
         ts,
         source=body.source,
     )
@@ -450,14 +502,15 @@ async def desktop_local_complete(body: LocalCompleteReq, ctx: dict = Depends(res
         pass
 
     await live_publish_turn(user["user_id"], "user", body.text, source=body.source)
-    await live_publish_turn(user["user_id"], "assistant", body.reply, source=body.source)
+    await live_publish_turn(user["user_id"], "assistant", reply, source=body.source)
 
     return {
-        "reply": body.reply.strip(),
+        "reply": reply,
         "conversation_id": conv["conversation_id"],
         "ts": ts,
-        "used_local": True,
-        "twin_backend": "ollama",
+        "used_local": not bool(crisis),
+        "twin_backend": "crisis" if crisis else "ollama",
+        "crisis": bool(crisis),
     }
 
 

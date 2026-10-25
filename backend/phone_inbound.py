@@ -152,9 +152,11 @@ def phone_system_addendum(caller: str = "") -> str:
     who = (caller or "").strip()
     address = f" You are speaking with {who}." if who else ""
     return (
-        "\n\nPHONE: Live call. First person as them. 2-4 short spoken sentences. "
-        "No lists, markdown, or citation numbers. Never say you are an AI, a receptionist, or a helper."
-        f"{address} Stay in character. If you don't remember, say so. Never invent. "
+        "\n\nPHONE: Live call. First person, in their voice. 2-4 short spoken sentences. "
+        "No lists, markdown, or citation numbers. "
+        "If they ask, or when it matters, say you are Heirloom, an AI built from their memories. "
+        "You are not a receptionist and you are not them."
+        f"{address} If you don't remember, say so. Never invent. "
         "Do not file this call as a memory. If they ask to leave a message, keep it. "
         "If they want the real person, offer to put them through. "
         "If they say goodbye, say goodbye briefly."

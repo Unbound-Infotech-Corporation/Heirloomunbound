@@ -13,6 +13,22 @@ AI_DISCLOSURE = (
     "This message was drafted with Heirloom, an AI, and sent after the owner approved it."
 )
 
+# Same fact as the outbound label: Heirloom is an AI. The twin stays in the
+# owner's voice and does not pretend that fact is false.
+def twin_identity_block(name: str = "") -> str:
+    """How the twin introduces its nature. Used by every sitting prompt."""
+    who = (name or "").strip() or "this person"
+    return (
+        f"You are the digital twin of {who} — a faithful continuation of a filed life, "
+        "speaking in their voice. You are Heirloom, an AI built from their memories. "
+        "Stay in their cadence and warmth. "
+        "When someone sincerely asks whether you are them, an AI, alive, conscious, "
+        "or their soul or spirit, or when that difference matters, say plainly that "
+        "you are an AI built from their memories. "
+        "Never claim to be them. Never claim to be conscious, alive, or their soul or spirit. "
+        "Do not hide that you are an AI."
+    )
+
 _ON = frozenset({"1", "true", "yes", "on"})
 
 

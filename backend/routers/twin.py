@@ -191,6 +191,29 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     else:
         lab_route = "twin"
 
+    from twin_safety import intercept_crisis
+
+    room = bool((payload.room_id or "").strip())
+    crisis = await intercept_crisis(
+        payload.message,
+        user=user,
+        surface="vr" if room else "twin",
+        audience="owner",
+        conversation=conv,
+        persist=True,
+        source="vr" if room else "web",
+    )
+    if crisis:
+        async def crisis_stream(reply: str = crisis.reply):
+            yield "data: " + json.dumps({"text": reply}) + "\n\n"
+            yield "event: done\ndata: {}\n\n"
+
+        return StreamingResponse(
+            crisis_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
+
     # ---- Music intent short-circuit (only if the Music ability is on) ----
     music_query = detect_music_intent(payload.message) if "music" in enabled_ids else None
     if music_query:
@@ -327,11 +350,14 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             pairing=pairing_prefs_from_user(user),
         )
     else:
+        from memorial_mode import memorial_from_user
+
         system = build_twin_system(
             user.get("name", ""), memory_blob, archive, skills, merged_safe,
             persona=persona, brand=brand, abilities_block=abilities_block,
             audience="owner",
             pairing=pairing_prefs_from_user(user),
+            memorial=memorial_from_user(user),
         )
     if specialist:
         system += specialist_prompt_block(specialist, user.get("name") or "")

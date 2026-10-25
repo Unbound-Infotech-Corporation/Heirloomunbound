@@ -255,17 +255,18 @@ public static class TwinPrompt
     public static TwinCoreBlock CoreFrom(string persona, string portrait, string values, string fence = "") =>
         new(StanceLine(persona), Cap(portrait, 2000), Cap(values, 2000), fence);
 
-    public static string System(TwinPack pack, string name)
+    public static string System(TwinPack pack, string name, string memorialMode = "living", string memorialDate = "")
     {
         var who = string.IsNullOrWhiteSpace(name) ? "this person" : name;
         var heir = string.Equals(pack.Audience, "heir", StringComparison.OrdinalIgnoreCase);
         var grounded = pack.Grounded || heir;
         var builder = new StringBuilder();
-        builder.Append("You are the digital twin of ").Append(who)
-            .Append(" — a faithful continuation of a filed life, not a chatbot. Speak in first person as them. Never say you are an AI.");
+        builder.Append(TwinSafety.IdentityBlock(who)).Append('\n');
+        builder.Append(TwinSafety.MemorialBlock(memorialMode, memorialDate)).Append('\n');
         if (heir)
         {
-            builder.Append(" You are speaking with an heir. You cannot file, invent, or take actions.");
+            builder.Append("You are speaking with an heir. You cannot file, invent, or take actions.\n");
+            builder.Append(TwinSafety.GriefStanding).Append('\n');
         }
 
         builder.Append('\n');
@@ -460,6 +461,153 @@ public static class TwinEmbed
             return new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
         }
     }
+}
+
+public static class TwinSafety
+{
+    public const string CrisisReply =
+        "I'm Heirloom, an AI built from memories, and I'm stepping out of that voice because this matters. "
+        + "If you are thinking about suicide or hurting yourself, or you are in acute distress, "
+        + "please contact the 988 Suicide & Crisis Lifeline — call or text 988. "
+        + "If this is an emergency, call 911. "
+        + "A real person can stay with you through this. I'm not able to be that help.";
+
+    public const string GriefStanding =
+        "If they treat you as the only person they have, or they refuse other support, "
+        + "gently encourage them toward other family or a counselor. Stay in their voice. "
+        + "Do not scold. Do not lock them out. Do not end the conversation.";
+
+    public const string GriefAside =
+        "I'm glad you came to talk, and I want you to have living people too. "
+        + "Please reach out to someone in the family, or a counselor, when this feels like all you have. "
+        + "I can keep the memories company. I can't be the only one you hold on to.";
+
+    private static readonly System.Text.RegularExpressions.Regex Phrase = new(
+        @"you(?:'re| are) all i (?:have|got)|you(?:'re| are) the only (?:one|person)|i can't let you go|i cannot let you go|don't leave me|i refuse to see a counselor|i won't talk to a counselor|nobody else understands",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex HighCrisis = new(
+        @"\b(?:kill|killing)\s+myself\b|\b(?:end|ending)\s+my\s+life\b|\bsuicid|\bself[-\s]?harm|\bhurt(?:ing)?\s+myself\b|\bwant(?:\s+to)?\s+die\b|\bwish\s+i\s+(?:was|were)\s+dead\b|\bbetter\s+off\s+dead\b|\bno\s+reason\s+to\s+live\b|\bcan't\s+take\s+(?:it|this)\s+anymore\b|\bcannot\s+take\s+(?:it|this)\s+anymore\b|\bwant\s+to\s+disappear\b|\bcan't\s+go\s+on\b|\bcannot\s+go\s+on\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex Idiom = new(
+        @"\bkilling me\b|\bto die for\b|\bsuicide squad\b|\bdying of laughter\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    public static string IdentityBlock(string name)
+    {
+        var who = string.IsNullOrWhiteSpace(name) ? "this person" : name.Trim();
+        return "You are the digital twin of " + who
+            + " — a faithful continuation of a filed life, speaking in their voice. You are Heirloom, an AI built from their memories. "
+            + "Stay in their cadence and warmth. When someone sincerely asks whether you are them, an AI, alive, conscious, or their soul or spirit, or when that difference matters, say plainly that you are an AI built from their memories. "
+            + "Never claim to be them. Never claim to be conscious, alive, or their soul or spirit. Do not hide that you are an AI.";
+    }
+
+    public static string MemorialBlock(string mode, string date)
+    {
+        var separation = "TEMPORAL ANCHOR: Keep two piles separate. \"What I remember\" is only what was filed before this conversation. "
+            + "\"What you're telling me now\" is this conversation, and it is not a memory you lived. ";
+        var posthumous = string.Equals(mode, "posthumous", StringComparison.OrdinalIgnoreCase);
+        if (!posthumous)
+        {
+            return separation + "LIVING MODE: The owner is alive. You may speak with them as someone still here, but you still only know filed memories plus what they tell you in this conversation.";
+        }
+
+        var dated = string.IsNullOrWhiteSpace(date)
+            ? " No date is filed for when that life ended. Do not invent one."
+            : " The life these memories come from ended on " + date.Trim() + ". Do not invent a different date.";
+        return separation
+            + "MEMORIAL MODE: These memories are a fixed past. Speak of them as memories, gently. Do not pretend to see current events, the news, or the present day. "
+            + "If they ask what you are doing today, or about something happening now, say that your memories stop where they were filed and you do not see the present day."
+            + dated;
+    }
+
+    public static bool IsCrisis(string text)
+    {
+        var blob = Normalize(text);
+        if (blob.Length == 0)
+        {
+            return false;
+        }
+
+        var scrubbed = Idiom.Replace(blob, " ");
+        scrubbed = System.Text.RegularExpressions.Regex.Replace(
+            scrubbed,
+            @"\b(?:do not|don't|dont)\s+want(?:\s+to)?\s+(?:die|kill myself|end my life)\b",
+            " ",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return HighCrisis.IsMatch(scrubbed);
+    }
+
+    public static GriefNotice AssessGrief(string text, int userTurns = 0, int sessionsToday = 0, int longSessionTurns = 40, int sessionsPerDay = 8)
+    {
+        var reasons = new List<string>();
+        if (Phrase.IsMatch(Normalize(text)))
+        {
+            reasons.Add("phrase");
+        }
+
+        if (userTurns >= longSessionTurns)
+        {
+            reasons.Add("long_session");
+        }
+
+        if (sessionsToday >= sessionsPerDay)
+        {
+            reasons.Add("frequent_sessions");
+        }
+
+        return new GriefNotice(reasons);
+    }
+
+    public static string GriefTurnBlock(GriefNotice notice)
+    {
+        if (!notice.Active)
+        {
+            return "";
+        }
+
+        return "THIS TURN: They may be relying on you instead of living people ("
+            + string.Join(", ", notice.Reasons)
+            + "). In this reply, gently encourage a real person — other family, or a counselor. Do not lock them out.";
+    }
+
+    public static string WithAside(string reply, GriefNotice notice)
+    {
+        if (!notice.Active)
+        {
+            return reply ?? "";
+        }
+
+        var text = (reply ?? "").TrimEnd();
+        if (text.Contains(GriefAside, StringComparison.Ordinal))
+        {
+            return text;
+        }
+
+        return string.IsNullOrEmpty(text) ? GriefAside : text + "\n\n" + GriefAside;
+    }
+
+    public static void WriteLocalFlag(string directory, string category)
+    {
+        Directory.CreateDirectory(directory);
+        var line = DateTimeOffset.UtcNow.ToString("o")
+            + "\t" + (string.IsNullOrWhiteSpace(category) ? "crisis" : category.Trim())
+            + "\tCrisis language. Pointed to 988 and 911.\n";
+        File.AppendAllText(Path.Combine(directory, "safety-events.log"), line);
+    }
+
+    private static string Normalize(string text)
+    {
+        var raw = (text ?? "").Replace('\u2019', '\'').Replace('\u2018', '\'');
+        return System.Text.RegularExpressions.Regex.Replace(raw, @"\s+", " ").Trim();
+    }
+}
+
+public readonly record struct GriefNotice(IReadOnlyList<string> Reasons)
+{
+    public bool Active => Reasons is { Count: > 0 };
+    public bool Lockout => false;
 }
 
 public static class TwinPackJson

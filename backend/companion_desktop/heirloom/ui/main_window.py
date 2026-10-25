@@ -651,6 +651,17 @@ class MainWindow(QMainWindow):
         if twin_local.should_use_local_twin(self._model_map):
 
             def _brain_ok(pack: dict) -> None:
+                if (pack or {}).get("crisis") and (pack or {}).get("reply"):
+                    spoken = pack.get("reply") or ""
+                    self._on_voice_reply(
+                        {
+                            "user_text": user_text,
+                            "reply": spoken,
+                            "tool_trace": [],
+                            "twin_backend": "crisis",
+                        }
+                    )
+                    return
                 if (pack or {}).get("twin_backend") != "ollama":
                     self._cloud_voice_chat(user_text, wav)
                     return

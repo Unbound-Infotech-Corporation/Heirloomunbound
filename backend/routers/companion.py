@@ -255,6 +255,7 @@ async def poll(ctx: dict = Depends(get_device_user)):
             {"reminder_id": rem["reminder_id"], "user_id": user["user_id"]},
             {"$set": {"delivered_at": now_iso}},
         )
+    from memorial_mode import clamp_memorial
     from studio_defaults import clamp_audio, clamp_compute, clamp_model_map
     from studio_compute import resolve_compute_device, user_compute
 
@@ -270,6 +271,7 @@ async def poll(ctx: dict = Depends(get_device_user)):
         "audio_settings": clamp_audio(user.get("studio_audio")),
         "model_map": clamp_model_map(user.get("studio_models")),
         "studio_compute": clamp_compute(user.get("studio_compute")),
+        "memorial": clamp_memorial(user.get("memorial")),
         "is_compute_target": is_compute_target,
         "compute_device_id": resolved_id,
     }

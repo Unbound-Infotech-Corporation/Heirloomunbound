@@ -53,6 +53,13 @@ from studio_setup import (
     space_profile,
     vendor_handoff,
 )
+from memorial_mode import (
+    MODES,
+    contact_email_problem,
+    default_memorial,
+    memorial_from_user,
+    merge_memorial,
+)
 from vr_mode import clamp_vr_prefs, launch_vr_state, owner_vr_allowed
 
 router = APIRouter(prefix="/studio", tags=["studio"])
@@ -104,6 +111,102 @@ def _vr_owner(user: dict) -> None:
 class VrUpdate(BaseModel):
     enabled: Optional[bool] = None
     gaze_enabled: Optional[bool] = None
+
+
+class MemorialUpdate(BaseModel):
+    mode: Optional[str] = None
+    date: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_email: Optional[str] = None
+    long_session_turns: Optional[int] = None
+    sessions_per_day: Optional[int] = None
+    long_session_minutes: Optional[int] = None
+
+
+class SafetyEventIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    surface: str = "winui"
+    audience: str = "owner"
+
+
+def _memorial_owner(user: dict) -> None:
+    audience = (user.get("audience") or "owner").strip().lower()
+    if user.get("heir_surface") or audience not in {"", "owner"}:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+@router.get("/memorial")
+async def get_memorial(user: dict = Depends(get_studio_user)):
+    """Living vs posthumous. Heirs do not change this."""
+    _memorial_owner(user)
+    settings = memorial_from_user(user)
+    return {"settings": settings, "defaults": default_memorial()}
+
+
+@router.put("/memorial")
+async def put_memorial(payload: MemorialUpdate, user: dict = Depends(get_studio_user)):
+    """Owner toggle. Send only the fields that should change."""
+    _memorial_owner(user)
+    patch = payload.model_dump(exclude_unset=True)
+    if patch.get("mode") is not None and str(patch["mode"]).strip().lower() not in MODES:
+        raise HTTPException(status_code=400, detail="mode must be living or posthumous")
+    if "date" in patch and str(patch.get("date") or "").strip():
+        from memorial_mode import _clean_date
+
+        if not _clean_date(patch.get("date")):
+            raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    if "contact_email" in patch:
+        problem = contact_email_problem(patch.get("contact_email"))
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+    merged = merge_memorial(memorial_from_user(user), patch)
+    now = _now_iso()
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"memorial": merged, "memorial_updated_at": now}},
+    )
+    return {"settings": merged, "updated_at": now}
+
+
+@router.get("/safety-events")
+async def list_safety_events(user: dict = Depends(get_studio_user), limit: int = 50):
+    """Crisis flags the owner and the designated contact are meant to see."""
+    _memorial_owner(user)
+    cap = max(1, min(int(limit), 100))
+    cursor = (
+        db.safety_events.find({"user_id": user["user_id"]}, {"_id": 0})
+        .sort("created_at", -1)
+        .limit(cap)
+    )
+    items = await cursor.to_list(length=cap)
+    contact = memorial_from_user(user)
+    return {
+        "events": items,
+        "designated_contact": {
+            "name": contact.get("contact_name") or "",
+            "email": contact.get("contact_email") or "",
+        },
+    }
+
+
+@router.post("/safety-events")
+async def post_safety_event(payload: SafetyEventIn, user: dict = Depends(get_studio_user)):
+    """Record a flag from a local sitting. The text is checked again and not stored."""
+    _memorial_owner(user)
+    from twin_safety import intercept_crisis
+
+    crisis = await intercept_crisis(
+        payload.text,
+        user=user,
+        surface=(payload.surface or "winui").strip() or "winui",
+        audience=(payload.audience or "owner").strip() or "owner",
+        persist=False,
+        source=payload.surface or "winui",
+        allow_local=True,
+    )
+    if crisis is None:
+        raise HTTPException(status_code=400, detail="That message is not a crisis flag.")
+    return {"ok": True, "event": crisis.event, "reply": crisis.reply}
 
 
 @router.get("/vr")
