@@ -391,6 +391,27 @@ def _transcribe_pcm(pcm: bytes) -> str:
     return " ".join(segment.text.strip() for segment in segments if segment.text).strip()
 
 
+def _note_assist_live(store: ObserverStore, note: dict, *, paused: bool) -> None:
+    """Hand a transcript to Assist. Failures stay in the journal and do not stop hearing."""
+    try:
+        from assist_live import ingest_heard
+
+        if paused:
+            ingest_heard(store.root, text="", channel="mic", paused=True, now=time.time())
+            return
+        if note.get("dropped") or note.get("latch_pause"):
+            return
+        ingest_heard(
+            store.root,
+            text=str(note.get("text") or ""),
+            channel=str(note.get("channel") or ""),
+            paused=False,
+            now=time.time(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"assist live: {fault_text(exc)}", file=sys.stderr)
+
+
 def _audio_loop(store: ObserverStore, stop: threading.Event) -> None:
     """System audio and the microphone stay in separate windows."""
     if (os.environ.get("OBSERVER_AUDIO") or "").strip().lower() not in {"1", "true", "yes", "on"}:
@@ -446,6 +467,7 @@ def _audio_loop(store: ObserverStore, stop: threading.Event) -> None:
             if paused:
                 drain_chunks(spool, "system")
                 drain_chunks(spool, "mic")
+                _note_assist_live(store, {}, paused=True)
             local_system = captured["system"]
             local_mic = captured["mic"]
             if system_dev is not None:
@@ -485,6 +507,7 @@ def _audio_loop(store: ObserverStore, stop: threading.Event) -> None:
                         "ts": datetime.now().astimezone().isoformat(),
                     }
                 )
+                _note_assist_live(store, note, paused=paused)
             _write_audio_status(
                 store,
                 {

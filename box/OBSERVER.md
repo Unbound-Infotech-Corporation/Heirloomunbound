@@ -148,7 +148,19 @@ Each stream has its own switch:
 
 `GET /api/health` reports both under `observer.audio` (`source`, `status`, `device`). The companion shows those lines and sends a stream only when the box is waiting on that PC.
 
-The privacy filter and the shared pause switch apply to transcripts. A paused Observer discards audio instead of transcribing it.
+The privacy filter and the shared pause switch apply to transcripts. A paused Observer discards audio instead of transcribing it. Pause also stops Assist from listening: no wake, no push-to-talk, and no computer action.
+
+## Assist in the room
+
+Transcripts stay context until the owner addresses the twin on the **microphone**. System audio cannot wake it and cannot say yes. The wake phrase defaults to `hey <twin name>` (Companion Settings, or `PUT /api/assist/live/settings`). `Ctrl+Shift+Space` on BIGDEAL arms the mic for 8 seconds.
+
+A reply goes through `twin_runtime` with `local_only`, so the crisis check and the identity-honesty prompt run, and a missing local model does not fall through to the cloud. Chatterbox (`http://127.0.0.1:8010/speak.wav`) speaks it. The Companion shows a caption and plays the wav. Raw video is never stored. PCM is still deleted after the window is read.
+
+Proactive asides are off until the owner turns them on. They are at most one every 10 minutes and three an hour, mute from the tray or by saying "mute" on the mic, and they stay quiet during a call or a fullscreen game.
+
+Every computer action waits for a spoken yes, the tray **Yes, do that**, or **Yes** in the Companion **Twin Live** window. **No** leaves the action unrun. Reboot, shutdown, boot settings, format, wipe, `192.168.0.16`, `192.168.0.19`, and owner passwords are refused even after yes. Sends, purchases, and deletes need an explicit yes. Heirs and family get 404 on `/api/assist/live`. Posthumous memorial mode answers with no screen and no observer context. Each action leaves an Assist receipt.
+
+`GET /api/assist/live/mic` is owner-only. It reads microphone lines already in `observations.jsonl` and returns the words. System audio is left out. While Observer is paused the response says `listening: false`. The route does not write a transcript, a frame, or audio. Twin Live is a Companion window (tray **Twin Live**). The Heirloom studio does not have to be open. The window shows those mic words as **You**, captions as **Twin**, the pending action with Yes and No, receipts, and Listening or Paused. Always on top is off until the owner checks it.
 
 ## Privacy
 

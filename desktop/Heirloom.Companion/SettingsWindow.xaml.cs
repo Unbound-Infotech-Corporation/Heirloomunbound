@@ -18,6 +18,9 @@ public partial class SettingsWindow : Window
         Toasts.IsChecked = store.Toasts;
         SystemAudio.IsChecked = store.SystemAudio;
         MicAudio.IsChecked = store.MicAudio;
+        TwinName.Text = store.TwinName;
+        WakePhrase.Text = store.WakePhrase;
+        Proactive.IsChecked = store.Proactive;
         var pin = store.Pin;
         Fingerprint.Text = string.IsNullOrWhiteSpace(pin)
             ? "Certificate not pinned yet."
@@ -98,6 +101,18 @@ public partial class SettingsWindow : Window
 
         await BoxClient.SetAudioStreamAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "system", _store.SystemAudio).ConfigureAwait(true);
         await BoxClient.SetAudioStreamAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "mic", _store.MicAudio).ConfigureAwait(true);
+        var settings = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            twin_name = _store.TwinName,
+            wake_phrase = _store.WakePhrase,
+            proactive = _store.Proactive,
+        });
+        await BoxClient.PutAssistSettingsAsync(
+            _store.BoxUrl,
+            _store.Pin,
+            _store.CaPem,
+            token,
+            settings).ConfigureAwait(true);
     }
 
     private void OnSave(object sender, RoutedEventArgs e)
@@ -107,6 +122,9 @@ public partial class SettingsWindow : Window
         _store.Toasts = Toasts.IsChecked == true;
         _store.SystemAudio = SystemAudio.IsChecked == true;
         _store.MicAudio = MicAudio.IsChecked == true;
+        _store.TwinName = TwinName.Text;
+        _store.WakePhrase = WakePhrase.Text;
+        _store.Proactive = Proactive.IsChecked == true;
         TrayController.ApplyAutostart(_store.Autostart);
         _ = PushAudioAsync();
         Status.Text = "Saved.";

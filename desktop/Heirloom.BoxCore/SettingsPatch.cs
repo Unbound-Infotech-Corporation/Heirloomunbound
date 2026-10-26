@@ -15,6 +15,10 @@ public static class SettingsPatch
     public const string CompanionToasts = "companion_toasts";
     public const string CompanionAudioSystem = "companion_audio_system";
     public const string CompanionAudioMic = "companion_audio_mic";
+    public const string CompanionWakePhrase = "companion_wake_phrase";
+    public const string CompanionTwinName = "companion_twin_name";
+    public const string CompanionProactive = "companion_proactive";
+    public const string CompanionLiveOnTop = "companion_live_on_top";
     public const string RunMode = "run_mode";
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };

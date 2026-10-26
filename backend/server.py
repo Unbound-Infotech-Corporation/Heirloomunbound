@@ -40,6 +40,7 @@ from routers import (
     approvals,
     assignments,
     assistants,
+    assist_live,
     auth,
     photo_story,
     avatar,
@@ -222,6 +223,7 @@ api_router.include_router(onboarding.router)
 api_router.include_router(sources.router)
 api_router.include_router(lab.router)
 api_router.include_router(observer.router)
+api_router.include_router(assist_live.router)
 api_router.include_router(presence.router)
 api_router.include_router(letters.router)
 api_router.include_router(heir_portal.router)

@@ -14,6 +14,13 @@ internal sealed class TrayController : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly TaskbarIcon _icon = new();
     private readonly AudioPump _audio;
+    private readonly CaptionWindow _caption = new();
+    private readonly TwinLiveWindow _live;
+    private readonly CaptionPlayer _player = new();
+    private readonly CompanionHotkey _hotkey = new();
+    private AssistLiveView _assist = AssistLiveView.Empty;
+    private string _shownCaptionId = "";
+    private string _playedAudioId = "";
     private BoxSnapshot _snapshot = TrayStatus.Describe(false, null, BoxLink.DefaultBoxUrl, null);
     private bool? _wasReachable;
     private bool _wasCertificate;
@@ -23,11 +30,16 @@ internal sealed class TrayController : IDisposable
     public TrayController()
     {
         _audio = new AudioPump(_store);
+        _live = new TwinLiveWindow(_store);
+        _live.ConfirmRequested += id => _ = ConfirmAsync(id);
+        _live.DeclineRequested += id => _ = DeclineAsync(id);
     }
 
     public void Start()
     {
         ApplyAutostart(_store.Autostart);
+        _hotkey.Pressed += () => _ = ArmPushToTalkAsync();
+        _hotkey.Attach();
         _icon.ToolTipText = "Heirloom Twin Box";
         Paint(BoxLamp.Red);
         RebuildMenu();
@@ -47,6 +59,7 @@ internal sealed class TrayController : IDisposable
             MaybeToast(next);
             _snapshot = next;
             _audio.Note(next);
+            await PollAssistAsync(cancellationToken).ConfigureAwait(true);
             _wasReachable = next.Reachable;
             _wasCertificate = next.CertificateFailed;
             await Application.Current.Dispatcher.InvokeAsync(() =>
@@ -114,11 +127,25 @@ internal sealed class TrayController : IDisposable
         menu.Items.Add(pause);
         menu.Items.Add(StreamItem("system", _snapshot.SystemAudio, _store.SystemAudio));
         menu.Items.Add(StreamItem("mic", _snapshot.MicAudio, _store.MicAudio));
+        var mute = new MenuItem { Header = _assist.Muted ? "Let the twin speak" : "Mute the twin" };
+        mute.IsEnabled = _snapshot.Reachable && !string.IsNullOrWhiteSpace(_store.Session());
+        mute.Click += async (_, _) => await SetMutedAsync(!_assist.Muted).ConfigureAwait(true);
+        menu.Items.Add(mute);
+        var yes = new MenuItem
+        {
+            Header = string.IsNullOrWhiteSpace(_assist.PendingLabel) ? "Yes, do that" : "Yes — " + _assist.PendingLabel,
+            IsEnabled = _assist.PendingId.Length > 0 && _snapshot.Reachable,
+        };
+        yes.Click += async (_, _) => await ConfirmAsync(_assist.PendingId).ConfigureAwait(true);
+        menu.Items.Add(yes);
         if (string.IsNullOrWhiteSpace(_store.Session()))
         {
             menu.Items.Add(new MenuItem { Header = "Sign in to pause Observer", IsEnabled = false });
         }
 
+        var live = new MenuItem { Header = "Twin Live" };
+        live.Click += (_, _) => _live.Reveal();
+        menu.Items.Add(live);
         var open = new MenuItem { Header = "Open Twin" };
         open.Click += (_, _) => OpenTwin();
         menu.Items.Add(open);
@@ -160,6 +187,110 @@ internal sealed class TrayController : IDisposable
         {
             await BoxClient.SetAudioStreamAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, source, enabled).ConfigureAwait(true);
         }
+    }
+
+    private async Task PollAssistAsync(CancellationToken cancellationToken)
+    {
+        var token = _store.Session();
+        if (string.IsNullOrWhiteSpace(token) || !_snapshot.Reachable)
+        {
+            return;
+        }
+
+        var json = await BoxClient.GetAssistLiveAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(true);
+        var micJson = await BoxClient.GetAssistMicAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(true);
+        if (json is null && micJson is null)
+        {
+            return;
+        }
+
+        var view = json is null ? _assist : AssistLive.Parse(json);
+        if (json is not null)
+        {
+            _assist = view;
+        }
+
+        _live.Apply(view, MicTranscript.Parse(micJson));
+        if (view.CaptionId != _shownCaptionId)
+        {
+            _shownCaptionId = view.CaptionId;
+            _caption.ShowCaption(view.Caption);
+        }
+
+        if (!view.HasAudio || view.AudioId.Length == 0 || view.AudioId == _playedAudioId)
+        {
+            return;
+        }
+
+        var wav = await BoxClient.GetAssistAudioAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, view.AudioId, cancellationToken).ConfigureAwait(true);
+        if (wav is { Length: > 12 })
+        {
+            _playedAudioId = view.AudioId;
+            _player.Play(wav);
+        }
+    }
+
+    private async Task ArmPushToTalkAsync()
+    {
+        var token = _store.Session();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        await BoxClient.PostAssistAsync(
+            _store.BoxUrl,
+            _store.Pin,
+            _store.CaPem,
+            token,
+            "/api/assist/live/ptt",
+            "{\"held\":true}").ConfigureAwait(true);
+    }
+
+    private async Task SetMutedAsync(bool muted)
+    {
+        var token = _store.Session();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        var json = muted ? "{\"muted\":true}" : "{\"muted\":false}";
+        await BoxClient.PostAssistAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "/api/assist/live/mute", json).ConfigureAwait(true);
+    }
+
+    private async Task ConfirmAsync(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return;
+        }
+
+        var token = _store.Session();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        var json = "{\"id\":\"" + id.Replace("\"", "", StringComparison.Ordinal) + "\"}";
+        await BoxClient.PostAssistAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "/api/assist/live/confirm", json).ConfigureAwait(true);
+    }
+
+    private async Task DeclineAsync(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return;
+        }
+
+        var token = _store.Session();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        var json = "{\"id\":\"" + id.Replace("\"", "", StringComparison.Ordinal) + "\"}";
+        await BoxClient.PostAssistAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "/api/assist/live/decline", json).ConfigureAwait(true);
     }
 
     private async Task TogglePauseAsync()
@@ -229,6 +360,10 @@ internal sealed class TrayController : IDisposable
     public void Dispose()
     {
         _stop.Cancel();
+        _hotkey.Dispose();
+        _player.Dispose();
+        _live.Shutdown();
+        _caption.Close();
         _audio.Dispose();
         _current?.Dispose();
         _icon.Dispose();
