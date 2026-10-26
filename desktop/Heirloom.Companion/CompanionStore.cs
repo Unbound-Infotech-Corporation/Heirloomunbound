@@ -46,6 +46,24 @@ public sealed class CompanionStore
         set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionAudioMic] = value });
     }
 
+    public string WakePhrase
+    {
+        get => SettingsPatch.ReadString(SettingsPath, SettingsPatch.CompanionWakePhrase, "");
+        set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionWakePhrase] = value.Trim() });
+    }
+
+    public string TwinName
+    {
+        get => SettingsPatch.ReadString(SettingsPath, SettingsPatch.CompanionTwinName, "Twin");
+        set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionTwinName] = value.Trim() });
+    }
+
+    public bool Proactive
+    {
+        get => SettingsPatch.ReadBool(SettingsPath, SettingsPatch.CompanionProactive, false);
+        set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionProactive] = value });
+    }
+
     public void SaveTrust(string url, string pin, string? pem)
     {
         Patch(new Dictionary<string, object?>

@@ -63,6 +63,16 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _assist_live_local_unavailable(conversation_id: str) -> TwinTurnResult:
+    """The BIGDEAL room path stops here. It does not call a cloud model."""
+    return TwinTurnResult(
+        reply="I can hear you, but the local model on this box isn't ready. I won't send this to the cloud.",
+        conversation_id=conversation_id,
+        ts=_now_iso(),
+        backend="local_unavailable",
+    )
+
+
 def build_assistant_system(
     name: str,
     memory_blob: str,
@@ -716,6 +726,7 @@ async def run_twin_turn(
     phone_caller_name: str = "",
     assistant_id: str | None = None,
     extra_system: str | None = None,
+    local_only: bool = False,
 ) -> TwinTurnResult:
     """One full twin turn with tools. Non-streaming — for desktop + companion voice.
 
@@ -730,7 +741,7 @@ async def run_twin_turn(
         raise ValueError("Empty message")
 
     phone = (source or "").strip().lower() == "phone"
-    if phone:
+    if phone and not local_only:
         twin_backend = "cloud_claude"
         summarise = False
         if grounded is None:
@@ -815,7 +826,7 @@ async def run_twin_turn(
     # Music short-circuit — never on a PSTN call, never for heir/caller.
     music_query = (
         None
-        if phone or not owner_sitting
+        if phone or local_only or not owner_sitting
         else (detect_music_intent(text) if "music" in enabled_ids else None)
     )
     if music_query:
@@ -851,7 +862,7 @@ async def run_twin_turn(
 
     # Skill short-circuit — owner sitting only; owner cell only on a phone call.
     matched_skill = None
-    if owner_sitting and ((not phone) or caller_is_owner):
+    if owner_sitting and not local_only and ((not phone) or caller_is_owner):
         matched_skill = (
             await match_skill_trigger(user_id, text) if "smart_home" in enabled_ids else None
         )
@@ -971,6 +982,8 @@ async def run_twin_turn(
 
         ready = ollama_ready_at(ollama_url) if ollama_url else ollama_ready()
         if not ready:
+            if local_only:
+                return _assist_live_local_unavailable(conversation_id)
             backend_used = "cloud_claude"
         if backend_used == "ollama":
             history = list(pack.history)
@@ -1000,6 +1013,13 @@ async def run_twin_turn(
                 receipt=receipt,
                 source_label=source_label,
             )
+
+    if local_only:
+        from assist_live import cloud_fallback_allowed
+
+        if not cloud_fallback_allowed(local_only):
+            # ASSIST_LIVE_LOCAL_ONLY — this path never calls cloud Claude.
+            return _assist_live_local_unavailable(conversation_id)
 
     initial_messages = [{"role": "system", "content": system}]
     for m in pack.history:

@@ -72,10 +72,43 @@ public class BoxClientTests
         Assert.Contains("Microphone: waiting", snap.Tooltip);
         Assert.False(TrayStatus.CompanionShouldSend(snap.SystemAudio));
         Assert.True(TrayStatus.CompanionShouldSend(snap.MicAudio));
+        Assert.False(AssistLive.MaySend(observerPaused: true, snap.MicAudio));
+        Assert.True(AssistLive.MaySend(observerPaused: false, snap.MicAudio));
         var tone = new byte[] { 0, 0, 0x10, 0x3e, 0, 0, 0x10, 0xbe };
         var pcm = PcmConvert.ToS16Mono16k(tone, channels: 2, sampleRate: 16000, ieeeFloat: true);
         Assert.NotEmpty(pcm);
         Assert.Equal(0, pcm.Length % 2);
+    }
+
+    [Fact]
+    public void Assist_poll_names_the_caption_and_the_waiting_action()
+    {
+        const string json = """
+            {
+              "listening": true,
+              "caption": "Say yes to open Notepad.",
+              "caption_id": "cap_1",
+              "pending": {"id": "act_1", "label": "Open notepad", "explicit": false},
+              "receipt": {"status": "waiting_confirm", "summary": "Waiting for yes — Open notepad."},
+              "muted": false,
+              "proactive": false,
+              "wake_phrase": "hey C L",
+              "has_audio": true,
+              "audio_id": "cap_1"
+            }
+            """;
+        var view = AssistLive.Parse(json);
+        Assert.True(view.Listening);
+        Assert.Equal("Say yes to open Notepad.", view.Caption);
+        Assert.Equal("act_1", view.PendingId);
+        Assert.Equal("Open notepad", view.PendingLabel);
+        Assert.False(view.ExplicitConfirm);
+        Assert.Equal("hey C L", view.WakePhrase);
+        Assert.True(view.HasAudio);
+        Assert.Equal("Waiting for yes — Open notepad.", view.ReceiptSummary);
+        Assert.Equal(AssistLive.DefaultChord, "Ctrl+Shift+Space");
+        Assert.Equal(8, AssistLive.PttWindowSeconds);
+        Assert.Equal("", AssistLive.Parse("not-json").Caption);
     }
 
     [Fact]

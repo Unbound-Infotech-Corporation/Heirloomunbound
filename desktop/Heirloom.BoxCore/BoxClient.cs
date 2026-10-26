@@ -190,6 +190,87 @@ public static class BoxClient
         return response.IsSuccessStatusCode;
     }
 
+    public static async Task<string?> GetAssistLiveAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken))
+        {
+            return null;
+        }
+
+        using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(20));
+        using var request = new HttpRequestMessage(HttpMethod.Get, Api(baseUrl, "/api/assist/live"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
+        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public static Task<bool> PutAssistSettingsAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        string json,
+        CancellationToken cancellationToken = default) =>
+        PostAssistAsync(baseUrl, pin, caPem, sessionToken, "/api/assist/live/settings", json, HttpMethod.Put, cancellationToken);
+
+    public static async Task<bool> PostAssistAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        string path,
+        string json,
+        HttpMethod? method = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken))
+        {
+            return false;
+        }
+
+        using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(20));
+        using var request = new HttpRequestMessage(method ?? HttpMethod.Post, Api(baseUrl, path));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return response.IsSuccessStatusCode;
+    }
+
+    public static async Task<byte[]?> GetAssistAudioAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        string audioId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken) || string.IsNullOrWhiteSpace(audioId))
+        {
+            return null;
+        }
+
+        using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(20));
+        using var request = new HttpRequestMessage(HttpMethod.Get, Api(baseUrl, "/api/assist/live/audio/" + Uri.EscapeDataString(audioId)));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
+        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public static async Task<bool> PostAudioAsync(
         string baseUrl,
         string? pin,
