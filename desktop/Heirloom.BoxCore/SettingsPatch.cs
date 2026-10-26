@@ -18,6 +18,7 @@ public static class SettingsPatch
     public const string CompanionWakePhrase = "companion_wake_phrase";
     public const string CompanionTwinName = "companion_twin_name";
     public const string CompanionProactive = "companion_proactive";
+    public const string CompanionLiveOnTop = "companion_live_on_top";
     public const string RunMode = "run_mode";
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };

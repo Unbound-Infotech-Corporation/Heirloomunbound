@@ -214,6 +214,30 @@ public static class BoxClient
         return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public static async Task<string?> GetAssistMicAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken))
+        {
+            return null;
+        }
+
+        using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(15));
+        using var request = new HttpRequestMessage(HttpMethod.Get, Api(baseUrl, "/api/assist/live/mic"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
+        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public static Task<bool> PutAssistSettingsAsync(
         string baseUrl,
         string? pin,

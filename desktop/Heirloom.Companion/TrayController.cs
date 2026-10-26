@@ -15,6 +15,7 @@ internal sealed class TrayController : IDisposable
     private readonly TaskbarIcon _icon = new();
     private readonly AudioPump _audio;
     private readonly CaptionWindow _caption = new();
+    private readonly TwinLiveWindow _live;
     private readonly CaptionPlayer _player = new();
     private readonly CompanionHotkey _hotkey = new();
     private AssistLiveView _assist = AssistLiveView.Empty;
@@ -29,6 +30,9 @@ internal sealed class TrayController : IDisposable
     public TrayController()
     {
         _audio = new AudioPump(_store);
+        _live = new TwinLiveWindow(_store);
+        _live.ConfirmRequested += id => _ = ConfirmAsync(id);
+        _live.DeclineRequested += id => _ = DeclineAsync(id);
     }
 
     public void Start()
@@ -139,6 +143,9 @@ internal sealed class TrayController : IDisposable
             menu.Items.Add(new MenuItem { Header = "Sign in to pause Observer", IsEnabled = false });
         }
 
+        var live = new MenuItem { Header = "Twin Live" };
+        live.Click += (_, _) => _live.Reveal();
+        menu.Items.Add(live);
         var open = new MenuItem { Header = "Open Twin" };
         open.Click += (_, _) => OpenTwin();
         menu.Items.Add(open);
@@ -191,8 +198,19 @@ internal sealed class TrayController : IDisposable
         }
 
         var json = await BoxClient.GetAssistLiveAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(true);
-        var view = AssistLive.Parse(json);
-        _assist = view;
+        var micJson = await BoxClient.GetAssistMicAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(true);
+        if (json is null && micJson is null)
+        {
+            return;
+        }
+
+        var view = json is null ? _assist : AssistLive.Parse(json);
+        if (json is not null)
+        {
+            _assist = view;
+        }
+
+        _live.Apply(view, MicTranscript.Parse(micJson));
         if (view.CaptionId != _shownCaptionId)
         {
             _shownCaptionId = view.CaptionId;
@@ -256,6 +274,23 @@ internal sealed class TrayController : IDisposable
 
         var json = "{\"id\":\"" + id.Replace("\"", "", StringComparison.Ordinal) + "\"}";
         await BoxClient.PostAssistAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "/api/assist/live/confirm", json).ConfigureAwait(true);
+    }
+
+    private async Task DeclineAsync(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return;
+        }
+
+        var token = _store.Session();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        var json = "{\"id\":\"" + id.Replace("\"", "", StringComparison.Ordinal) + "\"}";
+        await BoxClient.PostAssistAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "/api/assist/live/decline", json).ConfigureAwait(true);
     }
 
     private async Task TogglePauseAsync()
@@ -327,6 +362,7 @@ internal sealed class TrayController : IDisposable
         _stop.Cancel();
         _hotkey.Dispose();
         _player.Dispose();
+        _live.Shutdown();
         _caption.Close();
         _audio.Dispose();
         _current?.Dispose();

@@ -81,6 +81,7 @@ async def advance_for_user(
     user: dict,
     *,
     clicked_id: str = "",
+    declined_id: str = "",
     root: Path | None = None,
     now: float | None = None,
     turn: Any = None,
@@ -143,6 +144,7 @@ async def advance_for_user(
         memorial=memorial_from_user(user),
         paused=paused,
         clicked_id=clicked_id,
+        declined_id=declined_id,
         turn=turn or default_turn,
         execute=execute or default_execute,
     )

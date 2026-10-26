@@ -109,6 +109,53 @@ public class BoxClientTests
         Assert.Equal(AssistLive.DefaultChord, "Ctrl+Shift+Space");
         Assert.Equal(8, AssistLive.PttWindowSeconds);
         Assert.Equal("", AssistLive.Parse("not-json").Caption);
+        Assert.Contains("Waiting for yes — Open notepad.", view.Receipts);
+    }
+
+    [Fact]
+    public void Twin_live_shows_mic_words_and_keeps_them_while_paused()
+    {
+        const string json = """
+            {
+              "listening": true,
+              "paused": false,
+              "lines": [
+                {"id": "a", "text": "hey C L open the notes", "ts": "t1"}
+              ]
+            }
+            """;
+        var mic = MicTranscript.Parse(json);
+        Assert.NotNull(mic);
+        Assert.True(mic!.Listening);
+        Assert.Equal("hey C L open the notes", mic.Lines[0].Text);
+        Assert.Null(MicTranscript.Parse("not-json"));
+
+        var assist = AssistLive.Parse("""
+            {
+              "listening": true,
+              "caption": "Say yes to open Notepad.",
+              "caption_id": "cap_1",
+              "pending": {"id": "act_1", "label": "Open notepad", "explicit": false}
+            }
+            """);
+        var frame = TwinLiveBoard.Next(TwinLiveFrame.Empty, mic.Listening, mic.Lines, assist.Caption, assist.CaptionId, assist.PendingId);
+        Assert.Equal("Listening", frame.Status);
+        Assert.Equal(TwinLiveBoard.You, frame.Lines[0].Who);
+        Assert.Equal("hey C L open the notes", frame.Lines[0].Text);
+        Assert.Equal(TwinLiveBoard.Twin, frame.Lines[1].Who);
+        Assert.True(frame.CanAnswer);
+
+        var again = TwinLiveBoard.Next(frame, true, mic.Lines, assist.Caption, assist.CaptionId, assist.PendingId);
+        Assert.Equal(2, again.Lines.Count);
+
+        var pausedMic = MicTranscript.Parse("""{"listening": false, "paused": true, "lines": []}""");
+        Assert.NotNull(pausedMic);
+        Assert.False(pausedMic!.Listening);
+        var paused = TwinLiveBoard.Next(again, pausedMic.Listening, pausedMic.Lines, assist.Caption, assist.CaptionId, assist.PendingId);
+        Assert.Equal("Paused", paused.Status);
+        Assert.False(paused.CanAnswer);
+        Assert.Equal(TwinLiveBoard.You, paused.Lines[0].Who);
+        Assert.Equal("hey C L open the notes", paused.Lines[0].Text);
     }
 
     [Fact]

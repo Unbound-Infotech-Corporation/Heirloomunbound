@@ -14,9 +14,10 @@ public sealed record AssistLiveView(
     string WakePhrase,
     bool HasAudio,
     string AudioId,
-    string ReceiptSummary)
+    string ReceiptSummary,
+    IReadOnlyList<string> Receipts)
 {
-    public static AssistLiveView Empty { get; } = new(false, "", "", "", "", false, false, false, "", false, "", "");
+    public static AssistLiveView Empty { get; } = new(false, "", "", "", "", false, false, false, "", false, "", "", Array.Empty<string>());
 }
 
 /// <summary>
@@ -64,6 +65,29 @@ public static class AssistLive
                 receipt = Text(card, "summary");
             }
 
+            var receipts = new List<string>();
+            if (root.TryGetProperty("receipts", out var list) && list.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var row in list.EnumerateArray())
+                {
+                    if (row.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    var summary = Text(row, "summary").Trim();
+                    if (summary.Length > 0)
+                    {
+                        receipts.Add(summary);
+                    }
+                }
+            }
+
+            if (receipts.Count == 0 && receipt.Length > 0)
+            {
+                receipts.Add(receipt);
+            }
+
             return new AssistLiveView(
                 Flag(root, "listening"),
                 Text(root, "caption"),
@@ -76,7 +100,8 @@ public static class AssistLive
                 Text(root, "wake_phrase"),
                 Flag(root, "has_audio"),
                 Text(root, "audio_id"),
-                receipt);
+                receipt,
+                receipts);
         }
         catch (JsonException)
         {

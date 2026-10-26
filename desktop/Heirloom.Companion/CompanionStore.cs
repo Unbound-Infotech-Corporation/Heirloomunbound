@@ -64,6 +64,12 @@ public sealed class CompanionStore
         set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionProactive] = value });
     }
 
+    public bool LiveOnTop
+    {
+        get => SettingsPatch.ReadBool(SettingsPath, SettingsPatch.CompanionLiveOnTop, false);
+        set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionLiveOnTop] = value });
+    }
+
     public void SaveTrust(string url, string pin, string? pem)
     {
         Patch(new Dictionary<string, object?>

@@ -9,6 +9,7 @@ Raw microphone audio is not kept here. Screen text is a summary, never a frame.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -25,6 +26,7 @@ PROACTIVE_GAP_S = 600.0
 PROACTIVE_HOUR_CAP = 3
 RECENT_LIMIT = 12
 RECEIPT_LIMIT = 20
+MIC_LINE_LIMIT = 40
 
 _FORBIDDEN_STATE_KEYS = frozenset({
     "pcm",
@@ -355,12 +357,25 @@ def public_view(state: dict) -> dict[str, Any]:
             else None
         ),
         "receipt": receipt,
+        "receipts": _public_receipts(state),
         "muted": bool(state.get("muted")),
         "proactive": bool(state.get("proactive")),
         "wake_phrase": wake_phrase_for(str(state.get("twin_name") or ""), str(state.get("wake_phrase") or "")),
         "has_audio": bool(state.get("audio_id")),
         "audio_id": str(state.get("audio_id") or ""),
     }
+
+
+def _public_receipts(state: dict) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for row in (state.get("receipts") or [])[-8:]:
+        if not isinstance(row, dict):
+            continue
+        summary = " ".join(str(row.get("summary") or "").split())
+        if not summary:
+            continue
+        rows.append({"status": str(row.get("status") or ""), "summary": summary[:280]})
+    return rows
 
 
 def _copy(state: dict | None) -> dict[str, Any]:
@@ -545,6 +560,7 @@ async def advance_state(
     memorial: Any = None,
     paused: bool = False,
     clicked_id: str = "",
+    declined_id: str = "",
     turn: Any = None,
     execute: Any = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -565,6 +581,9 @@ async def advance_state(
         return current, public_view(current)
 
     pending = current.get("pending") if isinstance(current.get("pending"), dict) else None
+    if declined_id and pending and str(pending.get("id") or "") == declined_id:
+        current = _decline(current, pending, now=now)
+        pending = None
     if clicked_id and pending and str(pending.get("id") or "") == clicked_id and gate["pc_tools"]:
         current = await _commit(current, pending, now=now, execute=execute)
         pending = current.get("pending") if isinstance(current.get("pending"), dict) else None
@@ -673,6 +692,17 @@ async def _apply_utterance(
     return state
 
 
+def _decline(state: dict, pending: dict, *, now: float) -> dict:
+    """No leaves the action unrun. This never calls the PC tool."""
+    label = str(pending.get("label") or "that")
+    summary = f"No. Left {label} alone."
+    receipt = _receipt(pending, ok=False, needs_confirm=False, summary=summary)
+    _store_receipt(state, receipt)
+    state["pending"] = None
+    _speak(state, now, summary)
+    return state
+
+
 async def _commit(state: dict, pending: dict, *, now: float, execute: Any) -> dict:
     again = judge_action(str(pending.get("utterance") or ""))
     if again is None or again["verdict"] == "deny" or pending.get("verdict") == "deny":
@@ -750,6 +780,47 @@ def save_state(state: dict, root: Path | None = None) -> None:
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def mic_transcript(root: Path, *, paused: bool, limit: int = MIC_LINE_LIMIT) -> dict[str, Any]:
+    """Recent owner microphone words from the observer transcript.
+
+    System audio is omitted. Pause is reported and this function does not write.
+    Sensitive lines are dropped. Raw audio is not read.
+    """
+    path = Path(root) / "observations.jsonl"
+    try:
+        raw = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        raw = []
+    lines: list[dict[str, str]] = []
+    for line in raw[-400:]:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict) or row.get("dropped"):
+            continue
+        if str(row.get("channel") or "") != "mic":
+            continue
+        activity = str(row.get("activity") or "speech")
+        if activity not in {"speech", ""}:
+            continue
+        text = strip_label(str(row.get("text") or ""), "mic")
+        if not text or screen_is_sensitive(text).drop:
+            continue
+        text = redact_stored_text(text, limit=280)
+        if not text:
+            continue
+        ts = str(row.get("ts") or "")
+        digest = hashlib.sha256(f"{ts}|{text}".encode("utf-8")).hexdigest()[:16]
+        lines.append({"id": digest, "text": text, "ts": ts})
+    kept = lines[-max(1, limit):]
+    return {
+        "listening": not paused,
+        "paused": bool(paused),
+        "lines": kept,
+    }
 
 
 def tail_screen(root: Path) -> dict[str, str]:

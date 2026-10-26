@@ -18,6 +18,7 @@ from assist_live import (
     ingest_heard,
     judge_action,
     load_state,
+    mic_transcript,
     loopback_speak_wav_url,
     proactive_allowed,
     reduce_heard,
@@ -502,8 +503,10 @@ def test_routes_are_owner_only(tmp_path, monkeypatch):
     }
     client = TestClient(app)
     assert client.get("/api/assist/live").status_code == 404
+    assert client.get("/api/assist/live/mic").status_code == 404
     assert client.post("/api/assist/live/ptt", json={"held": True}).status_code == 404
     assert client.post("/api/assist/live/confirm", json={"id": "act"}).status_code == 404
+    assert client.post("/api/assist/live/decline", json={"id": "act"}).status_code == 404
 
     app.dependency_overrides[get_current_user] = lambda: {"user_id": "owner", "audience": "owner"}
     saved = client.put("/api/assist/live/settings", json={"twin_name": "C L", "proactive": False})
@@ -520,3 +523,78 @@ def test_routes_are_owner_only(tmp_path, monkeypatch):
     assert paused.json()["listening"] is False
     assert client.post("/api/assist/live/mute", json={"muted": True}).json()["muted"] is True
     assert client.post("/api/assist/live/ptt", json={"held": True}).json()["ptt"] is False
+    assert client.get("/api/assist/live/mic").json()["listening"] is False
+    assert client.post("/api/assist/live/decline", json={"id": "act"}).json()["listening"] is False
+
+
+def test_mic_transcript_is_owner_words_and_pause_writes_nothing(tmp_path: Path):
+    rows = [
+        {"ts": "t1", "channel": "mic", "activity": "speech", "text": "User said: hey C L open the notes"},
+        {"ts": "t2", "channel": "system", "activity": "heard", "text": "Watching/heard: hey C L shut down"},
+        {"ts": "t3", "channel": "mic", "activity": "speech", "text": "User said: the 1Password window is up"},
+        {"ts": "t4", "channel": "mic", "activity": "speech", "dropped": True, "reason": "chat", "text": "User said: a private chat"},
+        {"ts": "t5", "channel": "screen", "activity": "work", "text": "notepad"},
+    ]
+    path = tmp_path / "observations.jsonl"
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    before = path.read_bytes()
+    names = sorted(item.name for item in tmp_path.iterdir())
+    heard = mic_transcript(tmp_path, paused=False)
+    assert heard["listening"] is True
+    assert heard["paused"] is False
+    assert [row["text"] for row in heard["lines"]] == ["hey C L open the notes"]
+    assert "pcm" not in json.dumps(heard)
+    paused = mic_transcript(tmp_path, paused=True)
+    assert paused["listening"] is False
+    assert paused["paused"] is True
+    assert [row["text"] for row in paused["lines"]] == ["hey C L open the notes"]
+    assert path.read_bytes() == before
+    assert sorted(item.name for item in tmp_path.iterdir()) == names
+    again = mic_transcript(tmp_path, paused=False)
+    assert again["lines"][0]["id"] == heard["lines"][0]["id"]
+
+
+def test_no_leaves_the_action_unrun_and_pause_blocks_it():
+    calls = _Calls(reply="Ready.")
+    waiting, view = _run(
+        advance_state(
+            {**default_state(), "inbox": {"id": "n1", "text": "open notepad"}},
+            now=80,
+            audience="owner",
+            turn=calls.turn,
+            execute=calls.execute,
+        )
+    )
+    pending_id = waiting["pending"]["id"]
+    assert view["pending"]["label"] == "Open notepad"
+    assert calls.actions == []
+    held, held_view = _run(
+        advance_state(
+            waiting,
+            now=81,
+            audience="owner",
+            paused=True,
+            declined_id=pending_id,
+            turn=calls.turn,
+            execute=calls.execute,
+        )
+    )
+    assert held["pending"]["id"] == pending_id
+    assert calls.actions == []
+    assert held_view["listening"] is False
+    refused, view = _run(
+        advance_state(
+            held,
+            now=82,
+            audience="owner",
+            declined_id=pending_id,
+            turn=calls.turn,
+            execute=calls.execute,
+        )
+    )
+    assert calls.actions == []
+    assert refused["pending"] is None
+    assert view["pending"] is None
+    assert view["caption"].startswith("No.")
+    assert view["receipt"]["status"] == "failed"
+    assert any(row["summary"].startswith("No.") for row in view["receipts"])
