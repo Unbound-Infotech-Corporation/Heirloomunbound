@@ -614,6 +614,16 @@ def _public_note(note: dict) -> dict:
     }
 
 
+def _screen_mode(raw: Optional[str] = None) -> str:
+    """Configured picture source. Kept here so health does not import the spool."""
+    if raw is None:
+        raw = os.environ.get("OBSERVER_SOURCE", "auto")
+    value = (raw or "auto").strip().lower()
+    if value in {"network", "capture", "auto"}:
+        return value
+    return "auto"
+
+
 def status_public(store: Optional[ObserverStore] = None) -> dict:
     """Shape used by ``GET /api/health`` and ``heirloom-box status``. No secrets."""
     enabled = observer_enabled()
@@ -632,10 +642,17 @@ def status_public(store: Optional[ObserverStore] = None) -> dict:
         used = int(status.get("disk_bytes") or 0)
         notes_today = int(status.get("notes_today") or 0)
     audio = _audio_public(status if enabled else {}, state if enabled else {})
+    source = str(status.get("source") or "") if enabled else ""
+    recorded_mode = str(status.get("mode") or "")
+    mode = ""
+    if enabled:
+        mode = recorded_mode if recorded_mode in {"network", "capture", "auto"} else _screen_mode()
     return {
         "enabled": enabled,
         "paused": paused if enabled else False,
         "device": str(status.get("device") or ""),
+        "source": source,
+        "mode": mode,
         "signal": str(status.get("signal") or ("off" if not enabled else "unknown")),
         "fps": status.get("fps") or 0,
         "model": str(status.get("model") or ""),

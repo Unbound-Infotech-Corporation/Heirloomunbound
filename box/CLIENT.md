@@ -49,10 +49,11 @@ The companion is a separate small program, Heirloom Companion. Its icon means:
 
 Hover the icon for the address, how long the answer took, the observer (frames per second and notes today), who presence sees, the cameras, and the graphics card or model when the box reports them.
 
-The menu can pause or resume the observer. That needs you to be signed in. **Open Twin** opens Heirloom on this PC, or the box page in the browser if Heirloom is not beside the companion. **Settings** is where you set the address, pin the certificate, sign in, and choose two options:
+The menu can pause or resume the observer. That needs you to be signed in. **Open Twin** opens Heirloom on this PC, or the box page in the browser if Heirloom is not beside the companion. **Settings** is where you set the address, pin the certificate, sign in, and choose these options:
 
 - Start the companion when you sign in to Windows. This is off until you turn it on.
 - A short notice when the box drops offline or comes back. You can turn that off.
+- **Screen** sends the main monitor to the Twin Box on your home network so Observer can watch without the HDMI capture box. It is on until you turn it off. The picture is a small JPEG a couple of times a second, while Observer is set to auto or network. Pause stops it. The tray has the same switch.
 
 The companion never restarts the box, and it never restarts Windows.
 

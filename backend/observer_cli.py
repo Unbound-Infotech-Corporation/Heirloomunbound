@@ -24,6 +24,8 @@ def format_status() -> str:
     lines = [
         "enabled: yes",
         f"device: {payload.get('device') or 'none'}",
+        f"source: {payload.get('source') or 'none'}",
+        f"mode: {payload.get('mode') or 'auto'}",
         f"signal: {payload.get('signal') or 'unknown'}",
         f"fps: {payload.get('fps') or 0}",
         f"model: {payload.get('model') or 'ocr'}",

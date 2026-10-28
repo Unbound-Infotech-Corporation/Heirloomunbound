@@ -452,6 +452,7 @@ write_env() {
     if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
       log "would set HEIRLOOM_OBSERVER=1 OLLAMA_OBSERVER_MODEL=${observer_model:-ocr} OBSERVER_VRAM_MIB=${vram} OLLAMA_MAX_LOADED_MODELS=${max_loaded} OBSERVER_VISION_KEEP_ALIVE=${vision_keep} OBSERVER_RAM_BUDGET_BYTES=67108864 OBSERVER_CLIPS=0"
       log "would set OBSERVER_AUDIO=1 OBSERVER_AUDIO_SPOOL=/run/heirloom-observer/audio and a faster-whisper model"
+      log "would set OBSERVER_SOURCE=auto OBSERVER_SCREEN_SPOOL=/run/heirloom-observer/screen OBSERVER_NETWORK_FRESH_S=3"
     fi
     if [[ "${WITH_PRESENCE}" -eq 1 ]]; then
       log "would set HEIRLOOM_PRESENCE=1 PRESENCE_FPS=3 PRESENCE_VRAM_BUDGET_MIB=512 PRESENCE_UNKNOWN_THUMBNAILS=0 PRESENCE_THRESHOLD=0.36"
@@ -483,6 +484,9 @@ write_env() {
     upsert_env OBSERVER_OLLAMA_URL "http://127.0.0.1:11434" "${env_file}"
     upsert_env OBSERVER_SAMPLE_FPS "2" "${env_file}"
     upsert_env OBSERVER_BURST_FPS "8" "${env_file}"
+    upsert_env OBSERVER_SOURCE "auto" "${env_file}"
+    upsert_env OBSERVER_NETWORK_FRESH_S "3" "${env_file}"
+    upsert_env OBSERVER_SCREEN_SPOOL "/run/heirloom-observer/screen" "${env_file}"
     upsert_env OBSERVER_CLIPS "0" "${env_file}"
     upsert_env OBSERVER_CLIP_SECONDS "8" "${env_file}"
     upsert_env OBSERVER_CLIP_MAX_MINUTES_PER_DAY "10" "${env_file}"
@@ -617,7 +621,7 @@ install_observer() {
   run apt-get install -y ffmpeg v4l-utils tesseract-ocr alsa-utils python3-venv
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would install /usr/local/bin/heirloom-observer, heirloom-observer.service, and 99-heirloom-observer.rules"
-    log "would write /etc/tmpfiles.d/heirloom-observer.conf for /run/heirloom-observer/audio"
+    log "would write /etc/tmpfiles.d/heirloom-observer.conf for /run/heirloom-observer/audio and /run/heirloom-observer/screen"
     log "would create ${DATA_ROOT}/observer/venv and pip install faster-whisper nvidia-cublas-cu12 nvidia-cudnn-cu12"
     log "would write heirloom-observer.service.d/cuda-libs.conf with LD_LIBRARY_PATH for those wheels"
     log "would touch /etc/heirloom/observer.enabled and systemctl restart heirloom-observer.service after box.env is written"
@@ -632,7 +636,7 @@ install_observer() {
   if command -v systemd-tmpfiles >/dev/null 2>&1; then
     systemd-tmpfiles --create /etc/tmpfiles.d/heirloom-observer.conf || true
   else
-    install -d -m 0755 /run/heirloom-observer/audio/system /run/heirloom-observer/audio/mic
+    install -d -m 0755 /run/heirloom-observer/audio/system /run/heirloom-observer/audio/mic /run/heirloom-observer/screen
   fi
   install -d -m 0755 /etc/heirloom
   touch /etc/heirloom/observer.enabled

@@ -24,7 +24,10 @@ public sealed record BoxSnapshot(
     string Tooltip,
     AudioStreamView SystemAudio,
     AudioStreamView MicAudio,
-    bool CertificateFailed = false);
+    bool CertificateFailed = false,
+    double ObserverFps = 0,
+    string ObserverSignal = "",
+    string ObserverMode = "");
 
 public static class TrayStatus
 {
@@ -43,7 +46,9 @@ public static class TrayStatus
         var paused = Flag(observer, "paused");
         var signal = Text(observer, "signal");
         var fps = Number(observer, "fps");
-        if (!paused && string.Equals(signal, "signal", StringComparison.OrdinalIgnoreCase) && fps > 0)
+        var live = string.Equals(signal, "signal", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(signal, "ok", StringComparison.OrdinalIgnoreCase);
+        if (!paused && live && fps > 0)
         {
             return BoxLamp.Green;
         }
@@ -84,10 +89,19 @@ public static class TrayStatus
         var paused = false;
         var systemAudio = AudioStreamView.Off;
         var micAudio = AudioStreamView.Off;
+        var observerFps = 0.0;
+        var observerSignal = "";
+        var observerMode = "";
         var lines = new List<string> { Head(host, latencyMs, lamp) };
         if (health is { } body)
         {
             lines.Add(ObserverLine(body, out paused));
+            if (body.TryGetProperty("observer", out var observerNode) && observerNode.ValueKind == JsonValueKind.Object)
+            {
+                observerFps = Number(observerNode, "fps");
+                observerSignal = Text(observerNode, "signal");
+                observerMode = Text(observerNode, "mode");
+            }
             systemAudio = AudioLine(body, "system");
             micAudio = AudioLine(body, "mic");
             lines.Add(StreamLine("System audio", systemAudio));
@@ -121,7 +135,10 @@ public static class TrayStatus
             string.Join('\n', lines),
             systemAudio,
             micAudio,
-            certificateFailed);
+            certificateFailed,
+            observerFps,
+            observerSignal,
+            observerMode);
     }
 
     public static bool CompanionShouldSend(AudioStreamView stream)
@@ -208,7 +225,9 @@ public static class TrayStatus
         var fps = Number(observer, "fps");
         var notes = (int)Number(observer, "notes_today");
         var state = paused ? "paused" : signal;
-        return "Observer: " + state + ", " + fps.ToString("0.##", CultureInfo.InvariantCulture) + " fps, " + notes.ToString(CultureInfo.InvariantCulture) + " notes today";
+        var source = Text(observer, "source");
+        var where = source.Length == 0 ? "" : " · " + source;
+        return "Observer: " + state + where + ", " + fps.ToString("0.##", CultureInfo.InvariantCulture) + " fps, " + notes.ToString(CultureInfo.InvariantCulture) + " notes today";
     }
 
     private static string PresenceLine(JsonElement health)
