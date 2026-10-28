@@ -18,6 +18,7 @@ public partial class SettingsWindow : Window
         Toasts.IsChecked = store.Toasts;
         SystemAudio.IsChecked = store.SystemAudio;
         MicAudio.IsChecked = store.MicAudio;
+        Screen.IsChecked = store.Screen;
         TwinName.Text = store.TwinName;
         WakePhrase.Text = store.WakePhrase;
         Proactive.IsChecked = store.Proactive;
@@ -122,6 +123,7 @@ public partial class SettingsWindow : Window
         _store.Toasts = Toasts.IsChecked == true;
         _store.SystemAudio = SystemAudio.IsChecked == true;
         _store.MicAudio = MicAudio.IsChecked == true;
+        _store.Screen = Screen.IsChecked == true;
         _store.TwinName = TwinName.Text;
         _store.WakePhrase = WakePhrase.Text;
         _store.Proactive = Proactive.IsChecked == true;

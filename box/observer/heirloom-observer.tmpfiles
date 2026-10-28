@@ -2,3 +2,4 @@ d /run/heirloom-observer 0755 root root -
 d /run/heirloom-observer/audio 0775 root root -
 d /run/heirloom-observer/audio/system 0775 root root -
 d /run/heirloom-observer/audio/mic 0775 root root -
+d /run/heirloom-observer/screen 0775 root root -

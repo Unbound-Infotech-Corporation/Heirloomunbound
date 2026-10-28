@@ -24,6 +24,22 @@ owner PC HDMI
 
 The capture card is a UVC device. `v4l2-ctl --list-devices` should show it after the USB cable is in. The daemon prefers a name containing `xr1`, `evga`, `uvc`, `usb video`, or `capture`, and it skips metadata nodes.
 
+## Network screen
+
+The HDMI splitter is optional. Heirloom Companion on the Windows PC (BIGDEAL) can send the primary display to the Twin Box over the home LAN. The post is `POST /api/observer/screen` with the same owner session and certificate pin as the microphone. The JPEG stays in `/run/heirloom-observer/screen` on the Twin Box until the daemon reads it.
+
+| `OBSERVER_SOURCE` | Picture |
+|---|---|
+| `auto` | A companion frame that arrived within `OBSERVER_NETWORK_FRESH_S` (default 3 seconds). Otherwise `/dev/video0`. This is what `install.sh` writes. |
+| `network` | Companion frames only. No capture card. |
+| `capture` | The UVC card, same as before. The companion leaves the display on this PC. |
+
+The companion captures the primary display at `OBSERVER_SAMPLE_FPS` (default 2), scales the long side to about 1920, and JPEG-encodes it. Screen is on until you turn it off in Companion Settings or the tray. While Observer is paused, the PC sends nothing and the box refuses the post.
+
+A fresh network picture is the same pipeline as HDMI: the privacy filter, then `qwen2.5vl:7b` when that is the configured vision tag (`OLLAMA_OBSERVER_MODEL`), then the same note retention. `GET /api/health` reports `observer.source` (`network` or `capture`) and `observer.signal`. Signal is `ok` while network frames are fresh. `observer.mode` is the configured choice (`auto`, `network`, or `capture`).
+
+Set the three keys in `box.env` or re-run `sudo bash box/install.sh --observer`. The API container and `heirloom-observer.service` both read that file. The spool directory is on the tmpfs mount both of them already share.
+
 Supported cards are UVC devices that show up as `/dev/video*`. Internal Elgato 4K60 Pro cards are Windows-only. They do not enumerate as UVC on Linux, so this box cannot open them.
 
 A replug is picked up two ways: the daemon re-scans `/sys/class/video4linux` every loop, and `box/observer/99-heirloom-observer.rules` asks systemd to start `heirloom-observer.service` when a video4linux device is added. The unit uses `Restart=on-failure`.
@@ -146,7 +162,7 @@ Each stream has its own switch:
 - `/observer` checkboxes, `PUT /api/observer/audio`
 - The companion tray menu and the companion Settings window
 
-`GET /api/health` reports both under `observer.audio` (`source`, `status`, `device`). The companion shows those lines and sends a stream only when the box is waiting on that PC.
+`GET /api/health` reports both under `observer.audio` (`source`, `status`, `device`). The companion shows those lines and sends a stream only when the box is waiting on that PC. The same health object reports the picture `source`, `mode`, and `signal` (`ok` when a companion screen frame is fresh).
 
 The privacy filter and the shared pause switch apply to transcripts. A paused Observer discards audio instead of transcribing it. Pause also stops Assist from listening: no wake, no push-to-talk, and no computer action.
 

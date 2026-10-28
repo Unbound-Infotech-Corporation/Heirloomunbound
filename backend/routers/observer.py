@@ -110,6 +110,36 @@ async def observer_audio_chunk(source: str, request: Request, user: dict = Depen
     return {"accepted": True, "source": source, "bytes": result["bytes"]}
 
 
+@router.post("/screen")
+async def observer_screen_frame(request: Request, user: dict = Depends(get_current_user)):
+    """Companion JPEG of the primary display. The body is deleted after the daemon reads it.
+
+    Same owner session as the microphone post. The bytes stay on this box.
+    """
+    store = _gate(user)
+    if not observer_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    from box_pause import merged_state
+    from observer_privacy import pause_decision
+    from observer_screen import accept_frame, screen_spool
+
+    paused, _reason = pause_decision(
+        merged_state(store.read_state()),
+        now=datetime.now().astimezone(),
+        quiet_hours=os.environ.get("OBSERVER_QUIET_HOURS", ""),
+        hotkey_phrase=os.environ.get("OBSERVER_HOTKEY_PHRASE", "HEIRLOOM PAUSE"),
+    )
+    body = await request.body()
+    result = accept_frame(jpeg=body, paused=paused, enabled=True, spool=screen_spool())
+    if result["reason"] == "too-large":
+        raise HTTPException(status_code=413, detail="Screen frame is too large")
+    if result["reason"] in {"empty", "not-jpeg"}:
+        raise HTTPException(status_code=400, detail="Body must be a JPEG")
+    if not result["accepted"]:
+        raise HTTPException(status_code=409, detail=result["reason"])
+    return {"accepted": True, "source": "network", "bytes": result["bytes"]}
+
+
 @router.post("/pause")
 async def observer_pause(user: dict = Depends(get_current_user)):
     store = _gate(user)

@@ -12,6 +12,7 @@ public class BoxClientTests
     [Theory]
     [InlineData(false, null, BoxLamp.Red)]
     [InlineData(true, """{"observer":{"paused":false,"signal":"signal","fps":12.5,"notes_today":3}}""", BoxLamp.Green)]
+    [InlineData(true, """{"observer":{"paused":false,"signal":"ok","fps":2,"source":"network","notes_today":1}}""", BoxLamp.Green)]
     [InlineData(true, """{"observer":{"paused":true,"signal":"signal","fps":12.5,"notes_today":1}}""", BoxLamp.Amber)]
     [InlineData(true, """{"observer":{"paused":false,"signal":"no-signal","fps":0,"notes_today":0}}""", BoxLamp.Amber)]
     [InlineData(true, """{"observer":{"paused":false,"signal":"paused","fps":0,"notes_today":0}}""", BoxLamp.Amber)]
@@ -48,6 +49,36 @@ public class BoxClientTests
         Assert.Contains("4 notes today", snap.Tooltip);
         Assert.Equal("Pause Observer", TrayStatus.PauseVerb(snap.ObserverPaused));
         Assert.Equal("System audio: off", TrayStatus.StreamLine("System audio", snap.SystemAudio));
+    }
+
+    [Fact]
+    public void Screen_scales_a_5120_monitor_and_stays_quiet_while_paused()
+    {
+        Assert.Equal((1920, 540), ScreenStream.ScaledSize(5120, 1440));
+        Assert.Equal((1920, 1080), ScreenStream.ScaledSize(1920, 1080));
+        Assert.Equal((1280, 720), ScreenStream.ScaledSize(1280, 720));
+        Assert.Equal(TimeSpan.FromMilliseconds(500), ScreenStream.Interval(2));
+        Assert.Equal(2d, ScreenStream.SendFps(0, ""));
+        Assert.Equal(2d, ScreenStream.SendFps(8, "signal"));
+        Assert.Equal(1d, ScreenStream.SendFps(1, "ok"));
+        Assert.False(ScreenStream.MaySend(observerPaused: true, enabled: true, reachable: true));
+        Assert.False(ScreenStream.MaySend(observerPaused: false, enabled: false, reachable: true));
+        Assert.False(ScreenStream.MaySend(observerPaused: false, enabled: true, reachable: false));
+        Assert.False(ScreenStream.MaySend(observerPaused: false, enabled: true, reachable: true, mode: "capture"));
+        Assert.True(ScreenStream.MaySend(observerPaused: false, enabled: true, reachable: true));
+        Assert.True(ScreenStream.MaySend(observerPaused: false, enabled: true, reachable: true, mode: "auto"));
+        Assert.True(ScreenStream.MaySend(observerPaused: false, enabled: true, reachable: true, mode: "network"));
+
+        const string json = """
+            {"observer":{"paused":false,"signal":"ok","source":"network","mode":"auto","fps":2,"notes_today":1}}
+            """;
+        var snap = TrayStatus.Describe(true, 9, "https://192.168.0.111", json);
+        Assert.Equal(BoxLamp.Green, snap.Lamp);
+        Assert.Equal(2d, snap.ObserverFps);
+        Assert.Equal("ok", snap.ObserverSignal);
+        Assert.Equal("auto", snap.ObserverMode);
+        Assert.Contains("network", snap.Tooltip);
+        Assert.True(ScreenStream.MaySend(snap.ObserverPaused, enabled: true, snap.Reachable, snap.ObserverMode));
     }
 
     [Fact]

@@ -49,6 +49,20 @@ from observer_capture import (  # noqa: E402
     signal_verdict,
     trim_ram_dir,
 )
+from observer_screen import (  # noqa: E402
+    CAPTURE_DEVICE,
+    NetworkInbox,
+    choose_source,
+    commit_frame,
+    configured_source,
+    discard_frames,
+    fresh_window_s,
+    jpeg_to_gray,
+    latest_frame,
+    screen_spool,
+    status_fields,
+    sweep_frames,
+)
 from observer_models import (  # noqa: E402
     keep_alive_payload,
     observer_pair_for_vram_mib,
@@ -57,7 +71,6 @@ from observer_models import (  # noqa: E402
     same_model,
 )
 from observer_learn import is_capture_device_label  # noqa: E402
-from observer_pipeline import consider_frame  # noqa: E402
 from observer_privacy import pause_decision  # noqa: E402
 from box_pause import merged_state  # noqa: E402
 from observer_store import (  # noqa: E402
@@ -535,6 +548,77 @@ def _audio_loop(store: ObserverStore, stop: threading.Event) -> None:
         stop.wait(0.4)
 
 
+def _capture_device(choice: dict) -> dict | None:
+    """``auto`` fallback is ``/dev/video0``. Capture mode still prefers the UVC card."""
+    if choice.get("device") == CAPTURE_DEVICE:
+        path = CAPTURE_DEVICE
+        named = next((item for item in list_video_devices() if str(item.get("path") or "") == path), None)
+        if named is not None:
+            return named
+        if Path(path).exists():
+            return {"path": path, "name": "video0", "index": 0}
+        return None
+    return pick_capture_device(list_video_devices())
+
+
+def _consume_picture(
+    store: ObserverStore,
+    *,
+    jpeg: Path,
+    grab_error: str,
+    delta: float,
+    app: str,
+    now_dt: datetime,
+    state: dict,
+    hotkey: str,
+    quiet: str,
+    model_name: str,
+    device_path: str,
+    ram: Path,
+) -> str:
+    """OCR, privacy, the vision model, and retention. HDMI and the LAN share this.
+
+    Returns ``hotkey`` when the phrase latched and the caller should skip the
+    rest of this iteration. The vision tag is ``model_name`` (``qwen2.5vl:7b``
+    when the installer selected that pair). A failed HDMI grab still reaches
+    the model only when a JPEG file was actually written.
+    """
+    ocr = "" if grab_error or not jpeg.is_file() else ocr_image(jpeg)
+    looked, look_reason = pause_decision(
+        state, now=now_dt, screen_text=ocr, hotkey_phrase=hotkey, quiet_hours=quiet
+    )
+    if looked and look_reason == "hotkey":
+        store.latch_hotkey()
+        jpeg.unlink(missing_ok=True)
+        return "hotkey"
+
+    def _model(_payload: dict, _path: Path = jpeg) -> dict | None:
+        if not _path.is_file() or model_name == "ocr":
+            return None
+        return ollama_see(_path, model_name)
+
+    use_model = None if model_name == "ocr" else _model
+
+    def _highlight() -> None:
+        keep_highlight(store, device_path, ram, _env_float("OBSERVER_CLIP_SECONDS", 8))
+
+    commit_frame(
+        store,
+        ocr=ocr,
+        app=app,
+        model=use_model,
+        hotkey_phrase=hotkey,
+        now_iso=now_dt.isoformat(),
+        delta=delta,
+        jpeg_path=jpeg,
+        highlight=_highlight if device_path else None,
+        clips=clips_enabled(),
+        cap_bytes=disk_cap_bytes() if clips_enabled() else None,
+    )
+    trim_ram_dir(ram, ram_budget_bytes())
+    return "done"
+
+
 def main() -> int:
     if not observer_enabled():
         print("HEIRLOOM_OBSERVER is off", file=sys.stderr)
@@ -560,6 +644,9 @@ def main() -> int:
         "" if model_name == "ocr" else model_name,
         os.environ.get("OBSERVER_VRAM_MIB", "0"),
     )
+    inbox = NetworkInbox()
+    spool = screen_spool()
+    calm = sample_interval_s(0.0, base_fps=base_fps, burst_fps=base_fps)
 
     audio_stop = threading.Event()
     threading.Thread(target=_audio_loop, args=(store, audio_stop), name="observer-audio", daemon=True).start()
@@ -568,11 +655,19 @@ def main() -> int:
         now_dt = datetime.now().astimezone()
         state = merged_state(store.read_state())
         paused, reason = pause_decision(state, now=now_dt, hotkey_phrase=hotkey, quiet_hours=quiet)
+        mode = configured_source()
+        fresh_s = fresh_window_s()
         if paused and reason in {"cli", "web", "hotkey", "schedule"}:
+            inbox.clear()
+            discard_frames(spool)
+            prior = store.read_status()
             _write_status(
                 store,
-                device=store.read_status().get("device") or "",
+                device=prior.get("device") or "",
+                device_name=prior.get("device_name") or "",
                 signal="paused",
+                source=str(prior.get("source") or ""),
+                mode=mode,
                 fps=0,
                 model=model_name,
                 residency=plan.mode,
@@ -583,17 +678,102 @@ def main() -> int:
             time.sleep(2)
             continue
 
-        device = pick_capture_device(list_video_devices())
-        if device is None or not Path(str(device["path"])).exists():
+        sweep_frames(spool)
+        incoming = latest_frame(spool, fresh_s=fresh_s)
+        if incoming is not None and mode != "capture":
+            data, age = incoming
+            inbox.push(data, received_at=time.time() - age)
+        age_s = inbox.age(time.time(), fresh_s)
+        choice = choose_source(mode=mode, network_age_s=age_s, fresh_s=fresh_s)
+
+        if choice["source"] == "network":
+            if not choice["fresh"] or not inbox.jpeg:
+                idle.update(True, time.monotonic())
+                fields = status_fields(choice, fps=0, device="network")
+                _write_status(
+                    store,
+                    device_name="",
+                    model=model_name,
+                    residency=plan.mode,
+                    paused=False,
+                    pause_reason="",
+                    idle_seconds=int(idle.current(time.monotonic())),
+                    **fields,
+                )
+                previous = b""
+                time.sleep(calm)
+                continue
+
+            jpeg_bytes = inbox.jpeg
+            decoded = jpeg_to_gray(jpeg_bytes)
+            gray = decoded or previous or (b"\x40\x80" * 32)
+            delta = scene_delta(previous, gray) if gray else 1.0
+            ended = idle.update(False, time.monotonic())
+            if ended and ended >= 1:
+                store.add_observations(
+                    [
+                        {
+                            "ts": now_dt.isoformat(),
+                            "activity": "idle",
+                            "text": f"No signal for {int(ended)} seconds.",
+                        }
+                    ]
+                )
+            previous = gray
+            ring = ram / f"ring-{ring_slot % ring_slots}.gray"
+            ring.write_bytes(gray)
+            ring_slot += 1
+            trim_ram_dir(ram, ram_budget)
+            now_mono = time.monotonic()
+            if analysis_due(scene_delta=delta, since_last_s=now_mono - last_analysis):
+                jpeg = ram / "frame.jpg"
+                jpeg.write_bytes(jpeg_bytes)
+                outcome = _consume_picture(
+                    store,
+                    jpeg=jpeg,
+                    grab_error="",
+                    delta=delta,
+                    app="",
+                    now_dt=now_dt,
+                    state=state,
+                    hotkey=hotkey,
+                    quiet=quiet,
+                    model_name=model_name,
+                    device_path="",
+                    ram=ram,
+                )
+                last_analysis = now_mono
+                if outcome == "hotkey":
+                    continue
+            shown_fps = base_fps if base_fps > 0 else 2.0
+            fields = status_fields(choice, fps=shown_fps, device="network")
             _write_status(
                 store,
-                device="",
-                signal="no-device",
-                fps=0,
+                device_name="this PC",
                 model=model_name,
                 residency=plan.mode,
                 paused=False,
                 pause_reason="",
+                idle_seconds=0,
+                **fields,
+            )
+            time.sleep(calm)
+            continue
+
+        if mode == "capture":
+            inbox.clear()
+
+        device = _capture_device(choice)
+        if device is None or not Path(str(device["path"])).exists():
+            fields = status_fields(choice, fps=0, device="", capture_signal="no-device")
+            _write_status(
+                store,
+                device_name="",
+                model=model_name,
+                residency=plan.mode,
+                paused=False,
+                pause_reason="",
+                **fields,
             )
             time.sleep(2)
             continue
@@ -617,18 +797,22 @@ def main() -> int:
         interval = sample_interval_s(delta, base_fps=base_fps, burst_fps=burst_fps)
         if not live:
             idle.update(True, time.monotonic())
+            fields = status_fields(
+                choice,
+                fps=base_fps,
+                device=str(device["path"]),
+                capture_signal="no-signal",
+            )
             _write_status(
                 store,
-                device=device["path"],
                 device_name=device.get("name") or "",
-                signal="no-signal",
-                fps=base_fps,
                 model=model_name,
                 residency=plan.mode,
                 paused=False,
                 pause_reason="",
                 idle_seconds=int(idle.current(time.monotonic())),
                 last_error=err,
+                **fields,
             )
             previous = b""
             time.sleep(interval)
@@ -655,66 +839,41 @@ def main() -> int:
         if analysis_due(scene_delta=delta, since_last_s=now_mono - last_analysis):
             jpeg = ram / "frame.jpg"
             grab_error = grab_jpeg(str(device["path"]), jpeg)
-            ocr = "" if grab_error else ocr_image(jpeg)
-            looked, look_reason = pause_decision(
-                state, now=now_dt, screen_text=ocr, hotkey_phrase=hotkey, quiet_hours=quiet
-            )
-            if looked and look_reason == "hotkey":
-                store.latch_hotkey()
-                jpeg.unlink(missing_ok=True)
-                last_analysis = now_mono
-                continue
-
-            def _model(_payload: dict, _path: Path = jpeg) -> dict | None:
-                if not jpeg.is_file() or model_name == "ocr":
-                    return None
-                return ollama_see(_path, model_name if model_name != "ocr" else "")
-
-            use_model = None if model_name == "ocr" else _model
             device_name = str(device.get("name") or "")
             seen_app = "" if is_capture_device_label(device_name) else device_name
-            result = consider_frame(ocr=ocr, app=seen_app, model=use_model, hotkey_phrase=hotkey)
-            jpeg.unlink(missing_ok=True)
-            if result["latch_pause"]:
-                store.latch_hotkey()
-            elif result["dropped"]:
-                store.add_observations(
-                    [{"ts": now_dt.isoformat(), "dropped": True, "reason": result["reason"]}]
-                )
-            else:
-                from presence_cues import attach_presence_fields
-
-                title = result["text"][:120]
-                if is_capture_device_label(title):
-                    title = ""
-                row = {
-                    "ts": now_dt.isoformat(),
-                    "activity": result["activity"],
-                    "app": seen_app,
-                    "title": title,
-                    "game": result["game"],
-                    "text": result["text"],
-                    "scene_delta": round(delta, 3),
-                }
-                store.add_observations([attach_presence_fields(row)])
-                if clips_enabled() and delta >= 0.35:
-                    keep_highlight(store, str(device["path"]), ram, _env_float("OBSERVER_CLIP_SECONDS", 8))
-            if clips_enabled():
-                store.prune(cap_bytes=disk_cap_bytes())
-            trim_ram_dir(ram, ram_budget)
+            outcome = _consume_picture(
+                store,
+                jpeg=jpeg,
+                grab_error=grab_error,
+                delta=delta,
+                app=seen_app,
+                now_dt=now_dt,
+                state=state,
+                hotkey=hotkey,
+                quiet=quiet,
+                model_name=model_name,
+                device_path=str(device["path"]),
+                ram=ram,
+            )
             last_analysis = now_mono
+            if outcome == "hotkey":
+                continue
 
+        fields = status_fields(
+            choice,
+            fps=round(1.0 / interval, 2),
+            device=str(device["path"]),
+            capture_signal="signal",
+        )
         _write_status(
             store,
-            device=device["path"],
             device_name=device.get("name") or "",
-            signal="signal",
-            fps=round(1.0 / interval, 2),
             model=model_name,
             residency=plan.mode,
             paused=False,
             pause_reason="",
             idle_seconds=0,
+            **fields,
         )
         time.sleep(interval)
 

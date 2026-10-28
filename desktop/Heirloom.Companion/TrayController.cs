@@ -14,6 +14,7 @@ internal sealed class TrayController : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly TaskbarIcon _icon = new();
     private readonly AudioPump _audio;
+    private readonly ScreenPump _screen;
     private readonly CaptionWindow _caption = new();
     private readonly TwinLiveWindow _live;
     private readonly CaptionPlayer _player = new();
@@ -30,6 +31,7 @@ internal sealed class TrayController : IDisposable
     public TrayController()
     {
         _audio = new AudioPump(_store);
+        _screen = new ScreenPump(_store);
         _live = new TwinLiveWindow(_store);
         _live.ConfirmRequested += id => _ = ConfirmAsync(id);
         _live.DeclineRequested += id => _ = DeclineAsync(id);
@@ -59,6 +61,7 @@ internal sealed class TrayController : IDisposable
             MaybeToast(next);
             _snapshot = next;
             _audio.Note(next);
+            _screen.Note(next);
             await PollAssistAsync(cancellationToken).ConfigureAwait(true);
             _wasReachable = next.Reachable;
             _wasCertificate = next.CertificateFailed;
@@ -127,6 +130,7 @@ internal sealed class TrayController : IDisposable
         menu.Items.Add(pause);
         menu.Items.Add(StreamItem("system", _snapshot.SystemAudio, _store.SystemAudio));
         menu.Items.Add(StreamItem("mic", _snapshot.MicAudio, _store.MicAudio));
+        menu.Items.Add(ScreenItem());
         var mute = new MenuItem { Header = _assist.Muted ? "Let the twin speak" : "Mute the twin" };
         mute.IsEnabled = _snapshot.Reachable && !string.IsNullOrWhiteSpace(_store.Session());
         mute.Click += async (_, _) => await SetMutedAsync(!_assist.Muted).ConfigureAwait(true);
@@ -168,6 +172,17 @@ internal sealed class TrayController : IDisposable
             IsEnabled = _snapshot.Reachable && !string.IsNullOrWhiteSpace(_store.Session()),
         };
         item.Click += async (_, _) => await ToggleStreamAsync(source, !on).ConfigureAwait(true);
+        return item;
+    }
+
+    private MenuItem ScreenItem()
+    {
+        var on = _store.Screen;
+        var item = new MenuItem
+        {
+            Header = on ? "Turn screen off" : "Turn screen on",
+        };
+        item.Click += (_, _) => { _store.Screen = !on; };
         return item;
     }
 
@@ -365,6 +380,7 @@ internal sealed class TrayController : IDisposable
         _live.Shutdown();
         _caption.Close();
         _audio.Dispose();
+        _screen.Dispose();
         _current?.Dispose();
         _icon.Dispose();
         _stop.Dispose();

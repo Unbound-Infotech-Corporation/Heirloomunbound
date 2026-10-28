@@ -324,6 +324,28 @@ public static class BoxClient
         return response.IsSuccessStatusCode;
     }
 
+    public static async Task<bool> PostScreenAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        byte[] jpeg,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken) || jpeg.Length == 0)
+        {
+            return false;
+        }
+
+        using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(15));
+        using var request = new HttpRequestMessage(HttpMethod.Post, Api(baseUrl, "/api/observer/screen"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
+        request.Content = new ByteArrayContent(jpeg);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return response.IsSuccessStatusCode;
+    }
+
     public static HttpClient Create(string baseUrl, string? pin, string? caPem, TimeSpan timeout)
     {
         var host = new Uri(BoxLink.Normalize(baseUrl)).Host;
