@@ -25,6 +25,7 @@ internal sealed class TrayController : IDisposable
     private BoxSnapshot _snapshot = TrayStatus.Describe(false, null, BoxLink.DefaultBoxUrl, null);
     private bool? _wasReachable;
     private string _authNotice = "";
+    private string _micStatus = "";
     private bool _wasCertificate;
     private TimeSpan _delay = PollSchedule.Healthy;
     private Icon? _current;
@@ -67,9 +68,11 @@ internal sealed class TrayController : IDisposable
             await PollAssistAsync(cancellationToken).ConfigureAwait(true);
             _wasReachable = next.Reachable;
             _wasCertificate = next.CertificateFailed;
+            _micStatus = _audio.MicFault;
+            var tip = string.IsNullOrWhiteSpace(_micStatus) ? next.Tooltip : next.Tooltip + "\n" + _micStatus;
             await Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                _icon.ToolTipText = next.Tooltip;
+                _icon.ToolTipText = tip;
                 Paint(next.Lamp);
                 RebuildMenu();
             });
@@ -123,6 +126,11 @@ internal sealed class TrayController : IDisposable
         foreach (var line in _snapshot.Tooltip.Split('\n'))
         {
             menu.Items.Add(new MenuItem { Header = line, IsEnabled = false });
+        }
+
+        if (!string.IsNullOrWhiteSpace(_micStatus))
+        {
+            menu.Items.Add(new MenuItem { Header = _micStatus, IsEnabled = false });
         }
 
         menu.Items.Add(new Separator());

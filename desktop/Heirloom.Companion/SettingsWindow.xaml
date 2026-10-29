@@ -33,7 +33,9 @@
         <CheckBox x:Name="SystemAudio" Margin="0,14,0,0" Content="System audio" />
         <TextBlock Margin="24,2,0,0" TextWrapping="Wrap" Text="The capture card hears HDMI first. This PC sends speaker loopback only when the card is quiet." />
         <CheckBox x:Name="MicAudio" Margin="0,8,0,0" Content="Microphone" />
-        <TextBlock Margin="24,2,0,0" TextWrapping="Wrap" Text="This PC sends the default microphone. A C920 on the box is used instead when it is plugged in." />
+        <TextBlock Margin="24,8,0,4" Text="Microphone" />
+        <ComboBox x:Name="MicDevice" />
+        <TextBlock Margin="24,2,0,0" TextWrapping="Wrap" Text="Pick the capture device. If the meter stays silent, choose another microphone. A C920 on the box is used when it is plugged in." />
         <CheckBox x:Name="Screen" Margin="0,8,0,0" Content="Screen" />
         <TextBlock Margin="24,2,0,0" TextWrapping="Wrap" Text="This PC sends the main monitor to the Twin Box on your home network, a couple of times a second, while Observer is set to auto or network. Pause stops the pictures." />
         <TextBlock Margin="0,14,0,4" Text="Twin name" />

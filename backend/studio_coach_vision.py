@@ -169,8 +169,9 @@ async def classify_vendor_screen(
 ) -> dict:
     """Vision classify. Deletes nothing on disk — caller must not persist the image."""
     from deps import EMERGENT_LLM_KEY
+    from llm_provider import prefer_local
 
-    if not (EMERGENT_LLM_KEY or "").strip():
+    if not prefer_local() and not (EMERGENT_LLM_KEY or "").strip():
         return observe_result(
             current_step=current_step,
             scene="unknown",
@@ -202,24 +203,17 @@ async def classify_vendor_screen(
         "If a secret is visible, scene=api_key_visible and tell them to paste it into Heirloom."
     )
     try:
-        from emergentintegrations.llm.chat import ImageContent, LlmChat, StreamDone, TextDelta, UserMessage
+        from llm_provider import complete_vision
 
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id="heirloom_vendor_coach",
-            system_message=(
+        text = await complete_vision(
+            (
                 "You classify a first-run vendor setup screenshot for Heirloom. "
                 "Return JSON only. Never transcribe secrets."
             ),
-        ).with_model("anthropic", "claude-sonnet-4-6")
-        text = ""
-        async for ev in chat.stream_message(
-            UserMessage(text=prompt, file_contents=[ImageContent(image_base64=raw)])
-        ):
-            if isinstance(ev, TextDelta):
-                text += ev.content
-            elif isinstance(ev, StreamDone):
-                break
+            prompt,
+            raw,
+            session_id="heirloom_vendor_coach",
+        )
         parsed = parse_scene_payload(text)
     except Exception:  # noqa: BLE001 — fail open; human Continue still works
         return observe_result(

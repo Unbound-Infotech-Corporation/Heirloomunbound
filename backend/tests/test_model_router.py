@@ -20,6 +20,21 @@ def test_resolve_stt_prefers_local_when_whisper_ready():
     assert resolve_stt_backend({"stt": "cloud_whisper"}, probe) == "cloud_whisper"
 
 
+def test_box_mode_never_selects_a_cloud_backend(monkeypatch):
+    monkeypatch.setenv("HEIRLOOM_BOX", "1")
+    probe = {
+        "ollama": {"ready": False},
+        "whisper": {"ready": False},
+        "voicebox": {"ready": True},
+    }
+    assert resolve_twin_backend({"twin": "cloud_claude"}, probe) == "ollama"
+    assert resolve_stt_backend({"stt": "cloud_whisper"}, probe) == "local_whisper"
+    assert resolve_tts_backend({"tts": "openai_tts"}, probe, has_voice_clone=True) == "voicebox"
+    assert resolve_tts_backend({"tts": "elevenlabs"}, {}, has_voice_clone=True) == "local_piper"
+    assert resolve_avatar_backend({"avatar": "did"}, {}, has_did=True) == "waveform"
+    assert resolve_avatar_backend({"avatar": "auto"}, {}, has_did=True) == "waveform"
+
+
 def test_resolve_twin_ollama_when_probe_ready():
     probe = {"ollama": {"ready": True, "models": ["llama3.1"]}}
     assert resolve_twin_backend({"twin": "auto"}, probe) == "ollama"

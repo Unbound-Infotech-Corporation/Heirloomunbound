@@ -46,6 +46,12 @@ public sealed class CompanionStore
         set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionAudioMic] = value });
     }
 
+    public string MicDeviceId
+    {
+        get => SettingsPatch.ReadString(SettingsPath, SettingsPatch.CompanionMicDevice, "");
+        set => Patch(new Dictionary<string, object?> { [SettingsPatch.CompanionMicDevice] = value.Trim() });
+    }
+
     public bool Screen
     {
         get => SettingsPatch.ReadBool(SettingsPath, SettingsPatch.CompanionScreen, true);

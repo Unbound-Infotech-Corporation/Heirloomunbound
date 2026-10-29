@@ -7,7 +7,6 @@ import zipfile
 from datetime import datetime, timezone
 from typing import Optional
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
@@ -111,16 +110,16 @@ TEXT_EXT = {".txt", ".md", ".html", ".htm", ".csv", ".json", ".rtf"}
 
 async def _extract_with_claude(user_id: str, source_id: str, raw_text: str, source_label: str) -> int:
     """Have Claude pull memory fragments from a chunk of text and store as entries."""
-    if not EMERGENT_LLM_KEY or not raw_text.strip():
+    from llm_provider import complete_text, prefer_local
+
+    if not raw_text.strip() or not (prefer_local() or EMERGENT_LLM_KEY):
         return 0
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"src_{source_id}_{uuid.uuid4().hex[:8]}",
-        system_message=EXTRACTOR_SYSTEM,
-    ).with_model("anthropic", "claude-sonnet-4-6")
     try:
-        raw = await chat.send_message(UserMessage(text=f"Source: {source_label}\n\nText:\n{raw_text[:14000]}"))
-        raw = raw if isinstance(raw, str) else getattr(raw, "content", str(raw))
+        raw = await complete_text(
+            EXTRACTOR_SYSTEM,
+            f"Source: {source_label}\n\nText:\n{raw_text[:14000]}",
+            session_id=f"src_{source_id}_{uuid.uuid4().hex[:8]}",
+        )
         cleaned = raw.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]

@@ -18,6 +18,11 @@ internal sealed class AudioPump : IDisposable
     private BoxSnapshot _snapshot = TrayStatus.Describe(false, null, BoxLink.DefaultBoxUrl, null);
     private WasapiLoopbackCapture? _loopback;
     private WasapiCapture? _microphone;
+    private MMDeviceEnumerator? _micEnumerator;
+    private MMDevice? _micDevice;
+    private string _micId = "";
+    private bool _micOpen;
+    private int _micZeroRun;
     private string _systemFault = "";
     private string _micFault = "";
 
@@ -121,21 +126,29 @@ internal sealed class AudioPump : IDisposable
 
     private void StartMicrophone()
     {
-        if (_microphone is not null)
+        var wanted = MicSelection.Resolve(_store.MicDeviceId, CaptureEndpoints.ActiveIds());
+        if (_micOpen && string.Equals(_micId, wanted, StringComparison.Ordinal))
         {
             return;
         }
 
+        StopMicrophone();
         try
         {
-            var capture = new WasapiCapture();
+            _micEnumerator = new MMDeviceEnumerator();
+            _micDevice = CaptureEndpoints.Open(_micEnumerator, wanted);
+            var capture = new WasapiCapture(_micDevice);
             capture.DataAvailable += (_, args) => Append(_mic, capture.WaveFormat, args.Buffer, args.BytesRecorded);
             capture.StartRecording();
             _microphone = capture;
+            _micId = wanted;
+            _micOpen = true;
+            _micZeroRun = 0;
             lock (_gate) _micFault = "";
         }
         catch (Exception)
         {
+            StopMicrophone();
             lock (_gate) _micFault = "no microphone";
         }
     }
@@ -153,12 +166,18 @@ internal sealed class AudioPump : IDisposable
         _microphone?.StopRecording();
         _microphone?.Dispose();
         _microphone = null;
+        _micDevice?.Dispose();
+        _micDevice = null;
+        _micEnumerator?.Dispose();
+        _micEnumerator = null;
+        _micOpen = false;
         lock (_gate) _mic.Clear();
     }
 
     private static void Append(List<byte> sink, WaveFormat format, byte[] buffer, int count)
     {
-        var ieee = format.Encoding == WaveFormatEncoding.IeeeFloat;
+        var subFormat = format is WaveFormatExtensible extensible ? extensible.SubFormat : Guid.Empty;
+        var ieee = PcmConvert.IsIeeeFloat((int)format.Encoding, subFormat);
         var pcm = PcmConvert.ToS16Mono16k(buffer.AsSpan(0, Math.Max(0, count)), format.Channels, format.SampleRate, ieee);
         if (pcm.Length == 0)
         {
@@ -198,7 +217,22 @@ internal sealed class AudioPump : IDisposable
             var mic = Take(_mic);
             if (mic.Length > 0)
             {
-                await BoxClient.PostAudioAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "mic", mic, cancellationToken).ConfigureAwait(false);
+                if (PcmSilence.ShouldDrop(mic, ref _micZeroRun, out var sustained))
+                {
+                    if (sustained)
+                    {
+                        lock (_gate) _micFault = PcmSilence.SilentMicStatus;
+                    }
+                }
+                else
+                {
+                    if (_micFault == PcmSilence.SilentMicStatus)
+                    {
+                        lock (_gate) _micFault = "";
+                    }
+
+                    await BoxClient.PostAudioAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "mic", mic, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
     }

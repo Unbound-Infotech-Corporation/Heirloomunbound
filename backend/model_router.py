@@ -41,6 +41,12 @@ def runtime_probe_from_user(user: dict) -> Optional[dict]:
     return probe if isinstance(probe, dict) else None
 
 
+def _box_local_only() -> bool:
+    from llm_provider import box_mode
+
+    return box_mode()
+
+
 def resolve_stt_backend(
     model_map: dict | None,
     probe: Optional[dict] = None,
@@ -48,6 +54,14 @@ def resolve_stt_backend(
     """Returns 'local_whisper' or 'cloud_whisper'."""
     chosen = clamp_model_map(model_map)
     pick = chosen.get("stt", "auto")
+    if _box_local_only():
+        if pick == "cloud_whisper":
+            import logging
+
+            logging.getLogger(__name__).error(
+                "HEIRLOOM_BOX refused cloud speech-to-text; using local whisper"
+            )
+        return "local_whisper"
     local = _probe_ready(probe, "whisper")
     if pick == "cloud_whisper":
         return "cloud_whisper"
@@ -65,6 +79,12 @@ def resolve_twin_backend(
     """Returns 'ollama' or 'cloud_claude'."""
     chosen = clamp_model_map(model_map)
     pick = chosen.get("twin", "auto")
+    if _box_local_only():
+        if pick == "cloud_claude":
+            import logging
+
+            logging.getLogger(__name__).error("HEIRLOOM_BOX refused cloud twin backend; using ollama")
+        return "ollama"
     local = _ollama_available(user, probe)
     if pick == "cloud_claude":
         return "cloud_claude"
@@ -105,6 +125,28 @@ def resolve_tts_backend(
     """
     chosen = clamp_model_map(model_map)
     pick = chosen.get("tts", "auto")
+    resolved = _resolve_tts_choice(pick, probe, has_voice_clone=has_voice_clone)
+    if _box_local_only() and resolved in {"openai_tts", "elevenlabs"}:
+        import logging
+
+        logging.getLogger(__name__).error(
+            "HEIRLOOM_BOX refused cloud speech provider %s; using a local voice",
+            resolved,
+        )
+        if _probe_ready(probe, "voicebox"):
+            return "voicebox"
+        if _probe_ready(probe, "qwen3_tts"):
+            return "qwen3_tts"
+        return "local_piper"
+    return resolved
+
+
+def _resolve_tts_choice(
+    pick: str,
+    probe: Optional[dict],
+    *,
+    has_voice_clone: bool,
+) -> str:
     if pick == "voicebox":
         return "voicebox" if _probe_ready(probe, "voicebox") else _tts_fallback(
             probe, has_voice_clone=has_voice_clone, skip={"voicebox"}
@@ -154,6 +196,8 @@ def resolve_avatar_backend(
             return "latentsync"
         return "waveform"
     if pick == "did":
+        if _box_local_only():
+            return "waveform"
         return "did" if has_did else "waveform"
     if pick == "waveform":
         return "waveform"
@@ -161,7 +205,7 @@ def resolve_avatar_backend(
         return "latentsync"
     if musetalk:
         return "musetalk"
-    if has_did:
+    if has_did and not _box_local_only():
         return "did"
     return "waveform"
 

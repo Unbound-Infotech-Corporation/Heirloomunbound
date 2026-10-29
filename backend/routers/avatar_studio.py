@@ -5,7 +5,7 @@ image; sides are stored for a future 3D-avatar upgrade. Subtle enhancement
 runs through fal.ai's identity-preserving face restorer (GFPGAN-style model)
 — OFF by default, slider 0-100, side-by-side preview before commit.
 
-Storage: Emergent's object store, paths under `heirloom/avatars/{user_id}/`.
+Storage: the local object store (Emergent only when the web deployment opts in), paths under `heirloom/avatars/{user_id}/`.
 All access goes through this router (no public URLs leaked to S3-like CDNs).
 
 D-ID compatibility: D-ID requires the source_url to be publicly fetchable.
@@ -32,78 +32,36 @@ from deps import db, get_current_user
 
 router = APIRouter(prefix="/avatar-studio", tags=["avatar-studio"])
 
-STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
-EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 APP_NAME = "heirloom"
 FAL_KEY = os.environ.get("FAL_KEY", "").strip()
 MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8 MB
-
-# Module-level storage_key (init-once per process)
-_STORAGE_KEY: Optional[str] = None
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _init_storage() -> str:
-    global _STORAGE_KEY
-    if _STORAGE_KEY:
-        return _STORAGE_KEY
-    if not EMERGENT_KEY:
-        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not configured")
-    r = requests.post(
-        f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30
-    )
-    if r.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Storage init {r.status_code}: {r.text[:200]}")
-    _STORAGE_KEY = r.json()["storage_key"]
-    return _STORAGE_KEY
-
-
 def _put_object(path: str, data: bytes, content_type: str) -> dict:
-    key = _init_storage()
-    r = requests.put(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key, "Content-Type": content_type},
-        data=data,
-        timeout=120,
-    )
-    if r.status_code == 403:
-        # Storage key expired — re-init once and retry
-        global _STORAGE_KEY
-        _STORAGE_KEY = None
-        key = _init_storage()
-        r = requests.put(
-            f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key, "Content-Type": content_type},
-            data=data,
-            timeout=120,
-        )
-    if r.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Storage put {r.status_code}: {r.text[:200]}")
-    return r.json()
+    from storage import put_object
+
+    try:
+        saved = put_object(path, data, content_type)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Storage put failed: {exc!s}") from exc
+    if "size" not in saved:
+        saved = {**saved, "size": len(data)}
+    if "path" not in saved:
+        saved = {**saved, "path": path}
+    return saved
 
 
 def _get_object(path: str) -> tuple[bytes, str]:
-    key = _init_storage()
-    r = requests.get(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key},
-        timeout=60,
-    )
-    if r.status_code == 403:
-        global _STORAGE_KEY
-        _STORAGE_KEY = None
-        key = _init_storage()
-        r = requests.get(
-            f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key},
-            timeout=60,
-        )
-    if r.status_code >= 400:
-        raise HTTPException(status_code=404, detail=f"Object missing: {r.status_code}")
-    return r.content, r.headers.get("Content-Type", "application/octet-stream")
+    from storage import get_object
+
+    try:
+        return get_object(path)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail=f"Object missing: {exc!s}") from exc
 
 
 # ---------------- Upload ----------------
@@ -269,6 +227,15 @@ class EnhanceReq(BaseModel):
 async def enhance_avatar(body: EnhanceReq, user: dict = Depends(get_current_user)):
     """Run the front image through fal.ai's identity-preserving restorer and
     save the result as a NEW image (the original stays untouched)."""
+    from llm_provider import box_mode
+
+    if box_mode():
+        import logging
+
+        logging.getLogger(__name__).error(
+            "HEIRLOOM_BOX refused cloud AI caller=avatar.enhance provider=fal model=fal-ai/codeformer"
+        )
+        raise HTTPException(status_code=503, detail="Cloud image enhancement is disabled on this box.")
     user_fal = (user.get("fal_api_key") or "").strip()
     effective_key = user_fal or FAL_KEY
     if not effective_key:

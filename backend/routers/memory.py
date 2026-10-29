@@ -21,11 +21,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from deps import EMERGENT_LLM_KEY, db, get_current_user
+from deps import db, get_current_user
+from llm_provider import complete_text
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -85,14 +85,12 @@ async def _extract_facts(user_id: str) -> list[dict]:
     corpus, entry_count = await _gather_corpus(user_id)
     if entry_count == 0:
         return []
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"facts_{user_id}_{int(_now().timestamp())}",
-        system_message=FACT_SYSTEM,
-    ).with_model("anthropic", "claude-sonnet-4-6")
     try:
-        reply = await chat.send_message(UserMessage(text=f"=== ARCHIVE ({entry_count} entries) ===\n{corpus}"))
-        reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+        reply_text = await complete_text(
+            FACT_SYSTEM,
+            f"=== ARCHIVE ({entry_count} entries) ===\n{corpus}",
+            session_id=f"facts_{user_id}_{int(_now().timestamp())}",
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"LLM fact extraction failed: {exc!s}") from exc
 
@@ -169,14 +167,12 @@ async def maybe_summarise_episode(user_id: str, conversation_id: str) -> Optiona
         f"{m.get('role','user').upper()}: {m.get('content','')[:1500]}" for m in turns
     )
 
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"episode_{conversation_id}_{int(_now().timestamp())}",
-        system_message=EPISODE_SYSTEM,
-    ).with_model("anthropic", "claude-sonnet-4-6")
     try:
-        reply = await chat.send_message(UserMessage(text=transcript[:14000]))
-        summary = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+        summary = await complete_text(
+            EPISODE_SYSTEM,
+            transcript[:14000],
+            session_id=f"episode_{conversation_id}_{int(_now().timestamp())}",
+        )
     except Exception:  # noqa: BLE001
         return None  # best-effort; never block the chat
 

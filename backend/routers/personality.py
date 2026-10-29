@@ -16,11 +16,10 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from deps import EMERGENT_LLM_KEY, db, get_current_user
+from deps import db, get_current_user
 
 router = APIRouter(prefix="/personality", tags=["personality"])
 
@@ -106,16 +105,15 @@ async def _generate_profile(user_id: str, user_name: str) -> dict:
         return {**empty, "entry_count": 0, "generated_at": _now_iso()}
 
     truncated = corpus[:24000]
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"personality_{user_id}_{int(_now().timestamp())}",
-        system_message=SYSTEM_PROMPT,
-    ).with_model("anthropic", "claude-sonnet-4-6")
-
     user_msg = f"Analyse the archive of {user_name or 'this person'} below and return the JSON portrait.\n\n=== ARCHIVE ({entry_count} entries) ===\n{truncated}"
+    from llm_provider import complete_text
+
     try:
-        reply = await chat.send_message(UserMessage(text=user_msg))
-        reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+        reply_text = await complete_text(
+            SYSTEM_PROMPT,
+            user_msg,
+            session_id=f"personality_{user_id}_{int(_now().timestamp())}",
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"LLM call failed: {exc!s}") from exc
 

@@ -5,7 +5,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -52,17 +51,17 @@ def _strip_fences(s: str) -> str:
 
 
 async def _classify(text: str) -> dict:
-    if not EMERGENT_LLM_KEY:
+    from llm_provider import complete_text, prefer_local
+
+    if not prefer_local() and not EMERGENT_LLM_KEY:
         return {"kind": "note", "text": text, "title": text[:80], "tags": [], "due_at": None}
     now_iso = datetime.now(timezone.utc).isoformat()
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"capture_{uuid.uuid4().hex[:8]}",
-        system_message=CAPTURE_SYSTEM_TEMPLATE.format(now=now_iso),
-    ).with_model("anthropic", "claude-sonnet-4-6")
     try:
-        raw = await chat.send_message(UserMessage(text=text))
-        raw = raw if isinstance(raw, str) else getattr(raw, "content", str(raw))
+        raw = await complete_text(
+            CAPTURE_SYSTEM_TEMPLATE.format(now=now_iso),
+            text,
+            session_id=f"capture_{uuid.uuid4().hex[:8]}",
+        )
         data = json.loads(_strip_fences(raw))
         if not isinstance(data, dict):
             raise ValueError("non-object")
@@ -94,7 +93,9 @@ async def _search_archive(user_id: str, query: str, limit: int = 8) -> list[dict
 
 
 async def _answer_question(user: dict, question: str, related: list[dict]) -> str:
-    if not EMERGENT_LLM_KEY:
+    from llm_provider import complete_text, prefer_local
+
+    if not prefer_local() and not EMERGENT_LLM_KEY:
         return "(no LLM configured)"
     context = "\n".join(f"- [{e['type']}] {e['title']}: {e['content'][:400]}" for e in related)
     sys = f"""You are a careful, warm assistant helping {user.get('name','this person')} recall things from their personal archive. Use ONLY the entries provided below — do not invent facts. If the answer isn't in the entries, say so plainly. Keep the answer 1-3 sentences. Cite entry titles in [brackets]. If multiple entries are relevant, mention each briefly.
@@ -102,13 +103,7 @@ async def _answer_question(user: dict, question: str, related: list[dict]) -> st
 Entries (most relevant first):
 {context or '(no entries match)'}
 """
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"recall_{uuid.uuid4().hex[:8]}",
-        system_message=sys,
-    ).with_model("anthropic", "claude-sonnet-4-6")
-    reply = await chat.send_message(UserMessage(text=question))
-    return reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+    return await complete_text(sys, question, session_id=f"recall_{uuid.uuid4().hex[:8]}")
 
 
 @router.post("")

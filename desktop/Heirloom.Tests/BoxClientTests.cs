@@ -109,6 +109,22 @@ public class BoxClientTests
         var pcm = PcmConvert.ToS16Mono16k(tone, channels: 2, sampleRate: 16000, ieeeFloat: true);
         Assert.NotEmpty(pcm);
         Assert.Equal(0, pcm.Length % 2);
+        Assert.True(PcmConvert.IsIeeeFloat(PcmConvert.WaveFormatIeeeFloat, Guid.Empty));
+        Assert.True(PcmConvert.IsIeeeFloat(PcmConvert.WaveFormatExtensible, PcmConvert.IeeeFloatSubFormat));
+        Assert.False(PcmConvert.IsIeeeFloat(PcmConvert.WaveFormatExtensible, PcmConvert.PcmSubFormat));
+        Assert.False(PcmConvert.IsIeeeFloat(1, Guid.Empty));
+        var run = 0;
+        Assert.False(PcmSilence.ShouldDrop(new byte[] { 0, 1 }, ref run, out var sustained));
+        Assert.False(sustained);
+        Assert.Equal(0, run);
+        Assert.True(PcmSilence.ShouldDrop(new byte[PcmSilence.SustainBytes - 2], ref run, out sustained));
+        Assert.False(sustained);
+        Assert.True(PcmSilence.ShouldDrop(new byte[] { 0, 0 }, ref run, out sustained));
+        Assert.True(sustained);
+        Assert.Equal(PcmSilence.SilentMicStatus, "mic is silent, pick another microphone");
+        Assert.Equal("", MicSelection.Resolve(" ", new[] { "{0.0.1.00000000}.{gone}" }));
+        Assert.Equal("{0.0.1.00000000}.{mic}", MicSelection.Resolve("{0.0.1.00000000}.{mic}", new[] { "{0.0.1.00000000}.{mic}" }));
+        Assert.Equal("", MicSelection.Resolve("{0.0.1.00000000}.{gone}", new[] { "{0.0.1.00000000}.{mic}" }));
     }
 
     [Fact]
@@ -392,7 +408,13 @@ public class BoxClientTests
 
         var serial = RandomNumberGenerator.GetBytes(8);
         serial[0] &= 0x7F;
-        using var signed = request.Create(issuer, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(20), serial);
+        var notAfter = DateTimeOffset.UtcNow.AddDays(20);
+        if (notAfter > issuer.NotAfter)
+        {
+            notAfter = issuer.NotAfter;
+        }
+
+        using var signed = request.Create(issuer, DateTimeOffset.UtcNow.AddDays(-1), notAfter, serial);
         return signed.CopyWithPrivateKey(key);
     }
 }

@@ -4,11 +4,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from deps import EMERGENT_LLM_KEY, db, get_current_user
+from deps import db, get_current_user
 
 router = APIRouter(prefix="/archive", tags=["archive"])
 
@@ -161,14 +160,14 @@ async def ask_archive(payload: AskReq, user: dict = Depends(get_current_user)):
         f"Question: {q}\n\n=== ARCHIVE ENTRIES ({len(top)}) ===\n"
         + "\n\n".join(cite_lines)
     )
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"ask_{user['user_id']}_{int(datetime.now(timezone.utc).timestamp())}",
-        system_message=system,
-    ).with_model("anthropic", "claude-sonnet-4-6")
+    from llm_provider import complete_text
+
     try:
-        reply = await chat.send_message(UserMessage(text=body))
-        reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+        reply_text = await complete_text(
+            system,
+            body,
+            session_id=f"ask_{user['user_id']}_{int(datetime.now(timezone.utc).timestamp())}",
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"LLM call failed: {exc!s}") from exc
 
