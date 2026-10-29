@@ -26,6 +26,73 @@ public partial class SettingsWindow : Window
         Fingerprint.Text = string.IsNullOrWhiteSpace(pin)
             ? "Certificate not pinned yet."
             : "Pinned " + CertificatePin.Normalize(pin);
+        BoxClient.Unauthorized += OnBoxUnauthorized;
+        Closed += (_, _) => BoxClient.Unauthorized -= OnBoxUnauthorized;
+        ApplySessionChrome();
+        _ = ConfirmSessionAsync();
+    }
+
+    private void OnBoxUnauthorized()
+    {
+        _store.ClearSession();
+        try
+        {
+            if (Dispatcher.CheckAccess())
+            {
+                ShowRejected();
+                return;
+            }
+
+            Dispatcher.Invoke(ShowRejected);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private void ShowRejected()
+    {
+        ApplySessionChrome();
+        Status.Text = OwnerSession.SignedOutSignInAgain;
+    }
+
+    private void ApplySessionChrome()
+    {
+        var signedIn = !string.IsNullOrWhiteSpace(_store.Session());
+        SignInSection.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
+        SignedInSection.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
+        if (signedIn)
+        {
+            SignedInLabel.Text = "Signed in";
+        }
+    }
+
+    private async Task ConfirmSessionAsync()
+    {
+        var token = _store.Session();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        int status;
+        try
+        {
+            status = await BoxClient.SessionStatusAsync(Address.Text, _store.Pin, _store.CaPem, token).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException or UriFormatException)
+        {
+            return;
+        }
+
+        if (!OwnerSession.IsRejected(status))
+        {
+            return;
+        }
+
+        _store.ClearSession();
+        ApplySessionChrome();
+        Status.Text = OwnerSession.SignedOutSignInAgain;
     }
 
     private async void OnShowCertificate(object sender, RoutedEventArgs e)
@@ -82,6 +149,7 @@ public partial class SettingsWindow : Window
             _store.SaveTrust(Address.Text, pin, pem);
             _store.SaveSession(token);
             Password.Password = "";
+            ApplySessionChrome();
             Status.Text = "Signed in. The password was not saved.";
         }
         catch (Exception ex)
@@ -90,6 +158,14 @@ public partial class SettingsWindow : Window
                 ? CertificatePin.CheckFailed
                 : "Could not sign in. " + ex.Message;
         }
+    }
+
+    private async void OnSignOut(object sender, RoutedEventArgs e)
+    {
+        var pending = CompanionSession.SignOutAsync(_store);
+        ApplySessionChrome();
+        Status.Text = "Signed out.";
+        await pending.ConfigureAwait(true);
     }
 
     private async Task PushAudioAsync()

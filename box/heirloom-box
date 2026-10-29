@@ -299,9 +299,22 @@ cmd_update_drivers() {
   fi
 }
 
+owner_secret_lib() {
+  local root="${1:-}"
+  if [[ -n "${root}" && -f "${root}/box/lib/owner-secret.sh" ]]; then
+    printf '%s\n' "${root}/box/lib/owner-secret.sh"
+    return 0
+  fi
+  if [[ -f /usr/local/lib/heirloom/owner-secret.sh ]]; then
+    printf '%s\n' /usr/local/lib/heirloom/owner-secret.sh
+    return 0
+  fi
+  printf '%s\n' ""
+}
+
 cmd_set_owner() {
   local email="${1:-}"
-  local root data password
+  local root data password lib owner_file
   root="$(read_root)"
   data="$(data_root)"
   if [[ -z "${email}" || "${email}" != *@* ]]; then
@@ -312,6 +325,17 @@ cmd_set_owner() {
     echo "Run box/install.sh before heirloom-box set-owner." >&2
     exit 1
   fi
+  lib="$(owner_secret_lib "${root}")"
+  if [[ -z "${lib}" ]]; then
+    echo "owner-secret.sh was not found. Run box/install.sh from a checkout of this repo." >&2
+    exit 1
+  fi
+  # shellcheck source=lib/owner-secret.sh
+  source "${lib}"
+  if ! ensure_owner_secret "${data}"; then
+    exit 1
+  fi
+  owner_file="$(owner_password_file "${data}")"
   if [[ -t 0 ]]; then
     read -r -s -p "Owner password (8 or more characters): " password
     printf '\n'
@@ -319,7 +343,8 @@ cmd_set_owner() {
     IFS= read -r password
   fi
   # shellcheck disable=SC2031
-  printf '%s' "${password}" | HEIRLOOM_DATA_ROOT="${data}" PYTHONPATH="${root}/backend${PYTHONPATH:+:${PYTHONPATH}}" \
+  printf '%s' "${password}" | HEIRLOOM_OWNER_PASSWORD_FILE="${owner_file}" HEIRLOOM_DATA_ROOT="${data}" \
+    PYTHONPATH="${root}/backend${PYTHONPATH:+:${PYTHONPATH}}" \
     python3 -m box_owner set "${email}"
   password=""
 }

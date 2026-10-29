@@ -15,11 +15,19 @@
         <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="Show the certificate" Click="OnShowCertificate" />
         <TextBlock x:Name="Fingerprint" Margin="0,8,0,0" TextWrapping="Wrap" />
         <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="This is my box" Click="OnPin" />
-        <TextBlock Margin="0,14,0,4" Text="Owner email" />
-        <TextBox x:Name="Email" />
-        <TextBlock Margin="0,8,0,4" Text="Password" />
-        <PasswordBox x:Name="Password" />
-        <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="Sign in" Click="OnSignIn" />
+        <StackPanel x:Name="SignInSection" Margin="0,14,0,0">
+            <TextBlock FontSize="16" Text="Sign in" />
+            <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Text="Email and password from heirloom-box set-owner on the Twin Box." />
+            <TextBlock Margin="0,10,0,4" Text="Owner email" />
+            <TextBox x:Name="Email" />
+            <TextBlock Margin="0,8,0,4" Text="Password" />
+            <PasswordBox x:Name="Password" />
+            <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="Sign in" Click="OnSignIn" />
+        </StackPanel>
+        <StackPanel x:Name="SignedInSection" Margin="0,14,0,0" Visibility="Collapsed">
+            <TextBlock x:Name="SignedInLabel" FontSize="16" Text="Signed in" />
+            <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="Sign out" Click="OnSignOut" />
+        </StackPanel>
         <CheckBox x:Name="StartAtLogin" Margin="0,14,0,0" Content="Start at login" />
         <CheckBox x:Name="Toasts" Margin="0,8,0,0" Content="Tell me when the box drops or returns" />
         <CheckBox x:Name="SystemAudio" Margin="0,14,0,0" Content="System audio" />

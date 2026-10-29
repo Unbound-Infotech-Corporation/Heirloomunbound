@@ -339,6 +339,19 @@ public class BoxClientTests
     }
 
     [Fact]
+    public void Rejected_session_clears_the_file_and_names_sign_in()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "heirloom-session-" + Guid.NewGuid().ToString("n") + ".bin");
+        File.WriteAllText(path, "stale");
+        Assert.True(OwnerSession.IsRejected(401));
+        Assert.False(OwnerSession.IsRejected(503));
+        Assert.Equal("Signed out, sign in again", OwnerSession.SignedOutSignInAgain);
+        OwnerSession.DeleteFile(path);
+        Assert.False(File.Exists(path));
+        OwnerSession.DeleteFile(path);
+    }
+
+    [Fact]
     public void Dpapi_session_is_windows_only()
     {
         if (OperatingSystem.IsWindows())

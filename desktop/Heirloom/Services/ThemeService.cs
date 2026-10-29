@@ -67,8 +67,39 @@ public static class ThemeService
         settings.DockSize = DockSize;
         EnsureChromeFolder();
         ImageCache.Clear();
-        ApplyPalette(SchemeId);
-        Changed?.Invoke();
+        OnUiThread(() =>
+        {
+            ApplyPalette(SchemeId);
+            Changed?.Invoke();
+        });
+    }
+
+    private static void OnUiThread(Action action)
+    {
+        var queue = global::Heirloom.App.DispatcherQueue;
+        if (queue is not null && !queue.HasThreadAccess)
+        {
+            if (queue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () => RunPalette(action)))
+            {
+                return;
+            }
+        }
+
+        RunPalette(action);
+    }
+
+    private static void RunPalette(Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException
+            or InvalidOperationException
+            or System.Runtime.InteropServices.COMException)
+        {
+            FaultLog.Write("theme", ex.GetType().Name + "  " + ex.Message);
+        }
     }
 
     public static Visibility IconVisibility => ShowIcons ? Visibility.Visible : Visibility.Collapsed;
@@ -307,38 +338,17 @@ public static class ThemeService
             Hex(0xFFA64D4D), Hex(0xFF36322E), Hex(0xFF121110), Hex(0x33FFFFFF)),
     };
 
-    private static void SetColor(ResourceDictionary res, string key, Color color) => res[key] = color;
+    private static void SetColor(ResourceDictionary res, string key, Color color) =>
+        ThemeBrushWrite.Assign(() => res[key] = color, key, LogBrush);
 
-    private static void SetBrush(ResourceDictionary res, string key, Color color)
-    {
-        if (res.TryGetValue(key, out var existing) && existing is SolidColorBrush brush)
-        {
-            brush.Color = color;
-            return;
-        }
+    private static void SetBrush(ResourceDictionary res, string key, Color color) =>
+        ThemeBrushWrite.Assign(() => res[key] = new SolidColorBrush(color), key, LogBrush);
 
-        res[key] = new SolidColorBrush(color);
-    }
+    private static void LogBrush(string key, Exception ex) =>
+        FaultLog.Write("theme", key + "  " + ex.GetType().Name + "  " + ex.Message);
 
-    private static void SetGoldFill(ResourceDictionary res, string key, Color top, Color mid, Color bottom)
-    {
-        if (res.TryGetValue(key, out var existing) && existing is LinearGradientBrush fill && fill.GradientStops.Count >= 2)
-        {
-            fill.GradientStops[0].Color = top;
-            if (fill.GradientStops.Count > 1)
-            {
-                fill.GradientStops[1].Color = mid;
-            }
-
-            if (fill.GradientStops.Count > 2)
-            {
-                fill.GradientStops[^1].Color = bottom;
-            }
-
-            return;
-        }
-
-        res[key] = new LinearGradientBrush
+    private static void SetGoldFill(ResourceDictionary res, string key, Color top, Color mid, Color bottom) =>
+        ThemeBrushWrite.Assign(() => res[key] = new LinearGradientBrush
         {
             StartPoint = new Windows.Foundation.Point(0, 0),
             EndPoint = new Windows.Foundation.Point(0, 1),
@@ -348,8 +358,7 @@ public static class ThemeService
                 new GradientStop { Offset = 0.45, Color = mid },
                 new GradientStop { Offset = 1, Color = bottom },
             },
-        };
-    }
+        }, key, LogBrush);
 
     private static Color Hex(uint argb) =>
         Color.FromArgb((byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);

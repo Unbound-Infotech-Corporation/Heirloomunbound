@@ -13,6 +13,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT}/box/lib/models.sh"
 # shellcheck source=box/lib/nvidia-stack.sh
 source "${ROOT}/box/lib/nvidia-stack.sh"
+# shellcheck source=box/lib/owner-secret.sh
+source "${ROOT}/box/lib/owner-secret.sh"
 
 LOG_PATH="/var/log/heirloom-box-install.log"
 DRY_RUN=0
@@ -415,9 +417,11 @@ write_tree() {
   fi
   run install -d -m 0755 /etc/heirloom
   if [[ "${DRY_RUN}" -eq 1 ]]; then
+    log "would prepare ${DATA_ROOT}/owner mode 2750 and ${DATA_ROOT}/owner/owner.pass mode 0640"
     log "would write ${DATA_ROOT}/pause.json mode 0640 group heirloom"
     return 0
   fi
+  ensure_owner_secret "${DATA_ROOT}"
   if [[ ! -s "${DATA_ROOT}/pause.json" ]]; then
     printf '%s\n' '{"paused": false, "reason": ""}' > "${DATA_ROOT}/pause.json"
   fi
@@ -449,6 +453,7 @@ write_env() {
   log "Writing ${env_file} (local connector key only; no GitHub or vendor tokens)"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would set HEIRLOOM_DATA_ROOT=${DATA_ROOT} HEIRLOOM_LAN_IP=${LAN_IP:-127.0.0.1} HEIRLOOM_LLM_PROVIDER=ollama OLLAMA_TWIN_MODEL=${model} HEIRLOOM_LAB_MODE=1"
+    log "would set HEIRLOOM_OWNER_PASSWORD_FILE=${DATA_ROOT}/owner/owner.pass"
     if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
       log "would set HEIRLOOM_OBSERVER=1 OLLAMA_OBSERVER_MODEL=${observer_model:-ocr} OBSERVER_VRAM_MIB=${vram} OLLAMA_MAX_LOADED_MODELS=${max_loaded} OBSERVER_VISION_KEEP_ALIVE=${vision_keep} OBSERVER_RAM_BUDGET_BYTES=67108864 OBSERVER_CLIPS=0"
       log "would set OBSERVER_AUDIO=1 OBSERVER_AUDIO_SPOOL=/run/heirloom-observer/audio and a faster-whisper model"
@@ -469,6 +474,7 @@ write_env() {
   upsert_env HEIRLOOM_DATA_ROOT "${DATA_ROOT}" "${env_file}"
   upsert_env HEIRLOOM_LAN_IP "${LAN_IP}" "${env_file}"
   upsert_env HEIRLOOM_PAUSE_FILE "${DATA_ROOT}/pause.json" "${env_file}"
+  upsert_env HEIRLOOM_OWNER_PASSWORD_FILE "${DATA_ROOT}/owner/owner.pass" "${env_file}"
   upsert_env HEIRLOOM_CADDY_ROOT "${DATA_ROOT}/caddy/caddy/pki/authorities/local/root.crt" "${env_file}"
   upsert_env HEIRLOOM_LLM_PROVIDER "ollama" "${env_file}"
   upsert_env OLLAMA_BASE_URL "http://ollama:11434" "${env_file}"
@@ -574,6 +580,7 @@ write_compose_args() {
   printf '%s\n' "${DATA_ROOT}" > /etc/heirloom/data-root
   install -d -m 0755 /usr/local/lib/heirloom
   install -m 0644 "${ROOT}/box/lib/box-env.sh" /usr/local/lib/heirloom/box-env.sh
+  install -m 0644 "${ROOT}/box/lib/owner-secret.sh" /usr/local/lib/heirloom/owner-secret.sh
   install -m 0755 "${ROOT}/box/heirloom-box" /usr/local/bin/heirloom-box
 }
 

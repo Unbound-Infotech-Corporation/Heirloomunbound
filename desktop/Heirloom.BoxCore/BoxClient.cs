@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -14,6 +15,23 @@ public sealed record TrustOffer(string Host, string LeafSha256, string PinSha256
 
 public static class BoxClient
 {
+    public static event Action? Unauthorized;
+
+    private static async Task<HttpResponseMessage> SendObservedAsync(
+        HttpClient http,
+        HttpRequestMessage request,
+        CancellationToken cancellationToken,
+        bool reportUnauthorized = true)
+    {
+        var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (reportUnauthorized && response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            Unauthorized?.Invoke();
+        }
+
+        return response;
+    }
+
     public static async Task<string> ProbeLeafAsync(string baseUrl, CancellationToken cancellationToken = default)
     {
         var uri = new Uri(BoxLink.Normalize(baseUrl));
@@ -161,7 +179,7 @@ public static class BoxClient
         using var request = new HttpRequestMessage(HttpMethod.Post, Api(baseUrl, paused ? "/api/observer/pause" : "/api/observer/resume"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
         request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await SendObservedAsync(http, request, cancellationToken).ConfigureAwait(false);
         return response.IsSuccessStatusCode;
     }
 
@@ -186,7 +204,7 @@ public static class BoxClient
         using var request = new HttpRequestMessage(HttpMethod.Put, Api(baseUrl, "/api/observer/audio"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
         request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await SendObservedAsync(http, request, cancellationToken).ConfigureAwait(false);
         return response.IsSuccessStatusCode;
     }
 
@@ -205,7 +223,7 @@ public static class BoxClient
         using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(20));
         using var request = new HttpRequestMessage(HttpMethod.Get, Api(baseUrl, "/api/assist/live"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await SendObservedAsync(http, request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             return null;
@@ -229,7 +247,7 @@ public static class BoxClient
         using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(15));
         using var request = new HttpRequestMessage(HttpMethod.Get, Api(baseUrl, "/api/assist/live/mic"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await SendObservedAsync(http, request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             return null;
@@ -266,7 +284,7 @@ public static class BoxClient
         using var request = new HttpRequestMessage(method ?? HttpMethod.Post, Api(baseUrl, path));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await SendObservedAsync(http, request, cancellationToken).ConfigureAwait(false);
         return response.IsSuccessStatusCode;
     }
 
@@ -286,7 +304,7 @@ public static class BoxClient
         using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(20));
         using var request = new HttpRequestMessage(HttpMethod.Get, Api(baseUrl, "/api/assist/live/audio/" + Uri.EscapeDataString(audioId)));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await SendObservedAsync(http, request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             return null;
@@ -320,7 +338,7 @@ public static class BoxClient
         request.Headers.TryAddWithoutValidation("X-Heirloom-Sample-Rate", PcmConvert.TargetRate.ToString(System.Globalization.CultureInfo.InvariantCulture));
         request.Content = new ByteArrayContent(pcm);
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await SendObservedAsync(http, request, cancellationToken).ConfigureAwait(false);
         return response.IsSuccessStatusCode;
     }
 
@@ -342,8 +360,53 @@ public static class BoxClient
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
         request.Content = new ByteArrayContent(jpeg);
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await SendObservedAsync(http, request, cancellationToken).ConfigureAwait(false);
         return response.IsSuccessStatusCode;
+    }
+
+    public static async Task<int> SessionStatusAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken))
+        {
+            return 0;
+        }
+
+        try
+        {
+            using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(8));
+            using var request = new HttpRequestMessage(HttpMethod.Get, Api(baseUrl, "/api/auth/me"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
+            using var response = await SendObservedAsync(http, request, cancellationToken).ConfigureAwait(false);
+            return (int)response.StatusCode;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            return 0;
+        }
+    }
+
+    public static async Task LogoutAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken))
+        {
+            return;
+        }
+
+        using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(8));
+        using var request = new HttpRequestMessage(HttpMethod.Post, Api(baseUrl, "/api/auth/logout"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
+        request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        using var response = await SendObservedAsync(http, request, cancellationToken, reportUnauthorized: false).ConfigureAwait(false);
     }
 
     public static HttpClient Create(string baseUrl, string? pin, string? caPem, TimeSpan timeout)

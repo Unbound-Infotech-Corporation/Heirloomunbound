@@ -11,6 +11,12 @@
     <Company>Unbound Infotech</Company>
     <Version>0.5.1</Version>
     <LangVersion>preview</LangVersion>
+    <!-- BIGDEAL has no shared framework. A framework-dependent publish exits with "No frameworks were found". -->
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSelfContained>true</PublishSelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Heirloom.BoxCore\Heirloom.BoxCore.csproj" />

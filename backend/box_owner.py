@@ -16,12 +16,17 @@ def box_mode() -> bool:
     return (os.environ.get("HEIRLOOM_BOX") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+OWNER_NOT_CONFIGURED = (
+    "Owner sign-in is not set up on this box yet. Run: heirloom-box set-owner you@example.com"
+)
+
+
 def password_path() -> Path:
     raw = (os.environ.get("HEIRLOOM_OWNER_PASSWORD_FILE") or "").strip()
     if raw:
         return Path(raw)
     root = (os.environ.get("HEIRLOOM_DATA_ROOT") or "/var/lib/heirloom").strip() or "/var/lib/heirloom"
-    return Path(root) / "owner.pass"
+    return Path(root) / "owner" / "owner.pass"
 
 
 def set_owner_password(email: str, password: str, path: Path | None = None) -> None:
@@ -33,13 +38,23 @@ def set_owner_password(email: str, password: str, path: Path | None = None) -> N
     salt = secrets.token_bytes(16)
     digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=32)
     dest = path or password_path()
+    if dest.exists() and dest.is_dir():
+        raise OSError(f"{dest} is a directory. Remove it, then run: heirloom-box set-owner")
     dest.parent.mkdir(parents=True, exist_ok=True)
     text = f"email={cleaned}\nsalt={salt.hex()}\nhash={digest.hex()}\n"
-    tmp = dest.with_suffix(dest.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(dest)
+    # Keep the existing inode when the installer already created the file.
+    # A read-only bind sees this write without recreating the container.
+    if dest.is_file():
+        with dest.open("w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+    else:
+        tmp = dest.with_name(dest.name + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(dest)
     try:
-        os.chmod(dest, 0o600)
+        os.chmod(dest, 0o640)
     except OSError:
         pass
 
@@ -56,6 +71,15 @@ def _load(path: Path) -> dict[str, str]:
         key, _, value = line.partition("=")
         found[key.strip()] = value.strip()
     return found
+
+
+def owner_configured(path: Path | None = None) -> bool:
+    """True when the password file has a hash. An empty placeholder is not configured.
+
+    Read from disk on every call so set-owner is visible without restarting the API.
+    """
+    record = _load(path or password_path())
+    return bool(record.get("email") and record.get("salt") and record.get("hash"))
 
 
 def verify_owner_password(email: str, password: str, path: Path | None = None) -> bool:
@@ -82,7 +106,11 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) == 2 and args[0] == "set":
         password = sys.stdin.read().strip("\r\n")
-        set_owner_password(args[1], password)
+        try:
+            set_owner_password(args[1], password)
+        except (ValueError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         print("Owner sign-in saved. The password was not written to the log.")
         return 0
     print("Usage: python -m box_owner set you@example.com", file=sys.stderr)
