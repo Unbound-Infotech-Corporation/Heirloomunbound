@@ -14,7 +14,13 @@ from fastapi.testclient import TestClient
 from box_cors import origin_regex
 from box_desktop import client_chat_mode, resolve_desktop_user
 from box_health import health_payload
-from box_owner import set_owner_password, verify_owner_password
+from box_owner import (
+    OWNER_NOT_CONFIGURED,
+    owner_configured,
+    password_path,
+    set_owner_password,
+    verify_owner_password,
+)
 from box_pause import read_pause
 from deps import get_current_user
 from observer_models import parse_vision_reply
@@ -110,6 +116,66 @@ def test_owner_password_roundtrip(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert "correct horse" not in text
     assert "hash=" in text
+    assert owner_configured(path)
+    assert not owner_configured(tmp_path / "missing.pass")
+
+
+def test_password_path_is_the_owner_directory(monkeypatch, tmp_path):
+    monkeypatch.delenv("HEIRLOOM_OWNER_PASSWORD_FILE", raising=False)
+    monkeypatch.setenv("HEIRLOOM_DATA_ROOT", str(tmp_path))
+    assert password_path() == tmp_path / "owner" / "owner.pass"
+    custom = tmp_path / "custom.pass"
+    monkeypatch.setenv("HEIRLOOM_OWNER_PASSWORD_FILE", str(custom))
+    assert password_path() == custom
+
+
+def test_set_owner_updates_the_existing_file_in_place(tmp_path):
+    path = tmp_path / "owner.pass"
+    path.write_text("placeholder\n", encoding="utf-8")
+    inode = path.stat().st_ino
+    set_owner_password("ada@example.com", "correct horse", path)
+    assert path.stat().st_ino == inode
+    assert path.is_file()
+    assert verify_owner_password("ada@example.com", "correct horse", path)
+
+
+def test_set_owner_refuses_a_directory(tmp_path):
+    path = tmp_path / "owner.pass"
+    path.mkdir()
+    try:
+        set_owner_password("ada@example.com", "correct horse", path)
+    except OSError as exc:
+        assert "heirloom-box set-owner" in str(exc)
+    else:
+        raise AssertionError("a directory password path must fail")
+
+
+def test_box_login_503_names_set_owner(monkeypatch, tmp_path):
+    monkeypatch.setenv("HEIRLOOM_BOX", "1")
+    monkeypatch.setenv("HEIRLOOM_OWNER_PASSWORD_FILE", str(tmp_path / "owner" / "owner.pass"))
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routers.auth import router as auth_router
+
+    app = FastAPI()
+    app.include_router(auth_router, prefix="/api")
+    response = TestClient(app).post(
+        "/api/auth/box-login",
+        json={"email": "ada@example.com", "password": "correct horse"},
+    )
+    assert response.status_code == 503
+    assert "heirloom-box set-owner" in response.json()["detail"]
+    assert response.json()["detail"] == OWNER_NOT_CONFIGURED
+
+    empty = tmp_path / "owner" / "owner.pass"
+    empty.parent.mkdir(parents=True)
+    empty.write_text("", encoding="utf-8")
+    again = TestClient(app).post(
+        "/api/auth/box-login",
+        json={"email": "ada@example.com", "password": "correct horse"},
+    )
+    assert again.status_code == 503
+    assert "heirloom-box set-owner" in again.json()["detail"]
 
 
 def test_cors_stays_closed_until_box_mode():

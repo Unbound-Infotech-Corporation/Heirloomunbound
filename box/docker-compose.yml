@@ -28,7 +28,13 @@ services:
     restart: unless-stopped
     env_file:
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/box.env
+    environment:
+      HEIRLOOM_OWNER_PASSWORD_FILE: ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/owner/owner.pass
     volumes:
+      # Directory, not the file. A missing file bind becomes a directory, and
+      # replacing owner.pass by rename would stay invisible inside a file bind.
+      # set-owner writes this same path on the host; the API reads it each login.
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/owner:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/owner:ro
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/vault:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/vault
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab-reports:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/lab-reports

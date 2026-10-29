@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from deps import db, get_current_user
+from deps import _extract_token, db, get_current_user
 from owner_pairing import PAIRING_STYLES, pairing_prefs_from_user
 from standing_routines import routines_public
 
@@ -89,12 +89,12 @@ class BoxLoginReq(BaseModel):
 @router.post("/box-login")
 async def box_login(body: BoxLoginReq, response: Response):
     """Owner password on a Twin Box. Hidden unless this process is the box."""
-    from box_owner import box_mode, password_path, verify_owner_password
+    from box_owner import OWNER_NOT_CONFIGURED, box_mode, owner_configured, verify_owner_password
 
     if not box_mode():
         raise HTTPException(status_code=404, detail="Not found")
-    if not password_path().is_file():
-        raise HTTPException(status_code=503, detail="Owner sign-in is not set up on this box yet")
+    if not owner_configured():
+        raise HTTPException(status_code=503, detail=OWNER_NOT_CONFIGURED)
     if not verify_owner_password(body.email, body.password):
         raise HTTPException(status_code=401, detail="Email or password did not match")
 
@@ -241,7 +241,7 @@ async def update_preferences(payload: PreferencesUpdate, user: dict = Depends(ge
 
 @router.post("/logout")
 async def logout(request: Request, response: Response):
-    token = request.cookies.get("session_token")
+    token = _extract_token(request)
     if token:
         await db.user_sessions.delete_one({"session_token": token})
     response.delete_cookie("session_token", path="/", samesite="none", secure=True)
