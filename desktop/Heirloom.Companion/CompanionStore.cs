@@ -90,5 +90,7 @@ public sealed class CompanionStore
 
     public void SaveSession(string token) => DpapiBoxSession.Save(DpapiBoxSession.SessionFile(Root), token);
 
+    public void ClearSession() => OwnerSession.DeleteFile(DpapiBoxSession.SessionFile(Root));
+
     private void Patch(IReadOnlyDictionary<string, object?> values) => SettingsPatch.Write(SettingsPath, values);
 }

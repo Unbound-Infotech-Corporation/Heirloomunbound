@@ -24,6 +24,7 @@ internal sealed class TrayController : IDisposable
     private string _playedAudioId = "";
     private BoxSnapshot _snapshot = TrayStatus.Describe(false, null, BoxLink.DefaultBoxUrl, null);
     private bool? _wasReachable;
+    private string _authNotice = "";
     private bool _wasCertificate;
     private TimeSpan _delay = PollSchedule.Healthy;
     private Icon? _current;
@@ -35,6 +36,7 @@ internal sealed class TrayController : IDisposable
         _live = new TwinLiveWindow(_store);
         _live.ConfirmRequested += id => _ = ConfirmAsync(id);
         _live.DeclineRequested += id => _ = DeclineAsync(id);
+        BoxClient.Unauthorized += OnUnauthorized;
     }
 
     public void Start()
@@ -144,7 +146,25 @@ internal sealed class TrayController : IDisposable
         menu.Items.Add(yes);
         if (string.IsNullOrWhiteSpace(_store.Session()))
         {
-            menu.Items.Add(new MenuItem { Header = "Sign in to pause Observer", IsEnabled = false });
+            if (!string.IsNullOrWhiteSpace(_authNotice))
+            {
+                menu.Items.Add(new MenuItem { Header = _authNotice, IsEnabled = false });
+            }
+
+            menu.Items.Add(new MenuItem { Header = "Sign in from Settings", IsEnabled = false });
+        }
+        else
+        {
+            _authNotice = "";
+            menu.Items.Add(new MenuItem { Header = "Signed in", IsEnabled = false });
+            var signOut = new MenuItem { Header = "Sign out" };
+            signOut.Click += async (_, _) =>
+            {
+                var pending = CompanionSession.SignOutAsync(_store);
+                RebuildMenu();
+                await pending.ConfigureAwait(true);
+            };
+            menu.Items.Add(signOut);
         }
 
         var live = new MenuItem { Header = "Twin Live" };
@@ -372,8 +392,29 @@ internal sealed class TrayController : IDisposable
         }
     }
 
+    private void OnUnauthorized()
+    {
+        _store.ClearSession();
+        _authNotice = OwnerSession.SignedOutSignInAgain;
+        try
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher is null || dispatcher.CheckAccess())
+            {
+                RebuildMenu();
+                return;
+            }
+
+            dispatcher.Invoke(RebuildMenu);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
     public void Dispose()
     {
+        BoxClient.Unauthorized -= OnUnauthorized;
         _stop.Cancel();
         _hotkey.Dispose();
         _player.Dispose();
