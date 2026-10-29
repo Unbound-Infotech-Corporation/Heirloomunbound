@@ -1,3 +1,4 @@
+using System.Net.Http;
 using System.Windows;
 using Heirloom.BoxCore;
 
@@ -18,6 +19,7 @@ public partial class SettingsWindow : Window
         Toasts.IsChecked = store.Toasts;
         SystemAudio.IsChecked = store.SystemAudio;
         MicAudio.IsChecked = store.MicAudio;
+        LoadMicrophones();
         Screen.IsChecked = store.Screen;
         TwinName.Text = store.TwinName;
         WakePhrase.Text = store.WakePhrase;
@@ -64,6 +66,40 @@ public partial class SettingsWindow : Window
         if (signedIn)
         {
             SignedInLabel.Text = "Signed in";
+        }
+    }
+
+    private void LoadMicrophones()
+    {
+        var choices = CaptureEndpoints.List();
+        var active = new List<string>();
+        foreach (var choice in choices)
+        {
+            if (!string.IsNullOrWhiteSpace(choice.Id))
+            {
+                active.Add(choice.Id);
+            }
+        }
+
+        var selected = MicSelection.Resolve(_store.MicDeviceId, active);
+        MicDevice.Items.Clear();
+        foreach (var choice in choices)
+        {
+            MicDevice.Items.Add(choice);
+        }
+
+        foreach (MicChoice choice in MicDevice.Items)
+        {
+            if (choice.Id == selected)
+            {
+                MicDevice.SelectedItem = choice;
+                return;
+            }
+        }
+
+        if (MicDevice.Items.Count > 0)
+        {
+            MicDevice.SelectedIndex = 0;
         }
     }
 
@@ -199,6 +235,7 @@ public partial class SettingsWindow : Window
         _store.Toasts = Toasts.IsChecked == true;
         _store.SystemAudio = SystemAudio.IsChecked == true;
         _store.MicAudio = MicAudio.IsChecked == true;
+        _store.MicDeviceId = MicDevice.SelectedItem is MicChoice mic ? mic.Id : "";
         _store.Screen = Screen.IsChecked == true;
         _store.TwinName = TwinName.Text;
         _store.WakePhrase = WakePhrase.Text;

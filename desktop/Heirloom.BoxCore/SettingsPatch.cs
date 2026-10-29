@@ -15,6 +15,7 @@ public static class SettingsPatch
     public const string CompanionToasts = "companion_toasts";
     public const string CompanionAudioSystem = "companion_audio_system";
     public const string CompanionAudioMic = "companion_audio_mic";
+    public const string CompanionMicDevice = "companion_mic_device";
     public const string CompanionScreen = "companion_screen";
     public const string CompanionWakePhrase = "companion_wake_phrase";
     public const string CompanionTwinName = "companion_twin_name";

@@ -6,6 +6,24 @@ namespace Heirloom.BoxCore;
 public static class PcmConvert
 {
     public const int TargetRate = 16000;
+    public const int WaveFormatIeeeFloat = 3;
+    public const int WaveFormatExtensible = 0xFFFE;
+    public static readonly Guid IeeeFloatSubFormat = new("00000003-0000-0010-8000-00aa00389b71");
+    public static readonly Guid PcmSubFormat = new("00000001-0000-0010-8000-00aa00389b71");
+
+    /// <summary>
+    /// WAVE_FORMAT_IEEE_FLOAT, including extensible frames whose subformat is IEEE float.
+    /// A PCM subformat stays integer even when the container encoding is extensible.
+    /// </summary>
+    public static bool IsIeeeFloat(int encoding, Guid subFormat)
+    {
+        if (encoding == WaveFormatIeeeFloat)
+        {
+            return true;
+        }
+
+        return encoding == WaveFormatExtensible && subFormat == IeeeFloatSubFormat;
+    }
 
     public static byte[] ToS16Mono16k(ReadOnlySpan<byte> interleaved, int channels, int sampleRate, bool ieeeFloat)
     {
@@ -104,5 +122,65 @@ public static class PcmConvert
         }
 
         return output;
+    }
+}
+
+/// <summary>
+/// All-zero capture from the wrong WASAPI endpoint, such as a GoXLR Mini chat mix.
+/// </summary>
+public static class PcmSilence
+{
+    public const string SilentMicStatus = "mic is silent, pick another microphone";
+    public const int SustainBytes = 16000 * 2 * 2;
+
+    public static bool IsAllZero(ReadOnlySpan<byte> pcm)
+    {
+        foreach (var sample in pcm)
+        {
+            if (sample != 0)
+            {
+                return false;
+            }
+        }
+
+        return pcm.Length > 0;
+    }
+
+    /// <summary>
+    /// Drop an all-zero chunk. <paramref name="sustained"/> becomes true after two seconds of zeros.
+    /// </summary>
+    public static bool ShouldDrop(ReadOnlySpan<byte> pcm, ref int zeroRun, out bool sustained)
+    {
+        sustained = false;
+        if (pcm.IsEmpty)
+        {
+            return true;
+        }
+
+        if (!IsAllZero(pcm))
+        {
+            zeroRun = 0;
+            return false;
+        }
+
+        zeroRun += pcm.Length;
+        sustained = zeroRun >= SustainBytes;
+        return true;
+    }
+}
+
+/// <summary>
+/// A saved capture id is used only while that endpoint is still active. Otherwise the default device.
+/// </summary>
+public static class MicSelection
+{
+    public static string Resolve(string? saved, IReadOnlyCollection<string> activeIds)
+    {
+        if (string.IsNullOrWhiteSpace(saved))
+        {
+            return "";
+        }
+
+        return activeIds.Contains(saved) ? saved : "";
     }
 }
