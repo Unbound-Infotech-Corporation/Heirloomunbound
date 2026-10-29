@@ -10,11 +10,10 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from emergentintegrations.llm.chat import ImageContent, LlmChat, StreamDone, TextDelta, UserMessage
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
-from deps import EMERGENT_LLM_KEY, db, get_current_user
+from deps import db, get_current_user
 
 router = APIRouter(prefix="/photo-story", tags=["photo-story"])
 
@@ -25,10 +24,10 @@ def _now() -> str:
 
 async def _vision_json(image_b64: str) -> dict:
     """Look at the photo → a short scene description + 3 warm, specific questions."""
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"ps_{uuid.uuid4().hex[:8]}",
-        system_message=(
+    from llm_provider import complete_vision
+
+    text = await complete_vision(
+        (
             "You help someone turn a personal photo into a written memory for their family archive. "
             "Look closely at the photo. Respond ONLY with strict JSON of the form "
             '{"description": "<one warm sentence describing what you see>", '
@@ -37,15 +36,10 @@ async def _vision_json(image_b64: str) -> dict:
             "what was happening, how it felt) — the kind a thoughtful biographer would ask to draw out the story. "
             "No preamble, no markdown."
         ),
-    ).with_model("anthropic", "claude-sonnet-4-6")
-    text = ""
-    async for ev in chat.stream_message(
-        UserMessage(text="Describe this photo and ask three questions.", file_contents=[ImageContent(image_base64=image_b64)])
-    ):
-        if isinstance(ev, TextDelta):
-            text += ev.content
-        elif isinstance(ev, StreamDone):
-            break
+        "Describe this photo and ask three questions.",
+        image_b64,
+        session_id=f"ps_{uuid.uuid4().hex[:8]}",
+    )
     text = text.strip()
     if text.startswith("```"):
         text = text.strip("`")
@@ -135,24 +129,20 @@ async def compose(ps_id: str, payload: ComposeReq, user: dict = Depends(get_curr
             qa_pairs.append(f"Q: {q}\nA: {a.strip()}")
     qa_blob = "\n\n".join(qa_pairs) or "(the person didn't add details — write from the photo alone)"
 
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"psc_{ps_id}",
-        system_message=(
+    from llm_provider import complete_text
+
+    prompt = f"Photo: {doc.get('description', '')}\n\nTheir answers:\n{qa_blob}"
+    text = await complete_text(
+        (
             "You are a warm, faithful ghostwriter helping someone preserve a memory for their family. "
             "Using the photo description and their answers, write the memory in FIRST PERSON ('I', 'we') "
             "as the person themselves, in their natural voice — 120–220 words, evocative but honest, no clichés, "
             "no invented facts beyond what's given. Start with a compelling opening line. "
             "Return strict JSON: {\"title\": \"<short evocative title>\", \"story\": \"<the memory>\"}. No markdown."
         ),
-    ).with_model("anthropic", "claude-sonnet-4-6")
-    prompt = f"Photo: {doc.get('description', '')}\n\nTheir answers:\n{qa_blob}"
-    text = ""
-    async for ev in chat.stream_message(UserMessage(text=prompt)):
-        if isinstance(ev, TextDelta):
-            text += ev.content
-        elif isinstance(ev, StreamDone):
-            break
+        prompt,
+        session_id=f"psc_{ps_id}",
+    )
     text = text.strip()
     if text.startswith("```"):
         text = text.strip("`")

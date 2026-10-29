@@ -472,6 +472,12 @@ def _contact_name(user: dict, decision: policy.PolicyDecision) -> str:
     return who
 
 
+def _phone_twin_backend() -> str:
+    from llm_provider import prefer_local
+
+    return "ollama" if prefer_local() else "cloud_claude"
+
+
 async def _twin_spoken(
     *,
     user: dict,
@@ -494,7 +500,7 @@ async def _twin_spoken(
             source="phone",
             persist=True,
             summarise=False,
-            twin_backend="cloud_claude",
+            twin_backend=_phone_twin_backend(),
             role="twin",
             grounded=True,
             persona_hint="family",

@@ -96,6 +96,9 @@ app = FastAPI(title="Digital Heirloom — AI Twin", version="0.3.0")
 
 @app.on_event("startup")
 async def _startup():
+    from llm_provider import install_box_guard
+
+    install_box_guard()
     init_storage()
     await ensure_indexes()
 

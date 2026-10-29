@@ -726,21 +726,14 @@ async def exec_see_screen(user_id: str, args: dict) -> dict:
     if not shot or not shot.get("image_b64"):
         return {"summary": "The PC didn't send a screenshot in time.", "ui": {"ok": False}}
     try:
-        from emergentintegrations.llm.chat import ImageContent, LlmChat, StreamDone, TextDelta, UserMessage
+        from llm_provider import complete_vision
 
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
+        text = await complete_vision(
+            "You are looking at a screenshot of the user's computer screen. Answer their question about it directly and briefly.",
+            question,
+            shot["image_b64"],
             session_id=f"see_{cmd_id}",
-            system_message="You are looking at a screenshot of the user's computer screen. Answer their question about it directly and briefly.",
-        ).with_model("anthropic", "claude-sonnet-4-6")
-        text = ""
-        async for ev in chat.stream_message(
-            UserMessage(text=question, file_contents=[ImageContent(image_base64=shot["image_b64"])])
-        ):
-            if isinstance(ev, TextDelta):
-                text += ev.content
-            elif isinstance(ev, StreamDone):
-                break
+        )
         text = text.strip() or "(no description returned)"
     except Exception as exc:  # noqa: BLE001
         return {"summary": f"Screen analysis failed: {exc!s}", "ui": {"ok": False}}

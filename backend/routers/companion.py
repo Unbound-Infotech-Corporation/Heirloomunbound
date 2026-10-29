@@ -5,7 +5,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai import OpenAISpeechToText
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -423,8 +422,33 @@ async def companion_voice(
             try:
                 spoken = transcribe_whisper_bytes(raw, filename=audio.filename or "ptt.wav")
             except Exception as exc:  # noqa: BLE001
+                from llm_provider import box_mode
+
+                if box_mode():
+                    import logging
+
+                    logging.getLogger(__name__).error(
+                        "HEIRLOOM_BOX refused cloud speech-to-text after local whisper failed: %s",
+                        exc,
+                    )
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Local transcription is unavailable. Cloud speech is disabled on this box.",
+                    ) from exc
                 stt_backend = "cloud_whisper"
         if stt_backend == "cloud_whisper" and not spoken:
+            from llm_provider import box_mode
+
+            if box_mode():
+                import logging
+
+                logging.getLogger(__name__).error(
+                    "HEIRLOOM_BOX refused cloud AI caller=companion.voice provider=openai model=whisper-1"
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="Cloud speech is disabled on this box.",
+                )
             buf = io.BytesIO(raw)
             buf.name = audio.filename or "ptt.webm"
             stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)

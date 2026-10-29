@@ -10,11 +10,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from emergentintegrations.llm.chat import LlmChat, StreamDone, TextDelta, UserMessage
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from deps import EMERGENT_LLM_KEY, db, get_current_user
+from deps import db, get_current_user
 
 router = APIRouter(prefix="/letters", tags=["letters"])
 
@@ -215,10 +214,10 @@ async def assist(payload: AssistReq, user: dict = Depends(get_current_user)):
     occasion = f" for their {payload.occasion.strip()}" if payload.occasion else ""
     tone = (payload.tone or "warm and sincere").strip()
 
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"letter_{uuid.uuid4().hex[:8]}",
-        system_message=(
+    from llm_provider import complete_text
+
+    text = await complete_text(
+        (
             f"You help {user.get('name', 'the writer')} write a deeply personal sealed letter to {recipient}{occasion}, "
             f"to be delivered in the future. Write it in FIRST PERSON as the writer, matching the voice in their "
             f"writing samples below. Tone: {tone}. Draw ONLY on the notes and samples — invent no facts. "
@@ -226,14 +225,9 @@ async def assist(payload: AssistReq, user: dict = Depends(get_current_user)):
             f'Return STRICT JSON: {{"title": "<short title>", "body": "<the letter>"}}. No markdown, no preamble.\n\n'
             f"=== The writer's voice (samples) ===\n{voice_blob}"
         ),
-    ).with_model("anthropic", "claude-sonnet-4-6")
-
-    text = ""
-    async for ev in chat.stream_message(UserMessage(text=f"Notes for the letter:\n{payload.notes}")):
-        if isinstance(ev, TextDelta):
-            text += ev.content
-        elif isinstance(ev, StreamDone):
-            break
+        f"Notes for the letter:\n{payload.notes}",
+        session_id=f"letter_{uuid.uuid4().hex[:8]}",
+    )
     text = text.strip()
     if text.startswith("```"):
         text = text.strip("`")

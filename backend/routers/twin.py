@@ -450,6 +450,9 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
         )
 
+    from llm_provider import refuse_cloud
+
+    refuse_cloud("anthropic", "claude-sonnet-4-6", caller="routers.twin")
     chat = (
         LlmChat(
             api_key=EMERGENT_LLM_KEY,

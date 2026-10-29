@@ -26,7 +26,9 @@ async def complete_assignment_prompt(prompt: str) -> str:
         return completed.text
 
     from deps import EMERGENT_LLM_KEY
+    from llm_provider import refuse_cloud
 
+    refuse_cloud("anthropic", "claude-sonnet-4-6", caller="assignment_chat")
     if not (EMERGENT_LLM_KEY or "").strip():
         raise RuntimeError("no model key")
     from emergentintegrations.llm.chat import LlmChat, UserMessage

@@ -123,26 +123,43 @@ async def send_message(payload: MessageRequest, user: dict = Depends(get_current
         if m.get("role") in ("user", "assistant") and m.get("content"):
             initial_messages.append({"role": m["role"], "content": m["content"]})
 
-    # Session ID = conversation_id so emergentintegrations preserves context across turns
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=payload.conversation_id,
-        system_message=system_message,
-        initial_messages=initial_messages,
-    ).with_model("anthropic", "claude-sonnet-4-6")
+    from llm_provider import complete_text, prefer_local, refuse_cloud
+
+    local = prefer_local()
+    history = [m for m in initial_messages if m.get("role") != "system"]
+    chat = None
+    if not local:
+        # Session ID = conversation_id so emergentintegrations preserves context across turns
+        refuse_cloud("anthropic", "claude-sonnet-4-6", caller="interviewer")
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=payload.conversation_id,
+            system_message=system_message,
+            initial_messages=initial_messages,
+        ).with_model("anthropic", "claude-sonnet-4-6")
 
     user_turn = {"role": "user", "content": payload.message, "ts": datetime.now(timezone.utc).isoformat()}
 
     async def event_generator():
         full = ""
         try:
-            async for ev in chat.stream_message(UserMessage(text=payload.message)):
-                if isinstance(ev, TextDelta):
-                    full += ev.content
-                    # JSON-encode so embedded newlines don't break SSE framing
-                    yield "data: " + json.dumps({"text": ev.content}) + "\n\n"
-                elif isinstance(ev, StreamDone):
-                    break
+            if local:
+                full = await complete_text(
+                    system_message,
+                    payload.message,
+                    history=history,
+                    session_id=payload.conversation_id,
+                )
+                if full:
+                    yield "data: " + json.dumps({"text": full}) + "\n\n"
+            else:
+                async for ev in chat.stream_message(UserMessage(text=payload.message)):
+                    if isinstance(ev, TextDelta):
+                        full += ev.content
+                        # JSON-encode so embedded newlines don't break SSE framing
+                        yield "data: " + json.dumps({"text": ev.content}) + "\n\n"
+                    elif isinstance(ev, StreamDone):
+                        break
         except Exception as exc:  # noqa: BLE001
             yield "event: error\ndata: " + json.dumps({"error": str(exc)}) + "\n\n"
             return

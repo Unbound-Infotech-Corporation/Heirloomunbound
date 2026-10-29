@@ -3,7 +3,6 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -46,17 +45,15 @@ async def import_text(payload: ImportRequest, user: dict = Depends(get_current_u
     }
     extracted: list[dict] = []
 
-    if payload.auto_extract and EMERGENT_LLM_KEY:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=import_id,
-            system_message=EXTRACTOR_SYSTEM,
-        ).with_model("anthropic", "claude-sonnet-4-6")
+    from llm_provider import complete_text, prefer_local
+
+    if payload.auto_extract and (prefer_local() or EMERGENT_LLM_KEY):
         try:
-            response = await chat.send_message(
-                UserMessage(text=f"Source: {payload.source}\n\nRaw text:\n{payload.raw_text[:18000]}")
+            raw = await complete_text(
+                EXTRACTOR_SYSTEM,
+                f"Source: {payload.source}\n\nRaw text:\n{payload.raw_text[:18000]}",
+                session_id=import_id,
             )
-            raw = response if isinstance(response, str) else getattr(response, "content", str(response))
             # Strip code fences if any slipped through
             cleaned = raw.strip()
             if cleaned.startswith("```"):

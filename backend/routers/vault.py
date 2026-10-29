@@ -18,11 +18,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Literal, Optional
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from deps import EMERGENT_LLM_KEY, db
+from deps import db
+from llm_provider import complete_text
 from routers.companion import get_device_user
 
 router = APIRouter(prefix="/vault", tags=["vault"])
@@ -103,17 +103,12 @@ async def vault_compact(body: CompactReq, ctx: dict = Depends(get_device_user)):
         f"[{t.role.upper()}] {(t.text or '')[:1500]}" for t in capped if t.text
     )[:30000]
 
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"vault_compact_{ctx['user']['user_id']}_{body.date}",
-        system_message=COMPACTION_SYSTEM,
-    ).with_model("anthropic", "claude-sonnet-4-6")
-
     try:
-        reply = await chat.send_message(
-            UserMessage(text=f"=== {body.date} ({len(capped)} turns) ===\n{transcript}")
+        reply_text = await complete_text(
+            COMPACTION_SYSTEM,
+            f"=== {body.date} ({len(capped)} turns) ===\n{transcript}",
+            session_id=f"vault_compact_{ctx['user']['user_id']}_{body.date}",
         )
-        reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Compaction LLM failed: {exc!s}") from exc
 

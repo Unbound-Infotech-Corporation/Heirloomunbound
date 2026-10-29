@@ -15,11 +15,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from deps import EMERGENT_LLM_KEY, db, get_current_user
+from deps import db, get_current_user
 from standing_routines import (
     apply_enabled_updates,
     routines_from_user,
@@ -93,14 +92,14 @@ async def _generate_nudge(user_id: str, user_name: str) -> dict:
         f"Recent nudges to NOT repeat:\n{json.dumps(recent_nudges, indent=2)}\n\n"
         f"Archive snapshot:\n{corpus or '(empty)'}"
     )
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"nudge_{user_id}_{_today_key()}",
-        system_message=SYSTEM_PROMPT,
-    ).with_model("anthropic", "claude-sonnet-4-6")
+    from llm_provider import complete_text
+
     try:
-        reply = await chat.send_message(UserMessage(text=prompt))
-        reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+        reply_text = await complete_text(
+            SYSTEM_PROMPT,
+            prompt,
+            session_id=f"nudge_{user_id}_{_today_key()}",
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"LLM call failed: {exc!s}") from exc
 

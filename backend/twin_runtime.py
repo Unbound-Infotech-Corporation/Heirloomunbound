@@ -1026,6 +1026,9 @@ async def run_twin_turn(
         initial_messages.append({"role": m["role"], "content": m["content"]})
 
     active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
+    from llm_provider import refuse_cloud
+
+    refuse_cloud("anthropic", "claude-sonnet-4-6", caller="twin_runtime")
     chat = (
         LlmChat(
             api_key=EMERGENT_LLM_KEY,

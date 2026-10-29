@@ -266,14 +266,24 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     )
 
     session_id = portal_conversation_id(heir["heir_id"], payload.session_id)
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=session_id,
-        system_message=system,
-    ).with_model("anthropic", "claude-sonnet-4-6")
+    from llm_provider import complete_text, prefer_local, refuse_cloud
+
     try:
-        reply = await chat.send_message(UserMessage(text=text))
-        reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
+        if prefer_local():
+            history = [
+                m for m in prior_messages[:-1]
+                if m.get("role") in ("user", "assistant") and m.get("content")
+            ]
+            reply_text = await complete_text(system, text, history=history, session_id=session_id)
+        else:
+            refuse_cloud("anthropic", "claude-sonnet-4-6", caller="heir_portal")
+            chat = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=session_id,
+                system_message=system,
+            ).with_model("anthropic", "claude-sonnet-4-6")
+            reply = await chat.send_message(UserMessage(text=text))
+            reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
         reply_text = with_grief_aside(reply_text, grief, history=prior_messages)
     except Exception:  # noqa: BLE001
         raise HTTPException(status_code=502, detail="Twin reply failed. Try again.") from None

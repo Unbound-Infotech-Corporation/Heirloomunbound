@@ -1,14 +1,29 @@
-"""Provider selection stays on the existing cloud path unless ollama is named."""
+"""Provider selection stays on the existing cloud path unless ollama is named.
+
+A Twin Box (``HEIRLOOM_BOX``) never selects a cloud model or provider.
+"""
 from __future__ import annotations
 
 import asyncio
+import json
+
+import pytest
 
 from llm_provider import (
+    BOX_CHAT_MODEL,
+    BOX_VISION_MODEL,
     EMERGENT_PROVIDER,
     OLLAMA_PROVIDER,
+    CloudAiDisabled,
     complete_openai_chat,
+    complete_text,
+    complete_vision,
+    is_cloud_choice,
+    ollama_model,
+    ollama_vision_model,
     openai_chat_url,
     parse_openai_chat,
+    refuse_cloud,
     resolve_llm_provider,
     take_usage,
     uses_ollama,
@@ -81,3 +96,48 @@ def test_complete_openai_chat_posts_and_notes_tokens():
     assert usage["prompt_tokens"] == 4
     assert usage["completion_tokens"] == 2
     assert usage["model"] == "qwen2.5:3b"
+
+
+def test_box_mode_uses_no_cloud_model_or_provider(monkeypatch):
+    monkeypatch.setenv("HEIRLOOM_BOX", "1")
+    monkeypatch.setenv("HEIRLOOM_LLM_PROVIDER", "anthropic")
+    monkeypatch.delenv("OLLAMA_TWIN_MODEL", raising=False)
+    monkeypatch.delenv("OLLAMA_VISION_MODEL", raising=False)
+    monkeypatch.delenv("OLLAMA_OBSERVER_MODEL", raising=False)
+
+    assert resolve_llm_provider() == OLLAMA_PROVIDER
+    assert uses_ollama() is True
+    assert resolve_llm_provider("openai") == OLLAMA_PROVIDER
+    assert resolve_llm_provider("gemini") == OLLAMA_PROVIDER
+    assert ollama_model() == BOX_CHAT_MODEL
+    assert ollama_model("claude-sonnet-4-6") == BOX_CHAT_MODEL
+    assert ollama_vision_model() == BOX_VISION_MODEL
+    assert ollama_vision_model("gemini-2.5-pro") == BOX_VISION_MODEL
+    assert is_cloud_choice("claude-sonnet-4-6", "anthropic") is True
+    assert is_cloud_choice(BOX_CHAT_MODEL, "ollama") is False
+    with pytest.raises(CloudAiDisabled):
+        refuse_cloud("anthropic", "claude-sonnet-4-6", caller="test")
+
+    seen: list[dict] = []
+
+    async def poster(url, body, timeout):
+        seen.append({"url": url, "body": json.loads(json.dumps(body))})
+        return {
+            "model": body["model"],
+            "choices": [{"message": {"content": "from the box"}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }
+
+    async def _run():
+        chat = await complete_text("Stay local.", "Hello", poster=poster)
+        vision = await complete_vision("Look.", "What is this?", "aGVsbG8=", poster=poster)
+        return chat, vision
+
+    chat, vision = asyncio.run(_run())
+    assert chat == "from the box"
+    assert vision == "from the box"
+    assert [row["body"]["model"] for row in seen] == [BOX_CHAT_MODEL, BOX_VISION_MODEL]
+    blob = json.dumps(seen).lower()
+    assert all(row["url"].rstrip("/").endswith("/v1/chat/completions") for row in seen)
+    for banned in ("claude", "anthropic", "openai", "gemini", "gpt-"):
+        assert banned not in blob

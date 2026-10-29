@@ -26,7 +26,9 @@ async def transcribe(
     title: str = Form(""),
     user: dict = Depends(get_current_user),
 ):
-    if not EMERGENT_LLM_KEY:
+    from llm_provider import box_mode
+
+    if not box_mode() and not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not configured")
     await rate_limit(user["user_id"], "voice_transcribe", max_calls=20, per_seconds=60)
 
@@ -39,6 +41,35 @@ async def transcribe(
     buf = io.BytesIO(raw)
     buf.name = file.filename or "recording.webm"
 
+    if box_mode():
+        from local_inference import transcribe_whisper_bytes
+
+        try:
+            text = transcribe_whisper_bytes(raw, filename=file.filename or "recording.wav")
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=503,
+                detail="Local transcription is unavailable. Cloud speech is disabled on this box.",
+            ) from exc
+        response: dict = {"text": text}
+        if save_to_archive and text.strip():
+            entry_id = f"ent_{uuid.uuid4().hex[:12]}"
+            doc = {
+                "entry_id": entry_id,
+                "user_id": user["user_id"],
+                "type": "voice",
+                "title": title or f"Voice journal — {datetime.now(timezone.utc).strftime('%b %d, %Y · %H:%M')}",
+                "content": text,
+                "tags": ["voice"],
+                "source": "voice_journal",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await db.entries.insert_one(doc)
+            doc.pop("_id", None)
+            response["entry"] = doc
+        return response
+
     stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY)
     try:
         result = await stt.transcribe(file=buf, model="whisper-1", response_format="json")
@@ -46,7 +77,7 @@ async def transcribe(
         raise HTTPException(status_code=500, detail=f"Transcription failed: {exc!s}") from exc
 
     text = getattr(result, "text", "") or ""
-    response: dict = {"text": text}
+    response = {"text": text}
 
     if save_to_archive and text.strip():
         entry_id = f"ent_{uuid.uuid4().hex[:12]}"
@@ -70,6 +101,15 @@ async def transcribe(
 
 @router.post("/speak")
 async def text_to_speech(payload: TTSRequest, user: dict = Depends(get_current_user)):
+    from llm_provider import box_mode
+
+    if box_mode():
+        import logging
+
+        logging.getLogger(__name__).error(
+            "HEIRLOOM_BOX refused cloud AI caller=voice.speak provider=openai model=tts-1"
+        )
+        raise HTTPException(status_code=503, detail="Cloud speech is disabled on this box.")
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not configured")
     text = (payload.text or "").strip()
