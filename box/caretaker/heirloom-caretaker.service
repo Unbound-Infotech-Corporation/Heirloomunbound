@@ -1,0 +1,9 @@
+[Unit]
+Description=Heirloom Caretaker GPU watchdog
+# Restarts the ollama container when it has lost the GPU. Does not reboot.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/heirloom-caretaker-watchdog
+Nice=10
+NoNewPrivileges=true

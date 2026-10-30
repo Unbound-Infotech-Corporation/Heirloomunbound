@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Heirloom.Services;
 using Xunit;
 
@@ -27,5 +28,26 @@ public class AppPathsTests
         {
             File.Delete(file);
         }
+    }
+
+    [Fact]
+    public void Save_merge_keeps_companion_keys_the_app_does_not_own()
+    {
+        var existing = """{"backend_url":"https://old.example","companion_mic_device":"Yeti","companion_proactive":true,"companion_audio_mic":false,"session_volume":40}""";
+        var current = new AppSettings
+        {
+            BackendUrl = "https://new.example",
+            SessionVolume = 80,
+        };
+        var merged = SettingsStore.MergePreservingUnknown(existing, current);
+        Assert.Contains("Yeti", merged);
+        Assert.Contains("companion_proactive", merged);
+        Assert.Contains("companion_audio_mic", merged);
+        Assert.Contains("https://new.example", merged);
+        Assert.DoesNotContain("https://old.example", merged);
+        using var doc = JsonDocument.Parse(merged);
+        Assert.Equal(80, doc.RootElement.GetProperty("session_volume").GetInt32());
+        Assert.True(doc.RootElement.GetProperty("companion_proactive").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("companion_audio_mic").GetBoolean());
     }
 }

@@ -47,6 +47,7 @@ from routers import (
     avatar_studio,
     billing,
     capture,
+    caretaker,
     companion,
     connectors,
     dashboard,
@@ -67,6 +68,7 @@ from routers import (
     observer,
     onboarding,
     owner,
+    owner_style,
     personality,
     personas,
     phone,
@@ -233,6 +235,8 @@ api_router.include_router(heir_portal.router)
 api_router.include_router(personality.router)
 api_router.include_router(personas.router)
 api_router.include_router(assistants.router)
+api_router.include_router(caretaker.router)
+api_router.include_router(owner_style.router)
 api_router.include_router(assignments.router)
 api_router.include_router(approvals.router)
 api_router.include_router(connectors.router)

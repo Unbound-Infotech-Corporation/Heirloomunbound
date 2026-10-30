@@ -256,6 +256,38 @@ public static class BoxClient
         return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public static async Task<string?> GetCaretakerCompanionAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken))
+        {
+            return null;
+        }
+
+        using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(15));
+        using var request = new HttpRequestMessage(HttpMethod.Get, Api(baseUrl, "/api/caretaker/companion"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
+        using var response = await SendObservedAsync(http, request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public static Task<bool> AckCaretakerCompanionAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string sessionToken,
+        CancellationToken cancellationToken = default) =>
+        PostAssistAsync(baseUrl, pin, caPem, sessionToken, "/api/caretaker/companion/ack", "{}", cancellationToken: cancellationToken);
+
     public static Task<bool> PutAssistSettingsAsync(
         string baseUrl,
         string? pin,

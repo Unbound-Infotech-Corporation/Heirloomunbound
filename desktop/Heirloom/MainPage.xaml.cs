@@ -57,6 +57,7 @@ public sealed partial class MainPage : Page
 
         ViewModel.Assistant.Lines.CollectionChanged += (_, e) => ScrollLatest(AssistChatList, e);
         ViewModel.Twin.Lines.CollectionChanged += (_, e) => ScrollLatest(TwinChatList, e);
+        ViewModel.Caretaker.Lines.CollectionChanged += (_, e) => ScrollLatest(CaretakerChatList, e);
         await Task.Delay(900);
         ViewModel.DismissSplash();
         AddAccelerator(Windows.System.VirtualKey.K, Windows.System.VirtualKeyModifiers.Control, () => ViewModel.TogglePalette());

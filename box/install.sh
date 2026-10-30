@@ -709,6 +709,19 @@ EOF
   log "Observer CUDA libs on LD_LIBRARY_PATH: ${joined}"
 }
 
+install_caretaker() {
+  log "Caretaker watchdog: GPU-lost check every 3 minutes. Restarts the ollama container only when the GPU is gone."
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    log "would install /usr/local/bin/heirloom-caretaker-watchdog, heirloom-caretaker.service, and a 3 minute timer"
+    return 0
+  fi
+  install -m 0755 "${ROOT}/box/caretaker/heirloom-caretaker-watchdog" /usr/local/bin/heirloom-caretaker-watchdog
+  install_unit "${ROOT}/box/caretaker/heirloom-caretaker.service" /etc/systemd/system/heirloom-caretaker.service
+  install_unit "${ROOT}/box/caretaker/heirloom-caretaker.timer" /etc/systemd/system/heirloom-caretaker.timer
+  systemctl daemon-reload
+  systemctl enable --now heirloom-caretaker.timer || log "heirloom-caretaker timer did not start"
+}
+
 install_presence() {
   if [[ "${WITH_PRESENCE}" -eq 0 ]]; then
     log "Presence not requested. Product builds leave it off."
@@ -875,6 +888,7 @@ print_next() {
     log "Presence is on for this box. Pause with: heirloom-box presence pause"
     log "Cameras, consent, and model licenses: box/PRESENCE.md"
   fi
+  log "Caretaker watchdog checks whether ollama lost the GPU every 3 minutes and restarts that container when it has."
   if [[ "${NEED_REBOOT}" -eq 1 ]]; then
     log "Reboot so the NVIDIA driver loads, then re-run: sudo bash box/install.sh"
   fi
@@ -947,6 +961,7 @@ main() {
   write_cron
   install_observer
   install_presence
+  install_caretaker
   if [[ "${NEED_REBOOT}" -eq 1 && "${UNATTENDED}" -eq 1 ]]; then
     log "Unattended mode stops before containers start because the NVIDIA driver needs a reboot."
     log "Reboot, then run the same box/install.sh command again."

@@ -13,6 +13,7 @@ from ai_disclosure import twin_identity_block
 from grief_guard import HEIR_GRIEF_STANDING, GriefSignal, grief_prompt_block
 from memorial_mode import memorial_prompt_block
 from owner_pairing import is_owner_audience, twin_owner_pairing_block
+from owner_style import style_register_block
 
 
 class TwinCore(BaseModel):
@@ -80,6 +81,16 @@ def format_passages(passages: list[TwinPassage]) -> str:
     return "\n".join(chunks).strip()
 
 
+def grounded_miss_applies(audience: str | None, grounded_miss: bool, watched_relied: bool) -> bool:
+    """The miss aside is for heirs and callers. The owner keeps the normal turn."""
+    key = (audience or "").strip().lower()
+    if key not in {"heir", "caller"}:
+        return False
+    from observer_prompt import block_grounded_miss
+
+    return block_grounded_miss(bool(grounded_miss), bool(watched_relied))
+
+
 def miss_reply(grounded: bool = True, *, spoken: bool = False) -> str:
     if spoken:
         return "I don't remember that yet, and I will not invent it."
@@ -88,12 +99,26 @@ def miss_reply(grounded: bool = True, *, spoken: bool = False) -> str:
     return "Nothing filed matches this. I will not treat a guess as a memory."
 
 
+OWNER_GROUNDED = (
+    "Chat naturally about everyday things, the present, and what is on screen. "
+    "Only when asked about your own past, family, dates, or names: answer ONLY from CORE and numbered PASSAGES, "
+    "and if it is not there, say you don't remember that yet. "
+    "Never invent biography, dates, names, or advice they did not file."
+)
+STRICT_GROUNDED = (
+    "Answer ONLY from CORE and numbered PASSAGES that actually answer this turn. "
+    "Ignore leftover facts and passages about a different topic. If the answer is not there, say you don't remember that yet. "
+    "Never invent biography, dates, names, or advice they did not file. A fluent sentence is not a filing."
+)
+
+
 def compile_twin_prompt(
     pack: TwinPack,
     name: str = "",
     pairing: dict | None = None,
     memorial: dict | None = None,
     grief: GriefSignal | None = None,
+    style_profile: dict | None = None,
 ) -> str:
     who = name or "this person"
     audience = (pack.audience or "owner").strip().lower()
@@ -114,17 +139,19 @@ def compile_twin_prompt(
     if turn:
         lines.append(turn)
     lines.append("")
-    if grounded:
-        lines.append(
-            "Answer ONLY from CORE and numbered PASSAGES that actually answer this turn. Ignore leftover facts and passages about a different topic. If the answer is not there, say you don't remember that yet. "
-            "Never invent biography, dates, names, or advice they did not file. A fluent sentence is not a filing."
-        )
+    if grounded and is_owner_audience(audience):
+        lines.append(OWNER_GROUNDED)
+    elif grounded:
+        lines.append(STRICT_GROUNDED)
     else:
         lines.append("Prefer CORE and PASSAGES. Do not invent facts about their life. If nothing matches, say so.")
     if is_owner_audience(audience):
         lines.append(twin_owner_pairing_block(pairing))
     lines.append("PERSONA REGISTER:")
     lines.append(pack.core.stance or "Speak as family would remember them: warm, plain, and close.")
+    style = style_register_block(style_profile, audience=audience)
+    if style:
+        lines.append(style)
     if pack.core.portrait.strip():
         lines.append("HOW THEY WERE:")
         lines.append(pack.core.portrait.strip()[:2000])

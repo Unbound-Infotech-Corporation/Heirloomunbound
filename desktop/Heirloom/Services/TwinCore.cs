@@ -255,11 +255,61 @@ public static class TwinPrompt
     public static TwinCoreBlock CoreFrom(string persona, string portrait, string values, string fence = "") =>
         new(StanceLine(persona), Cap(portrait, 2000), Cap(values, 2000), fence);
 
-    public static string System(TwinPack pack, string name, string memorialMode = "living", string memorialDate = "")
+    public static bool MissApplies(string? audience, bool grounded, bool hasPassages)
+    {
+        var key = (audience ?? "").Trim().ToLowerInvariant();
+        return grounded && !hasPassages && key is "heir" or "caller";
+    }
+
+    public static string StyleRegister(string? audience, JsonElement profile)
+    {
+        var key = (audience ?? "owner").Trim().ToLowerInvariant();
+        if (key is "heir" or "caller" || profile.ValueKind != JsonValueKind.Object)
+        {
+            return "";
+        }
+
+        var lines = new List<string>();
+        void Add(string label, string name)
+        {
+            if (!profile.TryGetProperty(name, out var node))
+            {
+                return;
+            }
+
+            var value = node.GetString()?.Trim() ?? "";
+            if (value.Length > 0)
+            {
+                lines.Add("- " + label + ": " + value);
+            }
+        }
+
+        Add("Word choice", "word_choice");
+        Add("Sentence length", "sentence_length");
+        Add("Punctuation", "punctuation");
+        Add("Casing", "casing");
+        Add("Deliberate typos", "deliberate_typos");
+        Add("Humor", "humor");
+        Add("How he opens", "opens");
+        Add("How he closes", "closes");
+        Add("What he skips", "skips");
+        Add("Topics he likes", "topics");
+        if (lines.Count == 0)
+        {
+            return "";
+        }
+
+        return "HOW THIS OWNER TALKS (style only — do not recite it, and do not treat it as biography):\n"
+            + string.Join('\n', lines);
+    }
+
+    public static string System(TwinPack pack, string name, string memorialMode = "living", string memorialDate = "", string styleBlock = "")
     {
         var who = string.IsNullOrWhiteSpace(name) ? "this person" : name;
         var heir = string.Equals(pack.Audience, "heir", StringComparison.OrdinalIgnoreCase);
-        var grounded = pack.Grounded || heir;
+        var caller = string.Equals(pack.Audience, "caller", StringComparison.OrdinalIgnoreCase);
+        var owner = !heir && !caller;
+        var grounded = pack.Grounded || heir || caller;
         var builder = new StringBuilder();
         builder.Append(TwinSafety.IdentityBlock(who)).Append('\n');
         builder.Append(TwinSafety.MemorialBlock(memorialMode, memorialDate)).Append('\n');
@@ -270,7 +320,11 @@ public static class TwinPrompt
         }
 
         builder.Append('\n');
-        if (grounded)
+        if (grounded && owner)
+        {
+            builder.Append("Chat naturally about everyday things, the present, and what is on screen. Only when asked about your own past, family, dates, or names: answer ONLY from CORE and numbered PASSAGES, and if it is not there, say you don't remember that yet. Never invent biography, dates, names, or advice they did not file.\n");
+        }
+        else if (grounded)
         {
             builder.Append("Answer ONLY from CORE and numbered PASSAGES that actually answer this turn. Ignore leftover facts and passages about a different topic. If the answer is not there, say you don't remember that yet. Never invent biography, dates, names, or advice they did not file. A fluent sentence is not a filing.\n");
         }
@@ -289,6 +343,10 @@ public static class TwinPrompt
         }
 
         builder.Append("PERSONA REGISTER:\n").Append(pack.Core.Stance).Append('\n');
+        if (owner && !string.IsNullOrWhiteSpace(styleBlock))
+        {
+            builder.Append(styleBlock.Trim()).Append('\n');
+        }
         if (!string.IsNullOrWhiteSpace(pack.Core.Portrait))
         {
             builder.Append("HOW THEY WERE:\n").Append(pack.Core.Portrait).Append('\n');

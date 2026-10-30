@@ -31,6 +31,7 @@ from twin_pack import (
     TwinPassage,
     citation_line,
     compile_twin_prompt,
+    grounded_miss_applies,
     miss_reply,
     pack_from_mapping,
     passages_from_entries,
@@ -522,6 +523,17 @@ async def ensure_conversation(
     return conv
 
 
+async def _owner_style_for(user_id: str, audience: str | None) -> dict | None:
+    if not is_owner_audience(audience):
+        return None
+    try:
+        from owner_style import profile_for_prompt
+
+        return await profile_for_prompt(user_id)
+    except Exception:
+        return None
+
+
 def _with_extra_system(system: str, extra_system: str | None) -> str:
     extra = (extra_system or "").strip()
     if not extra:
@@ -644,6 +656,7 @@ async def build_brain_pack(
             pairing=pairing,
             memorial=memorial_cfg,
             grief=grief_signal,
+            style_profile=await _owner_style_for(user_id, client_pack.audience),
         )
         if specialist_block:
             system += specialist_block
@@ -689,6 +702,7 @@ async def build_brain_pack(
         pairing=pairing,
         memorial=memorial_cfg,
         grief=grief_signal,
+        style_profile=await _owner_style_for(user_id, pack.audience),
     )
     if specialist_block:
         system += specialist_block
@@ -854,6 +868,7 @@ async def run_twin_turn(
             await _persist_pair(
                 user_id, conversation_id, text, reply, ts,
                 source=source, action=action, receipt=receipt,
+                audience=audience_key,
             )
         return TwinTurnResult(
             reply=reply, action=action, conversation_id=conversation_id, ts=ts,
@@ -889,6 +904,7 @@ async def run_twin_turn(
             await _persist_pair(
                 user_id, conversation_id, text, reply, ts,
                 source=source, action=action, receipt=receipt,
+                audience=audience_key,
             )
         return TwinTurnResult(
             reply=reply, action=action, conversation_id=conversation_id, ts=ts,
@@ -910,9 +926,9 @@ async def run_twin_turn(
         extra_system=extra_system,
         grief=grief_signal,
     )
-    from observer_prompt import WATCHED_SOURCE, block_grounded_miss
+    from observer_prompt import WATCHED_SOURCE
 
-    if block_grounded_miss(pack.grounded_miss, pack.watched_relied):
+    if grounded_miss_applies(audience_key, pack.grounded_miss, pack.watched_relied):
         reply = _aside(miss_reply(True, spoken=phone))
         ts = _now_iso()
         receipt = _receipt_for_role(role, None, reply=reply)
@@ -920,6 +936,7 @@ async def run_twin_turn(
             await _persist_pair(
                 user_id, conversation_id, text, reply, ts,
                 source=source, receipt=receipt,
+                audience=audience_key,
             )
         return TwinTurnResult(
             reply=reply,
@@ -957,6 +974,7 @@ async def run_twin_turn(
             await _persist_pair(
                 user_id, conversation_id, text, reply, ts,
                 source=source, tool_trace=tool_trace, receipt=receipt,
+                audience=audience_key,
             )
             if summarise:
                 try:
@@ -998,6 +1016,7 @@ async def run_twin_turn(
                 await _persist_pair(
                     user_id, conversation_id, text, reply, ts,
                     source=source, tool_trace=tool_trace, receipt=receipt,
+                    audience=audience_key,
                 )
                 if summarise:
                     try:
@@ -1071,6 +1090,7 @@ async def run_twin_turn(
             user_id, conversation_id, text, reply, ts,
             source=source, tool_trace=tool_trace, receipt=receipt,
             specialist_id=specialist_id, specialist_name=specialist_name,
+            audience=audience_key,
         )
         if summarise:
             try:
@@ -1130,6 +1150,7 @@ async def _persist_pair(
     handoff: Optional[dict] = None,
     assignment: Optional[dict] = None,
     approval: Optional[dict] = None,
+    audience: Optional[str] = None,
 ) -> None:
     user_turn: dict[str, Any] = {
         "role": "user", "content": user_text, "ts": ts, "source": source,
@@ -1177,3 +1198,10 @@ async def _persist_pair(
             "$set": {"updated_at": ts},
         },
     )
+    if (audience or "").strip().lower() == "owner" and (user_text or "").strip():
+        try:
+            from owner_style import schedule_owner_line
+
+            schedule_owner_line(user_id, user_text)
+        except Exception:
+            pass

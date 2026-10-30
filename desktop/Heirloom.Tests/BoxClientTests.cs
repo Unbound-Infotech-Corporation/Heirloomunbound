@@ -355,6 +355,101 @@ public class BoxClientTests
     }
 
     [Fact]
+    public void Settings_patch_retries_then_saves_without_throwing()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "heirloom-settings-" + Guid.NewGuid().ToString("n") + ".json");
+        File.WriteAllText(path, """{"companion_mic_device":"Yeti","session_volume":40}""");
+        SettingsPatch.ResetTestHooks();
+        SettingsPatch.RetryDelay = TimeSpan.Zero;
+        SettingsPatch.MaxAttempts = 4;
+        SettingsPatch.IoFailuresBeforeSuccess = 2;
+        try
+        {
+            Assert.True(SettingsPatch.Write(path, new Dictionary<string, object?>
+            {
+                [SettingsPatch.CompanionProactive] = true,
+            }));
+            Assert.Equal(0, SettingsPatch.IoFailuresBeforeSuccess);
+            var text = File.ReadAllText(path);
+            Assert.Contains("Yeti", text);
+            Assert.Contains("true", text);
+            Assert.DoesNotContain(".tmp", Directory.GetFiles(Path.GetTempPath(), Path.GetFileName(path) + ".*.tmp").FirstOrDefault() ?? "");
+        }
+        finally
+        {
+            SettingsPatch.ResetTestHooks();
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
+    public void Settings_patch_gives_up_quietly_when_the_file_stays_busy()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "heirloom-settings-" + Guid.NewGuid().ToString("n") + ".json");
+        File.WriteAllText(path, """{"companion_mic_device":"Yeti"}""");
+        SettingsPatch.ResetTestHooks();
+        SettingsPatch.RetryDelay = TimeSpan.Zero;
+        SettingsPatch.MaxAttempts = 3;
+        SettingsPatch.IoFailuresBeforeSuccess = 9;
+        try
+        {
+            var wrote = false;
+            var error = Record.Exception(() => wrote = SettingsPatch.Write(path, new Dictionary<string, object?>
+            {
+                [SettingsPatch.BoxUrl] = "https://192.168.0.111",
+            }));
+            Assert.Null(error);
+            Assert.False(wrote);
+            Assert.Equal("""{"companion_mic_device":"Yeti"}""", File.ReadAllText(path));
+            Assert.Equal(FileShare.ReadWrite, SettingsPatch.ShareMode);
+        }
+        finally
+        {
+            SettingsPatch.ResetTestHooks();
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Settings_patch_reads_while_another_handle_shares_the_file()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "heirloom-settings-" + Guid.NewGuid().ToString("n") + ".json");
+        File.WriteAllText(path, """{"companion_audio_mic":true}""");
+        using var hold = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        Assert.True(SettingsPatch.Write(path, new Dictionary<string, object?>
+        {
+            [SettingsPatch.CompanionWakePhrase] = "hey twin",
+        }));
+        Assert.Equal("hey twin", SettingsPatch.ReadString(path, SettingsPatch.CompanionWakePhrase, ""));
+        File.Delete(path);
+    }
+
+    [Fact]
+    public void Companion_push_runs_at_startup_and_reconnect_and_names_always_listening()
+    {
+        Assert.True(CompanionSync.ShouldPush(signedIn: true, wasReachable: null, reachable: true));
+        Assert.False(CompanionSync.ShouldPush(signedIn: true, wasReachable: null, reachable: false));
+        Assert.False(CompanionSync.ShouldPush(signedIn: false, wasReachable: null, reachable: true));
+        Assert.True(CompanionSync.ShouldPush(signedIn: true, wasReachable: false, reachable: true));
+        Assert.False(CompanionSync.ShouldPush(signedIn: true, wasReachable: true, reachable: true));
+        Assert.Equal("Always listening: on", CompanionSync.AlwaysListeningLabel(true));
+        Assert.Equal("Always listening: off", CompanionSync.AlwaysListeningLabel(false));
+        var body = CompanionSync.AssistSettingsBody("Ada", "hey ada", true);
+        Assert.Contains("hey ada", body);
+        Assert.Contains("true", body);
+        Assert.True(CaretakerGuard.WantsRestart("""{"restart":true,"repush":false}"""));
+        Assert.True(CaretakerGuard.WantsRepush("""{"restart":false,"repush":true}"""));
+        Assert.False(CaretakerGuard.WantsRestart("{}"));
+        Assert.Contains("password", CaretakerGuard.Block("what is the owner password"), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("192.168.0.16", CaretakerGuard.Block("touch 192.168.0.16"));
+        Assert.Contains("reboot", CaretakerGuard.Block("reboot BIGDEAL"), StringComparison.OrdinalIgnoreCase);
+        Assert.Null(CaretakerGuard.Block("the tray is red"));
+    }
+
+    [Fact]
     public void Rejected_session_clears_the_file_and_names_sign_in()
     {
         var path = Path.Combine(Path.GetTempPath(), "heirloom-session-" + Guid.NewGuid().ToString("n") + ".bin");
