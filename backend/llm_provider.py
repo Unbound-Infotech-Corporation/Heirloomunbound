@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Mapping, Optional
@@ -88,7 +89,24 @@ def is_cloud_choice(model: str = "", provider: str = "") -> bool:
         return True
     if model_name.startswith("ollama/") or model_name.startswith("ollama_chat/"):
         return False
+    # gpt-oss is a local Ollama tag. The "gpt-" marker is for hosted OpenAI models.
+    if model_name.startswith("gpt-oss"):
+        return False
     return any(marker in model_name for marker in _CLOUD_MODEL_MARKERS)
+
+
+def bigdeal_sampling(model: str) -> dict[str, Any]:
+    """Request shape for the BIGDEAL brain. The box qwen tag is unchanged.
+
+    ``gpt-oss:120b`` thinks at ``low`` and stops at 2500 tokens. ``qwen3``
+    (the 32B stand-in when the 96GB card leaves) has thinking off.
+    """
+    name = (model or "").strip().lower()
+    if name.startswith("gpt-oss"):
+        return {"think": "low", "num_predict": 2500}
+    if name.startswith("qwen3"):
+        return {"think": False, "num_predict": 2500}
+    return {}
 
 
 def refuse_cloud(provider: str, model: str, *, caller: str) -> None:
@@ -203,6 +221,34 @@ def _as_int(value: Any) -> Optional[int]:
     return None
 
 
+_THINK_BLOCK = re.compile(r"<think\b[^>]*>.*?</think>", re.DOTALL | re.IGNORECASE)
+_HARMONY_FINAL = re.compile(
+    r"<\|channel\|>final<\|message\|>(.*?)(?:<\|end\|>|<\|start\|>|$)",
+    re.DOTALL,
+)
+
+
+def visible_answer(message: Mapping[str, Any]) -> str:
+    """User-facing text. gpt-oss keeps its trace in ``thinking``, not ``content``."""
+    content = message.get("content")
+    parts: list[str] = []
+    if isinstance(content, str):
+        parts.append(content)
+    elif isinstance(content, list):
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, Mapping) and item.get("type") not in {"thinking", "reasoning"}:
+                parts.append(str(item.get("text") or item.get("content") or ""))
+    text = _THINK_BLOCK.sub("", "".join(parts))
+    finals = _HARMONY_FINAL.findall(text)
+    if finals:
+        text = finals[-1]
+    elif "<|channel|>analysis" in text:
+        text = ""
+    return text.strip()
+
+
 def parse_openai_chat(data: Mapping[str, Any]) -> ChatCompletion:
     choices = data.get("choices") or []
     message: Mapping[str, Any] = {}
@@ -212,8 +258,9 @@ def parse_openai_chat(data: Mapping[str, Any]) -> ChatCompletion:
             raw_message = first.get("message") or {}
             if isinstance(raw_message, Mapping):
                 message = raw_message
-    content = message.get("content")
-    text = content.strip() if isinstance(content, str) else ""
+    if not message and isinstance(data.get("message"), Mapping):
+        message = data["message"]
+    text = visible_answer(message)
     usage = data.get("usage") if isinstance(data.get("usage"), Mapping) else {}
     model = data.get("model")
     return ChatCompletion(
@@ -284,6 +331,8 @@ async def complete_openai_chat(
     poster: Optional[Poster] = None,
     pin_host: bool = False,
     headers: Optional[Mapping[str, str]] = None,
+    think: Any = None,
+    num_predict: Optional[int] = None,
 ) -> ChatCompletion:
     """One non-streaming completion against Ollama's OpenAI-compatible API.
 
@@ -315,6 +364,17 @@ async def complete_openai_chat(
         "temperature": 0.65,
         "stream": False,
     }
+    sampling = bigdeal_sampling(model_name)
+    if think is not None:
+        sampling["think"] = think
+    if num_predict is not None:
+        sampling["num_predict"] = num_predict
+    if "think" in sampling:
+        body["think"] = sampling["think"]
+    if sampling.get("num_predict"):
+        limit = int(sampling["num_predict"])
+        body["max_tokens"] = limit
+        body["options"] = {"num_predict": limit}
     from brain_route import remember_answer
 
     remember_answer(name=answer_name, model=model_name, url=chosen_url, local_gpu=answer_gpu)
