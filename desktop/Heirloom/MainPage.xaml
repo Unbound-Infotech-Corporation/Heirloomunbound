@@ -2057,7 +2057,8 @@
                         <TextBlock Style="{StaticResource StudioOverline}" Text="LAN brain" />
                         <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.BrainLine, Mode=OneWay}" TextWrapping="Wrap" />
                         <TextBox PlaceholderText="http://192.168.0.50:11434" Text="{x:Bind ViewModel.Models.BrainUrl, Mode=TwoWay}" />
-                        <TextBox PlaceholderText="llama3.3:70b" Text="{x:Bind ViewModel.Models.BrainModel, Mode=TwoWay}" />
+                        <TextBox PlaceholderText="gpt-oss:120b" Text="{x:Bind ViewModel.Models.BrainModel, Mode=TwoWay}" />
+                        <TextBlock Style="{StaticResource StudioMuted}" TextWrapping="Wrap" Text="BIGDEAL default is gpt-oss:120b, thinking low. When the 96GB card leaves, use qwen3:32b with thinking off." />
                         <TextBox PlaceholderText="Optional LAN token" Text="{x:Bind ViewModel.Models.BrainToken, Mode=TwoWay}" />
                         <Button Command="{x:Bind ViewModel.Models.SaveBrainCommand}" Content="Save brain" Style="{StaticResource StudioButtonSecondary}" />
                         <TextBlock Style="{StaticResource StudioOverline}" Text="Big brain" />
@@ -2069,6 +2070,7 @@
                             <Button Command="{x:Bind ViewModel.Models.SetStrategyCommand}" CommandParameter="judge_pick_best" Content="Judge" Style="{StaticResource StudioButtonSecondary}" />
                         </StackPanel>
                         <ToggleSwitch HorizontalAlignment="Left" IsOn="{x:Bind ViewModel.Models.OdysseusEnabled, Mode=TwoWay}" OffContent="Odysseus off" OnContent="Odysseus on" />
+                        <ToggleSwitch HorizontalAlignment="Left" IsOn="{x:Bind ViewModel.Models.OdysseusDeepResearch, Mode=TwoWay}" OffContent="Deep Research off" OnContent="Deep Research in the background" />
                         <TextBox PlaceholderText="http://192.168.0.110:7011" Text="{x:Bind ViewModel.Models.OdysseusUrl, Mode=TwoWay}" />
                         <TextBox PlaceholderText="Odysseus API token" Text="{x:Bind ViewModel.Models.OdysseusToken, Mode=TwoWay}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">

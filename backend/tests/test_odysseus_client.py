@@ -115,6 +115,66 @@ def test_research_polls_and_chat_fallback_on_403():
     assert fallback.via == "chat"
 
 
+def test_fast_search_uses_the_search_endpoint_before_chat():
+    settings = OdysseusSettings(enabled=True, url="http://odysseus:7000", token="ody_supersecretvalue")
+    calls = []
+
+    async def transport(method, path, body, timeout):
+        calls.append(path)
+        assert body["query"] == "river road news"
+        assert "SECRET" not in json.dumps(body)
+        assert timeout <= 10
+        return 200, {"context": "The road is closed.", "sources": [{"title": "Local paper", "snippet": "since Tuesday"}]}
+
+    async def _run():
+        return await OdysseusClient(settings, transport=transport).web_search("river road news", timeout=8)
+
+    draft = asyncio.run(_run())
+    assert calls == ["/api/search"]
+    assert draft.ok is True
+    assert draft.via == "search"
+    assert "The road is closed." in draft.text
+    assert "Local paper" in draft.text
+
+
+def test_search_falls_back_to_v1_chat_with_web():
+    settings = OdysseusSettings(enabled=True, url="http://192.168.0.110:7011", token="ody_supersecretvalue")
+
+    async def transport(method, path, body, timeout):
+        if path == "/api/search":
+            return 404, {"error": "missing"}
+        assert path == "/api/v1/chat"
+        assert body["use_web"] is True
+        assert body["message"] == "river road news"
+        return 200, {"response": "from web chat", "model": "qwen"}
+
+    async def _run():
+        return await OdysseusClient(settings, transport=transport).web_search("river road news")
+
+    draft = asyncio.run(_run())
+    assert draft.ok is True
+    assert draft.via == "chat"
+    assert draft.text == "from web chat"
+
+
+def test_deep_research_start_does_not_poll():
+    settings = OdysseusSettings(enabled=True, url="http://odysseus:7000", token="ody_supersecretvalue")
+    calls = []
+
+    async def transport(method, path, body, timeout):
+        calls.append(path)
+        return 200, {"session_id": "rp-bg", "status": "running"}
+
+    async def _run():
+        return await OdysseusClient(settings, transport=transport).start_research("latest news")
+
+    draft = asyncio.run(_run())
+    assert calls == ["/api/research/start"]
+    assert draft.ok is True
+    assert draft.via == "deep_research"
+    assert draft.text == "rp-bg"
+
+
 def test_down_client_returns_a_failed_draft(caplog):
     settings = OdysseusSettings(enabled=True, url="http://192.168.0.110:7011", token="ody_supersecretvalue")
 

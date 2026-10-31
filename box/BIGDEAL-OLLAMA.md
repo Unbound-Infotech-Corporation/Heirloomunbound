@@ -1,6 +1,16 @@
 # Ollama on BIGDEAL (Windows, LAN only)
 
-BIGDEAL is the Windows PC with the RTX PRO 6000 Blackwell (96 GB). It serves `llama3.3:70b` to the Twin Box on the LAN. The box still runs its own Ollama (`qwen2.5:14b` and `qwen2.5vl:7b`) and uses that when BIGDEAL does not answer. No cloud model is involved.
+BIGDEAL is the Windows PC with the RTX PRO 6000 Blackwell (96 GB). It serves `gpt-oss:120b` to the Twin Box on the LAN. The box still runs its own Ollama (`qwen2.5:14b` and `qwen2.5vl:7b`) and uses that when BIGDEAL does not answer. No cloud model is involved.
+
+`HEIRLOOM_BRAIN_MODEL` changes the tag. The default call passes `think` `low` and `num_predict` 2500. The reply is the `content` field. The `thinking` trace is not shown.
+
+When the 96GB card leaves, use `qwen3:32b` and leave thinking off:
+
+```text
+HEIRLOOM_BRAIN_MODEL=qwen3:32b
+```
+
+That tag is called with `think` false. `qwen3:32b` is the documented alternate, not a second live default.
 
 Twin Box address used by the firewall rule: `192.168.0.110`.
 
@@ -9,7 +19,7 @@ Twin Box address used by the firewall rule: `192.168.0.110`.
 Install Ollama for Windows, then in PowerShell:
 
 ```powershell
-ollama pull llama3.3:70b
+ollama pull gpt-oss:120b
 ```
 
 ## 2. Listen on the LAN interface
@@ -50,7 +60,8 @@ That writes:
 
 ```text
 HEIRLOOM_BRAIN_URL=http://192.168.0.50:11434
-HEIRLOOM_BRAIN_MODEL=llama3.3:70b
+HEIRLOOM_BRAIN_MODEL=gpt-oss:120b
+HEIRLOOM_BRAIN_STRATEGY=single
 ```
 
 The URL has to be a private LAN IP. A public host is rejected. The owner can change the URL, model, and an optional token in the app (Models on Windows, or `PUT /api/brain`).

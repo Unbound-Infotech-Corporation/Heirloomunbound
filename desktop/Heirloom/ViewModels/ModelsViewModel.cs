@@ -31,11 +31,12 @@ public partial class ModelsViewModel : ObservableObject
     [ObservableProperty] private string _guide =
         "If you already tapped Get everything ready, you can leave this page. These buttons are extra controls.";
     [ObservableProperty] private string _brainUrl = "";
-    [ObservableProperty] private string _brainModel = "llama3.3:70b";
+    [ObservableProperty] private string _brainModel = "gpt-oss:120b";
     [ObservableProperty] private string _brainToken = "";
     [ObservableProperty] private string _brainLine = "Local box brain until a LAN address is saved.";
     [ObservableProperty] private string _strategy = "single";
     [ObservableProperty] private bool _odysseusEnabled;
+    [ObservableProperty] private bool _odysseusDeepResearch;
     [ObservableProperty] private string _odysseusUrl = "";
     [ObservableProperty] private string _odysseusToken = "";
 
@@ -109,7 +110,7 @@ public partial class ModelsViewModel : ObservableObject
         }
 
         Strategy = strategy;
-        var model = string.IsNullOrWhiteSpace(BrainModel) ? "llama3.3:70b" : BrainModel.Trim();
+        var model = string.IsNullOrWhiteSpace(BrainModel) ? "gpt-oss:120b" : BrainModel.Trim();
         var result = await _host.Api.PutSessionAsync("/brain", new
         {
             url,
@@ -117,6 +118,7 @@ public partial class ModelsViewModel : ObservableObject
             token = BrainToken ?? "",
             strategy,
             odysseus_enabled = OdysseusEnabled,
+            odysseus_deep_research = OdysseusDeepResearch,
             odysseus_url = odysseusUrl,
             odysseus_token = OdysseusToken ?? "",
         }).ConfigureAwait(true);
@@ -208,6 +210,12 @@ public partial class ModelsViewModel : ObservableObject
             if (odysseus.TryGetProperty("url", out var odysseusUrl))
             {
                 OdysseusUrl = odysseusUrl.GetString() ?? "";
+            }
+
+            if (odysseus.TryGetProperty("deep_research", out var deep)
+                && (deep.ValueKind == JsonValueKind.True || deep.ValueKind == JsonValueKind.False))
+            {
+                OdysseusDeepResearch = deep.GetBoolean();
             }
 
             odysseusReady = odysseus.TryGetProperty("ready", out var ready) && ready.ValueKind == JsonValueKind.True;

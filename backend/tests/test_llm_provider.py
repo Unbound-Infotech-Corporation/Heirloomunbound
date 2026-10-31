@@ -65,6 +65,75 @@ def test_parse_openai_usage():
     assert parsed.completion_tokens == 3
 
 
+def test_gpt_oss_is_local_and_thinks_low():
+    assert is_cloud_choice("gpt-oss:120b") is False
+    assert is_cloud_choice("gpt-4o") is True
+    assert is_cloud_choice("qwen3:32b") is False
+    seen = {}
+
+    async def poster(url, body, timeout):
+        seen["body"] = dict(body)
+        return {
+            "model": body["model"],
+            "choices": [{
+                "message": {
+                    "content": "The river is up.",
+                    "thinking": "private trace that must stay hidden",
+                },
+            }],
+        }
+
+    async def _run(model):
+        return await complete_openai_chat(
+            [{"role": "user", "content": "Hi"}],
+            model=model,
+            base_url="http://192.168.0.50:11434",
+            pin_host=True,
+            poster=poster,
+        )
+
+    gpt = asyncio.run(_run("gpt-oss:120b"))
+    assert gpt.text == "The river is up."
+    assert "private trace" not in gpt.text
+    assert seen["body"]["think"] == "low"
+    assert seen["body"]["options"]["num_predict"] == 2500
+    assert seen["body"]["max_tokens"] == 2500
+
+    qwen3 = asyncio.run(_run("qwen3:32b"))
+    assert seen["body"]["think"] is False
+    assert seen["body"]["options"]["num_predict"] == 2500
+
+    box = asyncio.run(_run("qwen2.5:14b"))
+    assert "think" not in seen["body"]
+    assert "options" not in seen["body"]
+
+
+def test_gpt_oss_thinking_markup_is_not_the_answer():
+    wrapped = parse_openai_chat({
+        "model": "gpt-oss:120b",
+        "choices": [{
+            "message": {
+                "content": "<think>60/40 money split</think>\nThe road is open.",
+            },
+        }],
+    })
+    assert wrapped.text == "The road is open."
+    assert "60/40" not in wrapped.text
+    harmony = parse_openai_chat({
+        "model": "gpt-oss:120b",
+        "message": {
+            "content": "<|channel|>analysis<|message|>hidden<|end|><|channel|>final<|message|>Visible answer",
+            "thinking": "hidden",
+        },
+    })
+    assert harmony.text == "Visible answer"
+    empty = parse_openai_chat({
+        "model": "gpt-oss:120b",
+        "choices": [{"message": {"content": "", "thinking": "only the trace"}}],
+    })
+    assert empty.text == ""
+
+
 def test_complete_openai_chat_posts_and_notes_tokens():
     seen = {}
 

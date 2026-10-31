@@ -27,7 +27,7 @@ WITH_PRESENCE=0
 UNATTENDED=0
 NVME_POWER_FIX=0
 BRAIN_URL=""
-BRAIN_MODEL="${HEIRLOOM_BRAIN_MODEL:-llama3.3:70b}"
+BRAIN_MODEL="${HEIRLOOM_BRAIN_MODEL:-gpt-oss:120b}"
 ODYSSEUS_URL=""
 DATA_ROOT="${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}"
 LAN_IP=""
@@ -46,7 +46,7 @@ Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tail
   --observer-audio    same as --observer; installs ALSA capture and faster-whisper
   --presence          watch USB webcams and greet people the owner has taught
   --nvme-power-fix    add nvme_core.default_ps_max_latency_us=0 to GRUB (Samsung 970 dropouts). Does not reboot.
-  --brain-url URL     primary Ollama on the LAN, for example http://192.168.0.50:11434 (llama3.3:70b). The box model stays the fallback.
+  --brain-url URL     primary Ollama on the LAN, for example http://192.168.0.50:11434 (gpt-oss:120b). The box model stays the fallback. qwen3:32b is the alternate when the 96GB card leaves.
   --odysseus-url URL  local Odysseus on the LAN, for example http://192.168.0.110:7011, or http://odysseus:7000 on the heirloom-box network. The API token stays in a file. See box/ODYSSEUS.md.
 EOF
 }

@@ -35,6 +35,7 @@ SERVICE_PORT = 7000
 CONNECT_TIMEOUT = 0.8
 CHAT_TIMEOUT = 20.0
 RESEARCH_TIMEOUT = 45.0
+FAST_SEARCH_TIMEOUT = 8.0
 _TOKEN_RE = re.compile(r"ody_[A-Za-z0-9_\-]{6,}")
 _SESSION_RE = re.compile(r"^[A-Za-z0-9_\-]{1,80}$")
 _RUNNING = frozenset({"", "running", "pending", "started", "queued", "in_progress"})
@@ -154,6 +155,15 @@ def resolve_token(saved: Optional[Mapping[str, Any]] = None) -> str:
     return ""
 
 
+def deep_research_enabled(saved: Optional[Mapping[str, Any]] = None) -> bool:
+    """Deep Research is a background job. The live path does not wait for it."""
+    if isinstance(saved, Mapping) and "odysseus_deep_research" in saved:
+        return bool(saved.get("odysseus_deep_research"))
+    return (os.environ.get("HEIRLOOM_ODYSSEUS_DEEP_RESEARCH") or "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def _env_enabled() -> bool:
     return (os.environ.get("HEIRLOOM_ODYSSEUS") or "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -213,6 +223,11 @@ def merge_owner_extras(doc: dict, body: Mapping[str, Any], current: Optional[Map
     elif "odysseus_enabled" in prior:
         out["odysseus_enabled"] = bool(prior.get("odysseus_enabled"))
 
+    if body.get("odysseus_deep_research") is not None:
+        out["odysseus_deep_research"] = bool(body.get("odysseus_deep_research"))
+    elif "odysseus_deep_research" in prior:
+        out["odysseus_deep_research"] = bool(prior.get("odysseus_deep_research"))
+
     if body.get("odysseus_url") is not None:
         raw_url = str(body.get("odysseus_url") or "").strip()
         out["odysseus_url"] = normalize_odysseus_url(raw_url) if raw_url else ""
@@ -229,6 +244,25 @@ def merge_owner_extras(doc: dict, body: Mapping[str, Any], current: Optional[Map
     elif str(prior.get("odysseus_token") or ""):
         out["odysseus_token"] = str(prior.get("odysseus_token") or "")
     return out
+
+
+def _search_text(payload: Mapping[str, Any]) -> str:
+    lines: list[str] = []
+    context = payload.get("context")
+    if isinstance(context, str) and context.strip():
+        lines.append(context.strip())
+    sources = payload.get("sources") or payload.get("results") or []
+    if isinstance(sources, list):
+        for source in sources[:6]:
+            if isinstance(source, str) and source.strip():
+                lines.append(source.strip()[:300])
+            elif isinstance(source, Mapping):
+                title = str(source.get("title") or source.get("url") or "").strip()
+                snippet = str(source.get("snippet") or source.get("content") or source.get("description") or "")
+                row = f"{title} {snippet}".strip()
+                if row:
+                    lines.append(row[:300])
+    return "\n".join(lines).strip()
 
 
 def context_for_odysseus(question: str, *, audience: str, memory_text: str = "") -> str:
@@ -320,6 +354,72 @@ class OdysseusClient:
         if not reply:
             return OdysseusDraft(model=model, error="empty", via="chat", latency_ms=max(0, elapsed))
         return OdysseusDraft(model=model, text=reply, ok=True, via="chat", latency_ms=max(0, elapsed))
+
+    async def web_search(self, query: str, *, timeout: float = FAST_SEARCH_TIMEOUT) -> OdysseusDraft:
+        """Fast SearXNG lookup. ``POST /api/search``, then ``/api/v1/chat`` if that route is missing."""
+        import time
+
+        text = context_for_odysseus(query, audience="owner")
+        if not self.settings.ready or not text:
+            return OdysseusDraft(error="not_ready", via="search")
+        started = time.perf_counter()
+        try:
+            status, payload = await self._request("POST", "/api/search", {"query": text}, timeout)
+        except Exception as exc:
+            logger.warning("odysseus search failed: %s", type(exc).__name__)
+            return await self._chat_web(text, timeout=timeout)
+        if status in {404, 405, 501}:
+            return await self._chat_web(text, timeout=timeout)
+        if status >= 400 or not isinstance(payload, dict):
+            logger.warning("odysseus search HTTP %s", status)
+            return OdysseusDraft(error=f"http_{status}", via="search")
+        reply = _search_text(payload)
+        if not reply:
+            if payload.get("error"):
+                return await self._chat_web(text, timeout=timeout)
+            return OdysseusDraft(error="empty", via="search")
+        elapsed = int((time.perf_counter() - started) * 1000)
+        return OdysseusDraft(model="searxng", text=reply[:2000], ok=True, via="search", latency_ms=max(0, elapsed))
+
+    async def _chat_web(self, query: str, *, timeout: float) -> OdysseusDraft:
+        """``POST /api/v1/chat`` with ``use_web`` when the search route is unavailable."""
+        try:
+            status, payload = await self._request(
+                "POST",
+                "/api/v1/chat",
+                {"message": query, "use_web": True},
+                timeout,
+            )
+        except Exception as exc:
+            logger.warning("odysseus web chat failed: %s", type(exc).__name__)
+            return OdysseusDraft(error="unavailable", via="chat")
+        if status >= 400 or not isinstance(payload, dict):
+            return OdysseusDraft(error=f"http_{status}", via="chat")
+        reply = str(payload.get("response") or "").strip()
+        if not reply:
+            return OdysseusDraft(error="empty", via="chat")
+        return OdysseusDraft(model=str(payload.get("model") or "odysseus"), text=reply[:2000], ok=True, via="chat")
+
+    async def start_research(self, question: str, *, timeout: float = 4.0) -> OdysseusDraft:
+        """Opt-in background Deep Research. Starts the job and does not wait for the report."""
+        text = context_for_odysseus(question, audience="owner")
+        if not self.settings.ready or not text:
+            return OdysseusDraft(error="not_ready", via="deep_research")
+        try:
+            status, payload = await self._request(
+                "POST",
+                "/api/research/start",
+                {"query": text, "max_rounds": 2, "max_time": 60},
+                timeout,
+            )
+        except Exception as exc:
+            logger.warning("odysseus deep research start failed: %s", type(exc).__name__)
+            return OdysseusDraft(error="unavailable", via="deep_research")
+        if status >= 400 or not isinstance(payload, dict):
+            logger.warning("odysseus deep research HTTP %s", status)
+            return OdysseusDraft(error=f"http_{status}", via="deep_research")
+        session_id = str(payload.get("session_id") or "").strip()
+        return OdysseusDraft(model="deep-research", text=session_id, ok=bool(session_id), via="deep_research")
 
     async def research(self, question: str, *, timeout: Optional[float] = None) -> OdysseusDraft:
         """Deep Research, with a chat fallback when the token cannot start it."""

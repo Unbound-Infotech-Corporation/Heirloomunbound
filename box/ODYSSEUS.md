@@ -60,28 +60,34 @@ API never returns the secret (`token_set` only).
 
 ## What Heirloom calls
 
-- Ordinary drafts: `POST /api/v1/chat` with `{"message": "<the question>"}`.
-  That route is the integration chat. It does not run shell tools.
-- Current-info questions: `POST /api/research/start` (Deep Research through
-  Odysseus's SearXNG), then `GET /api/research/status/{id}` and
-  `POST /api/research/result-peek/{id}`.
-- Odysseus `main` rejects API tokens on research start (`require_user` returns
-  403). Heirloom then uses `/api/v1/chat` so the turn still finishes.
-- The question is the only text sent. Owner memories are not included, for an
-  owner turn or an heir turn.
-- A short timeout and a failed call drop Odysseus. The local Ollama answer
-  still returns.
+The live path does not wait on Deep Research.
+
+- Fast search, owner turns only: the BIGDEAL model rewrites the question into
+  one search query. Heirloom then `POST /api/search` with `{"query": "..."}`
+  and the `ody_` token. That route is Odysseus's SearXNG lookup and returns
+  `context` plus `sources`. If it is missing, Heirloom uses
+  `POST /api/v1/chat` with `use_web: true`. The primary model answers from
+  those notes. The search leg is capped at about 10 seconds.
+- Deep Research (`POST /api/research/start`) runs only when
+  `HEIRLOOM_ODYSSEUS_DEEP_RESEARCH=1` or the Models page toggle is on. It is a
+  background job. The reply does not wait for the report.
+- Heirs and callers never call Odysseus.
+- The question or the search query is the only text sent. Vault memories stay
+  on the local Ollama prompt.
+- A timeout or a down host drops Odysseus. The local answer still returns.
 
 ## Strategy
 
-`HEIRLOOM_BRAIN_STRATEGY` (or the owner control on the Models page):
+`HEIRLOOM_BRAIN_STRATEGY` defaults to `single`. `HEIRLOOM_BRAIN_MODEL` defaults
+to `gpt-oss:120b` (`think` `low`, `num_predict` 2500). `qwen3:32b` with
+thinking off is the alternate when the 96GB card leaves.
 
 | Value | Behavior |
 |---|---|
-| `single` | One Ollama. BIGDEAL `llama3.3:70b` when it answers, otherwise the box `qwen2.5:14b`. Default. |
-| `single+odysseus_research` | That one model. Research questions also get Odysseus Deep Research notes. |
-| `ensemble_synthesis` | Hard or owner questions fan out to BIGDEAL, the box, and Odysseus. The primary local model writes the answer. Simple chat stays one model. |
-| `judge_pick_best` | The same fan-out. The primary model picks one draft, and that draft is the answer. |
+| `single` | One Ollama. BIGDEAL when it answers, otherwise the box `qwen2.5:14b`. Default. |
+| `single+odysseus_research` | Owner turns that need current information. Fast search, then the primary model answers. Not used for heirs or callers. |
+| `ensemble_synthesis` | Experimental and off. Set `HEIRLOOM_BRAIN_ENSEMBLE=1` to try it on owner turns. Heir and caller turns never fan out. |
+| `judge_pick_best` | Owner turns only. The primary model picks one draft. |
 
 Each answer records `strategy`, `contributors` (name, model, latency), and
 `latency_ms` on `brain_meta` and under `brain.answer` in `GET /api/health`.

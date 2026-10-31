@@ -1,9 +1,11 @@
 """Primary Ollama on the LAN, then the Twin Box.
 
 HEIRLOOM_BRAIN_URL (for example http://192.168.0.50:11434, model
-llama3.3:70b) is tried first. The connect timeout is short and the health
+gpt-oss:120b) is tried first. The connect timeout is short and the health
 result is cached. If that host is down, chat uses the box Ollama
-(qwen2.5:14b, vision qwen2.5vl:7b).
+(qwen2.5:14b, vision qwen2.5vl:7b). Set HEIRLOOM_BRAIN_MODEL to change the
+BIGDEAL tag. qwen3:32b is the documented stand-in when the 96GB card leaves;
+that tag is called with thinking off.
 
 When the local /api/ps (or `ollama ps`) shows a loaded model with
 size_vram < size, or a processor share that is not 100% GPU, the Caretaker
@@ -25,7 +27,7 @@ from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
-REMOTE_MODEL = "llama3.3:70b"
+REMOTE_MODEL = "gpt-oss:120b"
 LOCAL_CHAT_MODEL = "qwen2.5:14b"
 LOCAL_VISION_MODEL = "qwen2.5vl:7b"
 CONNECT_TIMEOUT = 0.8

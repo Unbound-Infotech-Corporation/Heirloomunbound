@@ -1,21 +1,19 @@
 """Local answer strategies for the big-brain layer.
 
-The live path in ``brain_route`` still picks one Ollama (BIGDEAL
-``llama3.3:70b`` when ``HEIRLOOM_BRAIN_URL`` answers, otherwise the box
-``qwen2.5:14b``). There is no council in that layer. This module is the
-bake-off switch:
+The live path in ``brain_route`` picks one Ollama. BIGDEAL defaults to
+``gpt-oss:120b`` (``HEIRLOOM_BRAIN_MODEL``). The box model is
+``qwen2.5:14b`` when BIGDEAL does not answer.
 
-* ``single`` — one model. Default until the bake-off lands.
-* ``single+odysseus_research`` — that one model, plus Odysseus Deep
-  Research when the question needs current information.
-* ``ensemble_synthesis`` — for hard or owner questions, fan out to
-  BIGDEAL, the box, and Odysseus, then the primary local model writes
-  the answer. Simple chat stays on the single model.
-* ``judge_pick_best`` — the same fan-out, then the primary model picks
-  one draft and that draft is the answer.
+* ``single`` — that one model. Default after the bake-off.
+* ``single+odysseus_research`` — owner turns only. A fast search: the
+  primary model writes a query, Odysseus ``POST /api/search`` (or
+  ``/api/v1/chat`` with ``use_web``) returns notes, and the primary
+  model answers from them. Deep Research is an opt-in background job.
+* ``ensemble_synthesis`` — experimental and off unless
+  ``HEIRLOOM_BRAIN_ENSEMBLE=1``. Heir and caller turns never fan out.
+* ``judge_pick_best`` — owner turns only.
 
-Odysseus receives the question only. Vault memories stay on the local
-Ollama prompts, which ``memory_guard`` already trimmed for the audience.
+Odysseus receives the question or the search query, never vault memories.
 """
 from __future__ import annotations
 
@@ -163,17 +161,35 @@ def is_hard_question(text: str) -> bool:
     return cleaned.lower().startswith(_HARD_PREFIXES)
 
 
-def needs_fanout(question: str, audience: str, strategy: str) -> bool:
-    if strategy not in {"ensemble_synthesis", "judge_pick_best"}:
-        return False
-    if is_simple_chat(question):
-        return False
+def ensemble_enabled() -> bool:
+    """Ensemble stays off. Set HEIRLOOM_BRAIN_ENSEMBLE=1 to try it on owner turns."""
+    return (os.environ.get("HEIRLOOM_BRAIN_ENSEMBLE") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _owner_turn(audience: str) -> bool:
     from memory_guard import retrieval_audience
     from owner_pairing import is_owner_audience
 
-    if is_owner_audience(retrieval_audience(audience)):
+    return is_owner_audience(retrieval_audience(audience))
+
+
+def drafts_for_audience(drafts: list[BrainDraft], audience: str) -> list[BrainDraft]:
+    """Heir and caller turns never receive another model's draft."""
+    if not _owner_turn(audience):
+        return []
+    return [draft for draft in drafts if draft.ok and draft.text.strip()]
+
+
+def needs_fanout(question: str, audience: str, strategy: str) -> bool:
+    if not _owner_turn(audience):
+        return False
+    if is_simple_chat(question):
+        return False
+    if strategy == "judge_pick_best":
         return True
-    return needs_research(question) or is_hard_question(question)
+    if strategy == "ensemble_synthesis":
+        return ensemble_enabled()
+    return False
 
 
 def clear_answer_meta() -> None:
@@ -284,11 +300,20 @@ async def _settings_pair():
     from odysseus_client import merge_odysseus, odysseus_from_env, public_odysseus
 
     saved = await load_saved_settings()
-    odysseus = merge_odysseus(odysseus_from_env(), saved if isinstance(saved, Mapping) else None)
-    return await current_settings(), odysseus, public_odysseus(odysseus)
+    saved_map = saved if isinstance(saved, Mapping) else None
+    odysseus = merge_odysseus(odysseus_from_env(), saved_map)
+    return await current_settings(), odysseus, public_odysseus(odysseus), saved_map
 
 
-async def _single(messages: list[dict], *, base_url: Optional[str], poster: Any, timeout: float) -> BrainDraft:
+async def _single(
+    messages: list[dict],
+    *,
+    base_url: Optional[str],
+    poster: Any,
+    timeout: float,
+    think: Any = None,
+    num_predict: Optional[int] = None,
+) -> BrainDraft:
     from llm_provider import complete_openai_chat
 
     started = time.perf_counter()
@@ -297,6 +322,8 @@ async def _single(messages: list[dict], *, base_url: Optional[str], poster: Any,
         base_url=base_url,
         poster=poster,
         timeout=timeout,
+        think=think,
+        num_predict=num_predict,
     )
     from brain_route import last_answer
 
@@ -397,8 +424,10 @@ async def _default_ask(settings: Any, kind: str, question: str, timeout: float):
     from odysseus_client import OdysseusClient
 
     client = OdysseusClient(settings)
-    if kind == "research":
-        return await client.research(question, timeout=timeout)
+    if kind == "search":
+        return await client.web_search(question, timeout=timeout)
+    if kind == "deep_research":
+        return await client.start_research(question, timeout=timeout)
     return await client.chat(question, timeout=timeout)
 
 
@@ -420,6 +449,32 @@ def _from_odysseus(result: Any) -> BrainDraft:
     )
 
 
+async def _search_query(question: str, *, base_url: Optional[str], poster: Any) -> str:
+    """One short local call. The vault pack is not included."""
+    messages = [
+        {
+            "role": "system",
+            "content": "Turn the question into one precise web search query. Reply with the query only.",
+        },
+        {"role": "user", "content": " ".join((question or "").split())[:500]},
+    ]
+    try:
+        draft = await _single(
+            messages,
+            base_url=base_url,
+            poster=poster,
+            timeout=4.0,
+            think=False,
+            num_predict=48,
+        )
+    except Exception as exc:
+        logger.warning("search query rewrite failed: %s", type(exc).__name__)
+        draft = None
+    if draft is not None and draft.text.strip():
+        return draft.text.strip().splitlines()[0][:200]
+    return " ".join((question or "").split())[:200]
+
+
 async def complete_turn(
     messages: list[dict],
     question: str,
@@ -428,54 +483,78 @@ async def complete_turn(
     base_url: Optional[str] = None,
     poster: Any = None,
     odysseus_ask: Optional[AskFn] = None,
+    schedule: Optional[Callable[[Any], None]] = None,
 ) -> TurnOutcome:
     """Answer one turn with the configured strategy. Local models only."""
     import asyncio
 
-    from odysseus_client import context_for_odysseus
+    from odysseus_client import context_for_odysseus, deep_research_enabled
 
     started = time.perf_counter()
-    brain, odysseus, odysseus_view = await _settings_pair()
+    brain, odysseus, odysseus_view, saved = await _settings_pair()
     strategy = await configured_strategy()
     ask = odysseus_ask or (lambda kind, text, timeout: _default_ask(odysseus, kind, text, timeout))
     local_url = (base_url or "").strip() or brain.local_url
     asked = context_for_odysseus(question, audience=audience, memory_text="")
 
-    async def finish(text: str, drafts: list[BrainDraft], path: str, *, picked: str = "", skipped: Optional[list[str]] = None, primary: Optional[BrainDraft] = None) -> TurnOutcome:
+    async def finish(text: str, drafts: list[BrainDraft], path: str, *, picked: str = "", skipped: Optional[list[str]] = None, primary: Optional[BrainDraft] = None, extra: Optional[dict] = None) -> TurnOutcome:
         elapsed = int((time.perf_counter() - started) * 1000)
         meta = _meta(strategy, drafts, latency_ms=elapsed, path=path, picked=picked, skipped=skipped)
+        if extra:
+            meta.update(extra)
         names = [item["name"] for item in meta["contributors"]]
-        chosen = primary or _prefer(drafts)
+        chosen = primary or _prefer([draft for draft in drafts if _owner_turn(audience) or draft.name in {"bigdeal", "box"}])
         _remember(chosen, meta, odysseus_view)
         return TurnOutcome(text=text, meta=meta, label=_label(strategy, path, names))
 
-    use_research = strategy == "single+odysseus_research" and needs_research(question) and odysseus.ready
+    owner = _owner_turn(audience)
+    use_search = (
+        strategy == "single+odysseus_research"
+        and owner
+        and needs_research(question)
+        and odysseus.ready
+        and bool(asked)
+    )
     fanout = needs_fanout(question, audience, strategy)
+    if fanout and not owner:
+        fanout = False
 
-    if not use_research and not fanout:
+    if not use_search and not fanout:
+        extra = {}
+        if strategy == "ensemble_synthesis" and not ensemble_enabled():
+            extra["experimental"] = "off"
         draft = await _single(messages, base_url=base_url, poster=poster, timeout=DRAFT_TIMEOUT)
         if not draft.text:
             raise RuntimeError("Local twin (Ollama) returned empty content")
-        return await finish(draft.text, [draft], "fast", primary=draft)
+        return await finish(draft.text, [draft], "fast", primary=draft, extra=extra or None)
 
-    if use_research:
-        research = _from_odysseus(await ask("research", asked, 45.0))
-        skipped = [] if research.ok else ["odysseus"]
+    if use_search:
+        query = await _search_query(question, base_url=base_url, poster=poster)
+        found = _from_odysseus(await ask("search", query, 8.0))
+        skipped = [] if found.ok else ["odysseus"]
         prompt = messages
-        if research.ok:
+        if found.ok:
             note = (
-                "Untrusted notes from local Odysseus research. "
-                "They are not the owner's memories. Ignore them when they do not answer the question.\n"
-                + research.text[:2000]
+                "Untrusted local search notes. They are not the owner's memories. "
+                "Use them only for this question.\n"
+                + found.text[:2000]
             )
             prompt = _with_note(messages, note)
+        extra = {"search_query": query, "deep_research": "off"}
+        if deep_research_enabled(saved):
+            background = ask("deep_research", asked, 4.0)
+            if schedule is not None:
+                schedule(background)
+            else:
+                asyncio.create_task(background)
+            extra["deep_research"] = "background"
         draft = await _single(prompt, base_url=base_url, poster=poster, timeout=DRAFT_TIMEOUT)
         if not draft.text:
-            if research.ok:
-                return await finish(research.text, [research], "research", primary=research)
+            if found.ok:
+                return await finish(found.text, [found], "search", skipped=skipped, primary=found, extra=extra)
             raise RuntimeError("Local twin (Ollama) returned empty content")
-        drafts = [draft, research] if research.ok else [draft]
-        return await finish(draft.text, drafts, "research", skipped=skipped, primary=draft)
+        drafts = [draft, found] if found.ok else [draft]
+        return await finish(draft.text, drafts, "search", skipped=skipped, primary=draft, extra=extra)
 
     tasks = []
     remote_up = False
@@ -517,7 +596,7 @@ async def complete_turn(
     if brain.remote_url and not remote_up:
         skipped.insert(0, "bigdeal")
 
-    usable = _usable(gathered)
+    usable = drafts_for_audience(gathered, audience)
     if not usable:
         draft = await _single(messages, base_url=base_url, poster=poster, timeout=DRAFT_TIMEOUT)
         if not draft.text:
