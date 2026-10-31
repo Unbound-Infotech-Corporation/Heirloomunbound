@@ -14,6 +14,9 @@ router = APIRouter(prefix="/archive", tags=["archive"])
 EntryType = Literal["memory", "story", "value", "advice", "quote", "chapter", "voice", "import"]
 
 
+Visibility = Literal["owner", "private", "heir", "family", "caller", "public"]
+
+
 class EntryCreate(BaseModel):
     type: EntryType
     title: str
@@ -21,12 +24,14 @@ class EntryCreate(BaseModel):
     tags: list[str] = Field(default_factory=list)
     audio_url: Optional[str] = None
     source: Optional[str] = None  # e.g. "interviewer", "voice_journal", "manual"
+    visibility: Visibility = "heir"
 
 
 class EntryUpdate(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
     tags: Optional[list[str]] = None
+    visibility: Optional[Visibility] = None
 
 
 @router.post("")
@@ -42,6 +47,7 @@ async def create_entry(payload: EntryCreate, user: dict = Depends(get_current_us
         "tags": payload.tags,
         "audio_url": payload.audio_url,
         "source": payload.source or "manual",
+        "visibility": payload.visibility,
         "created_at": now,
         "updated_at": now,
     }

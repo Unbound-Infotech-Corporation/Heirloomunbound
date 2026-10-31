@@ -191,37 +191,51 @@ def _truncate(text: str, n: int = 240) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 
 
-async def exec_search_archive(user_id: str, args: dict) -> dict:
+async def exec_search_archive(user_id: str, args: dict, audience: str | None = None) -> dict:
+    from memory_guard import hybrid_rerank, mongo_query
+
     query = (args.get("query") or "").strip()
     limit = int(args.get("limit") or 6)
     limit = max(1, min(15, limit))
     if not query:
         return {"summary": "No query provided.", "ui": {"count": 0}}
-    # Cheap regex-anywhere search over title+content — fine for archive sizes < few thousand
-    pattern = re.compile(re.escape(query), re.IGNORECASE)
-    cursor = db.entries.find(
-        {
-            "user_id": user_id,
-            "$or": [
-                {"title": {"$regex": pattern}},
-                {"content": {"$regex": pattern}},
-                {"tags": {"$regex": pattern}},
-            ],
-        },
-        {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "created_at": 1, "tags": 1},
-    ).sort("created_at", -1).limit(limit)
-    rows = await cursor.to_list(length=limit)
+    # Visibility is inside the query. Private rows never enter this list.
+    pattern = re.escape(query)
+    projection = {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "created_at": 1, "tags": 1}
+    match_query = mongo_query(
+        user_id,
+        audience,
+        kind="entry",
+        extra={"$or": [
+            {"title": {"$regex": pattern, "$options": "i"}},
+            {"content": {"$regex": pattern, "$options": "i"}},
+            {"tags": {"$regex": pattern, "$options": "i"}},
+        ]},
+    )
+    cursor = db.entries.find(match_query, projection).sort("created_at", -1).limit(40)
+    rows = await cursor.to_list(length=40)
     if not rows:
-        # Fall back to most recent — helps when the query is a broad topic
+        # Fall back to most recent rows the caller is allowed to read.
         cursor = db.entries.find(
-            {"user_id": user_id},
-            {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "created_at": 1, "tags": 1},
+            mongo_query(user_id, audience, kind="entry"),
+            projection,
         ).sort("created_at", -1).limit(min(3, limit))
         rows = await cursor.to_list(length=min(3, limit))
         if not rows:
             return {"summary": f"No archive entries matched '{query}' — the archive appears empty.", "ui": {"count": 0}}
         header = f"No exact match for '{query}'. Falling back to the {len(rows)} most-recent entries:"
     else:
+        reranked = hybrid_rerank(
+            rows,
+            query,
+            limit=limit,
+            text_of=lambda row: " ".join([
+                str(row.get("title") or ""),
+                str(row.get("content") or ""),
+                " ".join(row.get("tags") or []),
+            ]),
+        )
+        rows = reranked or rows[:limit]
         header = f"Found {len(rows)} entries matching '{query}':"
     lines = [header]
     for r in rows:
@@ -884,6 +898,11 @@ async def execute_tool(
     """Public entrypoint. Returns {summary, ui?} — never raises."""
     if audience is not None and not is_owner_audience(audience) and name in OWNER_ONLY_TOOLS:
         return {"summary": "That stays with the owner.", "ui": {"error": "heir_forbidden"}}
+    if name == "search_archive":
+        try:
+            return await exec_search_archive(user_id, args or {}, audience=audience or "owner")
+        except Exception as exc:  # noqa: BLE001
+            return {"summary": f"Tool '{name}' errored: {exc!s}", "ui": {"error": str(exc)[:200]}}
     fn = TOOL_EXECUTORS.get(name)
     if fn is None:
         return {"summary": f"Unknown tool '{name}'.", "ui": {"error": "unknown_tool"}}

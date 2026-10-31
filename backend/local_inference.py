@@ -55,6 +55,14 @@ async def ollama_chat(
         if role in ("user", "assistant") and content:
             payload_messages.append({"role": role, "content": content})
 
+    headers: dict[str, str] = {}
+    from brain_route import maybe_route
+
+    routed = await maybe_route()
+    if routed is not None:
+        base_url = routed.url
+        model = routed.model
+        headers = dict(routed.headers)
     body = {
         "model": model or OLLAMA_MODEL,
         "messages": payload_messages,
@@ -63,7 +71,7 @@ async def ollama_chat(
     }
     url = f"{(base_url or ollama_base_url()).rstrip('/')}/api/chat"
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(url, json=body)
+        r = await client.post(url, json=body, headers=headers)
     if r.status_code >= 400:
         raise RuntimeError(f"Ollama HTTP {r.status_code}: {r.text[:300]}")
     data = r.json()
@@ -71,6 +79,14 @@ async def ollama_chat(
     text = (msg.get("content") or "").strip()
     if not text:
         raise RuntimeError("Ollama returned empty content")
+    from brain_route import remember_answer
+
+    if routed is None:
+        remember_answer(
+            name="local",
+            model=str(body["model"]),
+            url=(base_url or ollama_base_url()),
+        )
     return text
 
 

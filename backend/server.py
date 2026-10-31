@@ -46,6 +46,7 @@ from routers import (
     avatar,
     avatar_studio,
     billing,
+    brain,
     capture,
     caretaker,
     companion,
@@ -87,6 +88,7 @@ from routers import (
     voice,
     voice_clone,
     vr_setup,
+    would_say,
 )
 from storage import init_storage
 
@@ -245,6 +247,8 @@ api_router.include_router(rooms.router)
 api_router.include_router(phone.router)
 api_router.include_router(nudges.router)
 api_router.include_router(memory.router)
+api_router.include_router(brain.router)
+api_router.include_router(would_say.router)
 api_router.include_router(music.router)
 api_router.include_router(billing.router)
 api_router.include_router(fulfillment.router)

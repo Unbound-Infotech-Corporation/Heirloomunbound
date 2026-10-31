@@ -71,7 +71,7 @@ public partial class CaretakerViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task RefreshAsync()
+    internal async Task RefreshAsync()
     {
         if (!_host.CanEdit)
         {
@@ -144,6 +144,20 @@ public partial class CaretakerViewModel : ObservableObject
             return "";
         }
 
-        return health.ToString();
+        var text = health.ToString();
+        if (result.TryGetProperty("brain", out var brain) && brain.ValueKind == JsonValueKind.Object)
+        {
+            var name = brain.TryGetProperty("answered", out var answered) ? answered.GetString() : "";
+            var model = brain.TryGetProperty("model_in_use", out var inUse)
+                ? inUse.GetString()
+                : brain.TryGetProperty("model", out var modelNode) ? modelNode.GetString() : "";
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                text = string.IsNullOrWhiteSpace(text) ? "" : text + "\n";
+                text += string.IsNullOrWhiteSpace(model) ? "Brain " + name : "Brain " + name + " · " + model;
+            }
+        }
+
+        return text;
     }
 }

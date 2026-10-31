@@ -257,11 +257,16 @@ def take_usage() -> dict[str, Any]:
 Poster = Callable[[str, Mapping[str, Any], float], Awaitable[Mapping[str, Any]]]
 
 
-async def _default_poster(url: str, body: Mapping[str, Any], timeout: float) -> Mapping[str, Any]:
+async def _default_poster(
+    url: str,
+    body: Mapping[str, Any],
+    timeout: float,
+    headers: Optional[Mapping[str, str]] = None,
+) -> Mapping[str, Any]:
     import httpx
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(url, json=dict(body))
+        response = await client.post(url, json=dict(body), headers=dict(headers or {}))
     if response.status_code >= 400:
         raise RuntimeError(f"Ollama HTTP {response.status_code}: {response.text[:300]}")
     data = response.json()
@@ -277,19 +282,49 @@ async def complete_openai_chat(
     base_url: Optional[str] = None,
     timeout: float = 120.0,
     poster: Optional[Poster] = None,
+    pin_host: bool = False,
+    headers: Optional[Mapping[str, str]] = None,
 ) -> ChatCompletion:
-    """One non-streaming completion against Ollama's OpenAI-compatible API."""
+    """One non-streaming completion against Ollama's OpenAI-compatible API.
+
+    Unless ``pin_host`` is set, a configured LAN brain is tried first and the
+    box model is the fallback. Vision stays on the caller-supplied host.
+    """
+    request_headers = dict(headers or {})
+    answer_name = "local"
+    answer_gpu = "unknown"
+    if not pin_host:
+        from brain_route import maybe_route
+
+        routed = await maybe_route()
+        if routed is not None:
+            base_url = routed.url
+            model = routed.model
+            request_headers.update(routed.headers)
+            answer_name = routed.name
+            answer_gpu = routed.local_gpu
     model_name = ollama_model(model)
     refuse_cloud("ollama", model_name, caller="complete_openai_chat")
-    url = openai_chat_url(ollama_base_url(base_url))
+    chosen_url = ollama_base_url(base_url)
+    if pin_host and chosen_url.rstrip("/") != ollama_base_url(None).rstrip("/"):
+        answer_name = "remote"
+    url = openai_chat_url(chosen_url)
     body: dict[str, Any] = {
         "model": model_name,
         "messages": messages,
         "temperature": 0.65,
         "stream": False,
     }
-    send = poster or _default_poster
-    data = await send(url, body, timeout)
+    from brain_route import remember_answer
+
+    remember_answer(name=answer_name, model=model_name, url=chosen_url, local_gpu=answer_gpu)
+
+    async def _send(post_url: str, post_body: Mapping[str, Any], post_timeout: float) -> Mapping[str, Any]:
+        if poster is not None:
+            return await poster(post_url, post_body, post_timeout)
+        return await _default_poster(post_url, post_body, post_timeout, request_headers)
+
+    data = await _send(url, body, timeout)
     completed = parse_openai_chat(data)
     if not completed.text:
         raise RuntimeError("Ollama returned empty content")
@@ -333,16 +368,26 @@ async def complete_text(
     session_id: str = "heirloom",
     model: Optional[str] = None,
     poster: Optional[Poster] = None,
+    base_url: Optional[str] = None,
+    pin_host: bool = False,
+    headers: Optional[Mapping[str, str]] = None,
 ) -> str:
-    """One chat completion. A Twin Box always uses the local Ollama chat model."""
+    """One chat completion. A Twin Box always uses an Ollama chat model."""
     prior = _prior_turns(history)
-    if prefer_local():
+    if prefer_local() or pin_host:
         messages: list[dict[str, str]] = []
         if (system or "").strip():
             messages.append({"role": "system", "content": system})
         messages.extend(prior)
         messages.append({"role": "user", "content": user})
-        completed = await complete_openai_chat(messages, model=model, poster=poster)
+        completed = await complete_openai_chat(
+            messages,
+            model=model,
+            poster=poster,
+            base_url=base_url,
+            pin_host=pin_host,
+            headers=headers,
+        )
         return completed.text
     refuse_cloud("anthropic", "claude-sonnet-4-6", caller=session_id or "complete_text")
     from deps import EMERGENT_LLM_KEY

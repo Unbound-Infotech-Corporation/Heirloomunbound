@@ -75,8 +75,11 @@ def _persist(state: CaretakerState) -> None:
 async def caretaker_home(user: dict = Depends(get_current_user)):
     require_owner(user)
     ops = _ops()
+    from brain_route import brain_status
+
     return {
         "clone": "Caretaker",
+        "brain": brain_status(),
         "health": health_view(observer=ops.observer(), presence=ops.presence(), gpu_csv=ops.gpu_csv()),
         "log": read_log_lines(log_path()),
         "pending_id": next(iter(_state.pending), ""),

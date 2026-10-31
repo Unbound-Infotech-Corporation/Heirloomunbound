@@ -71,7 +71,13 @@ Rules:
 
 
 async def _gather_corpus(user_id: str) -> tuple[str, int]:
-    cursor = db.entries.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(300)
+    """Fact extraction reads the heir gift only, so owner-private text never reaches the model."""
+    from memory_guard import mongo_query
+
+    cursor = db.entries.find(
+        mongo_query(user_id, "heir", kind="entry"),
+        {"_id": 0},
+    ).sort("created_at", -1).limit(300)
     entries = await cursor.to_list(length=300)
     chunks = []
     for e in entries:
@@ -106,6 +112,7 @@ async def _extract_facts(user_id: str) -> list[dict]:
             "fact": str(raw["fact"])[:280],
             "kind": str(raw.get("kind", "other"))[:32],
             "source_entry_id": raw.get("source_entry_id") if isinstance(raw.get("source_entry_id"), str) else None,
+            "visibility": "heir",
             "created_at": _now_iso(),
         })
     return facts
@@ -180,6 +187,7 @@ async def maybe_summarise_episode(user_id: str, conversation_id: str) -> Optiona
     if not summary:
         return None
 
+    visibility = "heir" if str(conversation_id).startswith("heir_") else "owner"
     await db.memory_episodes.insert_one({
         "episode_id": f"ep_{uuid.uuid4().hex[:12]}",
         "user_id": user_id,
@@ -187,6 +195,7 @@ async def maybe_summarise_episode(user_id: str, conversation_id: str) -> Optiona
         "summary": summary,
         "message_span": [summarised_through, len(msgs)],
         "created_at": _now_iso(),
+        "visibility": visibility,
     })
     await db.conversations.update_one(
         {"conversation_id": conversation_id, "user_id": user_id},
@@ -195,22 +204,48 @@ async def maybe_summarise_episode(user_id: str, conversation_id: str) -> Optiona
     return summary
 
 
-async def get_recent_episodes(user_id: str, limit: int = MAX_EPISODES_IN_PROMPT) -> list[dict]:
+async def get_recent_episodes(
+    user_id: str,
+    limit: int = MAX_EPISODES_IN_PROMPT,
+    audience: str | None = None,
+) -> list[dict]:
+    from memory_guard import mongo_query
+
+    query = mongo_query(user_id, audience, kind="episode")
     cursor = (
-        db.memory_episodes.find({"user_id": user_id}, {"_id": 0})
+        db.memory_episodes.find(query, {"_id": 0})
         .sort("created_at", -1)
         .limit(limit)
     )
     return await cursor.to_list(length=limit)
 
 
+async def _visible_facts(user_id: str, audience: str | None, limit: int = MAX_FACTS_IN_PROMPT) -> list[dict]:
+    from memory_guard import mongo_query
+
+    query = mongo_query(user_id, audience, kind="fact")
+    cursor = db.memory_facts.find(query, {"_id": 0}).limit(limit)
+    return await cursor.to_list(length=limit)
+
+
 # ---------------- Build the memory pack for the twin ----------------
-async def build_memory_pack(user_id: str, query_hint: str = "") -> dict:
-    """Returns {facts:[], episodes:[]} ready to be inserted into the twin's
-    system prompt. The query_hint is currently used only by /archive retrieval
-    (twin.py); facts + episodes are static per user."""
-    facts = await get_or_refresh_facts(user_id)
-    episodes = await get_recent_episodes(user_id)
+async def build_memory_pack(user_id: str, query_hint: str = "", audience: str | None = None) -> dict:
+    """Facts and episodes for the prompt. Heir and caller filters are in the query.
+
+    ``query_hint`` ranks archive passages. Facts and episodes stay in the
+    order the visibility query returned so a stable fact is not dropped
+    just because this turn's words do not overlap it.
+    """
+    from owner_pairing import is_owner_audience
+
+    del query_hint
+    key = (audience or "owner").strip().lower() or "owner"
+    if is_owner_audience(key):
+        facts = await get_or_refresh_facts(user_id)
+        episodes = await get_recent_episodes(user_id, audience=key)
+    else:
+        facts = await _visible_facts(user_id, key)
+        episodes = await get_recent_episodes(user_id, audience=key)
     return {"facts": facts, "episodes": episodes}
 
 

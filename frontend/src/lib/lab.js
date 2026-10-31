@@ -51,5 +51,9 @@ export function healthLine(health) {
   const status = health.status || "unknown";
   const provider = health.llm_provider || "emergent";
   const lab = health.lab_mode ? "lab on" : "lab off";
-  return `${status} · ${provider} · ${lab}`;
+  const base = `${status} · ${provider} · ${lab}`;
+  const brain = health.brain && typeof health.brain === "object" ? health.brain : null;
+  if (!brain || !brain.answered) return base;
+  const model = brain.model_in_use || brain.model || "";
+  return model ? `${base} · ${brain.answered} · ${model}` : `${base} · ${brain.answered}`;
 }

@@ -2054,6 +2054,12 @@
                         <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.DiskLine, Mode=OneWay}" />
                         <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.WhisperStatus, Mode=OneWay}" />
                         <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.OllamaStatus, Mode=OneWay}" />
+                        <TextBlock Style="{StaticResource StudioOverline}" Text="LAN brain" />
+                        <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Models.BrainLine, Mode=OneWay}" TextWrapping="Wrap" />
+                        <TextBox PlaceholderText="http://192.168.0.50:11434" Text="{x:Bind ViewModel.Models.BrainUrl, Mode=TwoWay}" />
+                        <TextBox PlaceholderText="llama3.3:70b" Text="{x:Bind ViewModel.Models.BrainModel, Mode=TwoWay}" />
+                        <TextBox PlaceholderText="Optional LAN token" Text="{x:Bind ViewModel.Models.BrainToken, Mode=TwoWay}" />
+                        <Button Command="{x:Bind ViewModel.Models.SaveBrainCommand}" Content="Save brain" Style="{StaticResource StudioButtonSecondary}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Command="{x:Bind ViewModel.Models.SetRoleCommand}" CommandParameter="daily" Content="Daily PC" Style="{StaticResource StudioButtonSecondary}" />
                             <Button Command="{x:Bind ViewModel.Models.SetRoleCommand}" CommandParameter="dedicated" Content="Dedicated box" Style="{StaticResource StudioButtonSecondary}" />
