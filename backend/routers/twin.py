@@ -99,12 +99,23 @@ async def get_twin_conversation(conversation_id: str, user: dict = Depends(get_c
     return conv
 
 
-async def _archive_blob(user_id: str, query_hint: str = "", limit_recent: int = 20, limit_relevant: int = 30) -> str:
+async def _archive_blob(
+    user_id: str,
+    query_hint: str = "",
+    limit_recent: int = 20,
+    limit_relevant: int = 30,
+    audience: str | None = None,
+) -> str:
     """Top-k retrieval: 20 most recent + up to N entries matching tokens in the user's question."""
     docs: dict[str, dict] = {}
 
     # Recent N — always include for continuity
-    recent = await db.entries.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(limit_recent).to_list(length=limit_recent)
+    from memory_guard import mongo_query
+
+    recent = await db.entries.find(
+        mongo_query(user_id, audience, kind="entry"),
+        {"_id": 0},
+    ).sort("created_at", -1).limit(limit_recent).to_list(length=limit_recent)
     for e in recent:
         docs[e["entry_id"]] = e
 
@@ -124,7 +135,10 @@ async def _archive_blob(user_id: str, query_hint: str = "", limit_recent: int = 
                     {"content": {"$regex": t, "$options": "i"}},
                     {"tags": {"$regex": t, "$options": "i"}},
                 ])
-            match_cursor = db.entries.find({"user_id": user_id, "$or": or_clauses}, {"_id": 0}).limit(limit_relevant)
+            match_cursor = db.entries.find(
+                mongo_query(user_id, audience, kind="entry", extra={"$or": or_clauses}),
+                {"_id": 0},
+            ).limit(limit_relevant)
             async for e in match_cursor:
                 docs[e["entry_id"]] = e
 
@@ -324,9 +338,12 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         )
 
     await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
-    archive = await _archive_blob(user["user_id"], query_hint=payload.message)
+    turn_audience = (user.get("audience") or "owner").strip().lower() or "owner"
+    if user.get("heir_surface"):
+        turn_audience = "heir"
+    archive = await _archive_blob(user["user_id"], query_hint=payload.message, audience=turn_audience)
     skills = await _skills_blob(user["user_id"])
-    memory_pack = await build_memory_pack(user["user_id"], query_hint=payload.message)
+    memory_pack = await build_memory_pack(user["user_id"], query_hint=payload.message, audience=turn_audience)
     memory_blob = format_memory_pack_for_prompt(memory_pack)
     persona = await get_active_persona(user["user_id"], user)
     # Merge safe topics from user + persona

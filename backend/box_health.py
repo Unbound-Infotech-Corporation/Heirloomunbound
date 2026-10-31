@@ -44,4 +44,10 @@ def health_payload() -> dict[str, object]:
     compute = _compute()
     if compute:
         payload["compute"] = compute
+    try:
+        from brain_route import brain_status
+
+        payload["brain"] = brain_status()
+    except Exception:
+        payload["brain"] = {"answered": "local", "remote_configured": False}
     return payload

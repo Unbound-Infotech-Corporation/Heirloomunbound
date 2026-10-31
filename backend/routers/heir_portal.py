@@ -229,7 +229,7 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
         settings=memorial,
     )
 
-    passages = await archive_passages(owner["user_id"], query_hint=text)
+    passages = await archive_passages(owner["user_id"], query_hint=text, audience="heir")
     pack = TwinPack(
         core={
             "stance": stance_line("family"),

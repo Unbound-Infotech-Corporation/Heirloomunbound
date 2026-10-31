@@ -46,5 +46,11 @@ describe("lab helpers", () => {
       "ok · ollama · lab on",
     );
     expect(healthLine({ status: "ok" })).toBe("ok · emergent · lab off");
+    expect(healthLine({
+      status: "ok",
+      llm_provider: "ollama",
+      lab_mode: false,
+      brain: { answered: "remote", model_in_use: "llama3.3:70b" },
+    })).toBe("ok · ollama · lab off · remote · llama3.3:70b");
   });
 });

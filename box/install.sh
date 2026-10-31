@@ -26,13 +26,15 @@ WITH_OBSERVER_AUDIO=0
 WITH_PRESENCE=0
 UNATTENDED=0
 NVME_POWER_FIX=0
+BRAIN_URL=""
+BRAIN_MODEL="${HEIRLOOM_BRAIN_MODEL:-llama3.3:70b}"
 DATA_ROOT="${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}"
 LAN_IP=""
 export DEBIAN_FRONTEND=noninteractive
 
 usage() {
   cat <<'EOF'
-Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--observer-audio] [--presence] [--nvme-power-fix]
+Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--observer-audio] [--presence] [--nvme-power-fix] [--brain-url URL]
 
   --dry-run           print the plan and write the log; change nothing
   --unattended        answer package and license prompts automatically; exit 75 if a reboot is required before containers start
@@ -43,7 +45,31 @@ Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tail
   --observer-audio    same as --observer; installs ALSA capture and faster-whisper
   --presence          watch USB webcams and greet people the owner has taught
   --nvme-power-fix    add nvme_core.default_ps_max_latency_us=0 to GRUB (Samsung 970 dropouts). Does not reboot.
+  --brain-url URL     primary Ollama on the LAN, for example http://192.168.0.50:11434 (llama3.3:70b). The box model stays the fallback.
 EOF
+}
+
+validate_brain_url() {
+  local url="$1"
+  local host=""
+  if [[ ! "${url}" =~ ^https?://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(:[0-9]+)?/?$ ]]; then
+    printf 'Brain URL must be an http:// LAN address, for example http://192.168.0.50:11434\n' >&2
+    exit 2
+  fi
+  host="$(printf '%s\n' "${url}" | sed -E 's#^https?://([^:/]+).*#\1#')"
+  case "${host}" in
+    10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*) ;;
+    *)
+      printf 'Brain URL must stay on this LAN (%s)\n' "${host}" >&2
+      exit 2
+      ;;
+  esac
+  case "${host}" in
+    192.168.0.16|192.168.0.19)
+      printf 'Brain URL must not target %s\n' "${host}" >&2
+      exit 2
+      ;;
+  esac
 }
 
 log() {
@@ -76,26 +102,40 @@ prepare_log() {
 }
 
 parse_args() {
-  local arg
-  for arg in "$@"; do
-    case "${arg}" in
-      --dry-run) DRY_RUN=1 ;;
-      --unattended) UNATTENDED=1 ;;
-      --dev-tools) DEV_TOOLS=1 ;;
-      --tailscale) WITH_TAILSCALE=1 ;;
-      --with-chatterbox) WITH_CHATTERBOX=1 ;;
-      --observer) WITH_OBSERVER=1; WITH_OBSERVER_AUDIO=1 ;;
-      --observer-audio) WITH_OBSERVER=1; WITH_OBSERVER_AUDIO=1 ;;
-      --presence) WITH_PRESENCE=1 ;;
-      --nvme-power-fix) NVME_POWER_FIX=1 ;;
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dry-run) DRY_RUN=1; shift ;;
+      --unattended) UNATTENDED=1; shift ;;
+      --dev-tools) DEV_TOOLS=1; shift ;;
+      --tailscale) WITH_TAILSCALE=1; shift ;;
+      --with-chatterbox) WITH_CHATTERBOX=1; shift ;;
+      --observer) WITH_OBSERVER=1; WITH_OBSERVER_AUDIO=1; shift ;;
+      --observer-audio) WITH_OBSERVER=1; WITH_OBSERVER_AUDIO=1; shift ;;
+      --presence) WITH_PRESENCE=1; shift ;;
+      --nvme-power-fix) NVME_POWER_FIX=1; shift ;;
+      --brain-url)
+        BRAIN_URL="${2:-}"
+        if [[ -z "${BRAIN_URL}" ]]; then
+          printf 'Missing value for --brain-url\n' >&2
+          exit 2
+        fi
+        shift 2
+        ;;
+      --brain-url=*)
+        BRAIN_URL="${1#*=}"
+        shift
+        ;;
       -h|--help) usage; exit 0 ;;
       *)
-        printf 'Unknown flag: %s\n' "${arg}" >&2
+        printf 'Unknown flag: %s\n' "$1" >&2
         usage >&2
         exit 2
         ;;
     esac
   done
+  if [[ -n "${BRAIN_URL}" ]]; then
+    validate_brain_url "${BRAIN_URL}"
+  fi
 }
 
 require_ubuntu() {
@@ -453,6 +493,9 @@ write_env() {
   log "Writing ${env_file} (local connector key only; no GitHub or vendor tokens)"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would set HEIRLOOM_DATA_ROOT=${DATA_ROOT} HEIRLOOM_LAN_IP=${LAN_IP:-127.0.0.1} HEIRLOOM_LLM_PROVIDER=ollama OLLAMA_TWIN_MODEL=${model} HEIRLOOM_LAB_MODE=1"
+    if [[ -n "${BRAIN_URL}" ]]; then
+      log "would set HEIRLOOM_BRAIN_URL=${BRAIN_URL} HEIRLOOM_BRAIN_MODEL=${BRAIN_MODEL}"
+    fi
     log "would set HEIRLOOM_OWNER_PASSWORD_FILE=${DATA_ROOT}/owner/owner.pass"
     if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
       log "would set HEIRLOOM_OBSERVER=1 OLLAMA_OBSERVER_MODEL=${observer_model:-ocr} OBSERVER_VRAM_MIB=${vram} OLLAMA_MAX_LOADED_MODELS=${max_loaded} OBSERVER_VISION_KEEP_ALIVE=${vision_keep} OBSERVER_RAM_BUDGET_BYTES=67108864 OBSERVER_CLIPS=0"
@@ -479,6 +522,10 @@ write_env() {
   upsert_env HEIRLOOM_LLM_PROVIDER "ollama" "${env_file}"
   upsert_env OLLAMA_BASE_URL "http://ollama:11434" "${env_file}"
   upsert_env OLLAMA_TWIN_MODEL "${model}" "${env_file}"
+  if [[ -n "${BRAIN_URL}" ]]; then
+    upsert_env HEIRLOOM_BRAIN_URL "${BRAIN_URL}" "${env_file}"
+    upsert_env HEIRLOOM_BRAIN_MODEL "${BRAIN_MODEL}" "${env_file}"
+  fi
   upsert_env HEIRLOOM_LAB_MODE "1" "${env_file}"
   upsert_env HEIRLOOM_LAB_DIR "${DATA_ROOT}/lab" "${env_file}"
   upsert_env HEIRLOOM_LAB_REPORT_DIR "${DATA_ROOT}/lab-reports" "${env_file}"
@@ -926,7 +973,7 @@ main() {
     printf 'Re-run as root: sudo bash box/install.sh\n' >&2
     exit 1
   fi
-  log "Heirloom Twin Box installer root=${ROOT} data=${DATA_ROOT} lan=${LAN_IP} dry_run=${DRY_RUN} unattended=${UNATTENDED} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} observer_audio=${WITH_OBSERVER_AUDIO} presence=${WITH_PRESENCE} nvme_power_fix=${NVME_POWER_FIX}"
+  log "Heirloom Twin Box installer root=${ROOT} data=${DATA_ROOT} lan=${LAN_IP} dry_run=${DRY_RUN} unattended=${UNATTENDED} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} observer_audio=${WITH_OBSERVER_AUDIO} presence=${WITH_PRESENCE} nvme_power_fix=${NVME_POWER_FIX} brain_url=${BRAIN_URL:-off}"
   apply_unattended
   require_ubuntu
   mib="$(vram_mib)"

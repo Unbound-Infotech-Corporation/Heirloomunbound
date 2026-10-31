@@ -196,6 +196,8 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(resolve_desktop_user))
         "tool_trace": result.tool_trace,
         "twin_backend": result.backend,
     }
+    if getattr(result, "brain", ""):
+        out["brain"] = result.brain
     if result.action:
         out["action"] = result.action
     if getattr(result, "source_label", ""):

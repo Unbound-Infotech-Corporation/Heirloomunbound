@@ -795,6 +795,14 @@ public partial class TwinViewModel : ObservableObject
             if (cloud is { } json && json.TryGetProperty("reply", out var r))
             {
                 reply = r.GetString();
+                if (json.TryGetProperty("brain", out var brainNode))
+                {
+                    var brain = brainNode.GetString();
+                    if (!string.IsNullOrWhiteSpace(brain))
+                    {
+                        Status = "Brain " + brain;
+                    }
+                }
             }
         }
 

@@ -14,6 +14,7 @@ function commonWindow(navigate) {
       { label: "Assignments", onClick: go(navigate, "/assignments"), hint: "background jobs" },
       { label: "Twin", onClick: go(navigate, "/twin"), hint: "conversation" },
       { label: "Memory Studio", onClick: go(navigate, "/memory"), hint: "what the Twin holds" },
+      { label: "Would C L say that?", onClick: go(navigate, "/would-say"), hint: "local scores" },
       { label: "First gift", onClick: go(navigate, "/first-gift"), hint: "sealed letter" },
       { label: "Mixer", onClick: go(navigate, "/mixer"), hint: "audio I/O" },
       { label: "Models", onClick: go(navigate, "/models"), hint: "provision" },

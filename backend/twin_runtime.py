@@ -228,11 +228,15 @@ async def archive_passages(
     user_id: str,
     query_hint: str = "",
     limit: int = 8,
+    audience: str | None = None,
 ) -> list[TwinPassage]:
-    """Query-aware retrieve. Does not pad misses with recency."""
+    """Query-aware retrieve. The visibility filter is part of the Mongo query."""
+    from memory_guard import hybrid_rerank, mongo_query
+
     projection = {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "tags": 1, "created_at": 1}
+    recent_query = mongo_query(user_id, audience, kind="entry")
     recent_coro = (
-        db.entries.find({"user_id": user_id}, projection)
+        db.entries.find(recent_query, projection)
         .sort("created_at", -1)
         .limit(40)
         .to_list(length=40)
@@ -252,8 +256,9 @@ async def archive_passages(
                 {"content": {"$regex": esc, "$options": "i"}},
                 {"tags": {"$regex": esc, "$options": "i"}},
             ])
+        match_query = mongo_query(user_id, audience, kind="entry", extra={"$or": or_clauses})
         match_coro = (
-            db.entries.find({"user_id": user_id, "$or": or_clauses}, projection)
+            db.entries.find(match_query, projection)
             .limit(60)
             .to_list(length=60)
         )
@@ -273,14 +278,21 @@ async def archive_passages(
         if not prev or score > prev[0]:
             ranked[e["entry_id"]] = (score, e)
 
-    ordered = sorted(ranked.values(), key=lambda pair: pair[0], reverse=True)
-    if tokens:
-        docs = [(score, e) for score, e in ordered if score > 0][:limit]
-    else:
-        docs = ordered[:limit]
-
-    scores = {e["entry_id"]: float(score) for score, e in docs}
-    return passages_from_entries([e for _score, e in docs], scores)
+    pool = [entry for _score, entry in ranked.values()]
+    ranked_docs = hybrid_rerank(
+        pool,
+        query_hint,
+        limit=limit,
+        text_of=lambda entry: " ".join([
+            str(entry.get("title") or ""),
+            str(entry.get("content") or ""),
+            " ".join(entry.get("tags") or []),
+        ]),
+    )
+    scores = {}
+    for entry in ranked_docs:
+        scores[entry["entry_id"]] = float(_score_entry(entry, tokens))
+    return passages_from_entries(ranked_docs, scores)
 
 
 async def archive_blob(
@@ -288,10 +300,17 @@ async def archive_blob(
     query_hint: str = "",
     limit_recent: int = 20,
     limit_relevant: int = 30,
+    audience: str | None = None,
 ) -> str:
     from twin_pack import format_passages
 
-    passages = await archive_passages(user_id, query_hint=query_hint, limit=min(limit_relevant, 12))
+    del limit_recent
+    passages = await archive_passages(
+        user_id,
+        query_hint=query_hint,
+        limit=min(limit_relevant, 12),
+        audience=audience,
+    )
     return format_passages(passages)
 
 
@@ -325,6 +344,7 @@ class TwinTurnResult:
     source_label: str = ""
     crisis: bool = False
     grief: Optional[GriefSignal] = None
+    brain: str = ""
 
 
 @dataclass
@@ -566,7 +586,14 @@ async def build_brain_pack(
         raise ValueError("Empty message")
 
     enabled_ids = await ab.enabled_ability_ids(user_id)
-    audience_key = (audience or "owner").strip().lower() or "owner"
+    from memory_guard import retrieval_audience
+
+    audience_key = retrieval_audience(audience)
+    session_audience = (user.get("audience") or "").strip().lower()
+    if user.get("heir_surface"):
+        audience_key = "heir"
+    elif session_audience in {"heir", "caller"}:
+        audience_key = session_audience
     if not is_owner_audience(audience_key):
         role = "twin"
     if (role or "twin").strip().lower() != "assistant":
@@ -577,7 +604,7 @@ async def build_brain_pack(
 
     skills, memory_pack, persona = await asyncio.gather(
         skills_blob(user_id),
-        build_memory_pack(user_id, query_hint=text),
+        build_memory_pack(user_id, query_hint=text, audience=audience_key),
         get_active_persona(user_id, user),
     )
     memory_blob = format_memory_pack_for_prompt(memory_pack)
@@ -622,7 +649,7 @@ async def build_brain_pack(
         specialist_block = specialist_prompt_block(specialist, user.get("name") or "")
 
     if is_assistant:
-        archive = await archive_blob(user_id, query_hint=text)
+        archive = await archive_blob(user_id, query_hint=text, audience=audience_key)
         system = build_assistant_system(
             user.get("name", ""),
             memory_blob,
@@ -642,6 +669,11 @@ async def build_brain_pack(
         )
 
     if client_pack is not None:
+        if not is_owner_audience(audience_key):
+            server_passages = await archive_passages(user_id, query_hint=text, audience=audience_key)
+            client_pack.passages = server_passages
+            client_pack.facts = _sourced_facts_from_memory(memory_pack)
+            client_pack.citation_line = citation_line(server_passages)
         if grounded is not None:
             client_pack.grounded = grounded
         if persona_hint and not client_pack.core.stance:
@@ -680,7 +712,7 @@ async def build_brain_pack(
             grief=grief_signal,
         )
 
-    passages = await archive_passages(user_id, query_hint=text)
+    passages = await archive_passages(user_id, query_hint=text, audience=audience_key)
     facts = _sourced_facts_from_memory(memory_pack)
     portrait = (persona or {}).get("system_addendum") or (persona or {}).get("description") or ""
     pack = TwinPack(
@@ -989,6 +1021,7 @@ async def run_twin_turn(
             backend=backend_used,
             receipt=receipt,
             source_label=source_label,
+            brain=_answered_brain(),
         )
 
     if backend_used == "ollama":
@@ -1031,6 +1064,7 @@ async def run_twin_turn(
                 backend=backend_used,
                 receipt=receipt,
                 source_label=source_label,
+                brain=_answered_brain(),
             )
 
     if local_only:
@@ -1116,6 +1150,15 @@ async def _safe_summarise(user_id: str, conversation_id: str) -> None:
         await maybe_summarise_episode(user_id, conversation_id)
     except Exception:  # noqa: BLE001
         pass
+
+
+def _answered_brain() -> str:
+    try:
+        from brain_route import brain_label
+
+        return brain_label()
+    except Exception:
+        return ""
 
 
 def _receipt_for_role(

@@ -88,16 +88,16 @@ async def test_build_brain_pack_shape(monkeypatch):
     async def fake_enabled(_uid):
         return set()
 
-    async def fake_passages(_uid, query_hint="", limit=8):
+    async def fake_passages(_uid, query_hint="", limit=8, audience=None):
         return []
 
-    async def fake_archive(_uid, query_hint=""):
+    async def fake_archive(_uid, query_hint="", audience=None):
         return "[MEMORY] Home\nVermont"
 
     async def fake_skills(_uid):
         return ""
 
-    async def fake_memory(_uid, query_hint=""):
+    async def fake_memory(_uid, query_hint="", audience=None):
         return {"identity_facts": [], "episodes": []}
 
     async def fake_persona(_uid, _user):
@@ -112,7 +112,12 @@ async def test_build_brain_pack_shape(monkeypatch):
     monkeypatch.setattr(tr, "archive_passages", fake_passages)
     monkeypatch.setattr(tr, "skills_blob", fake_skills)
     monkeypatch.setattr(mem, "build_memory_pack", fake_memory)
+    monkeypatch.setattr(tr, "build_memory_pack", fake_memory)
+    async def fake_style(_uid, _audience=None):
+        return None
+
     monkeypatch.setattr(tr, "get_active_persona", fake_persona)
+    monkeypatch.setattr(tr, "_owner_style_for", fake_style)
 
     user = {"user_id": "u1", "name": "Alex", "studio_models": {"twin": "cloud_claude"}}
     conv = {"conversation_id": "c1", "messages": history_turns([{"role": "user", "content": "hi"}])}
@@ -128,16 +133,16 @@ async def test_build_brain_pack_assistant_is_copilot(monkeypatch):
     async def fake_enabled(_uid):
         return {"pc_control", "web"}
 
-    async def fake_passages(_uid, query_hint="", limit=8):
+    async def fake_passages(_uid, query_hint="", limit=8, audience=None):
         return []
 
-    async def fake_archive(_uid, query_hint=""):
+    async def fake_archive(_uid, query_hint="", audience=None):
         return ""
 
     async def fake_skills(_uid):
         return ""
 
-    async def fake_memory(_uid, query_hint=""):
+    async def fake_memory(_uid, query_hint="", audience=None):
         return {"identity_facts": [], "episodes": []}
 
     async def fake_persona(_uid, _user):
@@ -152,7 +157,12 @@ async def test_build_brain_pack_assistant_is_copilot(monkeypatch):
     monkeypatch.setattr(tr, "archive_passages", fake_passages)
     monkeypatch.setattr(tr, "skills_blob", fake_skills)
     monkeypatch.setattr(mem, "build_memory_pack", fake_memory)
+    monkeypatch.setattr(tr, "build_memory_pack", fake_memory)
+    async def fake_style(_uid, _audience=None):
+        return None
+
     monkeypatch.setattr(tr, "get_active_persona", fake_persona)
+    monkeypatch.setattr(tr, "_owner_style_for", fake_style)
 
     user = {"user_id": "u1", "name": "Alex", "studio_models": {"twin": "cloud_claude"}}
     conv = {"conversation_id": "c1", "messages": []}
