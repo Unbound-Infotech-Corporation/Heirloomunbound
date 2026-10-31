@@ -76,6 +76,12 @@ def clear_caches() -> None:
     _gpu_cache.clear()
     _restart_at = 0.0
     _last_answer.update(name="", model="", host="", local_gpu="unknown")
+    try:
+        from brain_council import clear_answer_meta
+
+        clear_answer_meta()
+    except Exception:
+        pass
 
 
 def set_settings_loader(loader: Optional[Callable[[], Awaitable[Optional[dict]]]]) -> None:
@@ -507,4 +513,10 @@ def brain_status() -> dict[str, Any]:
     view["answered"] = answered
     if row.get("host"):
         view["answered_host"] = row["host"]
+    try:
+        from brain_council import health_overlay
+
+        view.update(health_overlay())
+    except Exception:
+        view.setdefault("strategy", "single")
     return view

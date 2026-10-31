@@ -198,6 +198,9 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(resolve_desktop_user))
     }
     if getattr(result, "brain", ""):
         out["brain"] = result.brain
+    brain_meta = getattr(result, "brain_meta", None)
+    if isinstance(brain_meta, dict) and brain_meta:
+        out["brain_meta"] = brain_meta
     if result.action:
         out["action"] = result.action
     if getattr(result, "source_label", ""):

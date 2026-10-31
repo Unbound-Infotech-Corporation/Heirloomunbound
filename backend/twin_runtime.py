@@ -345,6 +345,7 @@ class TwinTurnResult:
     crisis: bool = False
     grief: Optional[GriefSignal] = None
     brain: str = ""
+    brain_meta: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -988,17 +989,17 @@ async def run_twin_turn(
     backend_used = twin_backend or pack.twin_backend
 
     tool_trace: list[dict] = []
-    from llm_provider import complete_openai_chat, resolve_llm_provider, uses_ollama
+    from llm_provider import resolve_llm_provider, uses_ollama
 
     if uses_ollama(resolve_llm_provider()):
         history = list(pack.history)
         history.append({"role": "user", "content": text})
         messages = [{"role": "system", "content": system}, *history]
         try:
-            completed = await complete_openai_chat(messages)
+            outcome = await _council_reply(messages, text, audience_key)
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"Local twin (Ollama) failed: {exc!s}") from exc
-        reply = _aside(completed.text)
+        reply = _aside(outcome.text)
         backend_used = "ollama"
         ts = _now_iso()
         receipt = _receipt_for_role(role, tool_trace, reply=reply)
@@ -1007,6 +1008,7 @@ async def run_twin_turn(
                 user_id, conversation_id, text, reply, ts,
                 source=source, tool_trace=tool_trace, receipt=receipt,
                 audience=audience_key,
+                brain_meta=outcome.public(),
             )
             if summarise:
                 try:
@@ -1021,11 +1023,12 @@ async def run_twin_turn(
             backend=backend_used,
             receipt=receipt,
             source_label=source_label,
-            brain=_answered_brain(),
+            brain=outcome.label or _answered_brain(),
+            brain_meta=outcome.public(),
         )
 
     if backend_used == "ollama":
-        from local_inference import ollama_chat, ollama_ready_at
+        from local_inference import ollama_ready_at
         from studio_compute import resolve_ollama_url
 
         ollama_url = resolve_ollama_url(user)
@@ -1039,10 +1042,12 @@ async def run_twin_turn(
         if backend_used == "ollama":
             history = list(pack.history)
             history.append({"role": "user", "content": text})
+            messages = [{"role": "system", "content": system}, *history]
             try:
-                reply = _aside(await ollama_chat(system, history, base_url=ollama_url))
+                outcome = await _council_reply(messages, text, audience_key, base_url=ollama_url)
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError(f"Local twin (Ollama) failed: {exc!s}") from exc
+            reply = _aside(outcome.text)
             ts = _now_iso()
             receipt = _receipt_for_role(role, tool_trace, reply=reply)
             if persist:
@@ -1050,6 +1055,7 @@ async def run_twin_turn(
                     user_id, conversation_id, text, reply, ts,
                     source=source, tool_trace=tool_trace, receipt=receipt,
                     audience=audience_key,
+                    brain_meta=outcome.public(),
                 )
                 if summarise:
                     try:
@@ -1064,7 +1070,8 @@ async def run_twin_turn(
                 backend=backend_used,
                 receipt=receipt,
                 source_label=source_label,
-                brain=_answered_brain(),
+                brain=outcome.label or _answered_brain(),
+                brain_meta=outcome.public(),
             )
 
     if local_only:
@@ -1152,6 +1159,12 @@ async def _safe_summarise(user_id: str, conversation_id: str) -> None:
         pass
 
 
+async def _council_reply(messages: list[dict], question: str, audience: str, base_url: str | None = None):
+    from brain_council import complete_turn
+
+    return await complete_turn(messages, question, audience=audience, base_url=base_url)
+
+
 def _answered_brain() -> str:
     try:
         from brain_route import brain_label
@@ -1194,6 +1207,7 @@ async def _persist_pair(
     assignment: Optional[dict] = None,
     approval: Optional[dict] = None,
     audience: Optional[str] = None,
+    brain_meta: Optional[dict] = None,
 ) -> None:
     user_turn: dict[str, Any] = {
         "role": "user", "content": user_text, "ts": ts, "source": source,
@@ -1234,6 +1248,8 @@ async def _persist_pair(
             assistant_turn["assignment_id"] = assignment["assignment_id"]
     if approval:
         assistant_turn["approval"] = approval
+    if brain_meta:
+        assistant_turn["brain_meta"] = brain_meta
     await db.conversations.update_one(
         {"conversation_id": conversation_id, "user_id": user_id},
         {

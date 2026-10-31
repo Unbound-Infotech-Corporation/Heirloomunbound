@@ -28,13 +28,14 @@ UNATTENDED=0
 NVME_POWER_FIX=0
 BRAIN_URL=""
 BRAIN_MODEL="${HEIRLOOM_BRAIN_MODEL:-llama3.3:70b}"
+ODYSSEUS_URL=""
 DATA_ROOT="${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}"
 LAN_IP=""
 export DEBIAN_FRONTEND=noninteractive
 
 usage() {
   cat <<'EOF'
-Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--observer-audio] [--presence] [--nvme-power-fix] [--brain-url URL]
+Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--observer-audio] [--presence] [--nvme-power-fix] [--brain-url URL] [--odysseus-url URL]
 
   --dry-run           print the plan and write the log; change nothing
   --unattended        answer package and license prompts automatically; exit 75 if a reboot is required before containers start
@@ -46,7 +47,34 @@ Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tail
   --presence          watch USB webcams and greet people the owner has taught
   --nvme-power-fix    add nvme_core.default_ps_max_latency_us=0 to GRUB (Samsung 970 dropouts). Does not reboot.
   --brain-url URL     primary Ollama on the LAN, for example http://192.168.0.50:11434 (llama3.3:70b). The box model stays the fallback.
+  --odysseus-url URL  local Odysseus on the LAN, for example http://192.168.0.110:7011, or http://odysseus:7000 on the heirloom-box network. The API token stays in a file. See box/ODYSSEUS.md.
 EOF
+}
+
+validate_odysseus_url() {
+  local url="$1"
+  local host=""
+  if [[ "${url}" =~ ^https?://odysseus(:[0-9]+)?/?$ ]]; then
+    return 0
+  fi
+  if [[ ! "${url}" =~ ^https?://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(:[0-9]+)?/?$ ]]; then
+    printf 'Odysseus URL must be an http:// LAN address or http://odysseus:7000\n' >&2
+    exit 2
+  fi
+  host="$(printf '%s\n' "${url}" | sed -E 's#^https?://([^:/]+).*#\1#')"
+  case "${host}" in
+    10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*) ;;
+    *)
+      printf 'Odysseus URL must stay on this LAN (%s)\n' "${host}" >&2
+      exit 2
+      ;;
+  esac
+  case "${host}" in
+    192.168.0.16|192.168.0.19)
+      printf 'Odysseus URL must not target %s\n' "${host}" >&2
+      exit 2
+      ;;
+  esac
 }
 
 validate_brain_url() {
@@ -125,6 +153,18 @@ parse_args() {
         BRAIN_URL="${1#*=}"
         shift
         ;;
+      --odysseus-url)
+        ODYSSEUS_URL="${2:-}"
+        if [[ -z "${ODYSSEUS_URL}" ]]; then
+          printf 'Missing value for --odysseus-url\n' >&2
+          exit 2
+        fi
+        shift 2
+        ;;
+      --odysseus-url=*)
+        ODYSSEUS_URL="${1#*=}"
+        shift
+        ;;
       -h|--help) usage; exit 0 ;;
       *)
         printf 'Unknown flag: %s\n' "$1" >&2
@@ -135,6 +175,9 @@ parse_args() {
   done
   if [[ -n "${BRAIN_URL}" ]]; then
     validate_brain_url "${BRAIN_URL}"
+  fi
+  if [[ -n "${ODYSSEUS_URL}" ]]; then
+    validate_odysseus_url "${ODYSSEUS_URL}"
   fi
 }
 
@@ -496,6 +539,9 @@ write_env() {
     if [[ -n "${BRAIN_URL}" ]]; then
       log "would set HEIRLOOM_BRAIN_URL=${BRAIN_URL} HEIRLOOM_BRAIN_MODEL=${BRAIN_MODEL}"
     fi
+    if [[ -n "${ODYSSEUS_URL}" ]]; then
+      log "would set HEIRLOOM_ODYSSEUS_URL=${ODYSSEUS_URL} HEIRLOOM_ODYSSEUS=1 HEIRLOOM_ODYSSEUS_TOKEN_FILE=${DATA_ROOT}/owner/odysseus.token"
+    fi
     log "would set HEIRLOOM_OWNER_PASSWORD_FILE=${DATA_ROOT}/owner/owner.pass"
     if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
       log "would set HEIRLOOM_OBSERVER=1 OLLAMA_OBSERVER_MODEL=${observer_model:-ocr} OBSERVER_VRAM_MIB=${vram} OLLAMA_MAX_LOADED_MODELS=${max_loaded} OBSERVER_VISION_KEEP_ALIVE=${vision_keep} OBSERVER_RAM_BUDGET_BYTES=67108864 OBSERVER_CLIPS=0"
@@ -525,6 +571,12 @@ write_env() {
   if [[ -n "${BRAIN_URL}" ]]; then
     upsert_env HEIRLOOM_BRAIN_URL "${BRAIN_URL}" "${env_file}"
     upsert_env HEIRLOOM_BRAIN_MODEL "${BRAIN_MODEL}" "${env_file}"
+  fi
+  if [[ -n "${ODYSSEUS_URL}" ]]; then
+    upsert_env HEIRLOOM_ODYSSEUS_URL "${ODYSSEUS_URL}" "${env_file}"
+    upsert_env HEIRLOOM_ODYSSEUS "1" "${env_file}"
+    upsert_env HEIRLOOM_ODYSSEUS_TOKEN_FILE "${DATA_ROOT}/owner/odysseus.token" "${env_file}"
+    log "Odysseus token file is ${DATA_ROOT}/owner/odysseus.token (create it by hand; this installer does not write the token)"
   fi
   upsert_env HEIRLOOM_LAB_MODE "1" "${env_file}"
   upsert_env HEIRLOOM_LAB_DIR "${DATA_ROOT}/lab" "${env_file}"
@@ -973,7 +1025,7 @@ main() {
     printf 'Re-run as root: sudo bash box/install.sh\n' >&2
     exit 1
   fi
-  log "Heirloom Twin Box installer root=${ROOT} data=${DATA_ROOT} lan=${LAN_IP} dry_run=${DRY_RUN} unattended=${UNATTENDED} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} observer_audio=${WITH_OBSERVER_AUDIO} presence=${WITH_PRESENCE} nvme_power_fix=${NVME_POWER_FIX} brain_url=${BRAIN_URL:-off}"
+  log "Heirloom Twin Box installer root=${ROOT} data=${DATA_ROOT} lan=${LAN_IP} dry_run=${DRY_RUN} unattended=${UNATTENDED} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} observer_audio=${WITH_OBSERVER_AUDIO} presence=${WITH_PRESENCE} nvme_power_fix=${NVME_POWER_FIX} brain_url=${BRAIN_URL:-off} odysseus_url=${ODYSSEUS_URL:-off}"
   apply_unattended
   require_ubuntu
   mib="$(vram_mib)"

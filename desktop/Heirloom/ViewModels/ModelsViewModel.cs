@@ -34,6 +34,10 @@ public partial class ModelsViewModel : ObservableObject
     [ObservableProperty] private string _brainModel = "llama3.3:70b";
     [ObservableProperty] private string _brainToken = "";
     [ObservableProperty] private string _brainLine = "Local box brain until a LAN address is saved.";
+    [ObservableProperty] private string _strategy = "single";
+    [ObservableProperty] private bool _odysseusEnabled;
+    [ObservableProperty] private string _odysseusUrl = "";
+    [ObservableProperty] private string _odysseusToken = "";
 
     partial void OnComputeTargetChanged(string value)
     {
@@ -80,12 +84,41 @@ public partial class ModelsViewModel : ObservableObject
             url = normalized;
         }
 
+        var odysseusUrl = (OdysseusUrl ?? "").Trim();
+        if (odysseusUrl.Length > 0)
+        {
+            if (!BrainRoute.TryNormalizeOdysseusUrl(odysseusUrl, out var odysseusNormalized, out var odysseusError))
+            {
+                BrainLine = odysseusError;
+                return;
+            }
+
+            OdysseusUrl = odysseusNormalized;
+            odysseusUrl = odysseusNormalized;
+        }
+        else if (OdysseusEnabled)
+        {
+            BrainLine = "Add the Odysseus address, or turn Odysseus off.";
+            return;
+        }
+
+        if (!BrainRoute.TryNormalizeStrategy(Strategy, out var strategy, out var strategyError))
+        {
+            BrainLine = strategyError;
+            return;
+        }
+
+        Strategy = strategy;
         var model = string.IsNullOrWhiteSpace(BrainModel) ? "llama3.3:70b" : BrainModel.Trim();
         var result = await _host.Api.PutSessionAsync("/brain", new
         {
             url,
             model,
             token = BrainToken ?? "",
+            strategy,
+            odysseus_enabled = OdysseusEnabled,
+            odysseus_url = odysseusUrl,
+            odysseus_token = OdysseusToken ?? "",
         }).ConfigureAwait(true);
         if (result is null)
         {
@@ -96,6 +129,7 @@ public partial class ModelsViewModel : ObservableObject
         }
 
         BrainToken = "";
+        OdysseusToken = "";
         ApplyBrain(result.Value);
     }
 
@@ -121,11 +155,22 @@ public partial class ModelsViewModel : ObservableObject
 
         var answered = block.TryGetProperty("answered", out var name) ? name.GetString() : "";
         var model = block.TryGetProperty("model_in_use", out var inUse) ? inUse.GetString() : "";
+        if (block.TryGetProperty("strategy", out var healthStrategy) && healthStrategy.ValueKind == JsonValueKind.String)
+        {
+            var chosen = healthStrategy.GetString();
+            if (!string.IsNullOrWhiteSpace(chosen))
+            {
+                Strategy = chosen;
+            }
+        }
+
+        var contributors = ContributorNames(block);
         if (!string.IsNullOrWhiteSpace(answered))
         {
+            var tail = string.IsNullOrWhiteSpace(contributors) ? answered : contributors;
             BrainLine = string.IsNullOrWhiteSpace(model)
-                ? "Last answer: " + answered
-                : "Last answer: " + answered + " · " + model;
+                ? "Strategy " + Strategy + ". Last answer: " + tail
+                : "Strategy " + Strategy + ". Last answer: " + tail + " · " + model;
         }
     }
 
@@ -141,11 +186,74 @@ public partial class ModelsViewModel : ObservableObject
             BrainModel = model.GetString() ?? BrainModel;
         }
 
+        if (brain.TryGetProperty("strategy", out var strategy) && strategy.ValueKind == JsonValueKind.String)
+        {
+            var chosen = strategy.GetString();
+            if (!string.IsNullOrWhiteSpace(chosen))
+            {
+                Strategy = chosen;
+            }
+        }
+
+        var odysseusReady = false;
+        var odysseusTokenSet = false;
+        if (brain.TryGetProperty("odysseus", out var odysseus) && odysseus.ValueKind == JsonValueKind.Object)
+        {
+            if (odysseus.TryGetProperty("enabled", out var enabled)
+                && (enabled.ValueKind == JsonValueKind.True || enabled.ValueKind == JsonValueKind.False))
+            {
+                OdysseusEnabled = enabled.GetBoolean();
+            }
+
+            if (odysseus.TryGetProperty("url", out var odysseusUrl))
+            {
+                OdysseusUrl = odysseusUrl.GetString() ?? "";
+            }
+
+            odysseusReady = odysseus.TryGetProperty("ready", out var ready) && ready.ValueKind == JsonValueKind.True;
+            odysseusTokenSet = odysseus.TryGetProperty("token_set", out var odysseusFlag) && odysseusFlag.ValueKind == JsonValueKind.True;
+        }
+
         var tokenSet = brain.TryGetProperty("token_set", out var flag) && flag.ValueKind == JsonValueKind.True;
         var answered = brain.TryGetProperty("answered", out var name) ? name.GetString() : "";
+        var strategyLabel = string.IsNullOrWhiteSpace(Strategy) ? "single" : Strategy;
+        var odysseusLabel = !OdysseusEnabled
+            ? "Odysseus off"
+            : odysseusReady
+                ? "Odysseus ready"
+                : odysseusTokenSet
+                    ? "Odysseus saved, not ready"
+                    : "Odysseus needs a token file";
         BrainLine = tokenSet
-            ? "LAN brain saved. A token is set. Last answer: " + (string.IsNullOrWhiteSpace(answered) ? "none yet" : answered)
-            : "LAN brain saved. Last answer: " + (string.IsNullOrWhiteSpace(answered) ? "none yet" : answered);
+            ? "Strategy " + strategyLabel + ". " + odysseusLabel + ". A LAN token is set. Last answer: " + (string.IsNullOrWhiteSpace(answered) ? "none yet" : answered)
+            : "Strategy " + strategyLabel + ". " + odysseusLabel + ". Last answer: " + (string.IsNullOrWhiteSpace(answered) ? "none yet" : answered);
+    }
+
+    [RelayCommand]
+    public void SetStrategy(string strategy) => Strategy = strategy;
+
+    private static string ContributorNames(JsonElement brain)
+    {
+        if (!brain.TryGetProperty("answer", out var answer) || !answer.TryGetProperty("contributors", out var list)
+            || list.ValueKind != JsonValueKind.Array)
+        {
+            return "";
+        }
+
+        var names = new List<string>();
+        foreach (var item in list.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("name", out var name))
+            {
+                var text = name.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    names.Add(text);
+                }
+            }
+        }
+
+        return string.Join(", ", names);
     }
 
     [RelayCommand]
