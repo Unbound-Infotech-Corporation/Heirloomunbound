@@ -65,6 +65,17 @@ internal sealed class TrayController : IDisposable
             _snapshot = next;
             _audio.Note(next);
             _screen.Note(next);
+            var signedIn = !string.IsNullOrWhiteSpace(_store.Session());
+            if (CompanionSync.ShouldPush(signedIn, _wasReachable, next.Reachable))
+            {
+                await PushSettingsAsync(cancellationToken).ConfigureAwait(true);
+            }
+
+            if (signedIn && next.Reachable)
+            {
+                await PollCaretakerAsync(cancellationToken).ConfigureAwait(true);
+            }
+
             await PollAssistAsync(cancellationToken).ConfigureAwait(true);
             _wasReachable = next.Reachable;
             _wasCertificate = next.CertificateFailed;
@@ -145,6 +156,14 @@ internal sealed class TrayController : IDisposable
         mute.IsEnabled = _snapshot.Reachable && !string.IsNullOrWhiteSpace(_store.Session());
         mute.Click += async (_, _) => await SetMutedAsync(!_assist.Muted).ConfigureAwait(true);
         menu.Items.Add(mute);
+        var listen = new MenuItem { Header = CompanionSync.AlwaysListeningLabel(_store.Proactive) };
+        listen.Click += async (_, _) =>
+        {
+            _store.Proactive = !_store.Proactive;
+            await PushSettingsAsync().ConfigureAwait(true);
+            RebuildMenu();
+        };
+        menu.Items.Add(listen);
         var yes = new MenuItem
         {
             Header = string.IsNullOrWhiteSpace(_assist.PendingLabel) ? "Yes, do that" : "Yes — " + _assist.PendingLabel,
@@ -212,6 +231,46 @@ internal sealed class TrayController : IDisposable
         };
         item.Click += (_, _) => { _store.Screen = !on; };
         return item;
+    }
+
+    private async Task PushSettingsAsync(CancellationToken cancellationToken = default)
+    {
+        var token = _store.Session();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        await BoxClient.SetAudioStreamAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "system", _store.SystemAudio, cancellationToken).ConfigureAwait(true);
+        await BoxClient.SetAudioStreamAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "mic", _store.MicAudio, cancellationToken).ConfigureAwait(true);
+        var settings = CompanionSync.AssistSettingsBody(_store.TwinName, _store.WakePhrase, _store.Proactive);
+        await BoxClient.PutAssistSettingsAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, settings, cancellationToken).ConfigureAwait(true);
+    }
+
+    private async Task PollCaretakerAsync(CancellationToken cancellationToken)
+    {
+        var token = _store.Session();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        var json = await BoxClient.GetCaretakerCompanionAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(true);
+        if (!CaretakerGuard.WantsRepush(json) && !CaretakerGuard.WantsRestart(json))
+        {
+            return;
+        }
+
+        if (CaretakerGuard.WantsRepush(json))
+        {
+            await PushSettingsAsync(cancellationToken).ConfigureAwait(true);
+        }
+
+        await BoxClient.AckCaretakerCompanionAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(true);
+        if (CaretakerGuard.WantsRestart(json))
+        {
+            CompanionProcess.Restart();
+        }
     }
 
     private async Task ToggleStreamAsync(string source, bool enabled)

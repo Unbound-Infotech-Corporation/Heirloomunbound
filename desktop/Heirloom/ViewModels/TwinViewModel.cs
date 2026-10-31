@@ -727,11 +727,22 @@ public partial class TwinViewModel : ObservableObject
         await FireMatchingSkillsAsync(text).ConfigureAwait(true);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var styleBlock = "";
+        if (CanEdit)
+        {
+            var styleDoc = await _host.Api.GetSessionAsync("/owner/style", cancellationToken).ConfigureAwait(true);
+            if (styleDoc is { } styleJson && styleJson.TryGetProperty("profile", out var profile))
+            {
+                styleBlock = TwinPrompt.StyleRegister(audience, profile);
+            }
+        }
+
         var system = TwinPrompt.System(
             pack,
             "",
             _host.Settings.Current.MemorialMode,
-            _host.Settings.Current.MemorialDate);
+            _host.Settings.Current.MemorialDate,
+            styleBlock);
         GriefNotice grief = default;
         if (!CanEdit)
         {
@@ -754,7 +765,7 @@ public partial class TwinViewModel : ObservableObject
         var prompt = "THEY SAID:\n" + text;
 
         string? reply = null;
-        if (grounded && !pack.HasPassages)
+        if (TwinPrompt.MissApplies(audience, grounded, pack.HasPassages))
         {
             reply = TwinPrompt.MissReply(grounded);
         }

@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Windows;
 using Heirloom.BoxCore;
 
 namespace Heirloom.Companion;
@@ -21,5 +23,20 @@ internal static class CompanionSession
         {
             // The box may be offline. The session file is already gone.
         }
+    }
+}
+
+internal static class CompanionProcess
+{
+    public static void Restart()
+    {
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exe))
+        {
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+        Application.Current?.Shutdown();
     }
 }

@@ -49,7 +49,7 @@ def _assistants():
 
 def test_defaults_cover_specialists_not_a_second_twin():
     slugs = {a["slug"] for a in DEFAULT_ASSISTANTS}
-    assert {"research", "archive", "letters", "pc"} <= slugs
+    assert {"research", "archive", "letters", "pc", "caretaker"} <= slugs
     pc = next(a for a in DEFAULT_ASSISTANTS if a["slug"] == "pc")
     assert pc["speak_as"] == "assist"
     assert "open_on_pc" in pc["tools_allowlist"]

@@ -15,6 +15,7 @@ from assistants import (
     clean_abilities,
     clean_autonomy,
     clean_tools,
+    missing_backfill,
     public_assistant,
     slugify_name,
     speak_as_for_tools,
@@ -84,12 +85,23 @@ def _doc_from_defaults(user_id: str, spec: dict) -> dict:
 async def list_for_user(user_id: str, *, seed: bool = True) -> list[dict]:
     cursor = db.twin_assistants.find({"user_id": user_id}, {"_id": 0}).sort("created_at", 1)
     items = await cursor.to_list(length=MAX_ASSISTANTS)
-    if items or not seed:
+    if not seed:
         return items
-    docs = [_doc_from_defaults(user_id, spec) for spec in DEFAULT_ASSISTANTS]
-    if docs:
-        await db.twin_assistants.insert_many([dict(d) for d in docs])
-    return docs
+    if not items:
+        docs = [_doc_from_defaults(user_id, spec) for spec in DEFAULT_ASSISTANTS]
+        if docs:
+            await db.twin_assistants.insert_many([dict(d) for d in docs])
+        return docs
+    have = {str(item.get("slug") or "") for item in items}
+    extra = []
+    for spec in missing_backfill(have):
+        if len(items) + len(extra) >= MAX_ASSISTANTS:
+            break
+        extra.append(_doc_from_defaults(user_id, spec))
+    if extra:
+        await db.twin_assistants.insert_many([dict(doc) for doc in extra])
+        items.extend(extra)
+    return items
 
 
 @router.get("")

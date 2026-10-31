@@ -95,7 +95,7 @@ public static class StudioLexicon
             or "undo" or "disclose" or "look-back" or "wishful" or "mute"
             => "Sit",
         "twin" or "personality" or "abilities" or "skills" or "phone" or "avatar" or "group-twin" or "group-voice"
-            or "portrait" or "likeness" or "persona" or "grounded" or "speak"
+            or "portrait" or "likeness" or "persona" or "grounded" or "speak" or "caretaker" or "style"
             => "Twin",
         "archive" or "journal" or "interviewer" or "photos" or "import" or "group-file" or "file" or "ask" or "chapter"
             or "story" or "recognize"

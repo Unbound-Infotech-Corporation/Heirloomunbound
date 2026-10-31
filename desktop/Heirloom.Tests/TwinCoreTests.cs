@@ -51,6 +51,21 @@ public class TwinRetrieveTests
         Assert.Contains("Heirloom, an AI", ownerSystem, StringComparison.Ordinal);
         Assert.Contains("What I remember", heirSystem, StringComparison.Ordinal);
         Assert.Contains("counselor", heirSystem, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Chat naturally about everyday things", ownerSystem, StringComparison.Ordinal);
+        Assert.DoesNotContain("Chat naturally about everyday things", heirSystem, StringComparison.Ordinal);
+        Assert.Contains("A fluent sentence is not a filing.", heirSystem, StringComparison.Ordinal);
+        Assert.False(TwinPrompt.MissApplies("owner", true, false));
+        Assert.True(TwinPrompt.MissApplies("heir", true, false));
+        Assert.True(TwinPrompt.MissApplies("caller", true, false));
+        Assert.False(TwinPrompt.MissApplies("heir", true, true));
+        using var profile = System.Text.Json.JsonDocument.Parse("{\"word_choice\":\"short words\"}");
+        var style = TwinPrompt.StyleRegister("owner", profile.RootElement);
+        Assert.Contains("short words", style, StringComparison.Ordinal);
+        Assert.Equal("", TwinPrompt.StyleRegister("heir", profile.RootElement));
+        var withStyle = TwinPrompt.System(owner, "Alex", styleBlock: style);
+        Assert.Contains("HOW THIS OWNER TALKS", withStyle, StringComparison.Ordinal);
+        var heirStyled = TwinPrompt.System(heir, "Alex", styleBlock: style);
+        Assert.DoesNotContain("short words", heirStyled, StringComparison.Ordinal);
     }
 
     [Fact]

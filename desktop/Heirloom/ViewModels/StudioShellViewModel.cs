@@ -59,6 +59,8 @@ public partial class StudioShellViewModel : ObservableObject
         Skills = new SkillsViewModel(host);
         Library = new LibraryViewModel(host);
         Phone = new PhoneViewModel(host);
+        Caretaker = new CaretakerViewModel(host);
+        OwnerStyle = new OwnerStyleViewModel(host);
         Twin.Phone = Phone;
         Coach.PropertyChanged += (_, e) =>
         {
@@ -145,6 +147,8 @@ public partial class StudioShellViewModel : ObservableObject
     public SkillsViewModel Skills { get; }
     public LibraryViewModel Library { get; }
     public PhoneViewModel Phone { get; }
+    public CaretakerViewModel Caretaker { get; }
+    public OwnerStyleViewModel OwnerStyle { get; }
 
     public IReadOnlyList<DockItem> Dock { get; } =
     [
@@ -154,6 +158,8 @@ public partial class StudioShellViewModel : ObservableObject
         new("mixer", "Mixer", "\uE767"),
         Head("Twin"),
         new("twin", "Sitting", "\uE8BD"),
+        new("caretaker", "Caretaker", "\uE90F"),
+        new("style", "Style", "\uE8D4"),
         new("personality", "Portrait", "\uE8D4"),
         new("abilities", "Abilities", "\uE945"),
         new("skills", "Skills", "\uE90F"),
@@ -217,6 +223,12 @@ public partial class StudioShellViewModel : ObservableObject
             return;
         }
 
+        if ((id is "caretaker" or "style") && !_host.CanEdit)
+        {
+            StatusLine = "Heir mode. That page stays with the owner.";
+            return;
+        }
+
         _open.Add(id);
         ActiveDocumentId = id;
         StudioHelp.SetDocument(id);
@@ -240,6 +252,12 @@ public partial class StudioShellViewModel : ObservableObject
                 break;
             case "phone":
                 _ = Phone.ReloadAsync();
+                break;
+            case "caretaker":
+                _ = Caretaker.RefreshAsync();
+                break;
+            case "style":
+                _ = OwnerStyle.LoadAsync();
                 break;
             case "heirs":
             case "letters":
@@ -266,6 +284,8 @@ public partial class StudioShellViewModel : ObservableObject
         {
             "assistant" => "Assist  ·  work on this PC",
             "twin" => "Twin  ·  grounded conversation",
+            "caretaker" => "Caretaker  ·  box and companion",
+            "style" => "Style  ·  how you talk",
             "mixer" => "Mixer  ·  Heirloom WASAPI session",
             "models" => "Models  ·  local brain",
             "interviewer" => "Interviewer  ·  chapters, not chat",

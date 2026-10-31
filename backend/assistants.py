@@ -149,7 +149,30 @@ DEFAULT_ASSISTANTS: tuple[dict[str, Any], ...] = (
         "enabled": True,
         "speak_as": "assist",
     },
+    {
+        "slug": "caretaker",
+        "name": "Caretaker",
+        "role": (
+            "Diagnose the Twin Box and the BIGDEAL Companion. "
+            "Safe fixes run on their own. Everything else waits for confirm. "
+            "Never reboot, wipe a drive, change fans, or handle the owner password."
+        ),
+        "tools_allowlist": [],
+        "abilities": [],
+        "autonomy": "ask",
+        "enabled": True,
+        "speak_as": "specialist",
+    },
 )
+
+# Built-ins added after a vault already has clones. Research/PC stay opt-in
+# so deleting one is not undone on the next list.
+BACKFILL_SLUGS = frozenset({"caretaker"})
+
+
+def missing_backfill(slugs: set[str] | list[str]) -> list[dict]:
+    have = {str(slug or "") for slug in slugs}
+    return [spec for spec in DEFAULT_ASSISTANTS if spec["slug"] in BACKFILL_SLUGS and spec["slug"] not in have]
 
 
 def clean_abilities(raw: Optional[list], *, tools: Optional[list] = None) -> list[str]:

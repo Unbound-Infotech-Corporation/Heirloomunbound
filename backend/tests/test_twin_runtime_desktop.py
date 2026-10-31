@@ -301,8 +301,8 @@ def test_tools_for_turn_source_forces_twin_for_heir_audience():
     assert "if not is_owner_audience(audience_key):" in src or "owner_sitting = is_owner_audience" in src
     assert src.count('role = "twin"') >= 2
     assert "HEIR_FORBIDDEN_TOOLS" in src
-    assert "phone or not owner_sitting" in src
-    assert "if owner_sitting and ((not phone) or caller_is_owner):" in src
+    assert "phone or local_only or not owner_sitting" in src
+    assert "if owner_sitting and not local_only and ((not phone) or caller_is_owner):" in src
     assert "can_reuse_conversation" in src
     assert "audience=audience_key" in src
 

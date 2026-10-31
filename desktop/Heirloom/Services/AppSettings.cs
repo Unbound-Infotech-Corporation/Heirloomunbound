@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using Heirloom.BoxCore;
 
 namespace Heirloom.Services;
 
@@ -154,7 +156,13 @@ public sealed class SettingsStore
 
         try
         {
-            var json = File.ReadAllText(AppPaths.SettingsPath);
+            var json = SettingsPatch.ReadAllTextShared(AppPaths.SettingsPath);
+            if (json is null)
+            {
+                Current = new AppSettings { LibraryPath = AppPaths.DefaultVaultPath };
+                return;
+            }
+
             Current = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
             if (string.IsNullOrWhiteSpace(Current.LibraryPath))
             {
@@ -170,7 +178,56 @@ public sealed class SettingsStore
     public void Save()
     {
         AppPaths.EnsureDirectories();
-        File.WriteAllText(AppPaths.SettingsPath, JsonSerializer.Serialize(Current, JsonOptions));
+        var path = AppPaths.SettingsPath;
+        string? existing = null;
+        if (File.Exists(path))
+        {
+            existing = SettingsPatch.ReadAllTextShared(path);
+            if (existing is null)
+            {
+                Changed?.Invoke();
+                return;
+            }
+        }
+
+        var merged = MergePreservingUnknown(existing, Current);
+        SettingsPatch.WriteAllText(path, merged);
         Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Writes the keys this app owns and keeps every other key already in the file
+    /// (companion_mic_device, companion_proactive, and the rest).
+    /// </summary>
+    public static string MergePreservingUnknown(string? existingJson, AppSettings current)
+    {
+        JsonObject existing;
+        try
+        {
+            existing = string.IsNullOrWhiteSpace(existingJson)
+                ? new JsonObject()
+                : JsonNode.Parse(existingJson) as JsonObject ?? new JsonObject();
+        }
+        catch (JsonException)
+        {
+            existing = new JsonObject();
+        }
+
+        var owned = JsonNode.Parse(JsonSerializer.Serialize(current, JsonOptions)) as JsonObject ?? new JsonObject();
+        var result = new JsonObject();
+        foreach (var pair in existing)
+        {
+            if (!owned.ContainsKey(pair.Key))
+            {
+                result[pair.Key] = pair.Value?.DeepClone();
+            }
+        }
+
+        foreach (var pair in owned)
+        {
+            result[pair.Key] = pair.Value?.DeepClone();
+        }
+
+        return result.ToJsonString(JsonOptions);
     }
 }

@@ -1,0 +1,16 @@
+#!/bin/bash
+# GPU-lost check for the ollama container. Does not reboot, format, or touch
+# 192.168.0.16 / 192.168.0.19, and does not read the owner password.
+set -euo pipefail
+
+ROOT=""
+if [[ -r /etc/heirloom/root ]]; then
+  ROOT="$(tr -d '[:space:]' < /etc/heirloom/root)"
+fi
+if [[ -z "${ROOT}" || ! -d "${ROOT}/backend" ]]; then
+  echo "Caretaker watchdog: Heirloom root is not recorded yet." >&2
+  exit 0
+fi
+export HEIRLOOM_ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/backend${PYTHONPATH:+:${PYTHONPATH}}"
+exec python3 -m caretaker_watch

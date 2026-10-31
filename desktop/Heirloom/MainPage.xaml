@@ -2239,6 +2239,101 @@
                 </controls:StudioDocumentWindow>
 
                 <controls:StudioDocumentWindow
+                    Width="760"
+                    Height="560"
+                    Canvas.Left="72"
+                    Canvas.Top="40"
+                    Activated="OnDocActivated"
+                    CloseRequested="OnDocClose"
+                    DocumentId="caretaker"
+                    StatusText="{x:Bind ViewModel.Caretaker.Status, Mode=OneWay}"
+                    TitleText="Caretaker"
+                    Visibility="Collapsed">
+                    <Grid Padding="16" ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="280" />
+                        </Grid.ColumnDefinitions>
+                        <Grid RowSpacing="8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <ListView
+                                x:Name="CaretakerChatList"
+                                ItemTemplate="{StaticResource ChatLineTemplate}"
+                                ItemsSource="{x:Bind ViewModel.Caretaker.Lines, Mode=OneWay}"
+                                SelectionMode="None" />
+                            <TextBox
+                                Grid.Row="1"
+                                PlaceholderText="It's not answering me, the tray is red…"
+                                Text="{x:Bind ViewModel.Caretaker.Draft, Mode=TwoWay}" />
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+                                <Button Command="{x:Bind ViewModel.Caretaker.AskCommand}" Content="Ask" Style="{StaticResource StudioButtonPrimary}" />
+                                <Button
+                                    Command="{x:Bind ViewModel.Caretaker.ConfirmCommand}"
+                                    Content="Confirm"
+                                    IsEnabled="{x:Bind ViewModel.Caretaker.CanConfirm, Mode=OneWay}"
+                                    Style="{StaticResource StudioButtonSecondary}" />
+                                <Button Command="{x:Bind ViewModel.Caretaker.RefreshCommand}" Content="Health" Style="{StaticResource StudioButtonSecondary}" />
+                            </StackPanel>
+                        </Grid>
+                        <ScrollViewer Grid.Column="1">
+                            <StackPanel Spacing="8">
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Action log" />
+                                <ItemsControl ItemsSource="{x:Bind ViewModel.Caretaker.ActionLog, Mode=OneWay}" />
+                                <TextBlock Style="{StaticResource StudioOverline}" Text="Health" />
+                                <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.Caretaker.Health, Mode=OneWay}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </controls:StudioDocumentWindow>
+
+                <controls:StudioDocumentWindow
+                    Width="640"
+                    Height="640"
+                    Canvas.Left="88"
+                    Canvas.Top="28"
+                    Activated="OnDocActivated"
+                    CloseRequested="OnDocClose"
+                    DocumentId="style"
+                    StatusText="{x:Bind ViewModel.OwnerStyle.Status, Mode=OneWay}"
+                    TitleText="Style"
+                    Visibility="Collapsed">
+                    <ScrollViewer Padding="16">
+                        <StackPanel Spacing="8">
+                            <TextBlock Style="{StaticResource StudioMuted}" Text="{x:Bind ViewModel.OwnerStyle.SampleLine, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Word choice" />
+                            <TextBox Text="{x:Bind ViewModel.OwnerStyle.WordChoice, Mode=TwoWay}" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Sentence length" />
+                            <TextBox Text="{x:Bind ViewModel.OwnerStyle.SentenceLength, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Punctuation" />
+                            <TextBox Text="{x:Bind ViewModel.OwnerStyle.Punctuation, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Casing" />
+                            <TextBox Text="{x:Bind ViewModel.OwnerStyle.Casing, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Deliberate typos" />
+                            <TextBox Text="{x:Bind ViewModel.OwnerStyle.DeliberateTypos, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Humor" />
+                            <TextBox Text="{x:Bind ViewModel.OwnerStyle.Humor, Mode=TwoWay}" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="How he opens" />
+                            <TextBox Text="{x:Bind ViewModel.OwnerStyle.Opens, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="How he closes" />
+                            <TextBox Text="{x:Bind ViewModel.OwnerStyle.Closes, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="What he skips" />
+                            <TextBox Text="{x:Bind ViewModel.OwnerStyle.Skips, Mode=TwoWay}" />
+                            <TextBlock Style="{StaticResource StudioOverline}" Text="Topics he likes" />
+                            <TextBox Text="{x:Bind ViewModel.OwnerStyle.Topics, Mode=TwoWay}" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Command="{x:Bind ViewModel.OwnerStyle.SaveCommand}" Content="Save" Style="{StaticResource StudioButtonPrimary}" />
+                                <Button Command="{x:Bind ViewModel.OwnerStyle.ResetCommand}" Content="Reset" Style="{StaticResource StudioButtonSecondary}" />
+                                <Button Command="{x:Bind ViewModel.OwnerStyle.LoadCommand}" Content="Reload" Style="{StaticResource StudioButtonSecondary}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </controls:StudioDocumentWindow>
+
+                <controls:StudioDocumentWindow
                     Width="720"
                     Height="560"
                     Canvas.Left="64"
