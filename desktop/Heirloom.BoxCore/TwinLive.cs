@@ -89,7 +89,27 @@ public sealed record TwinLiveFrame(
 public static class TwinLiveBoard
 {
     public const string You = "You";
+    public const string Typed = "You · typed";
     public const string Twin = "Twin";
+
+    public static TwinLiveFrame AppendTyped(TwinLiveFrame prior, string? draft)
+    {
+        var text = (draft ?? "").Trim();
+        if (text.Length == 0)
+        {
+            return prior;
+        }
+
+        var lines = new List<TwinLiveLine>(prior.Lines) { new(Typed, text) };
+        if (lines.Count > 80)
+        {
+            lines = lines.GetRange(lines.Count - 80, 80);
+        }
+
+        return prior with { Lines = lines };
+    }
+
+    public static bool EnterSends(bool enter, bool shift) => enter && !shift;
 
     public static TwinLiveFrame Next(
         TwinLiveFrame prior,

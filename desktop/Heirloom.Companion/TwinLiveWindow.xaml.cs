@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using Heirloom.BoxCore;
 
@@ -31,6 +32,8 @@ public partial class TwinLiveWindow : Window
     public event Action<string>? ConfirmRequested;
 
     public event Action<string>? DeclineRequested;
+
+    public event Action<string>? TypedRequested;
 
     public void Reveal()
     {
@@ -115,5 +118,34 @@ public partial class TwinLiveWindow : Window
         {
             DeclineRequested?.Invoke(_pendingId);
         }
+    }
+
+    private void OnDraftKey(object sender, KeyEventArgs e)
+    {
+        if (!TwinLiveBoard.EnterSends(e.Key == Key.Enter, Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        SubmitDraft();
+    }
+
+    private void OnSend(object sender, RoutedEventArgs e) => SubmitDraft();
+
+    private void SubmitDraft()
+    {
+        var text = (Draft.Text ?? "").Trim();
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        Draft.Text = "";
+        _frame = TwinLiveBoard.AppendTyped(_frame, text);
+        Lines.ItemsSource = null;
+        Lines.ItemsSource = _frame.Lines;
+        TranscriptScroll.ScrollToEnd();
+        TypedRequested?.Invoke(text);
     }
 }

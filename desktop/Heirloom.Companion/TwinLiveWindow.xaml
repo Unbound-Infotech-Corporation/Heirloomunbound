@@ -16,7 +16,7 @@
             <TextBlock x:Name="Status" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Text="Paused" />
             <CheckBox x:Name="OnTop" Content="Always on top" HorizontalAlignment="Right" VerticalAlignment="Center" Checked="OnTopChanged" Unchecked="OnTopChanged" />
         </DockPanel>
-        <TextBlock DockPanel.Dock="Top" Margin="0,0,0,8" Foreground="#5C564C" Text="Microphone only. The studio can stay closed." />
+        <TextBlock DockPanel.Dock="Top" Margin="0,0,0,8" Foreground="#5C564C" Text="Type or talk. The microphone keeps listening." />
         <Border x:Name="PendingBox" DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="10" Background="White" CornerRadius="6" Visibility="Collapsed">
             <StackPanel>
                 <TextBlock x:Name="PendingLabel" TextWrapping="Wrap" />
@@ -36,6 +36,19 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0" LastChildFill="True">
+            <Button x:Name="Send" DockPanel.Dock="Right" Content="Send" MinWidth="72" Margin="8,0,0,0" Padding="12,4" VerticalAlignment="Bottom" Click="OnSend" />
+            <TextBox
+                x:Name="Draft"
+                AcceptsReturn="True"
+                MinHeight="32"
+                MaxHeight="96"
+                Padding="6,4"
+                TextWrapping="Wrap"
+                VerticalScrollBarVisibility="Auto"
+                PreviewKeyDown="OnDraftKey"
+                ToolTip="Enter sends. Shift+Enter starts a new line." />
+        </DockPanel>
         <ScrollViewer x:Name="TranscriptScroll" VerticalScrollBarVisibility="Auto">
             <ItemsControl x:Name="Lines">
                 <ItemsControl.ItemTemplate>
