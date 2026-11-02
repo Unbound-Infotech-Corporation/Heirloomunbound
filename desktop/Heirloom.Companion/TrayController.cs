@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using H.NotifyIcon;
@@ -37,6 +38,7 @@ internal sealed class TrayController : IDisposable
         _live = new TwinLiveWindow(_store);
         _live.ConfirmRequested += id => _ = ConfirmAsync(id);
         _live.DeclineRequested += id => _ = DeclineAsync(id);
+        _live.TypedRequested += text => _ = SendTypedAsync(text);
         BoxClient.Unauthorized += OnUnauthorized;
     }
 
@@ -393,6 +395,30 @@ internal sealed class TrayController : IDisposable
 
         var json = "{\"id\":\"" + id.Replace("\"", "", StringComparison.Ordinal) + "\"}";
         await BoxClient.PostAssistAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, "/api/assist/live/decline", json).ConfigureAwait(true);
+    }
+
+    private async Task SendTypedAsync(string text)
+    {
+        var words = (text ?? "").Trim();
+        if (words.Length == 0)
+        {
+            return;
+        }
+
+        var token = _store.Session();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return;
+        }
+
+        var json = JsonSerializer.Serialize(new { text = words });
+        await BoxClient.PostAssistAsync(
+            _store.BoxUrl,
+            _store.Pin,
+            _store.CaPem,
+            token,
+            "/api/assist/live/say",
+            json).ConfigureAwait(true);
     }
 
     private async Task TogglePauseAsync()

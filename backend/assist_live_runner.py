@@ -120,7 +120,7 @@ async def advance_for_user(
             persist=True,
             role=role,
             twin_backend=twin_backend,
-            audience="owner",
+            audience=str(user.get("audience") or "owner"),
             extra_system=extra_system or None,
             local_only=True,
         )

@@ -83,3 +83,5 @@ services:
 networks:
   heirloom:
     name: heirloom-box
+    # Odysseus (compose service name "odysseus", container port 7000) can join
+    # this network. The API then uses http://odysseus:7000. See box/ODYSSEUS.md.

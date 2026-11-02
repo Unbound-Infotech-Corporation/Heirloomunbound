@@ -520,7 +520,7 @@ async def companion_voice(
             "updated_at": now_iso,
         })
 
-    return {
+    result = {
         "user_text": spoken,
         "transcript": spoken,
         "reply": spoken_reply,
@@ -529,6 +529,11 @@ async def companion_voice(
         "action": turn.action,
         "twin_backend": turn.backend,
     }
+    if turn.brain:
+        result["brain"] = turn.brain
+    if turn.brain_meta:
+        result["brain_meta"] = turn.brain_meta
+    return result
 
 
 # ---------- Download the companion script (with token embedded) ----------

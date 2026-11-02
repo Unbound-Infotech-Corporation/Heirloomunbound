@@ -66,6 +66,106 @@ public static class BrainRoute
         return true;
     }
 
+    /// <summary>
+    /// LAN IP, or the Odysseus compose service name. Default ports are 7011 and 7000.
+    /// </summary>
+    public static bool TryNormalizeOdysseusUrl(string? raw, out string normalized, out string error)
+    {
+        normalized = "";
+        error = "";
+        var text = (raw ?? "").Trim();
+        if (text.Length == 0)
+        {
+            error = "Odysseus URL is empty";
+            return false;
+        }
+
+        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri)
+            || (uri.Scheme != "http" && uri.Scheme != "https"))
+        {
+            error = "Odysseus URL must be http or https";
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(uri.UserInfo))
+        {
+            error = "Put the Odysseus token in the secret file, not the URL";
+            return false;
+        }
+
+        var hostText = uri.Host.Trim('[', ']');
+        if (hostText.Equals("odysseus", StringComparison.OrdinalIgnoreCase))
+        {
+            var servicePort = uri.IsDefaultPort ? 7000 : uri.Port;
+            if (servicePort is < 1 or > 65535)
+            {
+                error = "Odysseus URL port is invalid";
+                return false;
+            }
+
+            normalized = $"{uri.Scheme}://odysseus:{servicePort}";
+            return true;
+        }
+
+        if (!IPAddress.TryParse(hostText, out var ip))
+        {
+            error = "Odysseus URL must be a LAN IP or the odysseus service name";
+            return false;
+        }
+
+        if (!IsLan(ip))
+        {
+            error = "Odysseus URL must stay on the LAN";
+            return false;
+        }
+
+        var host = ip.ToString();
+        if (host is "192.168.0.16" or "192.168.0.19")
+        {
+            error = "That address is off limits";
+            return false;
+        }
+
+        var port = uri.IsDefaultPort ? 7011 : uri.Port;
+        if (port is < 1 or > 65535)
+        {
+            error = "Odysseus URL port is invalid";
+            return false;
+        }
+
+        var shown = ip.AddressFamily == AddressFamily.InterNetworkV6 ? $"[{host}]" : host;
+        normalized = $"{uri.Scheme}://{shown}:{port}";
+        return true;
+    }
+
+    public static bool TryNormalizeStrategy(string? raw, out string strategy, out string error)
+    {
+        var text = (raw ?? "").Trim().ToLowerInvariant();
+        if (text.Length == 0)
+        {
+            strategy = "single";
+            error = "";
+            return true;
+        }
+
+        strategy = text switch
+        {
+            "single" => "single",
+            "single+odysseus_research" or "single_odysseus_research" or "odysseus_research" => "single+odysseus_research",
+            "ensemble_synthesis" or "ensemble" => "ensemble_synthesis",
+            "judge_pick_best" or "judge" => "judge_pick_best",
+            _ => "",
+        };
+        if (strategy.Length == 0)
+        {
+            error = "Strategy must be single, single+odysseus_research, ensemble_synthesis, or judge_pick_best.";
+            return false;
+        }
+
+        error = "";
+        return true;
+    }
+
     public static bool LoadedModelsOffGpu(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))

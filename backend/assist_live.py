@@ -446,6 +446,30 @@ def reduce_mute(state: dict | None, muted: bool) -> dict[str, Any]:
     return current
 
 
+def reduce_typed(
+    state: dict | None,
+    *,
+    text: str,
+    now: float,
+) -> dict[str, Any]:
+    """A typed line is an addressed turn. The microphone stays as it was.
+
+    Pause, listening, and push-to-talk are left alone. The words still land
+    in the same inbox a wake phrase or a held talk button would fill, so the
+    next poll uses the same twin, memory guard, and spoken reply.
+    """
+    current = _copy(state)
+    spoken = " ".join((text or "").split())
+    if not spoken or screen_is_sensitive(spoken).drop:
+        return current
+    spoken = redact_stored_text(spoken, limit=2000)
+    if not spoken:
+        return current
+    _remember(current, "typed", spoken)
+    current["inbox"] = {"id": _nid(current, now, "say"), "text": spoken, "source": "typed"}
+    return current
+
+
 def reduce_heard(
     state: dict | None,
     *,

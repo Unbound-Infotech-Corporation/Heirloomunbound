@@ -398,11 +398,15 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     # Only expose the tools from abilities the owner has enabled (+ core memory).
     active_schemas = [s for s in TOOL_SCHEMAS if s["function"]["name"] in enabled_tools]
 
-    from llm_provider import complete_openai_chat, resolve_llm_provider, uses_ollama
+    from llm_provider import resolve_llm_provider, uses_ollama
 
     if uses_ollama(resolve_llm_provider()):
         ollama_messages = list(initial_messages)
         ollama_messages.append({"role": "user", "content": message_text})
+        user_turn = {"role": "user", "content": payload.message, "ts": datetime.now(timezone.utc).isoformat()}
+        if specialist_id:
+            user_turn["specialist_id"] = specialist_id
+            user_turn["clone_id"] = specialist_id
 
         async def gen_local():
             full = ""
@@ -414,8 +418,10 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                         "assistant_id": specialist_id,
                         "name": specialist_name,
                     }) + "\n\n"
-                completed = await complete_openai_chat(ollama_messages)
-                full = completed.text
+                from brain_council import complete_turn
+
+                outcome = await complete_turn(ollama_messages, message_text, audience=turn_audience)
+                full = outcome.text
                 if full:
                     yield "data: " + json.dumps({"text": full}) + "\n\n"
             except Exception as exc:  # noqa: BLE001
@@ -436,6 +442,8 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     from observer_prompt import WATCHED_SOURCE
 
                     assistant_turn["source_label"] = WATCHED_SOURCE
+                if outcome.public():
+                    assistant_turn["brain_meta"] = outcome.public()
                 await db.conversations.update_one(
                     {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},
                     {
@@ -459,6 +467,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 source_line = _source_sse(watched_reply)
                 if source_line:
                     yield source_line
+                yield "event: brain\ndata: " + json.dumps(outcome.public()) + "\n\n"
                 yield "event: done\ndata: {}\n\n"
 
         return StreamingResponse(

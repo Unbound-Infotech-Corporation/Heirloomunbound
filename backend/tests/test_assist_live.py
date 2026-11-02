@@ -27,6 +27,7 @@ from assist_live import (
     reduce_ptt,
     reduce_screen,
     reduce_settings,
+    reduce_typed,
     room_flags,
     save_state,
     wake_phrase_for,
@@ -505,6 +506,7 @@ def test_routes_are_owner_only(tmp_path, monkeypatch):
     assert client.get("/api/assist/live").status_code == 404
     assert client.get("/api/assist/live/mic").status_code == 404
     assert client.post("/api/assist/live/ptt", json={"held": True}).status_code == 404
+    assert client.post("/api/assist/live/say", json={"text": "hello"}).status_code == 404
     assert client.post("/api/assist/live/confirm", json={"id": "act"}).status_code == 404
     assert client.post("/api/assist/live/decline", json={"id": "act"}).status_code == 404
 
@@ -598,3 +600,47 @@ def test_no_leaves_the_action_unrun_and_pause_blocks_it():
     assert view["caption"].startswith("No.")
     assert view["receipt"]["status"] == "failed"
     assert any(row["summary"].startswith("No.") for row in view["receipts"])
+
+
+def test_typed_line_uses_the_speech_turn_and_leaves_the_mic_up():
+    listening = default_state()
+    listening["listening"] = True
+    listening["paused"] = False
+    listening["ptt_until"] = 50.0
+    listening["audio_id"] = "cap_playing"
+    typed = reduce_typed(listening, text="  what did we file about the river  ", now=10)
+    assert typed["listening"] is True
+    assert typed["paused"] is False
+    assert typed["ptt_until"] == 50.0
+    assert typed["inbox"]["text"] == "what did we file about the river"
+    assert typed["inbox"]["source"] == "typed"
+    calls = _Calls(reply="The river road was filed.")
+    state, view = _run(
+        advance_state(typed, now=11, audience="owner", paused=False, turn=calls.turn, execute=calls.execute)
+    )
+    assert calls.turns[0]["message"] == "what did we file about the river"
+    assert calls.turns[0]["local_only"] is True
+    assert calls.turns[0]["source"] == "assist_live"
+    assert calls.turns[0]["role"] == "twin"
+    assert view["listening"] is True
+    assert view["caption"] == "The river road was filed."
+    assert state["audio_id"] == ""
+
+
+def test_typed_heir_turn_does_not_reach_the_twin():
+    typed = reduce_typed(default_state(), text="the 60/40 money split", now=1)
+    calls = _Calls(reply="should not speak")
+    _state, view = _run(
+        advance_state(
+            typed,
+            now=2,
+            audience="heir",
+            heir_surface=True,
+            paused=False,
+            turn=calls.turn,
+            execute=calls.execute,
+        )
+    )
+    assert calls.turns == []
+    assert "60/40" not in view["caption"]
+    assert view["caption"] == ""

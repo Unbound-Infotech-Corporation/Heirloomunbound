@@ -206,6 +206,36 @@ public class BoxClientTests
     }
 
     [Fact]
+    public void Typed_line_keeps_listening_and_is_labeled()
+    {
+        var listening = TwinLiveBoard.Next(
+            TwinLiveFrame.Empty,
+            true,
+            [new MicTranscriptLine("mic-1", "hey C L")],
+            "",
+            "",
+            "");
+        Assert.Equal("Listening", listening.Status);
+
+        var blank = TwinLiveBoard.AppendTyped(listening, "   ");
+        Assert.Same(listening, blank);
+
+        var typed = TwinLiveBoard.AppendTyped(listening, "  what did we file  ");
+        Assert.Equal("Listening", typed.Status);
+        Assert.Equal(listening.CanAnswer, typed.CanAnswer);
+        Assert.Equal(listening.SeenMicIds, typed.SeenMicIds);
+        Assert.Equal(TwinLiveBoard.Typed, typed.Lines[^1].Who);
+        Assert.Equal("what did we file", typed.Lines[^1].Text);
+        Assert.True(TwinLiveBoard.EnterSends(enter: true, shift: false));
+        Assert.False(TwinLiveBoard.EnterSends(enter: true, shift: true));
+        Assert.False(TwinLiveBoard.EnterSends(enter: false, shift: false));
+
+        var still = TwinLiveBoard.Next(typed, true, [new MicTranscriptLine("mic-1", "hey C L")], "", "", "");
+        Assert.Equal(2, still.Lines.Count);
+        Assert.Equal(TwinLiveBoard.Typed, still.Lines[1].Who);
+    }
+
+    [Fact]
     public void Unreachable_and_bad_json_are_red_and_amber()
     {
         var down = TrayStatus.Describe(false, null, "https://192.168.0.111", null);

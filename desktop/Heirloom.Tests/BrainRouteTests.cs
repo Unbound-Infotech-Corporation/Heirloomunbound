@@ -37,6 +37,48 @@ public class BrainRouteTests
         Assert.False(BrainRoute.LoadedModelsOffGpu("""{"models":[]}"""));
     }
 
+    [Theory]
+    [InlineData("http://192.168.0.110:7011", "http://192.168.0.110:7011")]
+    [InlineData("http://192.168.0.110", "http://192.168.0.110:7011")]
+    [InlineData("http://odysseus:7000", "http://odysseus:7000")]
+    [InlineData("http://odysseus", "http://odysseus:7000")]
+    public void Odysseus_urls_normalize(string raw, string expected)
+    {
+        Assert.True(BrainRoute.TryNormalizeOdysseusUrl(raw, out var normalized, out var error), error);
+        Assert.Equal(expected, normalized);
+    }
+
+    [Theory]
+    [InlineData("http://8.8.8.8:7011")]
+    [InlineData("http://example.com:7011")]
+    [InlineData("http://192.168.0.16:7011")]
+    [InlineData("http://user:secret@192.168.0.110:7011")]
+    public void Odysseus_urls_reject_public_names_and_secrets(string raw)
+    {
+        Assert.False(BrainRoute.TryNormalizeOdysseusUrl(raw, out _, out var error));
+        Assert.False(string.IsNullOrWhiteSpace(error));
+        Assert.DoesNotContain("user:secret", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("single", "single")]
+    [InlineData("single+odysseus_research", "single+odysseus_research")]
+    [InlineData("ensemble", "ensemble_synthesis")]
+    [InlineData("judge", "judge_pick_best")]
+    [InlineData("", "single")]
+    public void Strategies_normalize(string raw, string expected)
+    {
+        Assert.True(BrainRoute.TryNormalizeStrategy(raw, out var strategy, out var error), error);
+        Assert.Equal(expected, strategy);
+    }
+
+    [Fact]
+    public void Unknown_strategy_is_refused()
+    {
+        Assert.False(BrainRoute.TryNormalizeStrategy("cloud", out _, out var error));
+        Assert.Contains("single", error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Processor_column_must_be_all_gpu()
     {

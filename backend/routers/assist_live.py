@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from assist_live import load_state, mic_transcript, reduce_mute, reduce_ptt, reduce_settings, save_state
+from assist_live import load_state, mic_transcript, reduce_mute, reduce_ptt, reduce_settings, reduce_typed, save_state
 from deps import get_current_user
 from observer_store import observer_dir, observer_enabled
 from owner_pairing import is_owner_audience
@@ -29,6 +29,10 @@ class PttReq(BaseModel):
 
 class MuteReq(BaseModel):
     muted: bool = True
+
+
+class SayReq(BaseModel):
+    text: str = Field(default="", max_length=2000)
 
 
 class ConfirmReq(BaseModel):
@@ -85,6 +89,22 @@ async def assist_live_mute(body: MuteReq, user: dict = Depends(get_current_user)
     state = reduce_mute(load_state(root), body.muted)
     save_state(state, root)
     return {"muted": bool(state.get("muted"))}
+
+
+@router.post("/say")
+async def assist_live_say(body: SayReq, user: dict = Depends(get_current_user)):
+    """Typed line on Twin Live. Same turn as a spoken address. The mic stays up."""
+    _owner(user)
+    if not observer_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    from time import time
+
+    from assist_live_runner import advance_for_user
+
+    root = observer_dir()
+    state = reduce_typed(load_state(root), text=body.text, now=time())
+    save_state(state, root)
+    return await advance_for_user(user)
 
 
 @router.get("/mic")

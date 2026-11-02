@@ -24,6 +24,21 @@ from brain_route import (
 from llm_provider import complete_text
 
 
+def test_default_bigdeal_model_is_local_gpt_oss(monkeypatch):
+    monkeypatch.delenv("HEIRLOOM_BRAIN_MODEL", raising=False)
+    monkeypatch.delenv("HEIRLOOM_BRAIN_URL", raising=False)
+    from brain_route import REMOTE_MODEL, settings_from_env
+    from llm_provider import is_cloud_choice
+
+    assert REMOTE_MODEL == "gpt-oss:120b"
+    assert settings_from_env().remote_model == "gpt-oss:120b"
+    assert is_cloud_choice("gpt-oss:120b") is False
+    saved = prepare_owner_update({"url": "http://192.168.0.50:11434", "model": "gpt-oss:120b"}, None)
+    assert saved["model"] == "gpt-oss:120b"
+    saved_alt = prepare_owner_update({"url": "http://192.168.0.50:11434", "model": "qwen3:32b"}, None)
+    assert saved_alt["model"] == "qwen3:32b"
+
+
 def test_lan_url_rules():
     assert normalize_lan_url("http://192.168.0.50:11434") == "http://192.168.0.50:11434"
     assert normalize_lan_url("http://10.1.2.3") == "http://10.1.2.3:11434"
