@@ -117,6 +117,16 @@ Games are named when the title or window matches a known game, and the decision 
 
 Accepted notes, and the owner's pending notes at confidence `0.75` or higher, are background in the Twin prompt. They sit under owner-recorded vault passages. If a reply relies on them, the source label is `from what I've watched`.
 
+The prompt keeps at most 24 of those notes, ranked by the question, then accepted status, confidence, and recency. Near-duplicates are dropped. Each note is cut at 280 characters and the section stops at 6,000 characters.
+
+Heard lines that repeat as a longer copy of the same text are stored once, as the longest copy, cut at 1,200 characters. New notes are limited to 40 an hour and 80 a day. Accepted notes are kept. Pending notes older than 21 days are dropped, and at most 240 pending notes remain. Owner memories are not sent to Odysseus, and heirs still see only accepted notes.
+
+```bash
+heirloom-box observer compact
+```
+
+That copies `notes.jsonl` to a timestamped `.bak` beside it, then dedupes. Running it again changes nothing and does not delete accepted notes.
+
 ## VR gaze (owner, opt-in)
 
 This is separate from the capture card. When the owner turns on eye tracking in the Room and a runtime actually provides gaze, the browser posts one summary to `POST /api/observer/vr-gaze`. The note is `source=vr_gaze`, kind `attention`, and lists areas (twin, seat, room, floor, elsewhere) with dwell time. Raw rays, origins, and pupil samples are not stored. Dwells under 400 ms are dropped.
@@ -222,6 +232,7 @@ heirloom-box observer status
 heirloom-box observer pause
 heirloom-box observer resume
 heirloom-box observer digest
+heirloom-box observer compact
 ```
 
 ## Install

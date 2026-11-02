@@ -6,7 +6,8 @@ The live path in ``brain_route`` picks one Ollama. BIGDEAL defaults to
 
 * ``single`` — that one model. Default after the bake-off.
 * ``single+odysseus_research`` — owner turns only. A fast search: the
-  primary model writes a query, Odysseus ``POST /api/search`` (or
+  primary model writes a query (``think`` low, 256 tokens; the box qwen
+  model is the fallback), Odysseus ``POST /api/search`` (or
   ``/api/v1/chat`` with ``use_web``) returns notes, and the primary
   model answers from them. Deep Research is an opt-in background job.
 * ``ensemble_synthesis`` — experimental and off unless
@@ -87,6 +88,11 @@ _HARD_PREFIXES = (
 _PICK_RE = re.compile(r"\bPICK:\s*(bigdeal|box|odysseus)\b", re.IGNORECASE)
 _ORDER = ("bigdeal", "odysseus", "box")
 DRAFT_TIMEOUT = 35.0
+SEARCH_QUERY_TIMEOUT = 12.0
+SEARCH_QUERY_PREDICT = 256
+SEARCH_FALLBACK_TIMEOUT = 8.0
+SEARCH_FALLBACK_PREDICT = 128
+_QUERY_LABEL = re.compile(r"^(?:search query|query)\s*:\s*", re.IGNORECASE)
 
 AskFn = Callable[[str, str, float], Awaitable[Any]]
 
@@ -449,8 +455,71 @@ def _from_odysseus(result: Any) -> BrainDraft:
     )
 
 
-async def _search_query(question: str, *, base_url: Optional[str], poster: Any) -> str:
-    """One short local call. The vault pack is not included."""
+def _model_family(name: str) -> str:
+    return (name or "").strip().lower().split(":", 1)[0]
+
+
+def _clean_search_query(text: str) -> str:
+    """The query line only. A thinking trace is not a query."""
+    from llm_provider import visible_answer
+
+    visible = visible_answer({"content": text or ""})
+    line = ""
+    for row in visible.splitlines():
+        candidate = row.strip().strip("\"'`")
+        if candidate:
+            line = candidate
+            break
+    line = _QUERY_LABEL.sub("", line).strip()
+    return line[:200]
+
+
+async def _rewrite_search_query(
+    messages: list[dict],
+    *,
+    base_url: Optional[str],
+    poster: Any,
+    model: Optional[str] = None,
+    pin_host: bool = False,
+    think: Any = "low",
+    num_predict: int = SEARCH_QUERY_PREDICT,
+    timeout: float = SEARCH_QUERY_TIMEOUT,
+) -> str:
+    from llm_provider import complete_openai_chat
+
+    try:
+        completed = await complete_openai_chat(
+            messages,
+            model=model,
+            base_url=base_url,
+            poster=poster,
+            pin_host=pin_host,
+            timeout=timeout,
+            think=think,
+            num_predict=num_predict,
+        )
+    except Exception as exc:
+        logger.warning("search query rewrite failed: %s", type(exc).__name__)
+        return ""
+    return _clean_search_query(completed.text)
+
+
+async def _search_query(
+    question: str,
+    *,
+    base_url: Optional[str],
+    poster: Any,
+    local_url: str = "",
+    local_model: str = "",
+    remote_configured: bool = False,
+) -> str:
+    """One short local call. The vault pack is not included.
+
+    ``gpt-oss`` spends a short budget on reasoning, so this call uses
+    ``think`` low and 256 tokens. An empty reply falls back to the box
+    qwen model, then to the question itself.
+    """
+    raw = " ".join((question or "").split())[:200]
     messages = [
         {
             "role": "system",
@@ -458,21 +527,34 @@ async def _search_query(question: str, *, base_url: Optional[str], poster: Any) 
         },
         {"role": "user", "content": " ".join((question or "").split())[:500]},
     ]
-    try:
-        draft = await _single(
+    primary = await _rewrite_search_query(
+        messages,
+        base_url=base_url,
+        poster=poster,
+        think="low",
+        num_predict=SEARCH_QUERY_PREDICT,
+        timeout=SEARCH_QUERY_TIMEOUT,
+    )
+    if primary:
+        return primary
+    from brain_route import LOCAL_CHAT_MODEL, last_answer
+
+    box_model = (local_model or "").strip() or LOCAL_CHAT_MODEL
+    used = str(last_answer().get("model") or "")
+    if remote_configured and _model_family(used) != _model_family(box_model):
+        fallback = await _rewrite_search_query(
             messages,
-            base_url=base_url,
+            model=box_model,
+            base_url=local_url or None,
             poster=poster,
-            timeout=4.0,
+            pin_host=True,
             think=False,
-            num_predict=48,
+            num_predict=SEARCH_FALLBACK_PREDICT,
+            timeout=SEARCH_FALLBACK_TIMEOUT,
         )
-    except Exception as exc:
-        logger.warning("search query rewrite failed: %s", type(exc).__name__)
-        draft = None
-    if draft is not None and draft.text.strip():
-        return draft.text.strip().splitlines()[0][:200]
-    return " ".join((question or "").split())[:200]
+        if fallback:
+            return fallback
+    return raw
 
 
 async def complete_turn(
@@ -529,7 +611,14 @@ async def complete_turn(
         return await finish(draft.text, [draft], "fast", primary=draft, extra=extra or None)
 
     if use_search:
-        query = await _search_query(question, base_url=base_url, poster=poster)
+        query = await _search_query(
+            question,
+            base_url=base_url,
+            poster=poster,
+            local_url=brain.local_url,
+            local_model=brain.local_model,
+            remote_configured=bool(brain.remote_url),
+        )
         found = _from_odysseus(await ask("search", query, 8.0))
         skipped = [] if found.ok else ["odysseus"]
         prompt = messages
