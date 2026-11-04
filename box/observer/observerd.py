@@ -623,7 +623,7 @@ def main() -> int:
     if not observer_enabled():
         print("HEIRLOOM_OBSERVER is off", file=sys.stderr)
         return 0
-    ram = assert_ram_dir(os.environ.get("OBSERVER_RAM_DIR", "/run/heirloom-observer"))
+    ram = assert_ram_dir(os.environ.get("OBSERVER_RAM_DIR", "/run/heirloom/observer"))
     ram.mkdir(parents=True, exist_ok=True)
     store = ObserverStore(observer_dir())
     store.root.mkdir(parents=True, exist_ok=True)

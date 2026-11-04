@@ -10,9 +10,12 @@ from caretaker import (
     TIMEOUT_MARK,
     CaretakerOps,
     CaretakerState,
+    HostOps,
     ack_companion,
     append_log_line,
+    compose_recreate_api_argv,
     compose_restart_argv,
+    observer_mount_is_stale,
     confirm_pending,
     generation_verified,
     gpu_lost,
@@ -245,5 +248,46 @@ def test_caretaker_is_a_builtin_clone_and_the_api_stays_owner_only():
     assert "192.168.0.16" in watch
     timer = Path(__file__).resolve().parents[2] / "box" / "caretaker" / "heirloom-caretaker.timer"
     assert "OnUnitActiveSec=3min" in timer.read_text(encoding="utf-8")
+
+
+def test_stale_observer_mount_recreates_the_api_container():
+    assert observer_mount_is_stale("123", "456") is True
+    assert observer_mount_is_stale("123\n", "123") is False
+    assert observer_mount_is_stale("stat: no such file", "456") is False
+    argv = compose_recreate_api_argv("/var/lib/heirloom/src/box")
+    assert "--force-recreate" in argv
+    assert "restart" not in argv
+    assert argv[-1] == "api"
+    try:
+        compose_recreate_api_argv("/tmp/192.168.0.16/box")
+    except ValueError:
+        refused = True
+    else:
+        refused = False
+    assert refused is True
+
+    calls = []
+
+    def runner(command):
+        calls.append(command)
+        if command[0] == "stat":
+            return "11\n"
+        if "exec" in command:
+            return "99\n"
+        return "recreated"
+
+    ops = HostOps(runner=runner, compose_dir="/var/lib/heirloom/src/box")
+    assert ops.repair_observer_mount() == "recreated"
+    assert any(part == "box-api-1" for command in calls for part in command)
+    assert any("--force-recreate" in command for command in calls)
+    calls.clear()
+
+    def same(command):
+        calls.append(command)
+        return "11\n"
+
+    quiet = HostOps(runner=same, compose_dir="/var/lib/heirloom/src/box")
+    assert quiet.repair_observer_mount() == ""
+    assert not any("--force-recreate" in command for command in calls)
     install = (Path(__file__).resolve().parents[2] / "box" / "install.sh").read_text(encoding="utf-8")
     assert "install_caretaker" in install

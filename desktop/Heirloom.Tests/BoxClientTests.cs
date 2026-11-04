@@ -503,6 +503,136 @@ public class BoxClientTests
         Assert.Throws<PlatformNotSupportedException>(() => DpapiBoxSession.Save(Path.GetTempFileName(), "token"));
     }
 
+    [Fact]
+    public void Loop_backoff_caps_and_a_stale_pass_is_due()
+    {
+        Assert.Equal(TimeSpan.Zero, LoopGuard.Backoff(0));
+        Assert.Equal(TimeSpan.FromSeconds(2), LoopGuard.Backoff(1));
+        Assert.Equal(TimeSpan.FromSeconds(4), LoopGuard.Backoff(2));
+        Assert.Equal(LoopGuard.MaxBackoff, LoopGuard.Backoff(20));
+        var start = DateTimeOffset.Parse("2026-11-04T12:00:00Z");
+        Assert.False(LoopGuard.IsStale(start, start.AddMinutes(2)));
+        Assert.True(LoopGuard.IsStale(start, start.AddMinutes(3)));
+    }
+
+    [Fact]
+    public async Task Request_deadline_cancels_a_hung_call()
+    {
+        using var linked = RequestDeadline.Link(CancellationToken.None, TimeSpan.FromMilliseconds(40));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Task.Delay(TimeSpan.FromSeconds(5), linked.Token));
+    }
+
+    [Fact]
+    public void Wake_resume_always_fires_and_network_changes_are_debounced()
+    {
+        var hub = new WakeHub();
+        var reasons = new List<string>();
+        hub.Raised += reasons.Add;
+        var now = DateTimeOffset.Parse("2026-11-04T12:00:00Z");
+        Assert.True(hub.Raise(WakeReason.SleepResume, now));
+        Assert.True(hub.Raise(WakeReason.Network, now));
+        Assert.False(hub.Raise(WakeReason.Network, now.AddSeconds(1)));
+        Assert.True(hub.Raise(WakeReason.Network, now.AddSeconds(6)));
+        Assert.Equal(new[] { WakeReason.SleepResume, WakeReason.Network, WakeReason.Network }, reasons);
+    }
+
+    [Fact]
+    public void Rolling_log_does_not_touch_settings_json()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "heirloom-log-" + Guid.NewGuid().ToString("N"));
+        var logs = Path.Combine(root, "logs");
+        Directory.CreateDirectory(logs);
+        var settings = Path.Combine(root, "settings.json");
+        var beside = Path.Combine(logs, "settings.json");
+        File.WriteAllText(settings, "{\"box_url\":\"https://127.0.0.1\"}");
+        File.WriteAllText(beside, "{\"keep\":true}");
+        var before = File.ReadAllBytes(settings);
+        var log = new CompanionLog(logs);
+        log.Write("health", "first pass");
+        File.WriteAllText(Path.Combine(logs, "companion.log"), new string('x', (int)CompanionLog.MaxBytes));
+        log.Write("audio", "rotated");
+        Assert.Equal(before, File.ReadAllBytes(settings));
+        Assert.Equal("{\"keep\":true}", File.ReadAllText(beside));
+        Assert.True(File.Exists(Path.Combine(logs, "companion.log.1")));
+        Assert.Contains("rotated", File.ReadAllText(Path.Combine(logs, "companion.log")));
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task Watchdog_restarts_a_loop_that_never_finishes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "heirloom-loop-" + Guid.NewGuid().ToString("N"));
+        var log = new CompanionLog(root);
+        var loop = new SupervisedLoop("health", log)
+        {
+            StaleAfter = TimeSpan.FromMilliseconds(40),
+            WatchPeriod = TimeSpan.FromMilliseconds(15),
+        };
+        using var stop = new CancellationTokenSource();
+        var passes = 0;
+        var task = loop.RunAsync(async cancellationToken =>
+        {
+            var pass = Interlocked.Increment(ref passes);
+            if (pass == 1)
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+        }, stop.Token);
+        var until = DateTime.UtcNow.AddSeconds(2);
+        while (Volatile.Read(ref passes) < 2 && DateTime.UtcNow < until)
+        {
+            await Task.Delay(20);
+        }
+
+        stop.Cancel();
+        await task;
+        Assert.True(passes >= 2);
+        var text = File.ReadAllText(Path.Combine(root, "companion.log"));
+        Assert.Contains("watchdog restart", text);
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task Sleep_resume_cancels_the_current_pass()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "heirloom-wake-" + Guid.NewGuid().ToString("N"));
+        var hub = new WakeHub();
+        var log = new CompanionLog(root);
+        var loop = new SupervisedLoop("screen", log, hub)
+        {
+            StaleAfter = TimeSpan.FromMinutes(10),
+            WatchPeriod = TimeSpan.FromMinutes(10),
+        };
+        using var stop = new CancellationTokenSource();
+        var passes = 0;
+        var task = loop.RunAsync(async cancellationToken =>
+        {
+            var pass = Interlocked.Increment(ref passes);
+            if (pass == 1)
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+        }, stop.Token);
+        var until = DateTime.UtcNow.AddSeconds(2);
+        while (Volatile.Read(ref passes) < 1 && DateTime.UtcNow < until)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(hub.Raise(WakeReason.SleepResume, DateTimeOffset.UtcNow));
+        until = DateTime.UtcNow.AddSeconds(2);
+        while (Volatile.Read(ref passes) < 2 && DateTime.UtcNow < until)
+        {
+            await Task.Delay(10);
+        }
+
+        stop.Cancel();
+        await task;
+        Assert.True(passes >= 2);
+        Assert.Contains("resume after sleep-resume", File.ReadAllText(Path.Combine(root, "companion.log")));
+        Directory.Delete(root, recursive: true);
+    }
+
     private static X509Certificate2 SelfSigned()
     {
         using var rsa = RSA.Create(2048);

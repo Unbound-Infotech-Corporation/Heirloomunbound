@@ -90,9 +90,14 @@ _ORDER = ("bigdeal", "odysseus", "box")
 DRAFT_TIMEOUT = 35.0
 SEARCH_QUERY_TIMEOUT = 12.0
 SEARCH_QUERY_PREDICT = 256
+SEARCH_RETRY_PREDICT = 128
 SEARCH_FALLBACK_TIMEOUT = 8.0
 SEARCH_FALLBACK_PREDICT = 128
 _QUERY_LABEL = re.compile(r"^(?:search query|query)\s*:\s*", re.IGNORECASE)
+_QUERY_PROSE = re.compile(
+    r"^(?:i|we|let me|the user|the owner|this question|need to|i'll|i should|okay|hmm)\b",
+    re.IGNORECASE,
+)
 
 AskFn = Callable[[str, str, float], Awaitable[Any]]
 
@@ -311,6 +316,47 @@ async def _settings_pair():
     return await current_settings(), odysseus, public_odysseus(odysseus), saved_map
 
 
+def _draft_from(completed: Any, *, started: float, route_name: str, model: str) -> BrainDraft:
+    name = "bigdeal" if route_name == "remote" else "box"
+    return BrainDraft(
+        name=name,
+        model=getattr(completed, "model", "") or model,
+        text=getattr(completed, "text", "") or "",
+        ok=bool(getattr(completed, "text", "")),
+        latency_ms=int((time.perf_counter() - started) * 1000),
+    )
+
+
+async def _box_after_remote(
+    messages: list[dict],
+    *,
+    poster: Any,
+    timeout: float,
+    exc: Exception,
+) -> Any:
+    """One turn on the box model after BIGDEAL errors or times out."""
+    from brain_route import LOCAL_CHAT_MODEL, current_settings, last_answer
+    from llm_provider import BRAIN_KEEP_ALIVE, complete_openai_chat
+
+    row = last_answer()
+    settings = await current_settings()
+    local_model = (settings.local_model or "").strip() or LOCAL_CHAT_MODEL
+    if row.get("name") != "remote":
+        return None
+    if _model_family(str(row.get("model") or "")) == _model_family(local_model):
+        return None
+    logger.warning("remote brain failed (%s); using the box model", type(exc).__name__)
+    return await complete_openai_chat(
+        messages,
+        model=local_model,
+        base_url=settings.local_url,
+        pin_host=True,
+        poster=poster,
+        timeout=timeout,
+        keep_alive=BRAIN_KEEP_ALIVE,
+    )
+
+
 async def _single(
     messages: list[dict],
     *,
@@ -320,29 +366,28 @@ async def _single(
     think: Any = None,
     num_predict: Optional[int] = None,
 ) -> BrainDraft:
-    from llm_provider import complete_openai_chat
+    from llm_provider import BRAIN_KEEP_ALIVE, complete_openai_chat
 
     started = time.perf_counter()
-    completed = await complete_openai_chat(
-        messages,
-        base_url=base_url,
-        poster=poster,
-        timeout=timeout,
-        think=think,
-        num_predict=num_predict,
-    )
+    try:
+        completed = await complete_openai_chat(
+            messages,
+            base_url=base_url,
+            poster=poster,
+            timeout=timeout,
+            think=think,
+            num_predict=num_predict,
+            keep_alive=BRAIN_KEEP_ALIVE,
+        )
+    except Exception as exc:
+        completed = await _box_after_remote(messages, poster=poster, timeout=timeout, exc=exc)
+        if completed is None:
+            raise
     from brain_route import last_answer
 
     row = last_answer()
     route_name = row.get("name") or "local"
-    name = "bigdeal" if route_name == "remote" else "box"
-    return BrainDraft(
-        name=name,
-        model=completed.model or row.get("model") or "",
-        text=completed.text,
-        ok=bool(completed.text),
-        latency_ms=int((time.perf_counter() - started) * 1000),
-    )
+    return _draft_from(completed, started=started, route_name=route_name, model=str(row.get("model") or ""))
 
 
 async def _pinned(
@@ -474,6 +519,35 @@ def _clean_search_query(text: str) -> str:
     return line[:200]
 
 
+def _usable_query(text: str) -> bool:
+    if not text or len(text) > 200:
+        return False
+    words = text.split()
+    if not (2 <= len(words) <= 16):
+        return False
+    if _QUERY_PROSE.match(text):
+        return False
+    if text.endswith((",", ":", ";", "…")) or text.endswith("..."):
+        return False
+    return True
+
+
+def salvage_search_query(content: str, thinking: str = "") -> str:
+    """A search query from gpt-oss content, or the last line of a thinking trace.
+
+    A trace that was cut off (one unfinished line, ``done_reason`` length) is
+    not a query. The caller retries with thinking off, then the box model.
+    """
+    direct = _clean_search_query(content)
+    if _usable_query(direct):
+        return direct
+    lines = [line.strip() for line in (thinking or "").splitlines() if line.strip()]
+    if len(lines) < 2:
+        return ""
+    candidate = _clean_search_query(lines[-1])
+    return candidate if _usable_query(candidate) else ""
+
+
 async def _rewrite_search_query(
     messages: list[dict],
     *,
@@ -485,7 +559,7 @@ async def _rewrite_search_query(
     num_predict: int = SEARCH_QUERY_PREDICT,
     timeout: float = SEARCH_QUERY_TIMEOUT,
 ) -> str:
-    from llm_provider import complete_openai_chat
+    from llm_provider import BRAIN_KEEP_ALIVE, complete_openai_chat
 
     try:
         completed = await complete_openai_chat(
@@ -497,11 +571,38 @@ async def _rewrite_search_query(
             timeout=timeout,
             think=think,
             num_predict=num_predict,
+            keep_alive=BRAIN_KEEP_ALIVE,
+            allow_empty=True,
         )
     except Exception as exc:
         logger.warning("search query rewrite failed: %s", type(exc).__name__)
         return ""
-    return _clean_search_query(completed.text)
+    query = salvage_search_query(completed.text, completed.thinking)
+    if query:
+        return query
+    # gpt-oss often spends the whole budget on reasoning (done_reason length,
+    # empty content). One more call with thinking off puts the tokens in content.
+    if think is False or pin_host:
+        return ""
+    if completed.done_reason not in {"length", "stop", ""} and completed.text:
+        return ""
+    try:
+        retry = await complete_openai_chat(
+            messages,
+            model=model,
+            base_url=base_url,
+            poster=poster,
+            pin_host=pin_host,
+            timeout=timeout,
+            think=False,
+            num_predict=SEARCH_RETRY_PREDICT,
+            keep_alive=BRAIN_KEEP_ALIVE,
+            allow_empty=True,
+        )
+    except Exception as exc:
+        logger.warning("search query rewrite failed: %s", type(exc).__name__)
+        return ""
+    return salvage_search_query(retry.text, retry.thinking)
 
 
 async def _search_query(

@@ -58,12 +58,13 @@ def screen_spool(raw: str | None = None) -> Path:
         path = Path(text)
         path.mkdir(parents=True, exist_ok=True)
         return path
-    ram = Path("/run/heirloom-observer/screen")
-    try:
-        ram.mkdir(parents=True, exist_ok=True)
-        return ram
-    except OSError:
-        pass
+    for ram in (Path("/run/heirloom/observer/screen"), Path("/run/heirloom-observer/screen")):
+        try:
+            if ram.parent.is_dir():
+                ram.mkdir(parents=True, exist_ok=True)
+                return ram
+        except OSError:
+            continue
     shm = Path("/dev/shm/heirloom-observer/screen")
     try:
         if Path("/dev/shm").is_dir():

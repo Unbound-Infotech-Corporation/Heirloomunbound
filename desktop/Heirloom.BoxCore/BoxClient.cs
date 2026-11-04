@@ -23,7 +23,8 @@ public static class BoxClient
         CancellationToken cancellationToken,
         bool reportUnauthorized = true)
     {
-        var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var deadline = RequestDeadline.Link(cancellationToken, http.Timeout);
+        var response = await http.SendAsync(request, deadline.Token).ConfigureAwait(false);
         if (reportUnauthorized && response.StatusCode == HttpStatusCode.Unauthorized)
         {
             Unauthorized?.Invoke();
@@ -143,10 +144,11 @@ public static class BoxClient
         var clock = Stopwatch.StartNew();
         try
         {
-            using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(8));
-            using var response = await http.GetAsync(Api(baseUrl, "/api/health"), cancellationToken).ConfigureAwait(false);
+            using var http = Create(baseUrl, pin, caPem, RequestDeadline.Health);
+            using var deadline = RequestDeadline.Link(cancellationToken, http.Timeout);
+            using var response = await http.GetAsync(Api(baseUrl, "/api/health"), deadline.Token).ConfigureAwait(false);
             clock.Stop();
-            var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var text = await response.Content.ReadAsStringAsync(deadline.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(text))
             {
                 return new HealthProbe(false, (int)clock.ElapsedMilliseconds, null);
@@ -154,7 +156,11 @@ public static class BoxClient
 
             return new HealthProbe(true, (int)clock.ElapsedMilliseconds, text);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException or UriFormatException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or InvalidOperationException or UriFormatException or TimeoutException)
         {
             clock.Stop();
             var failure = CertificatePin.IsValidationFailure(ex) ? CertificatePin.CheckFailed : null;
@@ -444,27 +450,33 @@ public static class BoxClient
     public static HttpClient Create(string baseUrl, string? pin, string? caPem, TimeSpan timeout)
     {
         var host = new Uri(BoxLink.Normalize(baseUrl)).Host;
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
-            ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
+            ConnectTimeout = RequestDeadline.Connect,
+            PooledConnectionLifetime = TimeSpan.FromSeconds(30),
+            PooledConnectionIdleTimeout = TimeSpan.FromSeconds(15),
+            SslOptions = new SslClientAuthenticationOptions
             {
-                X509Certificate2? leaf = cert is null ? null : new X509Certificate2(cert);
-                try
+                RemoteCertificateValidationCallback = (_, cert, chain, errors) =>
                 {
-                    return CertificatePin.Validate(
-                        boxMode: true,
-                        boxHost: host,
-                        pinnedFingerprint: pin,
-                        caPem: caPem,
-                        requestHost: message.RequestUri?.Host,
-                        cert: leaf,
-                        chain: chain,
-                        errors: errors);
-                }
-                finally
-                {
-                    leaf?.Dispose();
-                }
+                    X509Certificate2? leaf = cert is null ? null : new X509Certificate2(cert);
+                    try
+                    {
+                        return CertificatePin.Validate(
+                            boxMode: true,
+                            boxHost: host,
+                            pinnedFingerprint: pin,
+                            caPem: caPem,
+                            requestHost: host,
+                            cert: leaf,
+                            chain: chain,
+                            errors: errors);
+                    }
+                    finally
+                    {
+                        leaf?.Dispose();
+                    }
+                },
             },
         };
         return new HttpClient(handler, disposeHandler: true) { Timeout = timeout };

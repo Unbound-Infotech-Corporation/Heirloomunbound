@@ -26,10 +26,13 @@ internal sealed class AudioPump : IDisposable
     private string _systemFault = "";
     private string _micFault = "";
 
-    public AudioPump(CompanionStore store)
+    private readonly SupervisedLoop _loop;
+
+    public AudioPump(CompanionStore store, CompanionLog log, WakeHub wake)
     {
         _store = store;
-        _ = RunAsync(_stop.Token);
+        _loop = new SupervisedLoop("audio", log, wake);
+        _ = _loop.RunAsync(RunOnceAsync, _stop.Token);
     }
 
     public string SystemFault
@@ -50,26 +53,12 @@ internal sealed class AudioPump : IDisposable
         }
     }
 
-    private async Task RunAsync(CancellationToken cancellationToken)
+    private async Task RunOnceAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                var snapshot = Current();
-                SyncDevices(snapshot);
-                await FlushAsync(snapshot, cancellationToken).ConfigureAwait(false);
-                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-            catch (Exception)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
-            }
-        }
+        var snapshot = Current();
+        SyncDevices(snapshot);
+        await FlushAsync(snapshot, cancellationToken).ConfigureAwait(false);
+        await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
     }
 
     private BoxSnapshot Current()

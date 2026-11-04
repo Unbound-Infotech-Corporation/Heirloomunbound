@@ -6,15 +6,20 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=-/var/lib/heirloom/box.env
+# /run/heirloom is the stable parent. The spool lives in the child directory.
+# Preserving the runtime directory keeps its inode, so box-api-1's bind mount
+# is not left pointing at a directory systemd already deleted.
+ExecStartPre=/bin/mkdir -p /run/heirloom/observer/audio/system /run/heirloom/observer/audio/mic /run/heirloom/observer/screen
 ExecStart=/usr/local/bin/heirloom-observer
 Restart=on-failure
 RestartSec=2
-RuntimeDirectory=heirloom-observer
+RuntimeDirectory=heirloom
+RuntimeDirectoryPreserve=yes
 Group=video
 SupplementaryGroups=audio
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/heirloom/observer /run/heirloom-observer
+ReadWritePaths=/var/lib/heirloom/observer /run/heirloom /run/heirloom-observer
 
 [Install]
 WantedBy=multi-user.target

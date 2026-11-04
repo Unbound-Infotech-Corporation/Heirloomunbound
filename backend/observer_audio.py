@@ -210,13 +210,13 @@ def spool_dir(raw: str | None = None) -> Path:
     text = (raw or "").strip()
     if text:
         return Path(text)
-    ram = Path("/run/heirloom-observer/audio")
-    try:
-        if ram.parent.is_dir():
-            ram.mkdir(parents=True, exist_ok=True)
-            return ram
-    except OSError:
-        pass
+    for ram in (Path("/run/heirloom/observer/audio"), Path("/run/heirloom-observer/audio")):
+        try:
+            if ram.parent.is_dir():
+                ram.mkdir(parents=True, exist_ok=True)
+                return ram
+        except OSError:
+            continue
     shm = Path("/dev/shm/heirloom-observer/audio")
     try:
         if Path("/dev/shm").is_dir():

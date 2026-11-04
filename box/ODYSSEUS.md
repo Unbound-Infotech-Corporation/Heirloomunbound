@@ -63,10 +63,14 @@ API never returns the secret (`token_set` only).
 The live path does not wait on Deep Research.
 
 - Fast search, owner turns only: the BIGDEAL model rewrites the question into
-  one search query (`think` `low`, `num_predict` 256). A thinking trace is
-  discarded. If that reply is empty, the box `qwen2.5:14b` tries once, and
-  then the raw question is used. Vault text is not in either call. Heirloom
-  then `POST /api/search` with `{"query": "..."}`
+  one search query (`think` `low`, `num_predict` 256, `keep_alive` `30m`).
+  A gpt-oss reply whose content is empty and whose `done_reason` is `length`
+  still yields a query when the last line of the thinking trace is one. If it
+  is not, Heirloom asks again with thinking off. If that is empty, the box
+  `qwen2.5:14b` tries once, and then the raw question is used. Vault text is
+  not in either call. When BIGDEAL errors or takes longer than the turn
+  budget, that turn is answered by the box model instead. Heirloom then
+  `POST /api/search` with `{"query": "..."}`
   and the `ody_` token. That route is Odysseus's SearXNG lookup and returns
   `context` plus `sources`. If it is missing, Heirloom uses
   `POST /api/v1/chat` with `use_web: true`. The primary model answers from

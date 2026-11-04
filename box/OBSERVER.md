@@ -2,7 +2,9 @@
 
 Observer is the Twin Box watching the owner's HDMI picture and turning it into notes. It is off unless this machine was installed with `--observer`. Product builds do not set `HEIRLOOM_OBSERVER`.
 
-The raw stream is not stored. The ring buffer lives in `/run/heirloom-observer` (tmpfs). Notes are text. Short highlight clips exist only when `OBSERVER_CLIPS=1`, and they expire.
+The raw stream is not stored. The ring buffer lives in `/run/heirloom/observer` (tmpfs). `/run/heirloom-observer` is a symlink to that directory. Notes are text. Short highlight clips exist only when `OBSERVER_CLIPS=1`, and they expire.
+
+`heirloom-observer.service` sets `RuntimeDirectoryPreserve=yes` on `/run/heirloom`, and the API container bind-mounts that parent directory. A service restart no longer deletes the directory out from under `box-api-1`. If the inodes already differ, the caretaker watchdog recreates the API container (`docker compose up -d --force-recreate --no-deps api`). Restarting the container does not refresh a bind mount.
 
 ## Wiring
 
