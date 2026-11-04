@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from assist_live import (
+    TYPED_TURN_FAILURE,
     advance_state,
     cloud_fallback_allowed,
     default_state,
@@ -644,3 +645,51 @@ def test_typed_heir_turn_does_not_reach_the_twin():
     assert calls.turns == []
     assert "60/40" not in view["caption"]
     assert view["caption"] == ""
+
+
+def test_failed_typed_line_is_cleared_and_a_failed_aside_is_skipped(caplog):
+    import logging
+
+    caplog.set_level(logging.WARNING)
+
+    async def boom(message, *, extra_system, local_only, role, twin_backend, source):
+        raise RuntimeError("Ollama HTTP 500")
+
+    typed = reduce_typed(default_state(), text="open notepad", now=10)
+    state, view = _run(
+        advance_state(typed, now=11, audience="owner", turn=boom, execute=None)
+    )
+    assert view["caption"] == TYPED_TURN_FAILURE
+    assert state["inbox"] is None
+    assert state["pending"] is None
+    assert state["answered_id"] == typed["inbox"]["id"]
+    assert any("assist live turn failed" in record.message for record in caplog.records)
+
+    calls = _Calls()
+    _again, again_view = _run(
+        advance_state(state, now=12, audience="owner", turn=calls.turn, execute=calls.execute)
+    )
+    assert calls.turns == []
+    assert again_view["caption"] == TYPED_TURN_FAILURE
+
+    due = reduce_screen(
+        reduce_settings(default_state(), {"proactive": True}),
+        text="Build failed with an error",
+        now=20,
+    )
+    due["proactive_due"] = True
+    quiet, quiet_view = _run(
+        advance_state(due, now=30, audience="owner", turn=boom, execute=None)
+    )
+    assert quiet_view["caption"] == ""
+    assert quiet["proactive_due"] is False
+    assert quiet["last_proactive_at"] == 30.0
+    assert quiet["proactive_times"] == []
+    assert any("assist live aside failed" in record.message for record in caplog.records)
+
+    follow = _Calls(reply="should not run")
+    _state, follow_view = _run(
+        advance_state(quiet, now=31, audience="owner", turn=follow.turn, execute=follow.execute)
+    )
+    assert follow.turns == []
+    assert follow_view["caption"] == ""

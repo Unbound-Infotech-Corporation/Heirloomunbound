@@ -176,6 +176,7 @@ heirloom-box observer status
 heirloom-box observer pause
 heirloom-box observer resume
 heirloom-box observer digest
+heirloom-box observer compact
 heirloom-box presence status
 heirloom-box presence pause
 heirloom-box presence resume

@@ -20,6 +20,7 @@ Usage: heirloom-box <status|backup|report|observer|presence|update-drivers|set-o
   observer pause     stop understanding until resume (also pauses Presence)
   observer resume    clear a manual, web, or hotkey pause
   observer digest    write today's learned-notes markdown
+  observer compact   back up notes.jsonl, then dedupe heard notes and drop old pending notes
   presence status    cameras, fps, people enrolled, who is here, pause
   presence pause     stop recognition until resume (also pauses Observer)
   presence resume    clear the shared pause
@@ -228,7 +229,7 @@ cmd_observer() {
   local root
   root="$(read_root)"
   case "${action}" in
-    status|pause|resume|digest) ;;
+    status|pause|resume|digest|compact) ;;
     *)
       usage >&2
       exit 2

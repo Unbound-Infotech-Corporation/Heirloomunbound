@@ -3,10 +3,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from observer_learn import jaccard, tokenize
+from observer_learn import jaccard, normalize_note_text, tokenize
 from observer_store import HIGH_CONFIDENCE, ObserverStore, observer_dir, observer_enabled
 
 WATCHED_SOURCE = "from what I've watched"
+PROMPT_NOTE_LIMIT = 24
+PROMPT_NOTE_CHARS = 280
+PROMPT_BLOCK_CHARS = 6000
+_NEAR_DUP = 0.8
+_NEAR_DUP_CHARS = 40
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,77 @@ def block_grounded_miss(grounded_miss: bool, watched_relied: bool) -> bool:
     return bool(grounded_miss) and not watched_relied
 
 
+def _relevance(query: str, note: dict) -> float:
+    query_tokens = set(tokenize(query))
+    if not query_tokens:
+        return 0.0
+    note_tokens = set(note.get("tokens") or tokenize(str(note.get("text") or "")))
+    if not note_tokens:
+        return 0.0
+    shared = len(query_tokens & note_tokens)
+    return jaccard(query_tokens, note_tokens) + min(shared, 8) * 0.01
+
+
+def _status_rank(note: dict) -> int:
+    return 1 if str(note.get("status") or "").strip().lower() == "accepted" else 0
+
+
+def _clip_prompt_text(text: str) -> str:
+    folded = " ".join((text or "").split())
+    if len(folded) <= PROMPT_NOTE_CHARS:
+        return folded
+    return folded[: PROMPT_NOTE_CHARS - 1].rstrip() + "…"
+
+
+def _near_duplicate(left: str, right: str) -> bool:
+    a = normalize_note_text(left)
+    b = normalize_note_text(right)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    short, long = (a, b) if len(a) <= len(b) else (b, a)
+    if len(short) >= _NEAR_DUP_CHARS and short in long:
+        return True
+    return jaccard(tokenize(a), tokenize(b)) >= _NEAR_DUP
+
+
+def select_for_prompt(notes: list[dict], query: str = "") -> list[dict]:
+    """Notes that may enter the Twin prompt.
+
+    At most 24, ranked by relevance to the question, then accepted status,
+    confidence, and recency. Near-duplicates are dropped. Each note is cut
+    at 280 characters and the rendered block stops at 6,000 characters.
+    """
+    ranked = sorted(
+        notes,
+        key=lambda note: (
+            _relevance(query, note),
+            _status_rank(note),
+            float(note.get("confidence") or 0),
+            str(note.get("created_at") or ""),
+        ),
+        reverse=True,
+    )
+    kept: list[dict] = []
+    for note in ranked:
+        if len(kept) >= PROMPT_NOTE_LIMIT:
+            break
+        text = _clip_prompt_text(str(note.get("text") or ""))
+        if not text:
+            continue
+        if any(_near_duplicate(text, str(prev.get("text") or "")) for prev in kept):
+            continue
+        clipped = dict(note)
+        clipped["text"] = text
+        clipped["tokens"] = tokenize(text)
+        trial = observer_prompt_block(kept + [clipped])
+        if len(trial) > PROMPT_BLOCK_CHARS:
+            continue
+        kept.append(clipped)
+    return kept
+
+
 def notes_for_prompt(notes: list[dict], *, audience: str, heir_surface: bool = False) -> list[dict]:
     """Accepted notes, plus the owner's high-confidence pending notes."""
     heir = heir_surface or (audience or "").strip().lower() == "heir"
@@ -102,6 +178,7 @@ def attach_observer_context(
         except OSError:
             notes = []
     notes = notes_for_prompt(notes, audience=audience, heir_surface=heir_surface)
+    notes = select_for_prompt(notes, query)
     block = observer_prompt_block(notes)
     relied = bool(block) and relies_on_watched(query, notes)
     return ObserverAttach(block, apply_source_label(citation, relied), relied)

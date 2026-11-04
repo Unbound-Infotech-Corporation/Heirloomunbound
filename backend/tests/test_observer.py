@@ -1,6 +1,7 @@
 """Observer privacy, sessions, notes, heir fence, and storage caps."""
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -42,12 +43,22 @@ from observer_models import (
 from observer_pipeline import consider_frame
 from observer_privacy import pause_decision, screen_is_sensitive
 from observer_prompt import (
+    PROMPT_BLOCK_CHARS,
+    PROMPT_NOTE_CHARS,
+    PROMPT_NOTE_LIMIT,
     WATCHED_SOURCE,
     apply_source_label,
     attach_observer_context,
     block_grounded_miss,
+    observer_prompt_block,
+    select_for_prompt,
 )
-from observer_store import ObserverStore, observer_enabled
+from observer_store import (
+    HEARD_TEXT_CAP,
+    NOTE_HOURLY_CAP,
+    ObserverStore,
+    observer_enabled,
+)
 
 
 def _ts(minutes: int) -> str:
@@ -471,3 +482,271 @@ def test_prompt_uses_watched_label_and_skips_heirs_pending():
     off = attach_observer_context("vault#4", "play", notes=notes, enabled=False)
     assert off.block == ""
     assert off.citation == "vault#4"
+
+
+def test_prompt_keeps_a_relevant_handful_and_caps_the_block():
+    river = {
+        "kind": "habit",
+        "status": "pending",
+        "confidence": 0.8,
+        "created_at": "2026-10-01T00:00:00+00:00",
+        "text": "The river road floods after spring rain.",
+    }
+    hades = {
+        "kind": "habit",
+        "status": "accepted",
+        "confidence": 0.99,
+        "created_at": "2026-11-01T00:00:00+00:00",
+        "text": "Often in Hades during play.",
+    }
+    ranked = select_for_prompt([hades, river], "how is the river road")
+    assert ranked[0]["text"].startswith("The river road")
+
+    accepted = {
+        "kind": "habit",
+        "status": "accepted",
+        "confidence": 0.2,
+        "created_at": "2020-01-01T00:00:00+00:00",
+        "text": "Often in the pottery shed on weekends.",
+    }
+    pending = {
+        "kind": "habit",
+        "status": "pending",
+        "confidence": 0.99,
+        "created_at": "2026-11-01T00:00:00+00:00",
+        "text": "Often in the garage on weekends.",
+    }
+    tied = select_for_prompt([pending, accepted], "zzzz unique")
+    assert tied[0]["status"] == "accepted"
+
+    base = "Often near the river road after the spring rain"
+    longer = {
+        "kind": "heard",
+        "status": "pending",
+        "confidence": 0.9,
+        "created_at": "2026-11-02T00:00:00+00:00",
+        "text": base + " and the fields drain slowly",
+    }
+    shorter = {
+        "kind": "heard",
+        "status": "accepted",
+        "confidence": 0.4,
+        "created_at": "2026-10-02T00:00:00+00:00",
+        "text": base,
+    }
+    deduped = select_for_prompt([longer, shorter], "river road")
+    assert len(deduped) == 1
+    assert deduped[0]["status"] == "accepted"
+
+    long_text = "river " * 200
+    clipped = select_for_prompt(
+        [{"kind": "habit", "status": "accepted", "confidence": 0.9, "text": long_text, "created_at": "2026-11-02T00:00:00+00:00"}],
+        "river",
+    )
+    assert len(clipped[0]["text"]) <= PROMPT_NOTE_CHARS
+
+    many = []
+    for index in range(40):
+        many.append(
+            {
+                "kind": "habit",
+                "status": "accepted",
+                "confidence": 0.9,
+                "created_at": f"2026-11-02T00:{index:02d}:00+00:00",
+                "text": (f"unique{index} " * 70).strip(),
+            }
+        )
+    secret = {
+        "kind": "habit",
+        "status": "pending",
+        "confidence": 0.99,
+        "created_at": "2026-11-02T03:00:00+00:00",
+        "text": "The 60/40 money split stays with the owner.",
+    }
+    chosen = select_for_prompt(many, "unique0")
+    block = observer_prompt_block(chosen)
+    assert len(chosen) <= PROMPT_NOTE_LIMIT
+    assert len(block) <= PROMPT_BLOCK_CHARS
+    assert all(len(note["text"]) <= PROMPT_NOTE_CHARS for note in chosen)
+    attached = attach_observer_context(
+        "",
+        "unique0",
+        audience="owner",
+        notes=many + [secret],
+        enabled=True,
+    )
+    assert len(attached.block) <= PROMPT_BLOCK_CHARS
+    assert attached.block.count("\n- ") <= PROMPT_NOTE_LIMIT
+    heir = attach_observer_context(
+        "",
+        "money split",
+        audience="heir",
+        notes=many + [secret],
+        enabled=True,
+    )
+    assert "60/40" not in heir.block
+    assert "money split" not in heir.block
+
+
+def _note_row(note_id: str, **overrides) -> dict:
+    row = {
+        "id": note_id,
+        "source": "observer",
+        "kind": "habit",
+        "text": note_id,
+        "confidence": 0.8,
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "status": "pending",
+        "fingerprint": note_id,
+        "tokens": [],
+        "topics": [],
+    }
+    row.update(overrides)
+    return row
+
+
+def test_heard_notes_merge_and_new_notes_are_rate_limited(tmp_path: Path):
+    store = ObserverStore(tmp_path)
+    moment = datetime.now(timezone.utc)
+    short = "Watching/heard: the boss fight started in the north hall beside the river"
+    first = store.add_transcript(
+        {"channel": "system", "text": short, "ts": moment.isoformat()}
+    )
+    store.apply_feedback(first["note"]["id"], "thats_me")
+    longer = short + " and then the gate opened slowly"
+    merged = store.add_transcript(
+        {
+            "channel": "system",
+            "text": longer,
+            "ts": (moment + timedelta(seconds=2)).isoformat(),
+        }
+    )
+    heard = [note for note in store.read_notes() if note["kind"] == "heard"]
+    assert merged["reason"] == "merged"
+    assert len(heard) == 1
+    assert heard[0]["id"] == first["note"]["id"]
+    assert heard[0]["status"] == "accepted"
+    assert "gate opened" in heard[0]["text"]
+
+    growing = ObserverStore(tmp_path / "growing")
+    seed = growing.add_transcript(
+        {"channel": "system", "text": short, "ts": moment.isoformat()}
+    )
+    assert seed["note"]["kind"] == "heard"
+    extended = short + " and the music swelled as the gate opened"
+    growing.add_transcript(
+        {
+            "channel": "system",
+            "text": extended,
+            "ts": (moment + timedelta(seconds=3)).isoformat(),
+        }
+    )
+    huge = extended + (" more" * 4000)
+    growing.add_transcript(
+        {
+            "channel": "system",
+            "text": huge,
+            "ts": (moment + timedelta(seconds=4)).isoformat(),
+        }
+    )
+    lines = [note for note in growing.read_notes() if note["kind"] == "heard"]
+    assert len(lines) == 1
+    assert len(lines[0]["text"]) <= HEARD_TEXT_CAP
+    assert lines[0]["text"].endswith("…")
+
+    burst = ObserverStore(tmp_path / "burst")
+    for index in range(NOTE_HOURLY_CAP + 5):
+        burst.add_transcript(
+            {
+                "channel": "mic",
+                "text": f"User said: alpha{index} remembers the maple kiln beside the river",
+                "ts": (moment + timedelta(seconds=index)).isoformat(),
+            }
+        )
+    assert len(burst.read_notes()) == NOTE_HOURLY_CAP
+
+
+def test_compact_backs_up_then_keeps_accepted_notes(tmp_path: Path, monkeypatch, capsys):
+    store = ObserverStore(tmp_path)
+    heard = "Watching/heard: the boss fight started in the north hall and the gate opened"
+    rows = [
+        _note_row(
+            "obs_accepted",
+            status="accepted",
+            text="Often in the pottery shed.",
+            created_at="2020-01-01T00:00:00+00:00",
+        ),
+        _note_row(
+            "obs_secret",
+            text="The 60/40 money split stays with the owner.",
+            created_at="2026-01-02T00:00:00+00:00",
+        ),
+    ]
+    for extra_id, extra in (
+        ("obs_heard_a", ""),
+        ("obs_heard_b", " and the music swelled"),
+        ("obs_heard_c", " and the music swelled as the rain began"),
+    ):
+        rows.append(
+            _note_row(
+                extra_id,
+                kind="heard",
+                text=heard + extra,
+                created_at="2026-11-01T12:00:00+00:00",
+            )
+        )
+    for index in range(30):
+        rows.append(
+            _note_row(
+                f"obs_old_{index}",
+                text=f"Pending fact number {index} about maple syrup and winter roads",
+                created_at="2026-01-01T00:00:00+00:00",
+            )
+        )
+    for index in range(4):
+        rows.append(
+            _note_row(
+                f"obs_new_{index}",
+                text=f"Recent kiln note {index} about the glaze",
+                created_at="2026-11-01T08:00:00+00:00",
+            )
+        )
+    store.notes_path.parent.mkdir(parents=True, exist_ok=True)
+    store.notes_path.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    moment = datetime(2026, 11, 2, tzinfo=timezone.utc)
+    first = store.compact_notes(now=moment)
+    assert first["changed"] is True
+    assert first["before"] == len(rows)
+    assert Path(first["backup"]).is_file()
+    backup_lines = [line for line in Path(first["backup"]).read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(backup_lines) == len(rows)
+    kept = store.read_notes()
+    assert any(note["id"] == "obs_accepted" and note["status"] == "accepted" for note in kept)
+    assert all(note["id"] != "obs_secret" for note in kept)
+    assert sum(1 for note in kept if note["kind"] == "heard") == 1
+    heard_note = next(note for note in kept if note["kind"] == "heard")
+    assert "rain began" in heard_note["text"]
+    assert any(note["id"] == "obs_new_0" for note in kept)
+    assert all(not str(note["id"]).startswith("obs_old_") for note in kept)
+    heir = store.export_for_audience(audience="heir")
+    assert [note["id"] for note in heir["notes"]] == ["obs_accepted"]
+    assert "60/40" not in json.dumps(heir)
+
+    second = store.compact_notes(now=moment)
+    assert second["changed"] is False
+    assert second["backup"] == ""
+    assert store.read_notes() == kept
+    assert len(list(tmp_path.glob("notes.jsonl.*.bak"))) == 1
+
+    monkeypatch.setenv("HEIRLOOM_OBSERVER_DIR", str(tmp_path))
+    from observer_cli import main
+
+    assert main(["compact"]) == 0
+    assert "unchanged" in capsys.readouterr().out
+    script = Path(__file__).resolve().parents[2] / "box" / "heirloom-box"
+    text = script.read_text(encoding="utf-8")
+    assert "observer compact" in text
+    assert "status|pause|resume|digest|compact" in text

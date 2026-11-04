@@ -30,11 +30,16 @@ internal sealed class TrayController : IDisposable
     private bool _wasCertificate;
     private TimeSpan _delay = PollSchedule.Healthy;
     private Icon? _current;
+    private readonly CompanionLog _log = new(CompanionLog.DefaultDirectory());
+    private readonly WakeHub _wake = new();
+    private readonly SupervisedLoop _poll;
+    private IDisposable? _signals;
 
     public TrayController()
     {
-        _audio = new AudioPump(_store);
-        _screen = new ScreenPump(_store);
+        _poll = new SupervisedLoop("health", _log, _wake);
+        _audio = new AudioPump(_store, _log, _wake);
+        _screen = new ScreenPump(_store, _log, _wake);
         _live = new TwinLiveWindow(_store);
         _live.ConfirmRequested += id => _ = ConfirmAsync(id);
         _live.DeclineRequested += id => _ = DeclineAsync(id);
@@ -51,13 +56,12 @@ internal sealed class TrayController : IDisposable
         Paint(BoxLamp.Red);
         RebuildMenu();
         _icon.ForceCreate();
-        _ = PollAsync(_stop.Token);
+        _signals = MachineSignals.Attach(_wake);
+        _ = _poll.RunAsync(PollOnceAsync, _stop.Token);
     }
 
-    private async Task PollAsync(CancellationToken cancellationToken)
+    private async Task PollOnceAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
-        {
             var url = _store.BoxUrl;
             var probe = await BoxClient.HealthAsync(url, _store.Pin, _store.CaPem, cancellationToken).ConfigureAwait(true);
             var next = TrayStatus.Describe(probe.Reachable, probe.LatencyMs, url, probe.Body, probe.Failure);
@@ -89,15 +93,7 @@ internal sealed class TrayController : IDisposable
                 Paint(next.Lamp);
                 RebuildMenu();
             });
-            try
-            {
-                await Task.Delay(_delay, cancellationToken).ConfigureAwait(true);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-        }
+            await Task.Delay(_delay, cancellationToken).ConfigureAwait(true);
     }
 
     private void MaybeToast(BoxSnapshot next)
@@ -508,6 +504,7 @@ internal sealed class TrayController : IDisposable
     public void Dispose()
     {
         BoxClient.Unauthorized -= OnUnauthorized;
+        _signals?.Dispose();
         _stop.Cancel();
         _hotkey.Dispose();
         _player.Dispose();

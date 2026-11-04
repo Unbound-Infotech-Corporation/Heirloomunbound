@@ -134,6 +134,48 @@ def gpu_query_argv() -> list[str]:
     ]
 
 
+API_CONTAINER = "box-api-1"
+OBSERVER_MOUNT_PATHS = ("/run/heirloom/observer", "/run/heirloom-observer")
+
+
+def observer_inode(text: str) -> str:
+    """First integer inode from ``stat`` output. Empty when the command failed."""
+    for line in (text or "").splitlines():
+        token = line.strip().split()[0] if line.strip() else ""
+        if token.isdigit():
+            return token
+    return ""
+
+
+def observer_mount_is_stale(host_inode: str, container_inode: str) -> bool:
+    """True when the API container still has a deleted bind of the observer runtime dir."""
+    host = observer_inode(host_inode) or (host_inode or "").strip()
+    guest = observer_inode(container_inode) or (container_inode or "").strip()
+    if not host.isdigit() or not guest.isdigit():
+        return False
+    return host != guest
+
+
+def compose_recreate_api_argv(directory: str) -> list[str]:
+    """Recreate box-api so it bind-mounts the current /run directory. Restart does not."""
+    folder = (directory or "").strip()
+    if not folder or any(host in folder for host in FORBIDDEN_HOSTS):
+        raise ValueError("refused")
+    return [
+        "docker",
+        "compose",
+        "--project-directory",
+        folder,
+        "-f",
+        f"{folder}/docker-compose.yml",
+        "up",
+        "-d",
+        "--force-recreate",
+        "--no-deps",
+        "api",
+    ]
+
+
 def compose_restart_argv(service: str, directory: str) -> list[str]:
     if service not in GPU_SERVICES:
         raise ValueError("refused")
@@ -611,6 +653,25 @@ class HostOps(CaretakerOps):
         if self._compose_dir:
             return _run(self._compose("logs", "--tail", "80", service), self._runner)
         return _run(["docker", "logs", "--tail", "80", service], self._runner)
+
+    def observer_mount_stale(self) -> bool:
+        for path in OBSERVER_MOUNT_PATHS:
+            host = _run(["stat", "-c", "%i", path], self._runner)
+            guest = _run(
+                ["docker", "exec", API_CONTAINER, "stat", "-c", "%i", path],
+                self._runner,
+            )
+            if observer_mount_is_stale(host, guest):
+                return True
+        return False
+
+    def repair_observer_mount(self) -> str:
+        if not self.observer_mount_stale():
+            return ""
+        folder = self._compose_dir
+        if not folder:
+            return ""
+        return _run(compose_recreate_api_argv(folder), self._runner)
 
     def restart(self, service: str) -> str:
         folder = self._compose_dir

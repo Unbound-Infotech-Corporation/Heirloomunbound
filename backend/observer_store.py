@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import shutil
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,6 +12,7 @@ from typing import Any, Optional
 
 from observer_learn import (
     fingerprint,
+    jaccard,
     normalize_note_text,
     notes_from_observations,
     render_digest_section,
@@ -19,6 +22,8 @@ from observer_learn import (
     tokenize,
     transcript_note,
 )
+
+logger = logging.getLogger(__name__)
 from vr_mode import VR_GAZE_SOURCE
 
 _ON = frozenset({"1", "true", "yes", "on"})
@@ -27,6 +32,14 @@ DEFAULT_CAP_BYTES = 512 * 1024 * 1024
 DEFAULT_CLIP_TTL_DAYS = 7
 DEFAULT_CLIP_MINUTES = 10
 HIGH_CONFIDENCE = 0.75
+HEARD_TEXT_CAP = 1200
+NOTE_HOURLY_CAP = 40
+NOTE_DAILY_CAP = 80
+PENDING_RETENTION_DAYS = 21
+PENDING_KEEP_MAX = 240
+_HEARD_PREFIX = 48
+_HEARD_JACCARD = 0.82
+_rate_warned = False
 
 
 def _flag(name: str, raw: Optional[str] = None) -> bool:
@@ -281,11 +294,11 @@ class ObserverStore:
                 "scene_delta": 0,
             },
         )
-        if _note_exists(self.read_notes(), text):
-            return {"stored": True, "reason": "duplicate", "note": None}
         note = transcript_note(channel=channel, text=text, created_at=moment)
-        _append_jsonl(self.notes_path, note)
-        return {"stored": True, "reason": "", "note": note}
+        result = self._append_note(note)
+        if result.get("reason") == "rate":
+            return {"stored": True, "reason": "rate", "note": None}
+        return result
 
     def audio_toggle(self, key: str) -> bool:
         state = self.read_state()
@@ -332,11 +345,22 @@ class ObserverStore:
                     known_habits.add(ident)
             if not note.get("created_at"):
                 note["created_at"] = _now().isoformat()
-            _append_jsonl(self.notes_path, note)
-            known.add(note["fingerprint"])
-            if folded:
-                known_text.add(folded)
-            created.append(note)
+            result = self._append_note(note)
+            stored = result.get("note") if isinstance(result.get("note"), dict) else None
+            if stored is None:
+                continue
+            if result.get("reason") == "merged":
+                created.append(stored)
+                continue
+            known.add(stored.get("fingerprint"))
+            folded_stored = normalize_note_text(str(stored.get("text") or ""))
+            if folded_stored:
+                known_text.add(folded_stored)
+            if stored.get("kind") == "habit":
+                ident = habit_identity(str(stored.get("text") or ""))
+                if ident:
+                    known_habits.add(ident)
+            created.append(stored)
         return created
 
     def apply_feedback(self, note_id: str, vote: str) -> dict:
@@ -424,8 +448,86 @@ class ObserverStore:
         if self.would_suppress(stored):
             return {"stored": False, "reason": "suppressed"}
         self.root.mkdir(parents=True, exist_ok=True)
-        _append_jsonl(self.notes_path, stored)
-        return {"stored": True, "note": stored}
+        result = self._append_note(stored)
+        if result.get("reason") == "rate":
+            return {"stored": False, "reason": "rate"}
+        return {"stored": True, "note": result.get("note") or stored}
+
+    def _append_note(self, note: dict) -> dict:
+        """Write one note. Heard lines that grow are merged. New notes are rate-limited."""
+        prepared = _prepare_stored_note(note)
+        existing = self.read_notes()
+        if str(prepared.get("kind") or "") == "heard":
+            kept, rows, reason = _absorb_heard(existing, prepared)
+            if reason == "merged":
+                if rows != existing:
+                    _rewrite_jsonl(self.notes_path, rows)
+                return {"stored": True, "reason": "merged", "note": kept}
+        if _note_exists(existing, str(prepared.get("text") or "")):
+            return {"stored": True, "reason": "duplicate", "note": None}
+        moment = _parse_iso(str(prepared.get("created_at") or "")) or _now()
+        if _rate_limited(existing, moment):
+            _warn_rate_limit()
+            return {"stored": False, "reason": "rate", "note": None}
+        if not prepared.get("created_at"):
+            prepared["created_at"] = moment.isoformat()
+        self.root.mkdir(parents=True, exist_ok=True)
+        _append_jsonl(self.notes_path, prepared)
+        return {"stored": True, "reason": "", "note": prepared}
+
+    def compact_notes(self, *, now: Optional[datetime] = None) -> dict:
+        """Back up ``notes.jsonl``, then dedupe. Accepted notes are never removed.
+
+        A second run that finds nothing to change does not write another backup.
+        """
+        rows = self.read_notes()
+        compacted = compact_note_rows(rows, now=now)
+        accepted_ids = {
+            str(note.get("id") or "")
+            for note in rows
+            if str(note.get("status") or "") == "accepted" and note.get("id")
+        }
+        kept_ids = {
+            str(note.get("id") or "")
+            for note in compacted
+            if str(note.get("status") or "") == "accepted" and note.get("id")
+        }
+        accepted = sum(1 for note in compacted if str(note.get("status") or "") == "accepted")
+        if not accepted_ids <= kept_ids:
+            logger.error("observer compact refused to drop accepted notes")
+            return {
+                "changed": False,
+                "before": len(rows),
+                "after": len(rows),
+                "accepted": sum(1 for note in rows if str(note.get("status") or "") == "accepted"),
+                "backup": "",
+                "refused": True,
+            }
+        if compacted == rows:
+            return {
+                "changed": False,
+                "before": len(rows),
+                "after": len(rows),
+                "accepted": accepted,
+                "backup": "",
+            }
+        backup = ""
+        if self.notes_path.is_file():
+            stamp = _now().strftime("%Y%m%dT%H%M%SZ")
+            dest = self.notes_path.with_name(f"notes.jsonl.{stamp}.bak")
+            if dest.exists():
+                dest = self.notes_path.with_name(f"notes.jsonl.{stamp}-{uuid.uuid4().hex[:6]}.bak")
+            self.notes_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.notes_path, dest)
+            backup = str(dest)
+        _rewrite_jsonl(self.notes_path, compacted)
+        return {
+            "changed": True,
+            "before": len(rows),
+            "after": len(compacted),
+            "accepted": accepted,
+            "backup": backup,
+        }
 
     def visible_notes(self, *, audience: str, heir_surface: bool = False) -> list[dict]:
         """Heirs see accepted notes only. Owners also see pending. Nobody sees clips here.
@@ -714,6 +816,167 @@ def _recent_duplicate(rows: list[dict], *, text: str, activity: str, channel: st
             continue
         return same_note_text(str(prev.get("text") or ""), text)
     return False
+
+
+def clip_stored_text(text: str, limit: int = HEARD_TEXT_CAP) -> str:
+    folded = " ".join((text or "").split())
+    if len(folded) <= limit:
+        return folded
+    return folded[: limit - 1].rstrip() + "…"
+
+
+def heard_related(left: str, right: str) -> bool:
+    """True when two heard lines are the same utterance, or one grew from the other."""
+    a = normalize_note_text(left)
+    b = normalize_note_text(right)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    short, long = (a, b) if len(a) <= len(b) else (b, a)
+    if len(short) >= _HEARD_PREFIX and long.startswith(short):
+        return True
+    return jaccard(tokenize(left), tokenize(right)) >= _HEARD_JACCARD
+
+
+def _prepare_stored_note(note: dict) -> dict:
+    prepared = dict(note)
+    if str(prepared.get("kind") or "") != "heard":
+        return prepared
+    text = clip_stored_text(str(prepared.get("text") or ""))
+    prepared["text"] = text
+    prepared["tokens"] = tokenize(text)
+    prepared["fingerprint"] = fingerprint(text)
+    return prepared
+
+
+def _longer_heard(current: str, proposed: str) -> str:
+    if len(normalize_note_text(proposed)) > len(normalize_note_text(current)):
+        return proposed
+    return current
+
+
+def _grew_from(current: str, proposed: str) -> bool:
+    old = normalize_note_text(current)
+    new = normalize_note_text(proposed)
+    return bool(old) and len(new) > len(old) and new.startswith(old)
+
+
+def _with_heard_text(note: dict, text: str) -> dict:
+    updated = dict(note)
+    updated["text"] = text
+    updated["tokens"] = tokenize(text)
+    updated["fingerprint"] = fingerprint(text)
+    return updated
+
+
+def _absorb_heard(notes: list[dict], incoming: dict) -> tuple[dict, list[dict], str]:
+    """Fold one heard line into an existing heard note. The longest copy is kept.
+
+    An accepted note keeps its id and status. Its text grows only when the new
+    line is the same words with more after them.
+    """
+    for index, note in enumerate(notes):
+        if str(note.get("kind") or "") != "heard":
+            continue
+        if not heard_related(str(note.get("text") or ""), str(incoming.get("text") or "")):
+            continue
+        current = str(note.get("text") or "")
+        proposed = str(incoming.get("text") or "")
+        if str(note.get("status") or "") == "accepted" and not _grew_from(current, proposed):
+            return note, notes, "merged"
+        longer = _longer_heard(current, proposed)
+        if longer == current:
+            return note, notes, "merged"
+        updated = _with_heard_text(note, longer)
+        if str(note.get("status") or "") == "accepted":
+            updated["status"] = "accepted"
+        rows = list(notes)
+        rows[index] = updated
+        return updated, rows, "merged"
+    return incoming, notes, "new"
+
+
+def _squash_pending_heard(pending: list[dict], accepted: list[dict]) -> tuple[list[dict], list[dict]]:
+    accepted_rows = [dict(note) for note in accepted]
+    kept: list[dict] = []
+    for note in pending:
+        if str(note.get("kind") or "") != "heard":
+            kept.append(note)
+            continue
+        prepared = _prepare_stored_note(note)
+        matched = False
+        for index, prior in enumerate(accepted_rows):
+            if str(prior.get("kind") or "") != "heard":
+                continue
+            if not heard_related(str(prior.get("text") or ""), str(prepared.get("text") or "")):
+                continue
+            if _grew_from(str(prior.get("text") or ""), str(prepared.get("text") or "")):
+                extended = _with_heard_text(prior, str(prepared.get("text") or ""))
+                extended["status"] = "accepted"
+                accepted_rows[index] = extended
+            matched = True
+            break
+        if matched:
+            continue
+        _kept_note, rows, reason = _absorb_heard(kept, prepared)
+        if reason == "merged":
+            kept = rows
+            continue
+        kept.append(prepared)
+    return accepted_rows, kept
+
+
+def compact_note_rows(rows: list[dict], *, now: Optional[datetime] = None) -> list[dict]:
+    """Keep every accepted note. Merge heard copies. Drop old and excess pending notes."""
+    moment = _now(now)
+    accepted: list[dict] = []
+    pending: list[dict] = []
+    for note in rows:
+        if not isinstance(note, dict):
+            continue
+        status = str(note.get("status") or "pending").strip().lower()
+        if status == "accepted":
+            accepted.append(dict(note))
+        elif status == "pending":
+            pending.append(dict(note))
+    accepted, pending = _squash_pending_heard(pending, accepted)
+    cutoff = moment - timedelta(days=PENDING_RETENTION_DAYS)
+    fresh: list[dict] = []
+    for note in pending:
+        created = _parse_iso(str(note.get("created_at") or ""))
+        if created is not None and created < cutoff:
+            continue
+        fresh.append(note)
+    fresh.sort(key=lambda note: (str(note.get("created_at") or ""), str(note.get("id") or "")))
+    if len(fresh) > PENDING_KEEP_MAX:
+        fresh = fresh[-PENDING_KEEP_MAX:]
+    return accepted + fresh
+
+
+def _rate_limited(notes: list[dict], moment: datetime) -> bool:
+    moment = _now(moment)
+    hour_cut = moment - timedelta(hours=1)
+    day_cut = moment - timedelta(days=1)
+    hour = 0
+    day = 0
+    slack = timedelta(seconds=1)
+    for note in notes:
+        created = _parse_iso(str(note.get("created_at") or ""))
+        if created is None or created > moment + slack or created < day_cut:
+            continue
+        day += 1
+        if created >= hour_cut:
+            hour += 1
+    return hour >= NOTE_HOURLY_CAP or day >= NOTE_DAILY_CAP
+
+
+def _warn_rate_limit() -> None:
+    global _rate_warned
+    if _rate_warned:
+        return
+    _rate_warned = True
+    logger.warning("observer note rate limit reached; further notes wait for the next window")
 
 
 def _note_exists(notes: list[dict], text: str) -> bool:
