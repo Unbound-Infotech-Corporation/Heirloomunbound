@@ -43,8 +43,9 @@ KNOWN_MAIN_MODELS = (
     "qwen2.5vl",
 )
 
-USER_AGENT = "HeirloomStudyHall/0.9 (local; owner-operated research)"
+USER_AGENT = "HeirloomStudyHall/0.9 (+contact)"
 MIN_INTERVAL = 1.5
+DEFAULT_PAGES_PER_HOUR = 600
 
 
 def package_root() -> Path:

@@ -51,9 +51,27 @@ class Reading:
     items: list[dict] = field(default_factory=list)
     content_type: str = ""
     raw: str = ""
+    temporary: bool = False
 
     def citation(self) -> dict:
         return {"title": self.title, "url": self.url, "date": self.date}
+
+
+# Documented machine APIs. export.arxiv.org robots.txt is a blanket Disallow,
+# which would make the public API unreachable. These prefixes are the API itself.
+OFFICIAL_API_PREFIXES = (
+    "https://export.arxiv.org/api/",
+    "http://export.arxiv.org/api/",
+    "https://api.openalex.org/",
+    "http://api.openalex.org/",
+    "https://api.semanticscholar.org/",
+    "https://api.crossref.org/",
+    "https://hn.algolia.com/",
+)
+
+
+def official_api(url: str) -> bool:
+    return any((url or "").startswith(prefix) for prefix in OFFICIAL_API_PREFIXES)
 
 
 class _ArticleParser(HTMLParser):
@@ -264,8 +282,9 @@ class PoliteClient:
         self.sleep = sleep or asyncio.sleep
         self.timeout = timeout
         self._last: dict[str, float] = {}
-        self._robots: dict[str, RobotFileParser | None] = {}
+        self._robots: dict[str, tuple[str, RobotFileParser | None]] = {}
         self._crawl: dict[str, float] = {}
+        self._api_note: set[str] = set()
         self._lock = asyncio.Lock()
         self.client = httpx.AsyncClient(
             timeout=timeout,
@@ -307,31 +326,61 @@ class PoliteClient:
             raise ValueError("That file is larger than Study Hall will store.")
         return response
 
-    async def _robots_for(self, url: str) -> RobotFileParser | None:
+    async def _robots_body(self, origin: str) -> tuple[str, str]:
+        """RFC 9309. Returns (allow_all|temporary|rules, body). Redirects are followed."""
+        current = origin + "/robots.txt"
+        for _hop in range(MAX_REDIRECTS + 1):
+            try:
+                response = await self._get(current)
+            except httpx.HTTPError:
+                return "temporary", ""
+            except ValueError:
+                return "temporary", ""
+            code = response.status_code
+            if code in {301, 302, 303, 307, 308}:
+                location = response.headers.get("location") or ""
+                if not location:
+                    return "temporary", ""
+                current = urljoin(current, location)
+                continue
+            if code == 429 or code >= 500:
+                return "temporary", ""
+            if 400 <= code < 500:
+                return "allow_all", ""
+            if 200 <= code < 300:
+                return "rules", response.text[:200_000]
+            return "temporary", ""
+        return "temporary", ""
+
+    async def _robots_for(self, url: str) -> tuple[str, RobotFileParser | None]:
         origin = _origin(url)
-        if origin in self._robots:
-            return self._robots[origin]
-        robots_url = origin + "/robots.txt"
-        try:
-            response = await self._get(robots_url)
-        except (httpx.HTTPError, ValueError):
-            self._robots[origin] = None
-            return None
+        cached = self._robots.get(origin)
+        if cached is not None:
+            return cached
+        mode, body = await self._robots_body(origin)
+        if mode == "temporary":
+            return "temporary", None
         parser = RobotFileParser()
-        if response.status_code == 404:
+        if mode == "allow_all":
             parser.parse(["User-agent: *", "Allow: /"])
-        elif response.status_code != 200:
-            self._robots[origin] = None
-            return None
         else:
-            text = response.text[:200_000]
-            parser.parse(text.splitlines())
+            parser.parse(body.splitlines())
         delay = parser.crawl_delay(self.user_agent) or parser.crawl_delay("*")
         if delay:
             host = urlparse(url).hostname or ""
-            self._crawl[host] = max(self._crawl.get(host, 0.0), float(delay))
-        self._robots[origin] = parser
-        return parser
+            # A published crawl-delay is politeness, capped so one host cannot stall the room for minutes.
+            self._crawl[host] = max(self._crawl.get(host, 0.0), min(float(delay), 20.0))
+        self._robots[origin] = (mode, parser)
+        return mode, parser
+
+    def _allowed(self, parser: RobotFileParser | None, url: str) -> bool:
+        if official_api(url):
+            host = urlparse(url).hostname or ""
+            self._api_note.add(host)
+            return True
+        if parser is None:
+            return False
+        return bool(parser.can_fetch(self.user_agent, url))
 
     async def fetch(self, url: str) -> Reading:
         current = url
@@ -340,19 +389,18 @@ class PoliteClient:
                 parsed = urlparse(current)
                 if parsed.scheme not in {"http", "https"} or _blocked_host(parsed.hostname or ""):
                     return Reading(status="error", url=url, message="That address is not a reading source.")
-                robots = await self._robots_for(current)
-                if robots is None:
+                mode, robots = await self._robots_for(current)
+                if mode == "temporary":
                     return Reading(
-                        status="robots",
-                        url=url,
-                        title=current,
-                        message="Could not read robots.txt, so this page was not fetched.",
+                        status="retry",
+                        url=current,
+                        temporary=True,
+                        message="robots.txt could not be reached. This page will be tried again.",
                     )
-                if not robots.can_fetch(self.user_agent, current):
+                if not self._allowed(robots, current):
                     return Reading(
                         status="robots",
-                        url=url,
-                        title=current,
+                        url=current,
                         message="robots.txt asks Study Hall not to read this page.",
                     )
                 response = await self._get(current)

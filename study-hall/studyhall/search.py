@@ -19,18 +19,23 @@ COMMUNITY_HOSTS = (
 
 
 def search_targets(query: str, *, searxng: str = "") -> list[dict]:
-    """Free endpoints. SearXNG is included only when the owner configured one."""
+    """Free endpoints that are either allowed by robots or a documented public API.
+
+    Wikipedia's robots.txt disallows ``/w/api.php`` except a few actions, and allows
+    ordinary ``/wiki/`` articles. Reddit's robots.txt disallows anonymous fetches.
+    Those two are not seeded here.
+    """
     q = quote_plus(" ".join((query or "").split()))
     if not q:
         return []
     why = f"Search for {query.strip()}"
     targets = [
-        {"url": f"https://en.wikipedia.org/w/api.php?action=opensearch&limit=5&namespace=0&format=json&search={q}", "kind": "wikipedia", "why": why},
-        {"url": f"https://export.arxiv.org/api/query?search_query=all:{q}&start=0&max_results=5", "kind": "arxiv", "why": why},
         {"url": f"https://api.openalex.org/works?search={q}&per-page=5", "kind": "openalex", "why": why},
-        {"url": f"https://api.semanticscholar.org/graph/v1/paper/search?query={q}&limit=5&fields=title,url", "kind": "semanticscholar", "why": why},
+        {"url": f"https://api.semanticscholar.org/graph/v1/paper/search?query={q}&limit=5&fields=title,url,abstract", "kind": "semanticscholar", "why": why},
+        {"url": f"https://api.crossref.org/works?query={q}&rows=5", "kind": "crossref", "why": why},
+        {"url": f"https://export.arxiv.org/api/query?search_query=all:{q}&start=0&max_results=5", "kind": "arxiv", "why": why},
         {"url": f"https://hn.algolia.com/api/v1/search?query={q}&tags=story&hitsPerPage=5", "kind": "hn", "why": why},
-        {"url": f"https://www.reddit.com/search.json?q={q}&limit=5&sort=relevance", "kind": "reddit", "why": why},
+        {"url": f"https://html.duckduckgo.com/html/?q={quote_plus(query.strip() + ' site:en.wikipedia.org')}", "kind": "duckduckgo", "why": why + " on Wikipedia"},
         {"url": f"https://html.duckduckgo.com/html/?q={q}", "kind": "duckduckgo", "why": why},
         {"url": f"https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q={q}&limit=5", "kind": "bluesky", "why": why},
     ]
@@ -40,24 +45,32 @@ def search_targets(query: str, *, searxng: str = "") -> list[dict]:
     return targets
 
 
-def community_targets(communities: list[dict]) -> list[dict]:
+REDDIT_NOTE = (
+    "Reddit’s robots.txt disallows anonymous reading, including RSS. "
+    "Add a Reddit token in Automate if you want those communities. "
+    "Study Hall will not pretend the threads were fetched."
+)
+
+
+def community_targets(communities: list[dict]) -> tuple[list[dict], list[str]]:
     out = []
+    notices = []
+    reddit = False
     for item in communities:
         url = str(item.get("url") or "")
         name = str(item.get("name") or url)
-        if "reddit.com/r/" in url:
-            out.append({
-                "url": url.rstrip("/") + "/hot.json?limit=8",
-                "kind": "reddit",
-                "why": f"Watched community {name}",
-            })
-        elif "news.ycombinator.com" in url:
+        if "reddit.com" in url:
+            reddit = True
+            continue
+        if "news.ycombinator.com" in url:
             out.append({
                 "url": "https://hn.algolia.com/api/v1/search?query=AI%20assistant&tags=story&hitsPerPage=5",
                 "kind": "hn",
                 "why": f"Watched community {name}",
             })
-    return out
+    if reddit:
+        notices.append(REDDIT_NOTE)
+    return out, notices
 
 
 def _local(tag: str) -> str:
@@ -103,6 +116,27 @@ def _abs(base: str, href: str) -> str:
     return absolute.split("#", 1)[0]
 
 
+def _worth_following(url: str, title: str) -> bool:
+    """Citation-like links only. Site menus and login pages are not leads."""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path.lower()
+    if any(bit in path for bit in ("/login", "/signup", "/sign-in", "/help", "/faq", "/browse", "send_staff", "send_author")):
+        return False
+    if host.endswith("doi.org"):
+        return path.startswith("/10.")
+    if host.endswith("arxiv.org"):
+        return path.startswith(("/abs/", "/pdf/", "/html/"))
+    if "wikipedia.org" in host:
+        return "/wiki/" in path and "special" not in path
+    if path.endswith(".pdf"):
+        return True
+    label = " ".join((title or "").split())
+    if label.lower() in {"home", "contact", "search", "menu", "next", "previous", "login"}:
+        return False
+    return len(label.split()) >= 4
+
+
 def _community_from_url(url: str) -> dict | None:
     host = (urlparse(url).hostname or "").lower()
     if host.endswith("reddit.com") and "/r/" in urlparse(url).path:
@@ -117,6 +151,21 @@ def _community_from_url(url: str) -> dict | None:
     if "news.ycombinator.com" in host:
         return {"name": "Hacker News", "url": "https://news.ycombinator.com/", "kind": "forum", "why": "Named in a public page"}
     return None
+
+
+def _openalex_abstract(work: dict) -> str:
+    inverted = work.get("abstract_inverted_index") or {}
+    if not isinstance(inverted, dict) or not inverted:
+        return ""
+    placed: list[tuple[int, str]] = []
+    for word, positions in inverted.items():
+        for position in positions or []:
+            try:
+                placed.append((int(position), str(word)))
+            except (TypeError, ValueError):
+                continue
+    placed.sort()
+    return " ".join(word for _pos, word in placed)[:4000]
 
 
 def _youtube_id(url: str) -> str:
@@ -148,6 +197,7 @@ def leads_from_document(kind: str, page_url: str, body: str, *, depth: int) -> t
             "from_url": page_url,
             "depth": next_depth,
             "kind": lead_kind,
+            "text": "",
         })
 
     def add_community(url: str):
@@ -184,7 +234,7 @@ def leads_from_document(kind: str, page_url: str, body: str, *, depth: int) -> t
                     if _local(child.tag) == "id":
                         link = (child.text or "").strip()
                 add_lead(link, title, "arXiv paper", "paper")
-    elif kind in {"openalex", "semanticscholar", "hn", "reddit", "searxng", "bluesky"}:
+    elif kind in {"openalex", "semanticscholar", "crossref", "hn", "reddit", "searxng", "bluesky"}:
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
@@ -192,11 +242,28 @@ def leads_from_document(kind: str, page_url: str, body: str, *, depth: int) -> t
         if isinstance(payload, dict):
             if kind == "openalex":
                 for work in payload.get("results") or []:
-                    loc = ((work.get("primary_location") or {}).get("landing_page_url")) or work.get("id") or ""
+                    access = work.get("open_access") or {}
+                    loc = access.get("oa_url") or ((work.get("primary_location") or {}).get("landing_page_url")) or work.get("doi") or work.get("id") or ""
                     add_lead(str(loc), str(work.get("display_name") or ""), "OpenAlex work", "paper")
+                    if leads:
+                        leads[-1]["text"] = _openalex_abstract(work)
             elif kind == "semanticscholar":
                 for paper in payload.get("data") or []:
                     add_lead(str(paper.get("url") or ""), str(paper.get("title") or ""), "Semantic Scholar paper", "paper")
+                    if leads:
+                        leads[-1]["text"] = str(paper.get("abstract") or "")[:4000]
+            elif kind == "crossref":
+                for item in (payload.get("message") or {}).get("items") or []:
+                    title = " ".join(item.get("title") or [])
+                    link = ""
+                    for candidate in item.get("link") or []:
+                        if candidate.get("URL"):
+                            link = candidate["URL"]
+                            break
+                    link = link or item.get("URL") or ""
+                    add_lead(str(link), title, "Crossref work", "paper")
+                    if leads:
+                        leads[-1]["text"] = str(item.get("abstract") or "")[:4000]
             elif kind == "hn":
                 for hit in payload.get("hits") or []:
                     url = hit.get("url") or hit.get("story_url") or ""
@@ -243,6 +310,10 @@ def leads_from_document(kind: str, page_url: str, body: str, *, depth: int) -> t
             add_community(absolute)
             host = urlparse(absolute).hostname or ""
             if any(host.endswith(item) for item in COMMUNITY_HOSTS):
+                continue
+            if kind == "duckduckgo" and "uddg=" not in href and "uddg=" not in absolute:
+                continue
+            if kind != "duckduckgo" and not _worth_following(absolute, text):
                 continue
             add_lead(absolute, text, "Link on the page")
         for match in re.findall(r"https?://arxiv\.org/abs/\d{4}\.\d{4,5}", raw):

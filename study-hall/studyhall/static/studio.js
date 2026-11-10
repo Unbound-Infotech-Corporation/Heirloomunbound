@@ -20,6 +20,7 @@ const state = {
   history: [],
   pinned: null,
   split: 46,
+  progress: { fetching: "", pages_read: 0, leads_queued: 0, lessons_drafted: 0 },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -675,7 +676,10 @@ function liveView() {
     <h2 style="font-family:var(--serif);font-weight:500;font-size:32px;margin:8px 0">${escapeHtml(looking.title || "Waiting")}</h2>
     <div class="reading">${highlighted(looking.text, looking.highlight)}</div>` : `<div class="empty"><h2>The room is opening.</h2><p>When a page is chosen, it shows up here with the reason it was followed.</p></div>`;
   const pin = state.pinned ? `<div class="pin" data-testid="live-pin"><p class="area">${escapeHtml((state.pinned.tags || []).join(" ") || "Lesson")}</p><p>${escapeHtml(state.pinned.summary || "")}</p><button type="button" class="primary" data-file="${escapeHtml(state.pinned.lesson_id || "")}">File into the twin</button></div>` : "";
-  return `<div class="live" data-testid="live-room" style="--split:${state.split}%">
+  const progress = state.progress || {};
+  const progressLine = `Fetching ${progress.fetching || "the next page"} · ${progress.pages_read || 0} pages read · ${progress.leads_queued || 0} leads waiting · ${progress.lessons_drafted || 0} lessons drafted`;
+  return `<p class="meta" data-testid="live-progress">${escapeHtml(progressLine)}</p>
+    <div class="live" data-testid="live-room" style="--split:${state.split}%">
     <section class="live-chat"><div id="live-log">${state.liveMessages.map(bubble).join("") || `<p class="meta">The readers will speak as pages come in. You can type below.</p>`}</div></section>
     <div class="splitter" data-testid="splitter" role="separator" aria-orientation="vertical" aria-label="Resize the room"></div>
     <section class="live-read" data-testid="live-reader">
@@ -784,6 +788,13 @@ function connectLive() {
   take("chat", (data) => rememberChat(data));
   take("lesson", (data) => { state.pinned = data; });
   take("activity", (data) => { state.activity = [...state.activity, data].slice(-80); });
+  take("progress", (data) => {
+    state.progress = data;
+    const line = `Fetching ${data.fetching || "the next page"} · ${data.pages_read || 0} pages read · ${data.leads_queued || 0} leads waiting · ${data.lessons_drafted || 0} lessons drafted`;
+    const node = document.querySelector("[data-testid='live-progress']");
+    if (node) node.textContent = line;
+    if (state.view === "live") $("status").textContent = line;
+  });
   stream.onerror = () => {};
 }
 

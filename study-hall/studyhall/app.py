@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from studyhall import __version__
 from studyhall.config import default_data_dir, load_config
 from studyhall.discover import discover
-from studyhall.chat import apply_instruction
+from studyhall.chat import apply_instruction, login_wall, urls_in
 from studyhall.frontier import enqueue, seed_leads
 from studyhall.hall import Hall, lookup_topic
 from studyhall.live import sse
@@ -317,7 +317,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         if mission is None:
             raise HTTPException(status_code=404, detail="That mission is not here.")
         if body.pages_per_hour is not None:
-            mission["pages_per_hour"] = max(1, min(int(body.pages_per_hour), 120))
+            mission["pages_per_hour"] = max(1, min(int(body.pages_per_hour), 3600))
         if body.max_depth is not None:
             mission["max_depth"] = max(0, min(int(body.max_depth), 6))
         save_mission(room().store, mission)
@@ -360,11 +360,15 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         return {"messages": room().store.read_items("chat.json")[-40:]}
 
     @app.post("/api/chat")
-    def chat(body: ChatBody):
+    async def chat(body: ChatBody):
         text = " ".join((body.text or "").split())
         if not text:
             raise HTTPException(status_code=400, detail="Say something first.")
-        result = apply_instruction(room().store, text)
+        pasted = urls_in(text)
+        if pasted:
+            result = await _read_owner_url(app, pasted[0])
+        else:
+            result = apply_instruction(room().store, text)
         if result.get("action") == "research" and result.get("mission"):
             mission = result["mission"]
             leads = seed_leads(mission)
@@ -401,3 +405,58 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
 def room_client(app: FastAPI) -> PoliteClient:
     return app.state.client
+
+
+async def _read_owner_url(app: FastAPI, url: str) -> dict:
+    """Read a link the owner pasted, then draft a lesson. Login walls are named, not guessed."""
+    hall = app.state.hall
+    if login_wall(url):
+        return {
+            "reply": (
+                f"{url} needs a login. Study Hall does not sign in or join groups. "
+                "Paste a public article, a paper, or the text itself."
+            ),
+            "action": "login",
+            "citations": [{"title": url, "url": url}],
+            "mission": None,
+        }
+    app.state.runner.publish("progress", {"fetching": url, "pages_read": 0, "leads_queued": 0, "lessons_drafted": 0})
+    reading = await room_client(app).fetch(url)
+    if reading.status != "ok":
+        plain = reading.message or "That page could not be read."
+        if reading.status in {"paywall", "robots"} or "login" in plain.lower() or "sign in" in plain.lower():
+            plain = (
+                f"That page is not openly readable ({plain}). "
+                "Study Hall does not sign in or pass a paywall. Try the publisher’s abstract, an arXiv link, or paste the text."
+            )
+        return {"reply": plain, "action": "read_url", "citations": [{"title": reading.title or url, "url": url}], "mission": None}
+    added = hall.add_reading(reading, origin="owner")
+    source = added.get("source") or {}
+    app.state.runner.publish("looking", {
+        "url": reading.url,
+        "title": reading.title,
+        "text": (reading.text or "")[:4000],
+        "highlight": (reading.text or "")[:240],
+        "why": "You pasted this link.",
+        "from_url": "",
+        "kind": reading.kind,
+    })
+    lesson = None
+    if source.get("source_id") and added.get("stored"):
+        try:
+            studied = await hall.study(source["source_id"], engine="auto", tag="", focus="")
+        except RuntimeError:
+            studied = await hall.study(source["source_id"], engine="practice", tag="", focus="")
+        lesson = studied.get("lesson")
+        if lesson:
+            app.state.runner.publish("lesson", lesson)
+        for proposal in studied.get("proposals") or []:
+            app.state.runner.publish("proposal", proposal)
+    title = reading.title or url
+    if lesson:
+        reply = f"Read “{title}”. A lesson card is drafted and waiting for you to file it."
+    elif added.get("status") == "duplicate":
+        reply = f"“{title}” is already in the library."
+    else:
+        reply = f"Read “{title}”."
+    return {"reply": reply, "action": "read_url", "citations": [reading.citation()], "mission": None, "lesson": lesson}

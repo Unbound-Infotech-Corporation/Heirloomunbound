@@ -9,6 +9,9 @@ from urllib.parse import urlparse
 from studyhall.embed import cosine, keyword_overlap
 from studyhall.search import community_targets, leads_from_document, search_targets
 
+INDEX_KINDS = {"wikipedia", "arxiv", "openalex", "semanticscholar", "crossref", "hn", "reddit", "duckduckgo", "bluesky", "searxng"}
+PAGE_KINDS = {"article", "paper", "thread", "post", "pdf", "video"}
+
 RELEVANCE_FLOOR = 0.5
 Fetch = Callable[[str], Awaitable[object]]
 Study = Callable[[dict], Awaitable[dict | None]]
@@ -81,6 +84,7 @@ def enqueue(frontier: list[dict], leads: list[dict], mission_id: str) -> list[di
             "from_url": lead.get("from_url") or "",
             "depth": int(lead.get("depth") or 0),
             "kind": lead.get("kind") or "article",
+            "text": (lead.get("text") or "")[:4000],
             "status": "queued",
             "tries": 0,
         })
@@ -103,7 +107,8 @@ def seed_leads(mission: dict, *, searxng: str = "") -> list[dict]:
             "depth": 0,
             "kind": target["kind"],
         })
-    for target in community_targets(mission.get("communities") or []):
+    community_leads, notices = community_targets(mission.get("communities") or [])
+    for target in community_leads:
         leads.append({
             "url": target["url"],
             "title": mission.get("title") or "",
@@ -112,6 +117,9 @@ def seed_leads(mission: dict, *, searxng: str = "") -> list[dict]:
             "depth": 0,
             "kind": target["kind"],
         })
+    if notices and not mission.get("reddit_noted"):
+        mission["reddit_noted"] = True
+        mission["_notices"] = notices
     mission["query_cursor"] = cursor + 1
     return leads
 
@@ -159,7 +167,7 @@ async def work_once(
     status = str(mission.get("status") or "stopped")
     if status != "running":
         return Step(action="idle", status=status, wait=0.5, frontier=frontier)
-    wait = seconds_until_next_page(reads_at, now, int(mission.get("pages_per_hour") or 12))
+    wait = seconds_until_next_page(reads_at, now, int(mission.get("pages_per_hour") or 600))
     if wait > 0:
         return Step(
             action="pace",
@@ -176,14 +184,26 @@ async def work_once(
     ]
     if not queued:
         seeded = seed_leads(mission, searxng=searxng)
+        events = [{"event": "activity", "data": {"message": "The frontier was quiet, so the mission seeded the next queries and watched communities.", "url": ""}}]
+        for note in mission.pop("_notices", []) or []:
+            events.append({"event": "activity", "data": {"message": note, "url": ""}})
         return Step(
             action="reseed",
             status="running",
             wait=0.2,
             frontier=enqueue(frontier, seeded, mission_id),
-            events=[{"event": "activity", "data": {"message": "The frontier was quiet, so the mission seeded the next queries and watched communities.", "url": ""}}],
+            events=events,
         )
+    queued.sort(key=lambda lead: (0 if lead.get("kind") in PAGE_KINDS or lead.get("text") else 1, int(lead.get("depth") or 0)))
     item = queued[0]
+    if "reddit.com" in (item.get("url") or "") and not item.get("text"):
+        updated = {**item, "status": "needs_key"}
+        return Step(
+            action="skip",
+            status="running",
+            frontier=_replace(frontier, item["lead_id"], updated),
+            events=[{"event": "activity", "data": {"message": "Reddit blocks anonymous reading. It is listed under communities to watch, not fetched.", "url": item["url"]}}],
+        )
     url = item["url"]
     try:
         reading = await fetch(url)
@@ -205,16 +225,32 @@ async def work_once(
     items = getattr(reading, "items", None) if not isinstance(reading, dict) else reading.get("items")
     message = getattr(reading, "message", "") if not isinstance(reading, dict) else reading.get("message") or ""
     if read_status != "ok":
-        updated = {**item, "status": read_status or "skip"}
-        return Step(
-            action="skip",
-            status="running",
-            wait=0.0,
-            frontier=_replace(frontier, item["lead_id"], updated),
-            events=[{"event": "activity", "data": {"message": message or f"Skipped ({read_status}).", "url": url}}],
-        )
-    index_kinds = {"wikipedia", "arxiv", "openalex", "semanticscholar", "hn", "reddit", "duckduckgo", "bluesky", "searxng"}
-    if item.get("kind") in index_kinds:
+        abstract = (item.get("text") or "").strip()
+        temporary = bool(getattr(reading, "temporary", False)) or read_status in {"retry", "error"}
+        if temporary and len(abstract) < 80:
+            tries = int(item.get("tries") or 0) + 1
+            updated = {**item, "status": "error", "tries": tries, "retry_at": now + _backoff(tries)}
+            return Step(
+                action="error",
+                status="running",
+                wait=min(20.0, _backoff(tries)),
+                frontier=_replace(frontier, item["lead_id"], updated),
+                events=[{"event": "activity", "data": {"message": message or "This page will be tried again.", "url": url}}],
+            )
+        if len(abstract) >= 80 and read_status in {"robots", "paywall", "error", "retry"}:
+            text = abstract
+            title = title or item.get("title") or url
+            message = message or "The landing page was closed, so the API abstract is what the panel reads."
+        else:
+            updated = {**item, "status": read_status or "skip"}
+            return Step(
+                action="skip",
+                status="running",
+                wait=0.0,
+                frontier=_replace(frontier, item["lead_id"], updated),
+                events=[{"event": "activity", "data": {"message": message or f"Skipped ({read_status}).", "url": url}}],
+            )
+    if item.get("kind") in INDEX_KINDS and read_status == "ok":
         parse_kind = item.get("kind") or ""
         body = raw or text
         leads, communities = leads_from_document(parse_kind, url, body, depth=int(item.get("depth") or 0))

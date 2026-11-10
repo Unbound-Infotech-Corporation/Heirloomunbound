@@ -1,7 +1,9 @@
 """Plain-language instructions for the research room."""
 from __future__ import annotations
 
+import base64
 import re
+from urllib.parse import parse_qs, unquote, urlparse
 
 from studyhall.embed import keyword_overlap
 from studyhall.missions import STANDING_ID, add_block, add_query, create_mission, get_mission, list_missions, set_status
@@ -28,11 +30,58 @@ def _clean_topic(text: str) -> str:
     return " ".join(topic.split())[:240]
 
 
+_URL = re.compile(r"https?://[^\s<>]+", re.IGNORECASE)
+LOGIN_HOSTS = (
+    "facebook.com",
+    "fb.com",
+    "instagram.com",
+    "linkedin.com",
+    "x.com",
+    "twitter.com",
+)
+
+
+def unwrap_url(url: str) -> str:
+    """Turn a Bing or Google redirect into the article it points at."""
+    raw = (url or "").strip().rstrip(").,;\"'")
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    query = parse_qs(parsed.query)
+    if "bing.com" in host and parsed.path.startswith("/ck/"):
+        token = (query.get("u") or [""])[0]
+        if token.startswith("a1"):
+            token = token[2:]
+        padding = "=" * ((4 - len(token) % 4) % 4)
+        try:
+            decoded = base64.urlsafe_b64decode(token + padding).decode("utf-8", "replace")
+        except Exception:
+            decoded = ""
+        if decoded.startswith("http"):
+            return decoded
+    if "google." in host and parsed.path == "/url":
+        target = unquote((query.get("q") or query.get("url") or [""])[0])
+        if target.startswith("http"):
+            return target
+    return raw
+
+
+def urls_in(text: str) -> list[str]:
+    return [unwrap_url(match) for match in _URL.findall(text or "")]
+
+
+def login_wall(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == name or host.endswith("." + name) for name in LOGIN_HOSTS)
+
+
 def interpret(text: str) -> dict:
     """A deterministic reading of an owner instruction. A model may refine the reply, not the action."""
     raw = " ".join((text or "").split())
     if not raw:
         return {"action": "none", "detail": ""}
+    found = urls_in(raw)
+    if found:
+        return {"action": "read_url", "detail": found[0], "urls": found}
     if _PAUSE.search(raw) and not _RESEARCH.match(raw):
         return {"action": "pause", "detail": raw}
     if _STOP.search(raw) and not _RESEARCH.match(raw):

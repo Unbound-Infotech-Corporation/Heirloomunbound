@@ -15,7 +15,8 @@ from studyhall.live import parse_sse, script_discussion, sse
 from studyhall.missions import STANDING_ID
 from studyhall.port import choose_port
 from studyhall.reader import PoliteClient, Reading
-from studyhall.search import leads_from_document
+from studyhall.chat import unwrap_url, urls_in
+from studyhall.search import leads_from_document, search_targets
 
 
 def _mission():
@@ -37,8 +38,10 @@ def _mission():
 
 def test_leads_follow_links_and_list_communities_without_joining():
     html = """
-    <a href="https://example.test/paper">A paper</a>
+    <a href="https://example.test/paper">A useful paper about memory</a>
     <a href="https://arxiv.org/abs/2601.00001">arxiv</a>
+    <a href="https://doi.org/10.1000/example">doi</a>
+    <a href="https://doi.org/login/?next=/records/1">login</a>
     <a href="https://www.reddit.com/r/LocalLLaMA/comments/abc">thread</a>
     <a href="https://discord.gg/example">discord</a>
     """
@@ -265,6 +268,99 @@ def test_event_stream_frames_and_http_once(tmp_path):
     kinds = [parse_sse(chunk)[0] for chunk in body.split("\n\n") if chunk.strip()]
     assert "hello" in kinds
     assert "chat" in kinds
+
+
+def test_search_seeds_skip_blocked_wikipedia_and_reddit_apis():
+    urls = [item["url"] for item in search_targets("long-term memory")]
+    assert not any("wikipedia.org/w/api.php" in url for url in urls)
+    assert not any("reddit.com" in url and url.endswith(".json") or "/search.json" in url for url in urls)
+    assert any(url.startswith("https://export.arxiv.org/api/") for url in urls)
+    assert any(url.startswith("https://api.openalex.org/") for url in urls)
+    assert any(url.startswith("https://api.crossref.org/") for url in urls)
+
+
+def test_articles_are_read_before_more_indexes():
+    mission = _mission()
+    mission["pages_per_hour"] = 600
+    studied = []
+
+    async def fetch(url):
+        return Reading(status="ok", url=url, title="Memory paper", text="Long-term memory lets conversational assistants keep context. " * 8)
+
+    async def study(source):
+        studied.append(source["url"])
+        return {"events": []}
+
+    frontier = [
+        {"lead_id": "led_index", "mission_id": "msn_test", "url": "https://api.openalex.org/works?search=memory", "status": "queued", "depth": 0, "kind": "openalex", "tries": 0, "why": "index", "from_url": "", "text": ""},
+        {"lead_id": "led_paper", "mission_id": "msn_test", "url": "https://example.test/memory-paper", "status": "queued", "depth": 1, "kind": "paper", "tries": 0, "why": "OpenAlex work", "from_url": "https://api.openalex.org/works", "text": ""},
+    ]
+    step = asyncio.run(work_once(mission=mission, frontier=frontier, fetch=fetch, study=study, now=10, reads_at=[]))
+    assert studied == ["https://example.test/memory-paper"]
+    assert step.action == "read"
+    assert step.status == "running"
+
+
+def test_bing_redirect_unwraps_to_the_article():
+    token = "a1aHR0cHM6Ly9tYXN0cmEuYWkvYXJ0aWNsZXMvYWktYXNzaXN0YW50cw"
+    url = f"https://www.bing.com/ck/a?u={token}"
+    assert unwrap_url(url) == "https://mastra.ai/articles/ai-assistants"
+    found = urls_in(f"please read {url}")
+    assert found == ["https://mastra.ai/articles/ai-assistants"]
+    assert unwrap_url("https://www.google.com/url?q=https%3A%2F%2Fexample.test%2Fpaper") == "https://example.test/paper"
+
+
+def test_robots_redirect_is_followed_and_server_errors_retry():
+    def allow(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(302, headers={"location": "/robots-real.txt"})
+        if request.url.path == "/robots-real.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /\n")
+        return httpx.Response(200, text="<html><article><p>" + ("Long-term memory for assistants. " * 8) + "</p></article></html>", headers={"content-type": "text/html"})
+
+    def down(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(503, text="unavailable")
+        return httpx.Response(200, text="<html><article><p>should not be read</p></article></html>")
+
+    async def _run():
+        ok = PoliteClient(min_interval=0, transport=httpx.MockTransport(allow))
+        blocked = PoliteClient(min_interval=0, transport=httpx.MockTransport(down))
+        try:
+            opened = await ok.fetch("http://press.test/paper")
+            waiting = await blocked.fetch("http://press.test/paper")
+            return opened, waiting
+        finally:
+            await ok.aclose()
+            await blocked.aclose()
+
+    opened, waiting = asyncio.run(_run())
+    assert opened.status == "ok"
+    assert "memory" in opened.text.lower()
+    assert waiting.status == "retry"
+    assert waiting.temporary is True
+    assert "tried again" in waiting.message
+
+
+def test_official_api_is_fetched_when_robots_disallows_the_host():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nDisallow: /\n")
+        return httpx.Response(200, text='{"message":{"items":[]}}', headers={"content-type": "application/json"})
+
+    async def _run():
+        client = PoliteClient(min_interval=0, transport=httpx.MockTransport(handler))
+        try:
+            return await client.fetch("https://export.arxiv.org/api/query?search_query=all:memory&max_results=1")
+        finally:
+            await client.aclose()
+
+    reading = asyncio.run(_run())
+    assert reading.status == "ok"
+    assert "/api/query" in seen
 
 
 def test_choose_port_skips_a_busy_one():

@@ -117,6 +117,7 @@ class ResearchRunner:
                 reads_at=reads_at,
             )
             self.hall.store.write_items("frontier.json", step.frontier)
+            self._publish_progress(step.events[-1]["data"].get("url", "") if step.events else "")
             if step.edges:
                 graph = self.hall.store.read_items("graph.json")
                 graph.extend(step.edges)
@@ -140,6 +141,18 @@ class ResearchRunner:
                     self.hall.store.write_items("activity.json", rows[-200:])
             wait = max(wait, step.wait or 0)
         return wait
+
+    def _publish_progress(self, fetching: str = "") -> None:
+        frontier = self.hall.store.read_items("frontier.json")
+        lessons = self.hall.store.read_items("lessons.json")
+        index = {"wikipedia", "arxiv", "openalex", "semanticscholar", "crossref", "hn", "reddit", "duckduckgo", "bluesky", "searxng"}
+        pages = sum(1 for item in frontier if item.get("status") == "read" and item.get("kind") not in index)
+        self.publish("progress", {
+            "fetching": fetching or "",
+            "pages_read": pages,
+            "leads_queued": sum(1 for item in frontier if item.get("status") == "queued"),
+            "lessons_drafted": len(lessons),
+        })
 
     async def _study(self, source: dict, mission: dict) -> dict:
         events = script_discussion(source.get("title") or "", source.get("text") or "", tag=mission.get("tag") or "")

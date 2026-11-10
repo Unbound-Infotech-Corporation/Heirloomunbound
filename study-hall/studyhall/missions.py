@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from studyhall.config import DEFAULT_PAGES_PER_HOUR
 from studyhall.store import Store
 
 STANDING_ID = "msn_assistant_craft"
@@ -51,7 +52,7 @@ def standing_mission() -> dict:
         "queries": list(STANDING_QUERIES),
         "blocked_terms": [],
         "blocked_hosts": [],
-        "pages_per_hour": 12,
+        "pages_per_hour": DEFAULT_PAGES_PER_HOUR,
         "max_depth": 2,
         "query_cursor": 0,
         "communities": [dict(item) for item in STANDING_COMMUNITIES],
@@ -64,6 +65,9 @@ def ensure_standing(store: Store) -> dict:
     items = store.read_items("missions.json")
     for item in items:
         if item.get("mission_id") == STANDING_ID or item.get("standing"):
+            if int(item.get("pages_per_hour") or 0) < DEFAULT_PAGES_PER_HOUR:
+                item["pages_per_hour"] = DEFAULT_PAGES_PER_HOUR
+                save_mission(store, item)
             return item
     mission = standing_mission()
     items.insert(0, mission)
@@ -120,7 +124,7 @@ def create_mission(store: Store, *, title: str, query: str, tag: str = "") -> di
         "queries": [query.strip()],
         "blocked_terms": [],
         "blocked_hosts": [],
-        "pages_per_hour": 12,
+        "pages_per_hour": DEFAULT_PAGES_PER_HOUR,
         "max_depth": 2,
         "query_cursor": 0,
         "communities": [],
