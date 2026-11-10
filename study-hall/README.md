@@ -27,7 +27,7 @@ The first screen has two actions: read the included sample, or open the library.
 powershell -ExecutionPolicy Bypass -File study-hall\install-windows.ps1
 ```
 
-The default folder is `G:\HeirloomStudyHall`. Pass `-Destination` to put it somewhere else. The script does not ask for administrator rights and does not download models.
+The default folder is `G:\HeirloomStudyHall`. Pass `-Destination` to put it somewhere else. Running it again replaces the code folders instead of nesting `studyhall` inside itself, and it leaves `data\`, `ollama-models\`, `logs\`, `config.json`, and `setup-models.ps1` in place. A leftover `Launch-StudyHall.ps1` is removed; start with `Start-StudyHall.ps1`. The script does not ask for administrator rights and does not download models.
 
 Then:
 

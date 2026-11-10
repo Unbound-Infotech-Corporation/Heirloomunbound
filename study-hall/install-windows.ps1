@@ -36,11 +36,13 @@ try {
     $same = $false
 }
 
+# Copy-Item -Recurse into an existing studyhall\ or tests\ folder nests a second
+# copy (studyhall\studyhall) and leaves the old package on the import path.
+# update_install.py replaces those code folders and keeps data, models, logs,
+# config.json, and setup-models.ps1. It also deletes a stale Launch-StudyHall.ps1.
 if (-not $same) {
-    $exclude = @(".venv", "data", "__pycache__", ".pytest_cache")
-    Get-ChildItem -Path $source -Force | Where-Object { $exclude -notcontains $_.Name } | ForEach-Object {
-        Copy-Item -Path $_.FullName -Destination (Join-Path $dest $_.Name) -Recurse -Force
-    }
+    & $python.Exe @($python.Args + @((Join-Path $source "update_install.py"), "--source", $source, "--dest", $dest))
+    if ($LASTEXITCODE -ne 0) { throw "Could not update the Study Hall files." }
 }
 
 $config = @{
