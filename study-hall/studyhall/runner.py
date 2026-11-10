@@ -5,10 +5,21 @@ import asyncio
 import os
 import time
 
+from studyhall.config import EMBED_MODELS, STUDY_OLLAMA
+from studyhall.embed import OllamaEmbedder
 from studyhall.frontier import work_once
 from studyhall.live import chat_event, lesson_event, proposal_event, short_turn
 from studyhall.missions import list_missions, running_missions, save_mission
 from studyhall.reader import Reading
+
+
+def _ascii_quotes(text: str) -> str:
+    return (
+        text.replace("\u201c", "'")
+        .replace("\u201d", "'")
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+    )
 
 
 def automate_enabled() -> bool:
@@ -24,8 +35,11 @@ class ResearchRunner:
         self.subscribers: list[asyncio.Queue] = []
         self._task: asyncio.Task | None = None
         self._last_pace_log = 0.0
+        self.embed = OllamaEmbedder(STUDY_OLLAMA, EMBED_MODELS)
 
     def publish(self, event: str, data: dict) -> None:
+        if event == "activity" and isinstance(data.get("message"), str):
+            data = {**data, "message": _ascii_quotes(data["message"])}
         item = {"event": event, "data": data}
         self.backlog.append(item)
         self.backlog = self.backlog[-200:]
@@ -72,8 +86,25 @@ class ResearchRunner:
             role="moderator",
         )
         self.publish(intro["event"], intro["data"])
+        self._prune_saved_frontier()
         if automate_enabled():
             self._task = asyncio.create_task(self._loop())
+
+    def _prune_saved_frontier(self) -> None:
+        from studyhall.frontier import prune_frontier
+
+        frontier = self.hall.store.read_items("frontier.json")
+        if not frontier:
+            return
+        missions = list_missions(self.hall.store)
+        mission = next((item for item in missions if item.get("standing")), missions[0] if missions else {})
+        cleaned, dropped = prune_frontier(frontier, mission)
+        if dropped:
+            self.hall.store.write_items("frontier.json", cleaned)
+            self.publish("activity", {
+                "message": f"Removed {dropped} queued leads that were off the mission, including workplace-safety hosts.",
+                "url": "",
+            })
 
     async def shutdown(self) -> None:
         if self._task is None:
@@ -115,6 +146,7 @@ class ResearchRunner:
                 study=lambda source, mission=mission: self._study(source, mission),
                 now=time.time(),
                 reads_at=reads_at,
+                vector_of=self.embed,
             )
             self.hall.store.write_items("frontier.json", step.frontier)
             self._publish_progress(step.events[-1]["data"].get("url", "") if step.events else "")

@@ -33,6 +33,46 @@ def is_duplicate_vector(vector: list[float], existing: list[list[float]], thresh
     return any(cosine(vector, other) >= threshold for other in existing)
 
 
+class OllamaEmbedder:
+    """mxbai, then nomic, on the dedicated Ollama. A down server leaves the lexical gate in charge."""
+
+    def __init__(self, endpoint: str, models: tuple[str, ...]):
+        self.endpoint = endpoint.rstrip("/")
+        self.models = models
+        self._cache: dict[str, list[float]] = {}
+        self._model: str | None = None
+        self._down = False
+
+    def __call__(self, text: str) -> list[float] | None:
+        if self._down:
+            return None
+        key = (text or "")[:2000]
+        if key in self._cache:
+            return self._cache[key]
+        import httpx
+
+        order = ([self._model] if self._model else []) + [name for name in self.models if name != self._model]
+        for model in order:
+            try:
+                response = httpx.post(
+                    f"{self.endpoint}/api/embed",
+                    json={"model": model, "input": key},
+                    timeout=8.0,
+                )
+            except Exception:
+                continue
+            if response.status_code != 200:
+                continue
+            rows = (response.json() or {}).get("embeddings") or []
+            if rows and isinstance(rows[0], list) and rows[0]:
+                self._model = model
+                vector = [float(value) for value in rows[0]]
+                self._cache[key] = vector
+                return vector
+        self._down = True
+        return None
+
+
 def keyword_overlap(query: str, text: str) -> int:
     stops = {
         "the", "and", "for", "with", "that", "this", "from", "your", "about",

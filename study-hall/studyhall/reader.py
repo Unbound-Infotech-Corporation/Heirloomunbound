@@ -52,6 +52,7 @@ class Reading:
     content_type: str = ""
     raw: str = ""
     temporary: bool = False
+    retry_after: float = 0.0
 
     def citation(self) -> dict:
         return {"title": self.title, "url": self.url, "date": self.date}
@@ -68,6 +69,15 @@ OFFICIAL_API_PREFIXES = (
     "https://api.crossref.org/",
     "https://hn.algolia.com/",
 )
+
+
+def _retry_after(header: str | None, failures: int) -> float:
+    raw = (header or "").strip()
+    try:
+        wait = float(raw)
+    except ValueError:
+        wait = 30.0 * (2 ** min(failures, 5))
+    return max(15.0, min(wait, 900.0))
 
 
 def official_api(url: str) -> bool:
@@ -285,6 +295,8 @@ class PoliteClient:
         self._robots: dict[str, tuple[str, RobotFileParser | None]] = {}
         self._crawl: dict[str, float] = {}
         self._api_note: set[str] = set()
+        self._cooldown: dict[str, float] = {}
+        self._fail_count: dict[str, int] = {}
         self._lock = asyncio.Lock()
         self.client = httpx.AsyncClient(
             timeout=timeout,
@@ -404,6 +416,18 @@ class PoliteClient:
                         message="robots.txt asks Study Hall not to read this page.",
                     )
                 response = await self._get(current)
+                if response.status_code == 429:
+                    host = parsed.hostname or ""
+                    wait = _retry_after(response.headers.get("retry-after"), self._fail_count.get(host, 0))
+                    self._fail_count[host] = self._fail_count.get(host, 0) + 1
+                    self._cooldown[host] = time.time() + wait
+                    return Reading(
+                        status="retry",
+                        url=current,
+                        temporary=True,
+                        retry_after=wait,
+                        message=f"{host} returned 429. Waiting {int(wait)}s. Other sources will cover this query.",
+                    )
                 if response.status_code in {401, 402, 403}:
                     return Reading(
                         status="paywall",

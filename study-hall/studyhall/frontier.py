@@ -1,6 +1,7 @@
 """Crawl frontier. Budgets pace the room. They do not stop it."""
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
@@ -13,18 +14,74 @@ INDEX_KINDS = {"wikipedia", "arxiv", "openalex", "semanticscholar", "crossref", 
 PAGE_KINDS = {"article", "paper", "thread", "post", "pdf", "video"}
 
 RELEVANCE_FLOOR = 0.5
+EMBED_ACCEPT = 0.72
 Fetch = Callable[[str], Awaitable[object]]
 Study = Callable[[dict], Awaitable[dict | None]]
 
+# A lone "safety" or "checklist" is not the mission. These words never qualify a page by themselves.
+_GENERIC = frozenset({
+    "safety", "guide", "guides", "tips", "tip", "checklist", "checklists",
+    "training", "talk", "talks", "inspection", "inspections", "tool", "tools",
+    "manual", "manuals", "workplace", "osha", "procedure", "procedures",
+    "hand", "hands",
+})
+_CONTEXT = frozenset({
+    "ai", "llm", "llms", "assistant", "assistants", "agent", "agents",
+    "model", "models", "chatbot", "chatbots", "voice", "memory", "prompt",
+    "prompts", "grounding", "hallucination", "personalization", "chat",
+    "gpt", "gemini", "ollama", "rag", "conversational",
+})
+DRIFT_HOSTS = frozenset({
+    "safetymanualosha.com",
+    "simplysub.com",
+    "safetytalklibrary.com",
+})
 
-def score_relevance(text: str, mission: dict, *, vector: list[float] | None = None, mission_vector: list[float] | None = None) -> float:
-    """Lexical overlap, lifted by a local embedding when one is already in hand."""
-    blob = " ".join(mission.get("queries") or []) + " " + str(mission.get("brief") or "") + " " + str(mission.get("title") or "")
-    lexical = min(1.0, keyword_overlap(blob, text) / 3)
+
+def _tokens(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", (text or "").lower()))
+
+
+def _host(url: str) -> str:
+    return (urlparse(url or "").hostname or "").lower().removeprefix("www.")
+
+
+def host_penalized(host: str, mission: dict) -> bool:
+    name = (host or "").lower().removeprefix("www.")
+    banned = set(DRIFT_HOSTS) | {str(item).lower().removeprefix("www.") for item in mission.get("drift_hosts") or []}
+    return any(name == item or name.endswith("." + item) for item in banned if item)
+
+
+def matches_mission(
+    text: str,
+    mission: dict,
+    *,
+    vector: list[float] | None = None,
+    mission_vector: list[float] | None = None,
+) -> tuple[bool, float, str]:
+    """True only for assistant-context terms, or a high embedding match.
+
+    Generic words that also appear in the mission (safety, tool, talk) are not enough.
+    """
+    semantic = 0.0
     if vector and mission_vector and len(vector) == len(mission_vector):
         semantic = max(0.0, cosine(vector, mission_vector))
-        return max(lexical, semantic)
-    return lexical
+    if semantic >= EMBED_ACCEPT:
+        return True, semantic, f"Followed. Embedding similarity {semantic:.2f} against the mission."
+    hits = sorted(_tokens(text) & _CONTEXT)
+    generic = sorted(_tokens(text) & _GENERIC)
+    if not hits:
+        named = ", ".join(generic[:4]) or "those words"
+        return False, semantic, f"Skipped. '{named}' is not enough without an assistant, model, or AI term."
+    score = max(semantic, min(1.0, len(hits) / 2))
+    return True, score, "Followed. Matched " + ", ".join(hits) + "."
+
+
+def score_relevance(text: str, mission: dict, *, vector: list[float] | None = None, mission_vector: list[float] | None = None) -> float:
+    ok, score, _reason = matches_mission(text, mission, vector=vector, mission_vector=mission_vector)
+    if ok:
+        return max(score, RELEVANCE_FLOOR)
+    return min(score, RELEVANCE_FLOOR - 0.01)
 
 
 def is_blocked(url: str, text: str, mission: dict) -> str:
@@ -91,14 +148,25 @@ def enqueue(frontier: list[dict], leads: list[dict], mission_id: str) -> list[di
     return out
 
 
-def seed_leads(mission: dict, *, searxng: str = "") -> list[dict]:
+def _cooling_hosts(mission: dict, now: float) -> set[str]:
+    cooling = set()
+    for host, until in (mission.get("host_cooldown") or {}).items():
+        try:
+            if float(until) > now:
+                cooling.add(str(host).lower())
+        except (TypeError, ValueError):
+            continue
+    return cooling
+
+
+def seed_leads(mission: dict, *, searxng: str = "", now: float = 0.0) -> list[dict]:
     queries = list(mission.get("queries") or [])
     if not queries:
         queries = [mission.get("title") or "assistant"]
     cursor = int(mission.get("query_cursor") or 0) % len(queries)
     query = queries[cursor]
     leads = []
-    for target in search_targets(query, searxng=searxng):
+    for target in search_targets(query, searxng=searxng, skip_hosts=_cooling_hosts(mission, now)):
         leads.append({
             "url": target["url"],
             "title": query,
@@ -156,30 +224,81 @@ _MARKETING = (
 _HOST_CAP = 4
 
 
-def _preflight(lead: dict, mission: dict, frontier: list[dict], now: float) -> tuple[bool, str]:
-    """Score a lead before spending a fetch. Indexes are decided by the caller."""
-    blob = " ".join([
+def _lead_blob(lead: dict) -> str:
+    return " ".join([
         str(lead.get("title") or ""),
         str(lead.get("url") or ""),
         str(lead.get("text") or ""),
         str(lead.get("why") or ""),
     ])
+
+
+def _vectors(vector_of, text: str, mission: dict) -> tuple[list[float] | None, list[float] | None]:
+    if vector_of is None:
+        return None, None
+    blob = " ".join(mission.get("queries") or []) + " " + str(mission.get("brief") or "") + " " + str(mission.get("title") or "")
+    try:
+        return vector_of(text[:2000]), vector_of(blob[:2000])
+    except Exception:
+        return None, None
+
+
+def _preflight(lead: dict, mission: dict, frontier: list[dict], now: float, vector_of=None) -> tuple[bool, str]:
+    """Score a lead before spending a fetch. Indexes are decided by the caller."""
+    blob = _lead_blob(lead)
     lowered = blob.lower()
+    host = _host(str(lead.get("url") or ""))
+    if host_penalized(host, mission):
+        return False, f"Skipped. {host} drifted off the mission, so its links are dropped."
     if any(bit in lowered for bit in _MARKETING):
         return False, "Skipped before fetching. This looks like product, pricing, or login marketing."
-    score = score_relevance(blob, mission)
-    host = urlparse(str(lead.get("url") or "")).hostname or ""
+    lead_vector, mission_vector = _vectors(vector_of, blob, mission)
+    ok, score, reason = matches_mission(blob, mission, vector=lead_vector, mission_vector=mission_vector)
     recent = [
         item for item in frontier
-        if (urlparse(str(item.get("url") or "")).hostname or "") == host
+        if _host(str(item.get("url") or "")) == host
         and item.get("status") == "read"
         and now - float(item.get("read_at") or 0) < 3600
     ]
     if host and len(recent) >= _HOST_CAP and score < 0.85:
         return False, f"Skipped. {host} already had {len(recent)} pages this hour, and this lead scores {score:.2f}."
-    if score < 0.34:
-        return False, f"Skipped before fetching. The link text and URL score {score:.2f} against the mission."
-    return True, f"Followed. Relevance {score:.2f}. {lead.get('why') or 'It matches the mission.'}"
+    if not ok:
+        return False, "Skipped before fetching. " + reason
+    return True, reason
+
+
+def prune_frontier(items: list[dict], mission: dict) -> tuple[list[dict], int]:
+    """Drop queued leads on hosts that drifted, and leads with no assistant terms."""
+    kept: list[dict] = []
+    dropped = 0
+    for item in items:
+        host = _host(str(item.get("url") or ""))
+        waiting = item.get("status") in {"queued", "error", "retry", "off_topic"}
+        if waiting and host_penalized(host, mission):
+            dropped += 1
+            continue
+        if waiting and item.get("kind") not in INDEX_KINDS:
+            ok, _score, _reason = matches_mission(_lead_blob(item), mission)
+            if not ok:
+                dropped += 1
+                continue
+        kept.append(item)
+    return kept, dropped
+
+
+def penalize(frontier: list[dict], mission: dict, host: str, page_url: str) -> list[dict]:
+    """Drop this page's children and anything still queued on the host."""
+    mission.setdefault("drift_hosts", [])
+    if host and host not in mission["drift_hosts"]:
+        mission["drift_hosts"].append(host)
+    kept = []
+    for item in frontier:
+        if item.get("from_url") == page_url and item.get("status") == "queued":
+            continue
+        if _host(str(item.get("url") or "")) == host and item.get("status") in {"queued", "error", "retry"}:
+            continue
+        kept.append(item)
+    return kept
 
 
 def _backoff(tries: int) -> float:
@@ -212,12 +331,14 @@ async def work_once(
         )
     mission_id = mission["mission_id"]
     max_depth = int(mission.get("max_depth") or 2)
+    cooling = _cooling_hosts(mission, now)
     queued = [
         item for item in frontier
         if item.get("mission_id") == mission_id and _due(item, now) and int(item.get("depth") or 0) <= max_depth
+        and _host(str(item.get("url") or "")) not in cooling
     ]
     if not queued:
-        seeded = seed_leads(mission, searxng=searxng)
+        seeded = seed_leads(mission, searxng=searxng, now=now)
         events = [{"event": "activity", "data": {"message": "The frontier was quiet, so the mission seeded the next queries and watched communities.", "url": ""}}]
         for note in mission.pop("_notices", []) or []:
             events.append({"event": "activity", "data": {"message": note, "url": ""}})
@@ -240,7 +361,7 @@ async def work_once(
         )
     url = item["url"]
     if item.get("kind") not in INDEX_KINDS:
-        allowed, reason = _preflight(item, mission, frontier, now)
+        allowed, reason = _preflight(item, mission, frontier, now, vector_of=vector_of)
         if not allowed:
             updated = {**item, "status": "off_topic"}
             return Step(
@@ -273,13 +394,27 @@ async def work_once(
         temporary = bool(getattr(reading, "temporary", False)) or read_status in {"retry", "error"}
         if temporary and len(abstract) < 80:
             tries = int(item.get("tries") or 0) + 1
-            updated = {**item, "status": "error", "tries": tries, "retry_at": now + _backoff(tries)}
+            wait = float(getattr(reading, "retry_after", 0) or 0) or _backoff(tries)
+            host = _host(url)
+            updated = {**item, "status": "error", "tries": tries, "retry_at": now + wait}
+            nxt = _replace(frontier, item["lead_id"], updated)
+            note = message or "This page will be tried again."
+            if "semanticscholar.org" in host:
+                mission.setdefault("host_cooldown", {})[host] = now + wait
+                query = (mission.get("queries") or ["assistant"])[0]
+                from urllib.parse import quote_plus
+                q = quote_plus(query)
+                nxt = enqueue(nxt, [
+                    {"url": f"https://api.openalex.org/works?search={q}&per-page=5", "title": query, "why": "OpenAlex while Semantic Scholar cools down", "depth": 0, "kind": "openalex"},
+                    {"url": f"https://export.arxiv.org/api/query?search_query=all:{q}&start=0&max_results=5", "title": query, "why": "arXiv while Semantic Scholar cools down", "depth": 0, "kind": "arxiv"},
+                ], mission_id)
+                note = f"Semantic Scholar returned 429. Waiting {int(wait)}s and using OpenAlex and arXiv."
             return Step(
                 action="error",
                 status="running",
-                wait=min(20.0, _backoff(tries)),
-                frontier=_replace(frontier, item["lead_id"], updated),
-                events=[{"event": "activity", "data": {"message": message or "This page will be tried again.", "url": url}}],
+                wait=min(20.0, wait),
+                frontier=nxt,
+                events=[{"event": "activity", "data": {"message": note, "url": url}}],
             )
         if len(abstract) >= 80 and read_status in {"robots", "paywall", "error", "retry"}:
             text = abstract
@@ -327,17 +462,10 @@ async def work_once(
             status="running",
             wait=0.0,
             frontier=_replace(frontier, item["lead_id"], updated),
-            events=[{"event": "activity", "data": {"message": f"Skipped because “{block}” is blocked.", "url": url}}],
+            events=[{"event": "activity", "data": {"message": f"Skipped because '{block}' is blocked.", "url": url}}],
         )
-    mission_vector = None
-    page_vector = None
-    if vector_of is not None:
-        try:
-            page_vector = vector_of(text[:2000])
-            mission_vector = vector_of(" ".join(mission.get("queries") or []))
-        except Exception:
-            page_vector = None
-    relevance = score_relevance(text, mission, vector=page_vector, mission_vector=mission_vector)
+    page_vector, mission_vector = _vectors(vector_of, text, mission)
+    on_topic, relevance, topic_reason = matches_mission(text, mission, vector=page_vector, mission_vector=mission_vector)
     mark = highlight_span(text, mission)
     looking = {
         "event": "looking",
@@ -352,14 +480,16 @@ async def work_once(
             "relevance": round(relevance, 3),
         },
     }
-    if relevance < RELEVANCE_FLOOR:
-        updated = {**item, "status": "irrelevant", "relevance": relevance}
+    if not on_topic:
+        host = _host(url)
+        updated = {**item, "status": "off_topic", "relevance": relevance}
+        cleaned = penalize(_replace(frontier, item["lead_id"], updated), mission, host, url)
         return Step(
             action="skip",
             status="running",
             wait=0.0,
-            frontier=_replace(frontier, item["lead_id"], updated),
-            events=[looking, {"event": "activity", "data": {"message": f"Read the title and moved on. Relevance {relevance:.2f} is below the line, so the panel was not asked.", "url": url}}],
+            frontier=cleaned,
+            events=[looking, {"event": "activity", "data": {"message": f"Off topic ({topic_reason}) The panel was not asked, and links from this page were dropped.", "url": url}}],
         )
     parse_kind = item.get("kind") or kind or ""
     body = raw or text
@@ -401,7 +531,7 @@ async def work_once(
             communities=communities,
         )
     updated = {**item, "status": "read", "relevance": relevance, "read_at": now}
-    events = [looking, {"event": "activity", "data": {"message": f"Followed “{item.get('why') or 'a lead'}”. It matches the mission, so the panel is reading it.", "url": url}}]
+    events = [looking, {"event": "activity", "data": {"message": f"Followed '{item.get('why') or 'a lead'}'. {topic_reason}", "url": url}}]
     if isinstance(study_payload, dict):
         events.extend(study_payload.get("events") or [])
     return Step(

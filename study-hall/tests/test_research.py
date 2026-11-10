@@ -436,6 +436,181 @@ def test_provider_key_stays_masked_and_the_cap_holds(tmp_path):
     assert within_cap(load_providers(tmp_path)["openai"]) is False
 
 
+def test_hand_tool_safety_is_rejected_and_ai_safety_is_kept():
+    mission = _mission()
+    mission["title"] = "Become a better AI assistant"
+    mission["brief"] = "Study how a local family twin can be a better assistant: memory, voice, empathy, tool safety, grounding."
+    mission["queries"] = ["tool use confirmation and action safety", "AI assistant memory and prompts"]
+    hand = "Hand tool inspection safety https://safetymanualosha.com/hand-tool-inspection-safety Link on the page"
+    article = "AI safety for language model assistants and prompts https://example.test/ai-safety-assistants"
+    assert score_relevance(hand, mission) < 0.5
+    assert score_relevance(article, mission) >= 0.5
+    assert score_relevance("safety checklist inspection talk training guide tips", mission) < 0.5
+    assert score_relevance(hand, mission, vector=[1.0, 0.0], mission_vector=[0.2, 0.2]) < 0.5
+    assert score_relevance("workplace notes", mission, vector=[1.0, 0.0], mission_vector=[1.0, 0.0]) >= 0.5
+
+    called = []
+
+    async def fetch(url):
+        called.append(url)
+        if "assistant-notes" in url:
+            return Reading(
+                status="ok",
+                url=url,
+                title="Hand tool inspection safety",
+                text="Hand tool inspection safety checklist for the workplace. " * 8,
+                raw='<a href="https://simplysub.com/safety-checklist">checklist</a>',
+                kind="article",
+            )
+        return Reading(
+            status="ok",
+            url=url,
+            title="AI safety for assistants",
+            text="AI safety for language model assistants: memory, prompts, and grounding. " * 8,
+            kind="article",
+        )
+
+    studied = []
+
+    async def study(source):
+        studied.append(source["url"])
+        return {"events": []}
+
+    hand_lead = {
+        "lead_id": "led_hand",
+        "mission_id": "msn_test",
+        "url": "https://safetymanualosha.com/hand-tool-inspection-safety",
+        "title": "Hand tool inspection safety",
+        "why": "Link on the page",
+        "from_url": "https://example.test/start",
+        "depth": 1,
+        "kind": "article",
+        "status": "queued",
+        "tries": 0,
+    }
+    sibling = {
+        "lead_id": "led_sib",
+        "mission_id": "msn_test",
+        "url": "https://simplysub.com/safety-checklist",
+        "title": "Safety checklist",
+        "why": "Link on the page",
+        "from_url": "https://safetymanualosha.com/hand-tool-inspection-safety",
+        "depth": 1,
+        "kind": "article",
+        "status": "queued",
+        "tries": 0,
+    }
+    rejected = asyncio.run(work_once(
+        mission=mission, frontier=[hand_lead, sibling], fetch=fetch, study=study, now=30, reads_at=[],
+    ))
+    assert called == []
+    assert studied == []
+    assert rejected.action == "skip"
+    assert rejected.frontier[0]["status"] == "off_topic"
+
+    # A link that looks like the mission can still be a workplace page once the body is read.
+    bait = dict(hand_lead)
+    bait["lead_id"] = "led_bait"
+    bait["title"] = "Notes for AI assistants"
+    bait["why"] = "assistant memory"
+    bait["url"] = "https://notes.example.test/assistant-notes"
+    body = asyncio.run(work_once(mission=mission, frontier=[bait], fetch=fetch, study=study, now=40, reads_at=[]))
+    assert called == ["https://notes.example.test/assistant-notes"]
+    assert studied == []
+    assert body.action == "skip"
+    assert "notes.example.test" in mission["drift_hosts"]
+    assert all("simplysub.com" not in item.get("url", "") for item in body.frontier)
+    assert "\u201c" not in body.events[-1]["data"]["message"]
+    assert "\u201d" not in body.events[-1]["data"]["message"]
+
+    good = {
+        "lead_id": "led_ai",
+        "mission_id": "msn_test",
+        "url": "https://example.test/ai-safety-assistants",
+        "title": "AI safety for language model assistants",
+        "why": "assistant prompts and memory",
+        "from_url": "",
+        "depth": 1,
+        "kind": "article",
+        "status": "queued",
+        "tries": 0,
+    }
+    kept = asyncio.run(work_once(mission=mission, frontier=[good], fetch=fetch, study=study, now=50, reads_at=[]))
+    assert studied == ["https://example.test/ai-safety-assistants"]
+    assert kept.action == "read"
+    message = kept.events[-1]["data"]["message"]
+    assert "Followed 'assistant prompts and memory'" in message
+    assert "\u201c" not in message and "\u201d" not in message
+
+
+def test_startup_prune_drops_workplace_safety_hosts():
+    from studyhall.frontier import prune_frontier
+
+    mission = _mission()
+    items = [
+        {"url": "https://www.safetymanualosha.com/hand-tool-inspection-safety", "status": "queued", "kind": "article", "title": "Hand tool inspection safety", "why": "Link on the page"},
+        {"url": "https://simplysub.com/checklist", "status": "queued", "kind": "article", "title": "Safety checklist", "why": "Link on the page"},
+        {"url": "https://safetytalklibrary.com/talks/hand-tools", "status": "error", "kind": "article", "title": "Hand tool talk", "why": "Link on the page"},
+        {"url": "https://example.test/ai-safety-assistants", "status": "queued", "kind": "article", "title": "AI safety for assistants", "why": "memory and prompts"},
+        {"url": "https://api.openalex.org/works?search=assistants", "status": "queued", "kind": "openalex", "title": "search", "why": "index"},
+    ]
+    kept, dropped = prune_frontier(items, mission)
+    assert dropped == 3
+    urls = {item["url"] for item in kept}
+    assert "https://example.test/ai-safety-assistants" in urls
+    assert any("openalex.org" in url for url in urls)
+    assert not any("safetymanualosha" in url or "simplysub.com" in url or "safetytalklibrary" in url for url in urls)
+
+
+def test_semantic_scholar_429_cools_down_and_uses_other_sources():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /\n")
+        if request.headers.get("x-try") == "bare":
+            return httpx.Response(429, text="slow")
+        return httpx.Response(429, text="slow", headers={"retry-after": "45"})
+
+    async def _fetch():
+        client = PoliteClient(min_interval=0, transport=httpx.MockTransport(handler))
+        try:
+            first = await client.fetch("https://api.semanticscholar.org/graph/v1/paper/search?query=assistant&limit=5")
+            return first
+        finally:
+            await client.aclose()
+
+    reading = asyncio.run(_fetch())
+    assert reading.status == "retry"
+    assert reading.temporary is True
+    assert reading.retry_after == 45
+
+    mission = _mission()
+    frontier = [{
+        "lead_id": "led_s2",
+        "mission_id": "msn_test",
+        "url": "https://api.semanticscholar.org/graph/v1/paper/search?query=assistant&limit=5",
+        "title": "long-term memory for conversational assistants",
+        "why": "Search for assistants",
+        "from_url": "",
+        "depth": 0,
+        "kind": "semanticscholar",
+        "status": "queued",
+        "tries": 0,
+    }]
+
+    async def fetch(url):
+        return Reading(status="retry", url=url, temporary=True, retry_after=45, message="429")
+
+    step = asyncio.run(work_once(mission=mission, frontier=frontier, fetch=fetch, study=_no_study, now=80, reads_at=[]))
+    urls = [item["url"] for item in step.frontier if item.get("status") == "queued"]
+    assert any(url.startswith("https://api.openalex.org/") for url in urls)
+    assert any(url.startswith("https://export.arxiv.org/api/") for url in urls)
+    assert mission["host_cooldown"]["api.semanticscholar.org"] == 125
+    assert "OpenAlex and arXiv" in step.events[0]["data"]["message"]
+    cooled = search_targets("assistants", skip_hosts={"api.semanticscholar.org"})
+    assert not any("semanticscholar.org" in item["url"] for item in cooled)
+    assert any("openalex.org" in item["url"] for item in cooled)
+
+
 def test_choose_port_skips_a_busy_one():
     with __import__("socket").socket() as sock:
         sock.bind(("127.0.0.1", 0))

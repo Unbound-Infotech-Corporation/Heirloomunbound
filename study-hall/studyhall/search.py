@@ -18,7 +18,7 @@ COMMUNITY_HOSTS = (
 )
 
 
-def search_targets(query: str, *, searxng: str = "") -> list[dict]:
+def search_targets(query: str, *, searxng: str = "", skip_hosts: set[str] | None = None) -> list[dict]:
     """Free endpoints that are either allowed by robots or a documented public API.
 
     Wikipedia's robots.txt disallows ``/w/api.php`` except a few actions, and allows
@@ -42,7 +42,10 @@ def search_targets(query: str, *, searxng: str = "") -> list[dict]:
     base = (searxng or "").strip().rstrip("/")
     if base:
         targets.append({"url": f"{base}/search?q={q}&format=json", "kind": "searxng", "why": why})
-    return targets
+    skipped = {host.lower() for host in (skip_hosts or set())}
+    if not skipped:
+        return targets
+    return [item for item in targets if (urlparse(item["url"]).hostname or "").lower() not in skipped]
 
 
 REDDIT_NOTE = (
