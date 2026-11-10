@@ -386,6 +386,16 @@ def _with_presence(system: str, audience: str | None) -> str:
     return system.rstrip() + "\n\n" + block
 
 
+def _with_study(system: str, query: str) -> str:
+    """Approved Study Hall notes. They do not clear a grounded miss, and a missing file changes nothing."""
+    try:
+        from study_knowledge import attach_study_to_prompt
+
+        return attach_study_to_prompt(system, query)
+    except Exception:
+        return system
+
+
 async def load_specialist_turn(
     user_id: str,
     text: str,
@@ -701,6 +711,7 @@ async def build_brain_pack(
             client_pack.audience,
         )
         system = _with_presence(system, client_pack.audience)
+        system = _with_study(system, text)
         g = bool(client_pack.grounded) or client_pack.audience in {"heir", "caller"}
         return TwinBrainPack(
             system=system,
@@ -742,6 +753,7 @@ async def build_brain_pack(
     system = _with_extra_system(system, extra_system)
     system, citation, watched = _with_observer(system, pack.citation_line, text, pack.audience)
     system = _with_presence(system, pack.audience)
+    system = _with_study(system, text)
     g = bool(pack.grounded) or pack.audience in {"heir", "caller"}
     return TwinBrainPack(
         system=system,
