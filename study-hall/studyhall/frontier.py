@@ -148,6 +148,40 @@ def _replace(frontier: list[dict], lead_id: str, updated: dict) -> list[dict]:
     return [updated if item.get("lead_id") == lead_id else item for item in frontier]
 
 
+_MARKETING = (
+    "/pricing", "/product", "/features/", "github.com/features", "/login", "/signup",
+    "/enterprise", "/solutions", "/marketplace", "/customer-stories",
+    "copilot", "codespaces", "secret-protection", "/security/secret",
+)
+_HOST_CAP = 4
+
+
+def _preflight(lead: dict, mission: dict, frontier: list[dict], now: float) -> tuple[bool, str]:
+    """Score a lead before spending a fetch. Indexes are decided by the caller."""
+    blob = " ".join([
+        str(lead.get("title") or ""),
+        str(lead.get("url") or ""),
+        str(lead.get("text") or ""),
+        str(lead.get("why") or ""),
+    ])
+    lowered = blob.lower()
+    if any(bit in lowered for bit in _MARKETING):
+        return False, "Skipped before fetching. This looks like product, pricing, or login marketing."
+    score = score_relevance(blob, mission)
+    host = urlparse(str(lead.get("url") or "")).hostname or ""
+    recent = [
+        item for item in frontier
+        if (urlparse(str(item.get("url") or "")).hostname or "") == host
+        and item.get("status") == "read"
+        and now - float(item.get("read_at") or 0) < 3600
+    ]
+    if host and len(recent) >= _HOST_CAP and score < 0.85:
+        return False, f"Skipped. {host} already had {len(recent)} pages this hour, and this lead scores {score:.2f}."
+    if score < 0.34:
+        return False, f"Skipped before fetching. The link text and URL score {score:.2f} against the mission."
+    return True, f"Followed. Relevance {score:.2f}. {lead.get('why') or 'It matches the mission.'}"
+
+
 def _backoff(tries: int) -> float:
     return float(min(300, 5 * (2 ** max(0, tries - 1))))
 
@@ -205,6 +239,16 @@ async def work_once(
             events=[{"event": "activity", "data": {"message": "Reddit blocks anonymous reading. It is listed under communities to watch, not fetched.", "url": item["url"]}}],
         )
     url = item["url"]
+    if item.get("kind") not in INDEX_KINDS:
+        allowed, reason = _preflight(item, mission, frontier, now)
+        if not allowed:
+            updated = {**item, "status": "off_topic"}
+            return Step(
+                action="skip",
+                status="running",
+                frontier=_replace(frontier, item["lead_id"], updated),
+                events=[{"event": "activity", "data": {"message": reason, "url": url}}],
+            )
     try:
         reading = await fetch(url)
     except Exception as exc:  # network or parser — back off, stay running
@@ -357,7 +401,7 @@ async def work_once(
             communities=communities,
         )
     updated = {**item, "status": "read", "relevance": relevance, "read_at": now}
-    events = [looking, {"event": "activity", "data": {"message": f"Followed “{item.get('why') or 'a lead'}” and asked the panel.", "url": url}}]
+    events = [looking, {"event": "activity", "data": {"message": f"Followed “{item.get('why') or 'a lead'}”. It matches the mission, so the panel is reading it.", "url": url}}]
     if isinstance(study_payload, dict):
         events.extend(study_payload.get("events") or [])
     return Step(

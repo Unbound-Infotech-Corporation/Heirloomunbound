@@ -51,6 +51,7 @@ Cite the source you were given. Do not invent URLs."""
 
 
 @dataclass
+@dataclass
 class RoundNote:
     seat: str
     model: str
@@ -58,6 +59,8 @@ class RoundNote:
     round: str
     text: str
     parsed: dict = field(default_factory=dict)
+    placeholder: bool = False
+    kind: str = ""
 
 
 @dataclass
@@ -199,19 +202,21 @@ async def practice_complete(seat: Seat, messages: list[dict]) -> str:
     })
 
 
-def _note(seat: Seat, round_name: str, raw: str) -> RoundNote:
-    parsed = parse_json_object(raw) or {}
-    return RoundNote(seat.model, seat.model, seat.host, round_name, raw.strip()[:4000], parsed)
+def _note(seat: Seat, round_name: str, raw: str, *, placeholder: bool = False) -> RoundNote:
+    parsed = {} if placeholder else (parse_json_object(raw) or {})
+    return RoundNote(seat.model, seat.model, seat.host, round_name, raw.strip()[:4000], parsed, placeholder, seat.kind)
 
 
-async def _ask(seat: Seat, system: str, user: str, complete: Complete) -> RoundNote:
+async def _ask(seat: Seat, system: str, user: str, complete: Complete, on_note=None) -> RoundNote:
+    placeholder = False
     try:
         raw = await complete(seat, [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ])
     except Exception as exc:  # a dead model should not sink the room
-        raw = json.dumps({"useful": "", "cautions": f"{seat.model} did not answer ({exc.__class__.__name__})."})
+        placeholder = True
+        raw = f"Placeholder. {seat.model} did not answer ({exc.__class__.__name__})."
     round_name = "read"
     if "ROUND: critique" in system:
         round_name = "critique"
@@ -219,7 +224,10 @@ async def _ask(seat: Seat, system: str, user: str, complete: Complete) -> RoundN
         round_name = "revise"
     elif "ROUND: pin" in system:
         round_name = "pin"
-    return _note(seat, round_name, raw or "")
+    note = _note(seat, round_name, raw or "", placeholder=placeholder)
+    if on_note is not None:
+        on_note(note)
+    return note
 
 
 def _render_notes(notes: list[RoundNote]) -> str:
@@ -256,19 +264,20 @@ async def run_study(
     engine: str = "local",
     already_filed: Optional[list[str]] = None,
     focus: str = "",
+    on_note=None,
 ) -> PanelResult:
     if not readers:
         raise ValueError("The panel has no readers.")
     import asyncio
 
     opening = source_message(source)
-    read_notes = list(await asyncio.gather(*[_ask(seat, READ_SYSTEM, opening, complete) for seat in readers]))
+    read_notes = list(await asyncio.gather(*[_ask(seat, READ_SYSTEM, opening, complete, on_note) for seat in readers]))
 
     critique_prompt = "Other readers wrote:\n\n" + _render_notes(read_notes) + "\n\nSOURCE:\n" + opening[:4000]
-    critiques = list(await asyncio.gather(*[_ask(seat, CRITIQUE_SYSTEM, critique_prompt, complete) for seat in readers]))
+    critiques = list(await asyncio.gather(*[_ask(seat, CRITIQUE_SYSTEM, critique_prompt, complete, on_note) for seat in readers]))
 
     revise_prompt = "Your critique round:\n\n" + _render_notes(critiques) + "\n\nSOURCE:\n" + opening[:4000]
-    revised = list(await asyncio.gather(*[_ask(seat, REVISE_SYSTEM, revise_prompt, complete) for seat in readers]))
+    revised = list(await asyncio.gather(*[_ask(seat, REVISE_SYSTEM, revise_prompt, complete, on_note) for seat in readers]))
 
     filed = [title for title in (already_filed or []) if title][:6]
     filed_block = ""
@@ -276,7 +285,7 @@ async def run_study(
         filed_block = "ALREADY FILED (do not repeat these lessons):\n" + "\n".join(f"- {title}" for title in filed) + "\n\n"
     focus_block = f"FOCUS: {focus}\n\n" if focus else ""
     pin_user = focus_block + filed_block + "REVISED NOTES:\n" + _render_notes(revised) + "\n\nSOURCE:\n" + opening[:5000]
-    pinned = await _ask(moderator, PIN_SYSTEM, pin_user, complete)
+    pinned = await _ask(moderator, PIN_SYSTEM, pin_user, complete, on_note)
     parsed = pinned.parsed
     if not parsed or not _clip(parsed.get("summary"), 20):
         card = _fallback_card(source, revised)

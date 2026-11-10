@@ -431,8 +431,34 @@ function modelsView() {
   const embedder = report.embedder ? `${report.embedder.model} on ${report.embedder.host}` : "mxbai-embed-large (not running)";
   return `
     <p>Default readers: ${escapeHtml(readers)}. Moderator: ${escapeHtml(moderator)}. Embeddings: ${escapeHtml(embedder)}.</p>
-    <p class="meta">phi4, Mistral, and Gemma read. llama3.1:8b moderates when it is on the study instance. Embedding models do not speak. Cloud APIs stay off unless you add one to config.json.</p>
-    ${hosts}`;
+    <p class="meta">phi4, Mistral, and Gemma read. llama3.1:8b moderates when it is on the study instance. Embedding models do not speak. ChatGPT and Gemini join only if you add an API key.</p>
+    ${hosts}
+    ${providerCards()}`;
+}
+
+function providerCards() {
+  const rows = state.providers || {};
+  const explain = `<p class="meta">A ChatGPT Plus or Gemini app subscription is separate from API access. An OpenAI key is pay-as-you-go from platform.openai.com. A Gemini key from aistudio.google.com has a free tier.</p>`;
+  const card = (name, title) => {
+    const row = rows[name] || {};
+    const choices = row.choices || [];
+    const options = choices.map((model) => `<option ${model === row.model ? "selected" : ""}>${escapeHtml(model)}</option>`).join("");
+    return `<form class="mission" data-provider="${name}" data-testid="provider-${name}">
+      <h3>${title}</h3>
+      <label class="meta"><input type="checkbox" name="enabled" ${row.enabled ? "checked" : ""}> Let this model sit on the panel</label>
+      <label class="meta"><input type="checkbox" name="moderator" ${row.moderator ? "checked" : ""}> Use it as the moderator</label>
+      <input name="key" type="password" autocomplete="off" placeholder="${row.key_set ? escapeHtml(row.key_mask || "Key saved") : "Paste an API key"}" aria-label="${title} API key">
+      <select name="model" aria-label="${title} model">${options || `<option>${escapeHtml(row.model || "")}</option>`}</select>
+      <input name="cap_hour" type="text" value="${row.cap_hour || 20}" aria-label="Calls an hour">
+      <input name="cap_day" type="text" value="${row.cap_day || 100}" aria-label="Calls a day">
+      <p class="meta" data-testid="usage-${name}">${row.used_hour || 0} this hour · ${row.used_day || 0} today, of ${row.cap_hour || 20}/hour and ${row.cap_day || 100}/day</p>
+      <div class="actions">
+        <button class="primary" type="submit">Save</button>
+        <button class="quiet" type="button" data-test-provider="${name}">Test connection</button>
+      </div>
+    </form>`;
+  };
+  return `<h3>Optional cloud seats</h3>${explain}${card("openai", "ChatGPT")}${card("gemini", "Gemini")}`;
 }
 
 function renderInspector() {
@@ -539,6 +565,12 @@ function bindStage() {
   if (pace) pace.addEventListener("submit", (event) => { event.preventDefault(); savePace(); });
   const login = $("login-toggle");
   if (login) login.addEventListener("change", () => toggleLogin(login.checked));
+  $("stage").querySelectorAll("[data-provider]").forEach((form) => {
+    form.addEventListener("submit", (event) => { event.preventDefault(); saveProvider(form); });
+  });
+  $("stage").querySelectorAll("[data-test-provider]").forEach((button) => {
+    button.addEventListener("click", () => testProvider(button.dataset.testProvider));
+  });
   const refresh = $("refresh-models");
   if (refresh) refresh.addEventListener("click", async () => {
     say("Looking for models…");
@@ -564,6 +596,7 @@ document.querySelectorAll(".rail button, [data-goto]").forEach((button) => {
     if (view === "models" && !state.models) {
       setView("models");
       state.models = await api("/api/models");
+      state.providers = (await api("/api/providers")).providers;
     }
     if (view === "study" && state.source) state.view = "study";
     setView(view);
@@ -768,6 +801,35 @@ async function savePace() {
   say("Pace saved. The room keeps going.");
 }
 
+async function saveProvider(form) {
+  const name = form.dataset.provider;
+  const body = {
+    enabled: form.enabled.checked,
+    moderator: form.moderator.checked,
+    model: form.model.value,
+    cap_hour: Number(form.cap_hour.value),
+    cap_day: Number(form.cap_day.value),
+  };
+  if (form.key.value.trim()) body.key = form.key.value.trim();
+  const result = await api(`/api/providers/${name}`, { method: "PUT", body: JSON.stringify(body) });
+  state.providers = state.providers || {};
+  state.providers[name] = result.provider;
+  form.key.value = "";
+  say(result.provider.key_set ? "Saved. The key stays on this PC." : "Saved.");
+  render();
+}
+
+async function testProvider(name) {
+  try {
+    const result = await api(`/api/providers/${name}/test`, { method: "POST", body: "{}" });
+    state.providers = (await api("/api/providers")).providers;
+    say(`Connected. ${result.models.length} models available.`);
+    render();
+  } catch (error) {
+    say(error.message);
+  }
+}
+
 async function toggleLogin(enabled) {
   const result = await api("/api/startup", { method: "POST", body: JSON.stringify({ enabled }) });
   say(result.note || "Saved.");
@@ -806,6 +868,7 @@ async function boot() {
   if (!state.setup.acked) $("setup").hidden = false;
   await refreshLibrary();
   state.knowledge = await api("/api/knowledge");
+  state.providers = (await api("/api/providers")).providers;
   render();
   connectLive();
   api("/api/models").then((models) => {

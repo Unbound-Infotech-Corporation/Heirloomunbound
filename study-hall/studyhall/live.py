@@ -33,17 +33,51 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def chat_event(name: str, text: str, *, role: str = "reader") -> dict:
+def color_for(name: str, kind: str = "") -> str:
+    if name in COLORS:
+        return COLORS[name]
+    if kind == "openai" or name.startswith("gpt-"):
+        return "#1f8a4c" if "mini" not in name else "#7dcea0"
+    if kind == "gemini" or name.startswith("gemini"):
+        return "#674ea7" if name.endswith("pro") else "#8e7cc3"
+    return "#c4bbb0"
+
+
+def chat_event(name: str, text: str, *, role: str = "reader", kind: str = "", placeholder: bool = False) -> dict:
     return {
         "event": "chat",
         "data": {
             "name": name,
             "role": role,
-            "color": COLORS.get(name, "#c4bbb0"),
+            "kind": kind,
+            "color": color_for(name, kind),
             "text": text[:700],
+            "placeholder": placeholder,
             "at": _now(),
         },
     }
+
+
+def short_turn(round_name: str, parsed: dict, raw: str, *, placeholder: bool = False, model: str = "") -> str:
+    """One short line from a model's real reply."""
+    if placeholder:
+        detail = (raw or "").strip() or f"{model} did not answer."
+        if not detail.lower().startswith("placeholder"):
+            detail = f"Placeholder. {detail}"
+        return detail[:320]
+    if round_name == "critique":
+        line = parsed.get("keep") or parsed.get("reject") or parsed.get("agree") or ""
+    elif round_name == "pin":
+        line = parsed.get("summary") or ""
+        why = parsed.get("why_it_matters") or ""
+        if why:
+            line = f"{line} {why}".strip()
+    else:
+        line = parsed.get("useful") or parsed.get("cautions") or ""
+    line = " ".join(str(line or raw or "").split())
+    if not line:
+        return f"Placeholder. {model or 'This seat'} returned nothing usable."
+    return line[:320]
 
 
 def script_discussion(title: str, text: str, *, tag: str = "") -> list[dict]:

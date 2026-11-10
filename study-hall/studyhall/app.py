@@ -19,6 +19,7 @@ from studyhall.frontier import enqueue, seed_leads
 from studyhall.hall import Hall, lookup_topic
 from studyhall.live import sse
 from studyhall.missions import get_mission, list_missions, save_mission, set_status
+from studyhall.providers import list_models, load_providers, public_view, update_provider
 from studyhall.reader import PoliteClient, Reading, extract_pdf
 from studyhall.runner import ResearchRunner
 from studyhall.startup import apply_login_start
@@ -62,6 +63,16 @@ class PaceBody(BaseModel):
 
 class StartupBody(BaseModel):
     enabled: bool = False
+
+
+class ProviderBody(BaseModel):
+    enabled: bool | None = None
+    model: str | None = None
+    moderator: bool | None = None
+    cap_hour: int | None = None
+    cap_day: int | None = None
+    key: str | None = None
+    clear_key: bool = False
 
 
 def create_app(data_dir: Path | None = None) -> FastAPI:
@@ -384,6 +395,32 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         app.state.runner.publish("chat", owner)
         app.state.runner.publish("chat", reply)
         return {"reply": result["reply"], "action": result.get("action"), "citations": result.get("citations") or [], "mission": result.get("mission")}
+
+    @app.get("/api/providers")
+    def providers():
+        return {"providers": public_view(room().store.root)}
+
+    @app.put("/api/providers/{name}")
+    def save_provider(name: str, body: ProviderBody):
+        try:
+            view = update_provider(room().store.root, name, body.model_dump())
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="That provider is not available.") from exc
+        return {"provider": view}
+
+    @app.post("/api/providers/{name}/test")
+    async def test_provider(name: str):
+        rows = load_providers(room().store.root)
+        row = rows.get(name)
+        if not row or not row.get("key"):
+            raise HTTPException(status_code=400, detail="Add an API key first.")
+        try:
+            models = await list_models(name, str(row["key"]))
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Could not reach {name} ({exc.__class__.__name__}).") from exc
+        if models:
+            update_provider(room().store.root, name, {"choices": models, "model": row.get("model") or models[0]})
+        return {"ok": True, "models": models}
 
     @app.get("/api/startup")
     def startup_state():

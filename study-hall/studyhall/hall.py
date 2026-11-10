@@ -193,24 +193,35 @@ class Hall:
             })
         return self.store.publish_knowledge(filed, knowledge_mirrors(self.store))
 
-    async def study(self, source_id: str, *, engine: str = "auto", tag: str = "", focus: str = "") -> dict:
+    async def study(self, source_id: str, *, engine: str = "auto", tag: str = "", focus: str = "", on_note=None) -> dict:
         source = self.source(source_id)
         if source is None:
             raise KeyError(source_id)
         if source.get("kind") == "feed" or not (source.get("text") or "").strip():
             raise ValueError("Open one article, paper, or PDF before running the panel.")
         config = load_config()
+        from studyhall.providers import cloud_seats, provider_complete
+
+        extra, cloud_moderator = cloud_seats(self.store.root)
         if engine == "practice":
             readers, moderator = practice_panel(config)
-            complete = practice_complete
             used = "practice"
         else:
             found = await _found_models()
             readers, moderator = assign_panel(found, config)
+            readers = list(readers) + list(extra)
+            if cloud_moderator is not None:
+                moderator = cloud_moderator
             if not readers or moderator is None:
                 raise RuntimeError("no-models")
-            complete = _ollama_complete
             used = "local"
+
+        async def complete(seat, messages):
+            if seat.kind in {"openai", "gemini"}:
+                return await provider_complete(seat, messages, self.store.root)
+            if seat.kind == "practice" or used == "practice":
+                return await practice_complete(seat, messages)
+            return await _ollama_complete(seat, messages)
         filed_titles = [
             str(item.get("source_title") or item.get("summary") or "")
             for item in self.store.read_items("lessons.json")
@@ -224,6 +235,7 @@ class Hall:
             engine=used,
             already_filed=[title for title in filed_titles if title],
             focus=focus,
+            on_note=on_note,
         )
         return self._save_panel(source, result, tag=tag)
 

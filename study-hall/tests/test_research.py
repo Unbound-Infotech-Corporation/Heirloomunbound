@@ -102,6 +102,8 @@ def test_relevance_gate_skips_the_panel_until_the_page_matches():
         skipped = await work_once(mission=mission, frontier=frontier, fetch=fetch, study=study, now=1000, reads_at=[])
         useful = dict(frontier[0])
         useful["url"] = "https://example.test/memory"
+        useful["title"] = "Long-term memory for conversational assistants"
+        useful["why"] = "OpenAlex work on long-term memory"
         useful["lead_id"] = "led_memory"
         read = await work_once(mission=mission, frontier=[useful], fetch=fetch, study=study, now=2000, reads_at=[])
         return skipped, read
@@ -129,8 +131,8 @@ def test_robots_disallow_does_not_fetch_the_page_and_does_not_stop():
         "lead_id": "led_private",
         "mission_id": "msn_test",
         "url": "http://press.test/private",
-        "title": "Private",
-        "why": "a lead",
+        "title": "Long-term memory for conversational assistants",
+        "why": "a paper on long-term memory",
         "from_url": "",
         "depth": 1,
         "kind": "article",
@@ -195,11 +197,12 @@ def test_errors_back_off_and_leave_the_mission_running():
         "lead_id": "led_down",
         "mission_id": "msn_test",
         "url": "https://example.test/down",
+        "title": "Long-term memory for conversational assistants",
         "status": "queued",
         "depth": 0,
         "kind": "article",
         "tries": 0,
-        "why": "lead",
+        "why": "paper on long-term memory",
         "from_url": "",
     }]
     step = asyncio.run(work_once(mission=mission, frontier=frontier, fetch=fetch, study=_no_study, now=50, reads_at=[]))
@@ -293,7 +296,7 @@ def test_articles_are_read_before_more_indexes():
 
     frontier = [
         {"lead_id": "led_index", "mission_id": "msn_test", "url": "https://api.openalex.org/works?search=memory", "status": "queued", "depth": 0, "kind": "openalex", "tries": 0, "why": "index", "from_url": "", "text": ""},
-        {"lead_id": "led_paper", "mission_id": "msn_test", "url": "https://example.test/memory-paper", "status": "queued", "depth": 1, "kind": "paper", "tries": 0, "why": "OpenAlex work", "from_url": "https://api.openalex.org/works", "text": ""},
+        {"lead_id": "led_paper", "mission_id": "msn_test", "url": "https://example.test/memory-paper", "title": "Long-term memory for conversational assistants", "status": "queued", "depth": 1, "kind": "paper", "tries": 0, "why": "OpenAlex work on long-term memory", "from_url": "https://api.openalex.org/works", "text": "long-term memory"},
     ]
     step = asyncio.run(work_once(mission=mission, frontier=frontier, fetch=fetch, study=study, now=10, reads_at=[]))
     assert studied == ["https://example.test/memory-paper"]
@@ -361,6 +364,76 @@ def test_official_api_is_fetched_when_robots_disallows_the_host():
     reading = asyncio.run(_run())
     assert reading.status == "ok"
     assert "/api/query" in seen
+
+
+def test_real_panel_lines_are_not_the_stock_script(tmp_path):
+    from studyhall.discover import Seat
+    from studyhall.live import short_turn
+    from studyhall.panel import run_study
+
+    seen = []
+
+    async def complete(seat, messages):
+        system = messages[0]["content"]
+        if "ROUND: pin" in system:
+            return json.dumps({"summary": "Cite this paper for the twin.", "why_it_matters": "It is a method, not a memory.", "confidence": 0.7, "citations": [], "proposals": []})
+        if "ROUND: critique" in system:
+            return json.dumps({"keep": f"{seat.model} would keep the citation.", "reject": "Skip hype.", "agree": "Yes."})
+        return json.dumps({"useful": f"{seat.model} finds the memory method useful.", "not_useful": "", "cautions": ""})
+
+    def on_note(note):
+        seen.append(short_turn(note.round, note.parsed, note.text, placeholder=note.placeholder, model=note.model))
+
+    reader = Seat("phi4:14b", "http://127.0.0.1:11435", "study", "ollama", "reader")
+    moderator = Seat("llama3.1:8b", "http://127.0.0.1:11435", "study", "ollama", "moderator")
+    source = {"title": "Memory", "url": "https://example.test/m", "date": "", "text": "Long-term memory lets conversational assistants keep context. " * 10}
+    asyncio.run(run_study(source, [reader], moderator, complete, on_note=on_note))
+    blob = " ".join(seen)
+    assert "phi4:14b finds the memory method useful" in blob
+    assert "would keep the citation" in blob
+    assert "Cite this paper for the twin" in blob
+    assert "Dubious if we treat" not in blob
+    assert "Placeholder" in short_turn("read", {}, "phi4 did not answer.", placeholder=True, model="phi4:14b")
+
+
+def test_marketing_links_are_skipped_before_fetch():
+    mission = _mission()
+    called = []
+
+    async def fetch(url):
+        called.append(url)
+        return Reading(status="ok", url=url, title="Ad", text="Long-term memory for conversational assistants. " * 5)
+
+    frontier = [{
+        "lead_id": "led_ad",
+        "mission_id": "msn_test",
+        "url": "https://github.com/features/copilot",
+        "title": "GitHub Copilot pricing",
+        "why": "a link",
+        "from_url": "https://github.com/org/repo",
+        "depth": 1,
+        "kind": "article",
+        "status": "queued",
+        "tries": 0,
+        "text": "product marketing",
+    }]
+    step = asyncio.run(work_once(mission=mission, frontier=frontier, fetch=fetch, study=_no_study, now=20, reads_at=[]))
+    assert called == []
+    assert step.frontier[0]["status"] == "off_topic"
+    assert "Skipped" in step.events[0]["data"]["message"]
+
+
+def test_provider_key_stays_masked_and_the_cap_holds(tmp_path):
+    from studyhall.providers import load_providers, public_view, record_use, update_provider, within_cap
+
+    update_provider(tmp_path, "openai", {"key": "sk-test-secret-1234", "enabled": True, "cap_hour": 1, "cap_day": 2})
+    view = public_view(tmp_path)["openai"]
+    blob = json.dumps(view)
+    assert "sk-test-secret" not in blob
+    assert view["key_mask"].endswith("1234")
+    assert view["key_set"] is True
+    record_use(tmp_path, "openai")
+    assert within_cap(load_providers(tmp_path)["openai"]) is False
 
 
 def test_choose_port_skips_a_busy_one():

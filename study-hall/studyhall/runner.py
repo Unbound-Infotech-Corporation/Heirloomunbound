@@ -6,7 +6,7 @@ import os
 import time
 
 from studyhall.frontier import work_once
-from studyhall.live import chat_event, lesson_event, proposal_event, script_discussion
+from studyhall.live import chat_event, lesson_event, proposal_event, short_turn
 from studyhall.missions import list_missions, running_missions, save_mission
 from studyhall.reader import Reading
 
@@ -154,8 +154,19 @@ class ResearchRunner:
             "lessons_drafted": len(lessons),
         })
 
+    def _remember(self, message: dict) -> None:
+        rows = self.hall.store.read_items("chat.json")
+        rows.append({k: v for k, v in message.items() if k != "color" or True})
+        self.hall.store.write_items("chat.json", rows[-160:])
+
     async def _study(self, source: dict, mission: dict) -> dict:
-        events = script_discussion(source.get("title") or "", source.get("text") or "", tag=mission.get("tag") or "")
+        def on_note(note) -> None:
+            text = short_turn(note.round, note.parsed, note.text, placeholder=note.placeholder, model=note.model)
+            role = "moderator" if note.round == "pin" else "reader"
+            event = chat_event(note.model, text, role=role, kind=note.kind, placeholder=note.placeholder)
+            self.publish(event["event"], event["data"])
+            self._remember(event["data"])
+
         reading = Reading(
             status="ok",
             url=source.get("url") or "",
@@ -167,12 +178,13 @@ class ResearchRunner:
         added = self.hall.add_reading(reading, origin="automate")
         source_row = added.get("source")
         if not added.get("stored") or not source_row:
-            return {"events": events}
+            return {"events": []}
         tag = mission.get("tag") or ""
         try:
-            result = await self.hall.study(source_row["source_id"], engine="auto", tag=tag, focus=tag)
+            result = await self.hall.study(source_row["source_id"], engine="auto", tag=tag, focus=tag, on_note=on_note)
         except RuntimeError:
-            result = await self.hall.study(source_row["source_id"], engine="practice", tag=tag, focus=tag)
+            result = await self.hall.study(source_row["source_id"], engine="practice", tag=tag, focus=tag, on_note=on_note)
+        events = []
         events.append(lesson_event(result["lesson"]))
         for proposal in result.get("proposals") or []:
             events.append(proposal_event(proposal))
