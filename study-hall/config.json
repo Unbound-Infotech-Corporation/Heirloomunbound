@@ -1,0 +1,21 @@
+{
+  "ollama": [
+    {"name": "study", "url": "http://127.0.0.1:11435"},
+    {"name": "main", "url": "http://127.0.0.1:11434"}
+  ],
+  "local_servers": [],
+  "cloud": [],
+  "min_interval": 1.5,
+  "embed_models": ["mxbai-embed-large", "nomic-embed-text"],
+  "panel": {
+    "readers": [
+      {"model": "phi4:14b", "host": "study"},
+      {"model": "mistral-small3.2:24b", "host": "study"},
+      {"model": "gemma3:27b", "host": "study"}
+    ],
+    "moderator": {"model": "llama3.1:8b", "host": "study"},
+    "moderator_fallbacks": [
+      {"model": "qwen3:8b", "host": "main"}
+    ]
+  }
+}

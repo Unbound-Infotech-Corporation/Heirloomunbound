@@ -96,3 +96,7 @@ frontend/node_modules/.cache/default-development/10.pack
 credentials.json
 *.key
 .credentials
+
+# Heirloom Study Hall local library and environment
+study-hall/data/
+study-hall/.venv/

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Heirloom Study Hall</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/studio.css">
+</head>
+<body>
+  <div id="setup" class="setup" hidden>
+    <section class="setup-card">
+      <p class="eyebrow">Heirloom</p>
+      <h1>Study Hall</h1>
+      <p class="lede">A reading room for the twin. Articles, papers, and notes stay on this PC. Nothing is filed until you say so.</p>
+      <ol class="steps">
+        <li><span>01</span><div><strong>Read</strong><p>Add a link, a topic, a feed, or a PDF.</p></div></li>
+        <li><span>02</span><div><strong>Study</strong><p>Local models argue about what is actually useful.</p></div></li>
+        <li><span>03</span><div><strong>File</strong><p>You approve a lesson. The twin can cite it. Its code stays put.</p></div></li>
+      </ol>
+      <div class="setup-actions">
+        <button type="button" class="primary" id="setup-sample" data-testid="setup-sample">Read the included sample</button>
+        <button type="button" class="quiet" id="setup-open" data-testid="setup-open">Open the library</button>
+      </div>
+      <p class="fine">Local models are the default. A dedicated Ollama on port 11435 is preferred. No paid API is required.</p>
+    </section>
+  </div>
+
+  <div class="app">
+    <header class="menubar">
+      <div class="brand">Heirloom <span>Study Hall</span></div>
+      <nav class="menus" aria-label="Menus">
+        <div class="menu">
+          <button type="button" aria-expanded="false" data-menu="file">File</button>
+          <div class="dropdown" id="menu-file" hidden>
+            <button type="button" data-action="focus-url">Add a link…</button>
+            <button type="button" data-action="focus-topic">Add a topic…</button>
+            <button type="button" data-action="sample">Read the included sample</button>
+            <button type="button" data-action="upload">Add a PDF or document…</button>
+          </div>
+        </div>
+        <div class="menu">
+          <button type="button" aria-expanded="false" data-menu="study">Study</button>
+          <div class="dropdown" id="menu-study" hidden>
+            <button type="button" data-action="run-local">Run the panel</button>
+            <button type="button" data-action="run-practice">Practice panel</button>
+          </div>
+        </div>
+        <div class="menu">
+          <button type="button" aria-expanded="false" data-menu="view">View</button>
+          <div class="dropdown" id="menu-view" hidden>
+            <button type="button" data-goto="live">Live Room</button>
+            <button type="button" data-goto="automate">Automate</button>
+            <button type="button" data-goto="library">Library</button>
+            <button type="button" data-goto="lessons">Filed lessons</button>
+            <button type="button" data-goto="queue">Ideas</button>
+            <button type="button" data-goto="models">Models</button>
+          </div>
+        </div>
+      </nav>
+      <p class="menubar-note">On this PC</p>
+    </header>
+
+    <div class="shell">
+      <nav class="rail" aria-label="Sections">
+        <button type="button" data-goto="live" data-testid="nav-live" aria-label="Live" title="Live">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h4v8H5zM15 6h4v12h-4z"/><path d="M9 12h6"/></svg>
+          <span>Live</span>
+        </button>
+        <button type="button" data-goto="automate" data-testid="nav-automate" aria-label="Automate" title="Automate">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v4M12 15v4M5 12h4M15 12h4"/><circle cx="12" cy="12" r="2.2"/></svg>
+          <span>Auto</span>
+        </button>
+        <button type="button" data-goto="library" data-testid="nav-library" aria-label="Library" title="Library">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h5.5V19H6.2A1.2 1.2 0 0 1 5 17.8zM13.5 5.5H19v12.3a1.2 1.2 0 0 1-1.2 1.2H13.5z"/></svg>
+          <span>Library</span>
+        </button>
+        <button type="button" data-goto="study" data-testid="nav-study" aria-label="Study" title="Study">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16.5 9.2 8l2.3 5.2L14 9.5l1.6 3.2H18"/><circle cx="8" cy="16.5" r="1.2"/><circle cx="12" cy="16.5" r="1.2"/><circle cx="16" cy="16.5" r="1.2"/></svg>
+          <span>Study</span>
+        </button>
+        <button type="button" data-goto="lessons" data-testid="nav-lessons" aria-label="Lessons" title="Lessons">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5h8l3 3V19.5H7z"/><path d="M15 4.5V8h3.2"/></svg>
+          <span>Lessons</span>
+        </button>
+        <button type="button" data-goto="queue" data-testid="nav-queue" aria-label="Ideas" title="Ideas">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12M6 12h12M6 17h8"/></svg>
+          <span>Ideas</span>
+        </button>
+        <button type="button" data-goto="models" data-testid="nav-models" aria-label="Models" title="Models">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5"/><rect x="13.5" y="4" width="6.5" height="6.5"/><rect x="4" y="13.5" width="6.5" height="6.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5"/></svg>
+          <span>Models</span>
+        </button>
+      </nav>
+
+      <section class="window">
+        <header class="titlebar">
+          <div>
+            <h1 id="doc-title">Library</h1>
+            <p id="doc-sub">Readings stay on this PC.</p>
+          </div>
+        </header>
+        <div id="toolbar" class="toolbar"></div>
+        <div id="stage" class="stage-body"></div>
+      </section>
+
+      <aside class="inspector" aria-label="Inspector">
+        <header>Inspector</header>
+        <div id="inspector"></div>
+      </aside>
+    </div>
+    <form id="ask-dock" class="ask-dock" data-testid="ask-dock">
+      <input id="ask-input" data-testid="chat-input" type="text" placeholder="Ask the room, or tell it what to research" autocomplete="off">
+      <button class="primary" type="submit" data-testid="chat-send">Send</button>
+    </form>
+    <footer class="statusbar">
+      <p id="status" role="status" data-testid="status">Ready</p>
+    </footer>
+  </div>
+  <input id="file-input" type="file" accept=".pdf,.txt,.md,.html,.htm" hidden>
+  <script src="/assets/studio.js"></script>
+</body>
+</html>
