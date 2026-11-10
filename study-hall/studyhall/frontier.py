@@ -8,6 +8,7 @@ from typing import Awaitable, Callable
 from urllib.parse import urlparse
 
 from studyhall.embed import cosine, keyword_overlap
+from studyhall.pages import QUEUED_PER_HOST, is_marketing
 from studyhall.search import (
     AMBIGUOUS_TERMS,
     community_targets,
@@ -130,12 +131,21 @@ def _lead_id() -> str:
     return f"led_{uuid.uuid4().hex[:12]}"
 
 
+def _queued_on_host(items: list[dict], host: str) -> int:
+    return sum(1 for item in items if _host(str(item.get("url") or "")) == host and item.get("status") == "queued")
+
+
 def enqueue(frontier: list[dict], leads: list[dict], mission_id: str) -> list[dict]:
     seen = {item.get("url") for item in frontier}
     out = list(frontier)
     for lead in leads:
         url = lead.get("url") or ""
         if not url or url in seen:
+            continue
+        if is_marketing(url, str(lead.get("title") or "")):
+            continue
+        host = _host(url)
+        if host and _queued_on_host(out, host) >= QUEUED_PER_HOST:
             continue
         seen.add(url)
         out.append({
@@ -251,6 +261,24 @@ def _wikipedia(url: str) -> bool:
     return host.endswith("wikipedia.org") or host.endswith("wikimedia.org")
 
 
+def _cap_queued(items: list[dict], limit: int) -> tuple[list[dict], int]:
+    counts: dict[str, int] = {}
+    kept: list[dict] = []
+    dropped = 0
+    for item in items:
+        if item.get("status") != "queued":
+            kept.append(item)
+            continue
+        host = _host(str(item.get("url") or ""))
+        seen = counts.get(host, 0)
+        if host and seen >= limit:
+            dropped += 1
+            continue
+        counts[host] = seen + 1
+        kept.append(item)
+    return kept, dropped
+
+
 def drop_children(frontier: list[dict], page_url: str) -> list[dict]:
     page = _canon(page_url)
     if not page:
@@ -285,8 +313,8 @@ def _preflight(lead: dict, mission: dict, frontier: list[dict], now: float, vect
         return False, "Skipped. Wikipedia navigation, other languages, and project pages are not readings."
     if "disambiguation" in lowered:
         return True, "Disambiguation page. Only entries with an AI sense will be followed."
-    if any(bit in lowered for bit in _MARKETING):
-        return False, "Skipped before fetching. This looks like product, pricing, or login marketing."
+    if is_marketing(str(lead.get("url") or ""), str(lead.get("title") or "")) or any(bit in lowered for bit in _MARKETING):
+        return False, "Skipped before fetching. This is a product, pricing, or other marketing page."
     lead_vector, mission_vector = _vectors(vector_of, blob, mission)
     ok, score, reason = matches_mission(blob, mission, vector=lead_vector, mission_vector=mission_vector)
     recent = [
@@ -308,8 +336,11 @@ def prune_frontier(items: list[dict], mission: dict) -> tuple[list[dict], int]:
     dropped = 0
     for item in items:
         host = _host(str(item.get("url") or ""))
-        waiting = item.get("status") in {"queued", "error", "retry", "off_topic"}
+        waiting = item.get("status") in {"queued", "error", "retry", "off_topic", "marketing"}
         if waiting and host_penalized(host, mission):
+            dropped += 1
+            continue
+        if waiting and is_marketing(str(item.get("url") or ""), str(item.get("title") or "")):
             dropped += 1
             continue
         if waiting and wikipedia_chrome(str(item.get("url") or ""), str(item.get("title") or "")):
@@ -324,7 +355,8 @@ def prune_frontier(items: list[dict], mission: dict) -> tuple[list[dict], int]:
                 dropped += 1
                 continue
         kept.append(item)
-    return kept, dropped
+    kept, overflow = _cap_queued(kept, QUEUED_PER_HOST)
+    return kept, dropped + overflow
 
 
 def penalize(frontier: list[dict], mission: dict, host: str, page_url: str) -> list[dict]:
@@ -529,6 +561,15 @@ async def work_once(
             events=[{"event": "activity", "data": {"message": f"Disambiguation page. Followed {len(kept)} entries that name an AI sense.", "url": url}}],
             edges=[{"from": url, "to": lead["url"], "why": lead["why"], "mission_id": mission_id} for lead in kept],
             communities=communities,
+        )
+    if is_marketing(url, title or item.get("title") or "", text=text, raw=raw or ""):
+        updated = {**item, "status": "marketing", "relevance": 0}
+        return Step(
+            action="skip",
+            status="running",
+            wait=0.0,
+            frontier=drop_children(_replace(frontier, item["lead_id"], updated), url),
+            events=[{"event": "activity", "data": {"message": "Skipped. The page is product, pricing, or other marketing, so the panel was not asked and its links were dropped.", "url": url}}],
         )
     on_topic, relevance, topic_reason = matches_mission(lead_text, mission, vector=page_vector, mission_vector=mission_vector)
     mark = highlight_span(text, mission)

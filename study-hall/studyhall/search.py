@@ -7,6 +7,8 @@ from html.parser import HTMLParser
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 from xml.etree import ElementTree
 
+from studyhall.pages import is_marketing
+
 COMMUNITY_HOSTS = (
     "reddit.com",
     "news.ycombinator.com",
@@ -188,16 +190,37 @@ def _local(tag: str) -> str:
 
 
 class _LinkParser(HTMLParser):
+    """Links in the article body. Header, footer, nav, and sidebar stay out."""
+
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.links: list[tuple[str, str]] = []
         self._href = ""
         self._text: list[str] = []
+        self._stack: list[str] = []
+        self._chrome = 0
+        self._main = 0
+        self.saw_main = False
+        self.body_links: list[tuple[str, str]] = []
+        self.plain_links: list[tuple[str, str]] = []
 
     def handle_starttag(self, tag, attrs):
-        if tag.lower() != "a":
-            return
+        name = tag.lower()
         attr = {key.lower(): value or "" for key, value in attrs}
+        kind = ""
+        blob = f"{attr.get('class', '')} {attr.get('id', '')} {attr.get('role', '')}".lower()
+        tokens = set(re.split(r"[^a-z0-9]+", blob))
+        void = name in {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+        if not void and (name in {"header", "footer", "nav", "aside"} or attr.get("role", "").lower() in {"navigation", "banner", "contentinfo"} or tokens & {"header", "footer", "nav", "navigation", "sidebar", "masthead", "menu", "cookie", "banner"}):
+            kind = "chrome"
+            self._chrome += 1
+        elif not void and (name in {"article", "main"} or attr.get("role", "").lower() == "main"):
+            kind = "main"
+            self._main += 1
+            self.saw_main = True
+        if not void:
+            self._stack.append(kind)
+        if name != "a":
+            return
         self._href = attr.get("href") or ""
         self._text = []
 
@@ -206,9 +229,24 @@ class _LinkParser(HTMLParser):
             self._text.append(data)
 
     def handle_endtag(self, tag):
-        if tag.lower() == "a" and self._href:
-            self.links.append((self._href, " ".join(self._text).strip()))
+        name = tag.lower()
+        if name == "a" and self._href:
+            item = (self._href, " ".join(self._text).strip())
+            if self._main > 0 and self._chrome == 0:
+                self.body_links.append(item)
+            elif self._chrome == 0:
+                self.plain_links.append(item)
             self._href = ""
+        if self._stack:
+            kind = self._stack.pop()
+            if kind == "chrome":
+                self._chrome = max(0, self._chrome - 1)
+            elif kind == "main":
+                self._main = max(0, self._main - 1)
+
+    @property
+    def links(self) -> list[tuple[str, str]]:
+        return self.body_links if self.saw_main else self.plain_links
 
 
 def _abs(base: str, href: str) -> str:
@@ -243,6 +281,8 @@ def _worth_following(url: str, title: str) -> bool:
         return has_ai_context(f"{title} {unquote(url)}")
     if path.endswith(".pdf"):
         return True
+    if is_marketing(url, title):
+        return False
     label = " ".join((title or "").split())
     if label.lower() in {"home", "contact", "search", "menu", "next", "previous", "login"}:
         return False
@@ -297,6 +337,8 @@ def leads_from_document(kind: str, page_url: str, body: str, *, depth: int) -> t
 
     def add_lead(url: str, title: str, why: str, lead_kind: str = "article"):
         if not url or not url.startswith("http"):
+            return
+        if is_marketing(url, title):
             return
         video = _youtube_id(url)
         if video:

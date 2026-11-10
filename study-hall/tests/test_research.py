@@ -780,6 +780,108 @@ def test_wikipedia_everyday_senses_and_chrome_are_rejected():
     assert [item["title"] for item in opened.frontier if item.get("status") == "queued"] == [accepted]
 
 
+def test_vendor_marketing_is_not_a_reading():
+    from studyhall.frontier import enqueue, prune_frontier
+    from studyhall.pages import QUEUED_PER_HOST, classify_page
+
+    mission = _mission()
+    marketing = [
+        ("https://www.k2view.com/product-tour", "Product tour"),
+        ("https://www.k2view.com/products/ai-data-platform", "AI data platform"),
+        ("https://www.k2view.com/pricing", "Pricing"),
+        ("https://www.k2view.com/demo", "Book a demo"),
+        ("https://www.k2view.com/resources/ebooks/ai-grounding", "Download the ebook"),
+        ("https://www.k2view.com/resources/whitepapers/enterprise-ai", "White paper"),
+        ("https://www.k2view.com/resources/webinars/ai-agents", "Watch the webinar"),
+        ("https://www.k2view.com/gartner", "Gartner"),
+        ("https://www.k2view.com/company/news/series-c-funding", "Funding news"),
+        ("https://www.k2view.com/customers/case-study", "Case study"),
+        ("https://www.k2view.com/partners", "Partners"),
+        ("https://www.k2view.com/legal/privacy", "Privacy"),
+        ("https://chromewebstore.google.com/detail/ai-assistant/abcd", "AI assistant extension"),
+        ("https://chatgpt.com/", "Try ChatGPT"),
+        ("https://openai.com/business", "ChatGPT Business"),
+        ("https://openai.com/careers", "Careers"),
+        ("https://openai.com/safety/deployment-safety-hub/", "Deployment Safety Hub"),
+        ("https://openai.com/safety/deployment-safety-hub/evaluations", "Deployment Safety Hub evaluations"),
+        ("https://openai.com/safety/deployment-safety-hub/monitoring", "Deployment Safety Hub monitoring"),
+        ("https://openai.com/safety/deployment-safety-hub/policies", "Deployment Safety Hub policies"),
+    ]
+    for url, title in marketing:
+        assert classify_page(url, title) not in {"article", "docs", "paper", "thread", "research", "unknown"}
+    assert classify_page("https://www.k2view.com/blog/how-language-models-ground-answers", "How language models ground answers") == "article"
+    assert classify_page("https://arxiv.org/abs/2601.00001", "Grounding language model assistants") == "paper"
+    assert classify_page("https://platform.openai.com/docs/guides/safety", "Safety docs") == "docs"
+
+    queued = [
+        {"url": url, "title": title, "status": "queued", "kind": "article", "text": "AI assistants and language models"}
+        for url, title in marketing
+    ]
+    queued.append({
+        "url": "https://www.k2view.com/blog/how-language-models-ground-answers",
+        "title": "How language models ground answers",
+        "status": "queued",
+        "kind": "article",
+        "text": "Language model assistants keep conversational memory.",
+    })
+    kept, dropped = prune_frontier(queued, mission)
+    assert dropped == len(marketing)
+    assert [item["url"] for item in kept] == ["https://www.k2view.com/blog/how-language-models-ground-answers"]
+
+    html = """
+    <header><a href="https://openai.com/careers">Careers</a></header>
+    <nav><a href="https://www.k2view.com/pricing">Pricing</a></nav>
+    <article>
+      <p>Language model assistants need conversational memory and grounding.</p>
+      <a href="https://example.test/blog/memory-for-language-model-assistants">Long-term memory for language model assistants</a>
+    </article>
+    <footer><a href="https://www.k2view.com/legal/privacy">Privacy</a></footer>
+    """
+    leads, _communities = leads_from_document("article", "https://example.test/blog/start", html, depth=0)
+    assert [item["url"] for item in leads] == ["https://example.test/blog/memory-for-language-model-assistants"]
+
+    extras = [
+        {"url": f"https://example.test/blog/memory-note-{index}", "title": "Long-term memory for conversational assistants", "from_url": "", "depth": 1, "kind": "article"}
+        for index in range(8)
+    ]
+    capped = enqueue([], extras, "msn_test")
+    assert len(capped) == QUEUED_PER_HOST
+
+    called = []
+
+    async def fetch(url):
+        called.append(url)
+        return Reading(status="ok", url=url, title="Try ChatGPT", text="AI " * 20, kind="article")
+
+    frontier = [{
+        "lead_id": "led_try",
+        "mission_id": "msn_test",
+        "url": "https://chatgpt.com/",
+        "title": "Try ChatGPT",
+        "why": "Link on the page",
+        "from_url": "https://example.test/blog/start",
+        "depth": 1,
+        "kind": "article",
+        "status": "queued",
+        "tries": 0,
+    }, {
+        "lead_id": "led_child",
+        "mission_id": "msn_test",
+        "url": "https://openai.com/safety/deployment-safety-hub/monitoring",
+        "title": "Deployment Safety Hub monitoring",
+        "why": "Link on the page",
+        "from_url": "https://chatgpt.com/",
+        "depth": 2,
+        "kind": "article",
+        "status": "queued",
+        "tries": 0,
+    }]
+    step = asyncio.run(work_once(mission=mission, frontier=frontier, fetch=fetch, study=_no_study, now=90, reads_at=[]))
+    assert called == []
+    assert step.frontier[0]["status"] == "off_topic"
+    assert all(item.get("url") != "https://openai.com/safety/deployment-safety-hub/monitoring" for item in step.frontier)
+
+
 def test_choose_port_skips_a_busy_one():
     with __import__("socket").socket() as sock:
         sock.bind(("127.0.0.1", 0))
