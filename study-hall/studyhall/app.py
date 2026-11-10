@@ -1,19 +1,27 @@
 """Local web shell for Study Hall. Binds to this machine only unless the owner says otherwise."""
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from studyhall import __version__
 from studyhall.config import default_data_dir, load_config
 from studyhall.discover import discover
+from studyhall.chat import apply_instruction
+from studyhall.frontier import enqueue, seed_leads
 from studyhall.hall import Hall, lookup_topic
+from studyhall.live import sse
+from studyhall.missions import get_mission, list_missions, save_mission, set_status
 from studyhall.reader import PoliteClient, Reading, extract_pdf
+from studyhall.runner import ResearchRunner
+from studyhall.startup import apply_login_start
 
 STATIC = Path(__file__).resolve().parent / "static"
 FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
@@ -43,6 +51,19 @@ class StudyBody(BaseModel):
     engine: str = Field(default="auto")
 
 
+class ChatBody(BaseModel):
+    text: str = ""
+
+
+class PaceBody(BaseModel):
+    pages_per_hour: int | None = None
+    max_depth: int | None = None
+
+
+class StartupBody(BaseModel):
+    enabled: bool = False
+
+
 def create_app(data_dir: Path | None = None) -> FastAPI:
     hall = Hall(data_dir) if data_dir is not None else None
 
@@ -52,7 +73,10 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         app.state.hall = hall or Hall(root)
         config = load_config()
         app.state.client = PoliteClient(min_interval=float(config.get("min_interval") or 1.5))
+        app.state.runner = ResearchRunner(app.state.hall, app.state.client)
+        await app.state.runner.start()
         yield
+        await app.state.runner.shutdown()
         await app.state.client.aclose()
 
     app = FastAPI(title="Heirloom Study Hall", version=__version__, lifespan=lifespan)
@@ -265,6 +289,112 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     @app.get("/api/knowledge")
     def knowledge():
         return {"lessons": room().store.read_knowledge(), "path": str(room().store.knowledge_path)}
+
+    @app.get("/api/missions")
+    def missions():
+        return {"missions": list_missions(room().store)}
+
+    @app.post("/api/missions/{mission_id}/{verb}")
+    def mission_verb(mission_id: str, verb: str):
+        if verb not in {"pause", "stop", "start"}:
+            raise HTTPException(status_code=404, detail="That control is not here.")
+        status = {"pause": "paused", "stop": "stopped", "start": "running"}[verb]
+        try:
+            mission = set_status(room().store, mission_id, status)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="That mission is not here.") from exc
+        note = {
+            "paused": "Paused. It will sit until you start it.",
+            "stopped": "Stopped. Say start when you want it moving again.",
+            "running": "Running. It keeps going until you pause or stop it.",
+        }[status]
+        app.state.runner.publish("activity", {"message": note, "url": ""})
+        return {"mission": mission, "note": note}
+
+    @app.patch("/api/missions/{mission_id}")
+    def mission_pace(mission_id: str, body: PaceBody):
+        mission = get_mission(room().store, mission_id)
+        if mission is None:
+            raise HTTPException(status_code=404, detail="That mission is not here.")
+        if body.pages_per_hour is not None:
+            mission["pages_per_hour"] = max(1, min(int(body.pages_per_hour), 120))
+        if body.max_depth is not None:
+            mission["max_depth"] = max(0, min(int(body.max_depth), 6))
+        save_mission(room().store, mission)
+        return {"mission": mission}
+
+    @app.get("/api/activity")
+    def activity():
+        return {"activity": room().store.read_items("activity.json")[-80:]}
+
+    @app.get("/api/graph")
+    def graph():
+        return {"edges": room().store.read_items("graph.json")[-80:]}
+
+    @app.get("/api/live/stream")
+    async def live_stream(once: int = 0):
+        runner = app.state.runner
+
+        async def gen():
+            for item in list(runner.backlog)[-80:]:
+                yield sse(item["event"], item["data"])
+            yield sse("hello", {"ok": True})
+            if once:
+                return
+            queue = runner.subscribe()
+            try:
+                while True:
+                    try:
+                        item = await asyncio.wait_for(queue.get(), timeout=12)
+                    except asyncio.TimeoutError:
+                        yield sse("ping", {"ok": True})
+                        continue
+                    yield sse(item["event"], item["data"])
+            finally:
+                runner.unsubscribe(queue)
+
+        return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.get("/api/chat")
+    def chat_log():
+        return {"messages": room().store.read_items("chat.json")[-40:]}
+
+    @app.post("/api/chat")
+    def chat(body: ChatBody):
+        text = " ".join((body.text or "").split())
+        if not text:
+            raise HTTPException(status_code=400, detail="Say something first.")
+        result = apply_instruction(room().store, text)
+        if result.get("action") == "research" and result.get("mission"):
+            mission = result["mission"]
+            leads = seed_leads(mission)
+            frontier = enqueue(room().store.read_items("frontier.json"), leads, mission["mission_id"])
+            room().store.write_items("frontier.json", frontier)
+            save_mission(room().store, mission)
+        stamp = datetime.now(timezone.utc).isoformat()
+        messages = room().store.read_items("chat.json")
+        owner = {"name": "You", "role": "owner", "color": "#f4f0e8", "text": text, "at": stamp}
+        reply = {"name": "llama3.1:8b", "role": "moderator", "color": "#f0d2b0", "text": result["reply"], "at": stamp, "citations": result.get("citations") or []}
+        messages.extend([owner, reply])
+        room().store.write_items("chat.json", messages[-80:])
+        app.state.runner.publish("chat", owner)
+        app.state.runner.publish("chat", reply)
+        return {"reply": result["reply"], "action": result.get("action"), "citations": result.get("citations") or [], "mission": result.get("mission")}
+
+    @app.get("/api/startup")
+    def startup_state():
+        settings = room().store.read_settings()
+        return {"enabled": bool(settings.get("launch_at_login"))}
+
+    @app.post("/api/startup")
+    def startup_toggle(body: StartupBody):
+        from studyhall.config import package_root
+
+        applied = apply_login_start(body.enabled, package_root())
+        settings = room().store.read_settings()
+        settings["launch_at_login"] = bool(body.enabled)
+        room().store.write_settings(settings)
+        return applied
 
     return app
 

@@ -15,7 +15,7 @@ pip install -r requirements.txt
 python run.py
 ```
 
-Open http://127.0.0.1:8787
+Open the address `python run.py` prints. It prefers http://127.0.0.1:8788 and moves to the next free port if that one is taken. The Windows launcher opens that address for you.
 
 The first screen has two actions: read the included sample, or open the library. Paste a link, type a topic (Wikipedia and arXiv, when their robots.txt allows it), or add a PDF.
 
@@ -68,6 +68,16 @@ Approved lessons are written to `data/knowledge/approved.json` with the source U
 The note is appended to the twin prompt only when the question actually overlaps it. The block says the note is research, not a memory of the owner's life, and it does not override a grounded "I don't remember." Empty or unrelated lessons change nothing.
 
 Study lessons are not written into `memory_facts`. Those rows are identity claims about the person, they are wiped when the archive is rebuilt, and the prompt presents them as biography. Putting a paper in that shelf would weaken grounding. `model_router.py` and `llm_provider.py` are unchanged. Study Hall talks to Ollama itself.
+
+## Research chat and Automate
+
+The ask box is on every screen. “Find the best current research on long-term memory”, “look into how grief counselors talk about legacy letters”, and “ignore crypto sources” become missions, queries, or blocks. Questions about what has been read are answered from the library, with the source named.
+
+**Become a better AI assistant** is a standing mission and it starts running. It looks at memory, personalization, grief-aware talk, voice UX, tool safety, grounding, evaluation, prompts, trust, and public discussions (including r/LocalLLaMA, r/MachineLearning, and Hacker News). Lesson cards from it are tagged assistant craft. Ideas land in the queue. You still file them.
+
+Automate keeps going until you press Pause or Stop, in the Automate view or in the chat. Pages per hour and lead depth only slow it. An empty frontier is seeded again from the mission queries and watched communities. State is on disk, so a restart resumes a mission that was running. Errors back off and retry. `Enable-StudyHallLogin.ps1` (also the checkbox in Automate) adds a hidden Startup shortcut on Windows.
+
+**Live Room** is the main view while a mission is running. The right side is the page being read, with the passage that matched and the reason it was followed. The left side is the panel talking about that page. The stream is server-sent events at `/api/live/stream`.
 
 ## Manners
 

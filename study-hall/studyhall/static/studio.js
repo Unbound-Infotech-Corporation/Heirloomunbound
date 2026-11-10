@@ -11,6 +11,15 @@ const state = {
   topicHits: null,
   receipt: null,
   busy: "",
+  missions: [],
+  activity: [],
+  edges: [],
+  liveMessages: [],
+  liveKeys: new Set(),
+  looking: null,
+  history: [],
+  pinned: null,
+  split: 46,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -461,6 +470,8 @@ function render() {
     lessons: ["Lessons", "What the twin is allowed to cite."],
     queue: ["Ideas", "Decisions only. The twin’s code stays put."],
     models: ["Models", "Local first. The study Ollama is port 11435."],
+    live: ["Live Room", "The panel reads with you. Nothing is filed until you say so."],
+    automate: ["Automate", "On until you pause or stop it. Pace only slows the room."],
   };
   const [title, sub] = titles[state.view] || titles.library;
   $("doc-title").textContent = state.view === "library" && state.source ? state.source.title : title;
@@ -472,6 +483,8 @@ function render() {
   else if (state.view === "study") viewHtml = studyView();
   else if (state.view === "lessons") viewHtml = lessonsView();
   else if (state.view === "queue") viewHtml = queueView();
+  else if (state.view === "live") viewHtml = liveView();
+  else if (state.view === "automate") viewHtml = automateView();
   stage.innerHTML = viewHtml + (state.view === "models" ? "" : receiptHtml());
   document.querySelectorAll(".rail button").forEach((button) => {
     button.setAttribute("aria-current", button.dataset.goto === state.view ? "page" : "false");
@@ -510,6 +523,21 @@ function bindStage() {
   if (run) run.addEventListener("click", () => runStudy("auto"));
   const practice = $("run-practice");
   if (practice) practice.addEventListener("click", () => runStudy("practice"));
+  $("stage").querySelectorAll("[data-history]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.looking = state.history[Number(button.dataset.history)];
+      render();
+    });
+  });
+  const splitter = $("stage").querySelector("[data-testid='splitter']");
+  if (splitter) bindSplitter(splitter);
+  $("stage").querySelectorAll("[data-mission]").forEach((button) => {
+    button.addEventListener("click", () => missionVerb(button.dataset.mission, button.dataset.verb));
+  });
+  const pace = $("pace-form");
+  if (pace) pace.addEventListener("submit", (event) => { event.preventDefault(); savePace(); });
+  const login = $("login-toggle");
+  if (login) login.addEventListener("change", () => toggleLogin(login.checked));
   const refresh = $("refresh-models");
   if (refresh) refresh.addEventListener("click", async () => {
     say("Looking for models…");
@@ -527,6 +555,11 @@ document.querySelectorAll(".rail button, [data-goto]").forEach((button) => {
     if (view === "library" && state.view === "library" && state.source) state.source = null;
     if (view === "lessons") state.lessons = (await api("/api/lessons")).lessons;
     if (view === "queue") state.proposals = (await api("/api/queue")).proposals;
+    if (view === "automate" || view === "live") {
+      state.missions = (await api("/api/missions")).missions;
+      state.activity = (await api("/api/activity")).activity;
+      state.edges = (await api("/api/graph")).edges;
+    }
     if (view === "models" && !state.models) {
       setView("models");
       state.models = await api("/api/models");
@@ -585,18 +618,192 @@ $("setup-sample").addEventListener("click", () => readSample());
 $("setup-open").addEventListener("click", async () => {
   await api("/api/setup/ack", { method: "POST" });
   $("setup").hidden = true;
-  say("Library open.");
+  const running = (state.missions || []).some((mission) => mission.status === "running");
+  setView(running ? "live" : "library");
+  say(running ? "The room is running." : "Library open.");
 });
+
+$("ask-dock").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = $("ask-input");
+  const text = (input.value || "").trim();
+  if (!text) return;
+  input.value = "";
+  try {
+    const result = await api("/api/chat", { method: "POST", body: JSON.stringify({ text }) });
+    say(result.reply);
+    if (state.view !== "live") setView("live");
+    state.missions = (await api("/api/missions")).missions;
+  } catch (error) {
+    say(error.message);
+  }
+});
+
+function bubble(message) {
+  const initial = (message.name || "?").slice(0, 1).toUpperCase();
+  return `<article class="bubble">
+    <div class="avatar" style="background:${escapeHtml(message.color || "#d4a373")}">${escapeHtml(initial)}</div>
+    <div>
+      <div class="who" style="color:${escapeHtml(message.color || "#d4a373")}">${escapeHtml(message.name || "")}</div>
+      <p>${escapeHtml(message.text || "")}</p>
+    </div>
+  </article>`;
+}
+
+function rememberChat(message) {
+  const key = `${message.at || ""}|${message.name || ""}|${message.text || ""}`;
+  if (state.liveKeys.has(key)) return;
+  state.liveKeys.add(key);
+  state.liveMessages.push(message);
+  state.liveMessages = state.liveMessages.slice(-80);
+}
+
+function highlighted(text, mark) {
+  const body = String(text || "");
+  const needle = String(mark || "");
+  if (!needle || !body.includes(needle)) return paragraphs(body);
+  const index = body.indexOf(needle);
+  return paragraphs(body.slice(0, index)) + `<p><mark>${escapeHtml(needle)}</mark></p>` + paragraphs(body.slice(index + needle.length));
+}
+
+function liveView() {
+  const looking = state.looking;
+  const history = state.history.map((item, index) => `<button type="button" data-history="${index}">${escapeHtml(item.title || item.url || "Page")}</button>`).join("");
+  const reader = looking ? `
+    <p class="why-line" data-testid="live-why">${escapeHtml(looking.why || "")}${looking.from_url ? ` · from ${escapeHtml(looking.from_url)}` : ""}</p>
+    <p class="meta">${escapeHtml(looking.url || "No page yet")}</p>
+    <h2 style="font-family:var(--serif);font-weight:500;font-size:32px;margin:8px 0">${escapeHtml(looking.title || "Waiting")}</h2>
+    <div class="reading">${highlighted(looking.text, looking.highlight)}</div>` : `<div class="empty"><h2>The room is opening.</h2><p>When a page is chosen, it shows up here with the reason it was followed.</p></div>`;
+  const pin = state.pinned ? `<div class="pin" data-testid="live-pin"><p class="area">${escapeHtml((state.pinned.tags || []).join(" ") || "Lesson")}</p><p>${escapeHtml(state.pinned.summary || "")}</p><button type="button" class="primary" data-file="${escapeHtml(state.pinned.lesson_id || "")}">File into the twin</button></div>` : "";
+  return `<div class="live" data-testid="live-room" style="--split:${state.split}%">
+    <section class="live-chat"><div id="live-log">${state.liveMessages.map(bubble).join("") || `<p class="meta">The readers will speak as pages come in. You can type below.</p>`}</div></section>
+    <div class="splitter" data-testid="splitter" role="separator" aria-orientation="vertical" aria-label="Resize the room"></div>
+    <section class="live-read" data-testid="live-reader">
+      <div class="history-strip">${history}</div>
+      ${reader}
+      ${pin}
+    </section>
+  </div>`;
+}
+
+function automateView() {
+  const missions = state.missions.length ? state.missions : [];
+  const cards = missions.map((mission) => `
+    <article class="mission${mission.standing ? " standing" : ""}" data-testid="${mission.standing ? "mission-standing" : "mission"}">
+      <p class="area">${mission.standing ? "Standing mission" : "Mission"} · ${escapeHtml(mission.status)}</p>
+      <h3>${escapeHtml(mission.title)}</h3>
+      <p>${escapeHtml(mission.brief || "")}</p>
+      <p class="meta">${escapeHtml(mission.tag || "research")} · ${mission.pages_per_hour || 12} pages an hour · depth ${mission.max_depth ?? 2}</p>
+      <div class="actions">
+        <button type="button" class="quiet" data-mission="${escapeHtml(mission.mission_id)}" data-verb="start">Start</button>
+        <button type="button" class="quiet" data-testid="pause-mission" data-mission="${escapeHtml(mission.mission_id)}" data-verb="pause">Pause</button>
+        <button type="button" class="danger" data-mission="${escapeHtml(mission.mission_id)}" data-verb="stop">Stop</button>
+      </div>
+    </article>`).join("");
+  const standing = missions.find((mission) => mission.standing) || missions[0];
+  const pace = standing ? `
+    <form id="pace-form" class="field">
+      <input name="pages" type="text" value="${standing.pages_per_hour || 12}" aria-label="Pages an hour">
+      <input name="depth" type="text" value="${standing.max_depth ?? 2}" aria-label="Lead depth">
+      <button class="quiet" type="submit">Set pace</button>
+    </form>
+    <p class="meta">Pages an hour and lead depth only slow the room. They do not stop it. When the frontier goes quiet, the mission seeds again.</p>` : "";
+  const feed = (state.activity || []).slice().reverse().slice(0, 12).map((item) => `<div class="feed-line" data-testid="activity-feed">${escapeHtml(item.message || "")}</div>`).join("") || `<p class="meta">No pages yet. The standing mission is queued.</p>`;
+  const edges = (state.edges || []).slice().reverse().slice(0, 10).map((edge) => `<div class="edge" data-testid="lead-graph">${escapeHtml(edge.from || "seed")} → ${escapeHtml(edge.to || "")}<br><span class="meta">${escapeHtml(edge.why || "")}</span></div>`).join("") || `<p class="meta">Leads show up here as the room follows them.</p>`;
+  const communities = (standing && standing.communities || []).map((item) => `<span class="chip">${escapeHtml(item.name || item.url)}</span>`).join("");
+  return `${cards}${pace}
+    <h3>Communities to watch</h3>
+    <div>${communities || `<p class="meta">None yet.</p>`}</div>
+    <label class="meta"><input id="login-toggle" type="checkbox" data-testid="login-toggle" ${state.login ? "checked" : ""}> Start hidden when I sign in to Windows</label>
+    <h3>Activity</h3>
+    ${feed}
+    <h3>How leads connected</h3>
+    ${edges}`;
+}
+
+function bindSplitter(splitter) {
+  splitter.addEventListener("pointerdown", (event) => {
+    splitter.classList.add("dragging");
+    const parent = splitter.parentElement;
+    const move = (ev) => {
+      const rect = parent.getBoundingClientRect();
+      const width = Math.min(70, Math.max(28, ((ev.clientX - rect.left) / rect.width) * 100));
+      state.split = width;
+      parent.style.setProperty("--split", `${width}%`);
+    };
+    const up = () => {
+      splitter.classList.remove("dragging");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    event.preventDefault();
+  });
+}
+
+async function missionVerb(id, verb) {
+  try {
+    const result = await api(`/api/missions/${id}/${verb}`, { method: "POST" });
+    say(result.note || "Updated.");
+    state.missions = (await api("/api/missions")).missions;
+    render();
+  } catch (error) {
+    say(error.message);
+  }
+}
+
+async function savePace() {
+  const standing = (state.missions || []).find((mission) => mission.standing) || state.missions[0];
+  if (!standing) return;
+  const form = $("pace-form");
+  const pages = Number(form.pages.value);
+  const depth = Number(form.depth.value);
+  const result = await api(`/api/missions/${standing.mission_id}`, { method: "PATCH", body: JSON.stringify({ pages_per_hour: pages, max_depth: depth }) });
+  state.missions = state.missions.map((mission) => mission.mission_id === result.mission.mission_id ? result.mission : mission);
+  say("Pace saved. The room keeps going.");
+}
+
+async function toggleLogin(enabled) {
+  const result = await api("/api/startup", { method: "POST", body: JSON.stringify({ enabled }) });
+  say(result.note || "Saved.");
+}
+
+function connectLive() {
+  if (state.stream) return;
+  const stream = new EventSource("/api/live/stream");
+  state.stream = stream;
+  const take = (name, handler) => stream.addEventListener(name, (event) => {
+    handler(JSON.parse(event.data));
+    if (state.view === "live" || state.view === "automate") render();
+  });
+  take("looking", (data) => {
+    state.looking = data;
+    state.history = [data, ...state.history.filter((item) => item.url !== data.url)].slice(0, 8);
+  });
+  take("chat", (data) => rememberChat(data));
+  take("lesson", (data) => { state.pinned = data; });
+  take("activity", (data) => { state.activity = [...state.activity, data].slice(-80); });
+  stream.onerror = () => {};
+}
 
 async function boot() {
   state.setup = await api("/api/setup");
+  state.missions = (await api("/api/missions")).missions;
+  const running = state.missions.some((mission) => mission.status === "running");
+  if (running) state.view = "live";
   if (!state.setup.acked) $("setup").hidden = false;
   await refreshLibrary();
   state.knowledge = await api("/api/knowledge");
   render();
+  connectLive();
   api("/api/models").then((models) => {
     state.models = models;
     if (state.view === "models") render();
+  }).catch(() => {});
+  api("/api/startup").then((startup) => {
+    state.login = !!startup.enabled;
+    if (state.view === "automate") render();
   }).catch(() => {});
   const filed = (state.knowledge && state.knowledge.lessons || []).length;
   say(filed ? `Ready. ${filed} lesson${filed === 1 ? "" : "s"} filed.` : "Ready. Nothing is filed until you say so.");

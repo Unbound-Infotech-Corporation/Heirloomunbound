@@ -52,6 +52,8 @@
         <div class="menu">
           <button type="button" aria-expanded="false" data-menu="view">View</button>
           <div class="dropdown" id="menu-view" hidden>
+            <button type="button" data-goto="live">Live Room</button>
+            <button type="button" data-goto="automate">Automate</button>
             <button type="button" data-goto="library">Library</button>
             <button type="button" data-goto="lessons">Filed lessons</button>
             <button type="button" data-goto="queue">Ideas</button>
@@ -64,6 +66,14 @@
 
     <div class="shell">
       <nav class="rail" aria-label="Sections">
+        <button type="button" data-goto="live" data-testid="nav-live" aria-label="Live" title="Live">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h4v8H5zM15 6h4v12h-4z"/><path d="M9 12h6"/></svg>
+          <span>Live</span>
+        </button>
+        <button type="button" data-goto="automate" data-testid="nav-automate" aria-label="Automate" title="Automate">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v4M12 15v4M5 12h4M15 12h4"/><circle cx="12" cy="12" r="2.2"/></svg>
+          <span>Auto</span>
+        </button>
         <button type="button" data-goto="library" data-testid="nav-library" aria-label="Library" title="Library">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h5.5V19H6.2A1.2 1.2 0 0 1 5 17.8zM13.5 5.5H19v12.3a1.2 1.2 0 0 1-1.2 1.2H13.5z"/></svg>
           <span>Library</span>
@@ -102,6 +112,10 @@
         <div id="inspector"></div>
       </aside>
     </div>
+    <form id="ask-dock" class="ask-dock" data-testid="ask-dock">
+      <input id="ask-input" data-testid="chat-input" type="text" placeholder="Ask the room, or tell it what to research" autocomplete="off">
+      <button class="primary" type="submit" data-testid="chat-send">Send</button>
+    </form>
     <footer class="statusbar">
       <p id="status" role="status" data-testid="status">Ready</p>
     </footer>

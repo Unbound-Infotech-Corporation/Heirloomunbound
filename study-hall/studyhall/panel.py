@@ -255,6 +255,7 @@ async def run_study(
     *,
     engine: str = "local",
     already_filed: Optional[list[str]] = None,
+    focus: str = "",
 ) -> PanelResult:
     if not readers:
         raise ValueError("The panel has no readers.")
@@ -273,7 +274,8 @@ async def run_study(
     filed_block = ""
     if filed:
         filed_block = "ALREADY FILED (do not repeat these lessons):\n" + "\n".join(f"- {title}" for title in filed) + "\n\n"
-    pin_user = filed_block + "REVISED NOTES:\n" + _render_notes(revised) + "\n\nSOURCE:\n" + opening[:5000]
+    focus_block = f"FOCUS: {focus}\n\n" if focus else ""
+    pin_user = focus_block + filed_block + "REVISED NOTES:\n" + _render_notes(revised) + "\n\nSOURCE:\n" + opening[:5000]
     pinned = await _ask(moderator, PIN_SYSTEM, pin_user, complete)
     parsed = pinned.parsed
     if not parsed or not _clip(parsed.get("summary"), 20):

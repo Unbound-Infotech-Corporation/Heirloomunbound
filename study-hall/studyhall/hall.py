@@ -42,6 +42,9 @@ def knowledge_mirrors(store: Store) -> list[Path]:
 class Hall:
     def __init__(self, root: Path):
         self.store = Store(root)
+        from studyhall.missions import ensure_standing
+
+        ensure_standing(self.store)
 
     def _upsert(self, name: str, key: str, row: dict) -> None:
         items = self.store.read_items(name)
@@ -186,10 +189,11 @@ class Hall:
                 "approved_at": lesson.get("approved_at") or "",
                 "receipt_id": lesson.get("receipt_id") or "",
                 "engine": lesson.get("engine") or "",
+                "tag": (lesson.get("tags") or [""])[0] if lesson.get("tags") else "",
             })
         return self.store.publish_knowledge(filed, knowledge_mirrors(self.store))
 
-    async def study(self, source_id: str, *, engine: str = "auto") -> dict:
+    async def study(self, source_id: str, *, engine: str = "auto", tag: str = "", focus: str = "") -> dict:
         source = self.source(source_id)
         if source is None:
             raise KeyError(source_id)
@@ -219,16 +223,18 @@ class Hall:
             complete,
             engine=used,
             already_filed=[title for title in filed_titles if title],
+            focus=focus,
         )
-        return self._save_panel(source, result)
+        return self._save_panel(source, result, tag=tag)
 
-    def _save_panel(self, source: dict, result: PanelResult) -> dict:
+    def _save_panel(self, source: dict, result: PanelResult, tag: str = "") -> dict:
         lesson_id = _id("les")
         lesson = {
             "lesson_id": lesson_id,
             "source_id": source.get("source_id") or "",
             "status": "draft",
             "created_at": _now(),
+            "tags": [tag] if tag else [],
             **result.lesson,
         }
         self._upsert("lessons.json", "lesson_id", lesson)

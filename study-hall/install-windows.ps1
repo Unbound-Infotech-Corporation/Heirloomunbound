@@ -84,7 +84,7 @@ Write-Output "Installed to $dest"
 Write-Output "Open the room:  $dest\Start-StudyHall.ps1"
 Write-Output "Study Ollama:   $dest\Start-DedicatedOllama.ps1"
 Write-Output "Models folder:  $dest\ollama-models"
-Write-Output "Then browse to http://127.0.0.1:8787"
+Write-Output "Then run Start-StudyHall.ps1. It opens http://127.0.0.1 on port 8788, or the next free port."
 Write-Output "The twin reads filed lessons from $dest\data\knowledge\approved.json"
 if ($dest -ne "G:\HeirloomStudyHall") {
     Write-Output "This folder is not G:\HeirloomStudyHall. Set HEIRLOOM_STUDY_HALL to $dest\data so the twin can find filed lessons."

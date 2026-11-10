@@ -50,6 +50,7 @@ class Reading:
     message: str = ""
     items: list[dict] = field(default_factory=list)
     content_type: str = ""
+    raw: str = ""
 
     def citation(self) -> dict:
         return {"title": self.title, "url": self.url, "date": self.date}
@@ -398,12 +399,12 @@ class PoliteClient:
         text_body = response.text
         head = text_body.lstrip()[:200].lower()
         if "html" not in ctype and ("json" in ctype or head.startswith("{") or head.startswith("[")):
-            return Reading(status="ok", url=url, title=url, text=text_body[:80000], kind="json", content_type=ctype)
+            return Reading(status="ok", url=url, title=url, text=text_body[:80000], kind="json", content_type=ctype, raw=text_body[:200000])
         if "xml" in ctype or "rss" in ctype or "atom" in ctype or head.startswith("<?xml") or head.startswith("<rss") or head.startswith("<feed"):
             items = parse_feed(text_body, url)
             if items:
                 title = items[0]["title"] if len(items) == 1 else urlparse(url).netloc
-                return Reading(status="ok", url=url, title=title or url, kind="feed", items=items, content_type=ctype)
+                return Reading(status="ok", url=url, title=title or url, kind="feed", items=items, content_type=ctype, raw=text_body[:200000])
         extracted = extract_html(text_body, url)
         if looks_like_paywall(extracted["text"], text_body):
             return Reading(
@@ -416,6 +417,17 @@ class PoliteClient:
                 content_type=ctype,
             )
         if len(extracted["text"]) < 80:
+            if "http" in text_body:
+                return Reading(
+                    status="ok",
+                    url=url,
+                    title=extracted["title"] or url,
+                    date=extracted["date"],
+                    text=extracted["text"] or extracted["title"],
+                    kind="links",
+                    content_type=ctype,
+                    raw=text_body[:200000],
+                )
             return Reading(
                 status="error",
                 url=url,
@@ -432,6 +444,7 @@ class PoliteClient:
             text=extracted["text"],
             kind="article",
             content_type=ctype,
+            raw=text_body[:200000],
         )
 
 

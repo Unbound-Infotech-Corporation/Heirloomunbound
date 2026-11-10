@@ -1,0 +1,266 @@
+"""Public search targets and lead parsing. No logins, no joins, no posts."""
+from __future__ import annotations
+
+import json
+import re
+from html.parser import HTMLParser
+from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
+from xml.etree import ElementTree
+
+COMMUNITY_HOSTS = (
+    "reddit.com",
+    "news.ycombinator.com",
+    "discord.gg",
+    "discord.com",
+    "facebook.com",
+    "mastodon.social",
+    "bsky.app",
+)
+
+
+def search_targets(query: str, *, searxng: str = "") -> list[dict]:
+    """Free endpoints. SearXNG is included only when the owner configured one."""
+    q = quote_plus(" ".join((query or "").split()))
+    if not q:
+        return []
+    why = f"Search for {query.strip()}"
+    targets = [
+        {"url": f"https://en.wikipedia.org/w/api.php?action=opensearch&limit=5&namespace=0&format=json&search={q}", "kind": "wikipedia", "why": why},
+        {"url": f"https://export.arxiv.org/api/query?search_query=all:{q}&start=0&max_results=5", "kind": "arxiv", "why": why},
+        {"url": f"https://api.openalex.org/works?search={q}&per-page=5", "kind": "openalex", "why": why},
+        {"url": f"https://api.semanticscholar.org/graph/v1/paper/search?query={q}&limit=5&fields=title,url", "kind": "semanticscholar", "why": why},
+        {"url": f"https://hn.algolia.com/api/v1/search?query={q}&tags=story&hitsPerPage=5", "kind": "hn", "why": why},
+        {"url": f"https://www.reddit.com/search.json?q={q}&limit=5&sort=relevance", "kind": "reddit", "why": why},
+        {"url": f"https://html.duckduckgo.com/html/?q={q}", "kind": "duckduckgo", "why": why},
+        {"url": f"https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q={q}&limit=5", "kind": "bluesky", "why": why},
+    ]
+    base = (searxng or "").strip().rstrip("/")
+    if base:
+        targets.append({"url": f"{base}/search?q={q}&format=json", "kind": "searxng", "why": why})
+    return targets
+
+
+def community_targets(communities: list[dict]) -> list[dict]:
+    out = []
+    for item in communities:
+        url = str(item.get("url") or "")
+        name = str(item.get("name") or url)
+        if "reddit.com/r/" in url:
+            out.append({
+                "url": url.rstrip("/") + "/hot.json?limit=8",
+                "kind": "reddit",
+                "why": f"Watched community {name}",
+            })
+        elif "news.ycombinator.com" in url:
+            out.append({
+                "url": "https://hn.algolia.com/api/v1/search?query=AI%20assistant&tags=story&hitsPerPage=5",
+                "kind": "hn",
+                "why": f"Watched community {name}",
+            })
+    return out
+
+
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+class _LinkParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.links: list[tuple[str, str]] = []
+        self._href = ""
+        self._text: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "a":
+            return
+        attr = {key.lower(): value or "" for key, value in attrs}
+        self._href = attr.get("href") or ""
+        self._text = []
+
+    def handle_data(self, data):
+        if self._href:
+            self._text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self._href:
+            self.links.append((self._href, " ".join(self._text).strip()))
+            self._href = ""
+
+
+def _abs(base: str, href: str) -> str:
+    if not href or href.startswith(("#", "mailto:", "javascript:")):
+        return ""
+    # DuckDuckGo wraps the real link in uddg=
+    if "uddg=" in href:
+        wrapped = parse_qs(urlparse(href).query).get("uddg", [])
+        if wrapped:
+            return wrapped[0]
+    absolute = urljoin(base, href)
+    parsed = urlparse(absolute)
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+    return absolute.split("#", 1)[0]
+
+
+def _community_from_url(url: str) -> dict | None:
+    host = (urlparse(url).hostname or "").lower()
+    if host.endswith("reddit.com") and "/r/" in urlparse(url).path:
+        name = urlparse(url).path.split("/r/", 1)[1].split("/", 1)[0]
+        return {"name": f"r/{name}", "url": f"https://www.reddit.com/r/{name}/", "kind": "subreddit", "why": "Named in a public page"}
+    if "discord.gg" in host or (host.endswith("discord.com") and "/invite" in url):
+        return {"name": "Discord invite", "url": url, "kind": "discord", "why": "Listed on a public page. Study Hall does not join."}
+    if host.endswith("facebook.com") and "/groups/" in url:
+        return {"name": "Facebook group", "url": url, "kind": "facebook", "why": "Listed on a public page. Study Hall does not join."}
+    if host.endswith("bsky.app"):
+        return {"name": "Bluesky", "url": url, "kind": "bluesky", "why": "Public Bluesky page"}
+    if "news.ycombinator.com" in host:
+        return {"name": "Hacker News", "url": "https://news.ycombinator.com/", "kind": "forum", "why": "Named in a public page"}
+    return None
+
+
+def _youtube_id(url: str) -> str:
+    parsed = urlparse(url)
+    if "youtu.be" in (parsed.hostname or ""):
+        return parsed.path.strip("/").split("/")[0]
+    if "youtube.com" in (parsed.hostname or ""):
+        return parse_qs(parsed.query).get("v", [""])[0]
+    return ""
+
+
+def leads_from_document(kind: str, page_url: str, body: str, *, depth: int) -> tuple[list[dict], list[dict]]:
+    """Child links and communities to watch. Communities are listed, never joined."""
+    leads: list[dict] = []
+    communities: list[dict] = []
+    next_depth = depth + 1
+
+    def add_lead(url: str, title: str, why: str, lead_kind: str = "article"):
+        if not url or not url.startswith("http"):
+            return
+        video = _youtube_id(url)
+        if video:
+            lead_kind = "video"
+            why = why or "YouTube link on a public page. A transcript is read only if the page exposes one."
+        leads.append({
+            "url": url[:1000],
+            "title": (title or url)[:240],
+            "why": why[:240],
+            "from_url": page_url,
+            "depth": next_depth,
+            "kind": lead_kind,
+        })
+
+    def add_community(url: str):
+        found = _community_from_url(url)
+        if found:
+            communities.append(found)
+
+    kind = (kind or "").lower()
+    raw = body or ""
+    if kind == "wikipedia":
+        try:
+            payload = json.loads(raw)
+            titles = payload[1] if len(payload) > 1 else []
+            urls = payload[3] if len(payload) > 3 else []
+            for index, url in enumerate(urls):
+                title = titles[index] if index < len(titles) else url
+                add_lead(url, title, "Wikipedia open search")
+        except (json.JSONDecodeError, TypeError, IndexError):
+            pass
+    elif kind == "arxiv":
+        try:
+            root = ElementTree.fromstring(raw)
+        except ElementTree.ParseError:
+            root = None
+        if root is not None:
+            for node in root.iter():
+                if _local(node.tag) != "entry":
+                    continue
+                title = ""
+                link = ""
+                for child in list(node):
+                    if _local(child.tag) == "title":
+                        title = "".join(child.itertext()).strip()
+                    if _local(child.tag) == "id":
+                        link = (child.text or "").strip()
+                add_lead(link, title, "arXiv paper", "paper")
+    elif kind in {"openalex", "semanticscholar", "hn", "reddit", "searxng", "bluesky"}:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            if kind == "openalex":
+                for work in payload.get("results") or []:
+                    loc = ((work.get("primary_location") or {}).get("landing_page_url")) or work.get("id") or ""
+                    add_lead(str(loc), str(work.get("display_name") or ""), "OpenAlex work", "paper")
+            elif kind == "semanticscholar":
+                for paper in payload.get("data") or []:
+                    add_lead(str(paper.get("url") or ""), str(paper.get("title") or ""), "Semantic Scholar paper", "paper")
+            elif kind == "hn":
+                for hit in payload.get("hits") or []:
+                    url = hit.get("url") or hit.get("story_url") or ""
+                    if not url and hit.get("objectID"):
+                        url = f"https://news.ycombinator.com/item?id={hit['objectID']}"
+                    add_lead(str(url), str(hit.get("title") or ""), "Hacker News story")
+                    add_community("https://news.ycombinator.com/")
+            elif kind == "reddit":
+                children = ((payload.get("data") or {}).get("children")) or []
+                for child in children:
+                    data = child.get("data") or {}
+                    permalink = data.get("permalink") or ""
+                    url = data.get("url") or ""
+                    title = data.get("title") or ""
+                    if permalink:
+                        add_lead("https://www.reddit.com" + permalink, title, "Public Reddit thread", "thread")
+                    elif url:
+                        add_lead(url, title, "Linked from a public Reddit post")
+                    sub = data.get("subreddit")
+                    if sub:
+                        add_community(f"https://www.reddit.com/r/{sub}/")
+            elif kind == "searxng":
+                for hit in payload.get("results") or []:
+                    add_lead(str(hit.get("url") or ""), str(hit.get("title") or ""), "SearXNG result")
+            elif kind == "bluesky":
+                for post in payload.get("posts") or []:
+                    uri = str(post.get("uri") or "")
+                    text = str((post.get("record") or {}).get("text") or "")
+                    handle = str((post.get("author") or {}).get("handle") or "")
+                    if handle:
+                        add_community(f"https://bsky.app/profile/{handle}")
+                    if uri:
+                        add_lead(f"https://bsky.app/profile/{handle}", text[:80] or handle, "Public Bluesky post", "post")
+    else:
+        parser = _LinkParser()
+        try:
+            parser.feed(raw)
+        except Exception:
+            parser.links = []
+        for href, text in parser.links:
+            absolute = _abs(page_url, href)
+            if not absolute:
+                continue
+            add_community(absolute)
+            host = urlparse(absolute).hostname or ""
+            if any(host.endswith(item) for item in COMMUNITY_HOSTS):
+                continue
+            add_lead(absolute, text, "Link on the page")
+        for match in re.findall(r"https?://arxiv\.org/abs/\d{4}\.\d{4,5}", raw):
+            add_lead(match, match, "Cited arXiv id", "paper")
+
+    # unique
+    seen: set[str] = set()
+    unique_leads = []
+    for lead in leads:
+        if lead["url"] in seen or lead["url"] == page_url:
+            continue
+        seen.add(lead["url"])
+        unique_leads.append(lead)
+    seen_c: set[str] = set()
+    unique_communities = []
+    for item in communities:
+        if item["url"] in seen_c:
+            continue
+        seen_c.add(item["url"])
+        unique_communities.append(item)
+    return unique_leads[:12], unique_communities[:8]

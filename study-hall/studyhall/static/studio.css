@@ -319,12 +319,89 @@ button:focus-visible, a:focus-visible {
   color: var(--gold-2);
 }
 
+.ask-dock {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line-soft);
+  background: #141210;
+}
+.ask-dock input { height: 36px; }
 .statusbar {
   height: 28px;
   display: flex;
   align-items: center;
   padding: 0 14px;
   border-top: 1px solid var(--line-soft);
+}
+.live {
+  display: flex;
+  min-height: 520px;
+  height: 100%;
+  gap: 0;
+}
+.live-chat, .live-read {
+  min-width: 240px;
+  min-height: 0;
+  overflow: auto;
+}
+.live-chat { width: var(--split, 46%); padding-right: 12px; }
+.live-read { flex: 1; padding-left: 12px; }
+.splitter {
+  width: 8px;
+  cursor: col-resize;
+  background: linear-gradient(90deg, transparent, var(--line), transparent);
+  flex: none;
+}
+.splitter:hover, .splitter.dragging { background: var(--gold); }
+.bubble {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #1a140f;
+}
+.bubble .who { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.bubble p { margin: 2px 0 0; line-height: 1.45; }
+.history-strip { display: flex; gap: 6px; overflow: auto; padding-bottom: 8px; }
+.history-strip button {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 99px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.why-line { color: var(--secondary); font-size: 13px; margin: 0 0 10px; }
+.live-read mark { background: rgba(212, 163, 115, 0.28); color: inherit; padding: 0 2px; }
+.pin {
+  border-left: 3px solid var(--gold);
+  padding: 8px 10px;
+  margin: 8px 0 12px 36px;
+  background: var(--bg);
+}
+.mission {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.mission.standing { border-left: 3px solid var(--gold); }
+.feed-line, .edge {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
 }
 .statusbar p { margin: 0; font-family: var(--mono); font-size: 11px; color: var(--muted); }
 
