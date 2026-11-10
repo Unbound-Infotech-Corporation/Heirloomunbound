@@ -611,6 +611,175 @@ def test_semantic_scholar_429_cools_down_and_uses_other_sources():
     assert any("openalex.org" in item["url"] for item in cooled)
 
 
+def test_wikipedia_everyday_senses_and_chrome_are_rejected():
+    from urllib.parse import unquote
+
+    from studyhall.frontier import prune_frontier
+    from studyhall.search import wikipedia_query
+
+    mission = _mission()
+    mission["queries"] = ["grounding and hallucination reduction"]
+    rejected = [
+        "Grounding - Wikipedia",
+        "Hallucination - Wikipedia",
+        "Grounding (discipline technique)",
+        "Nature therapy",
+        "Sensory deprivation",
+        "Main Page",
+        "Contents",
+        "Contact us",
+    ]
+    accepted = "Hallucination (artificial intelligence)"
+    for title in rejected:
+        assert score_relevance(title, mission) < 0.5
+    assert score_relevance(accepted, mission) >= 0.5
+    assert score_relevance(accepted, mission, vector=[0.0, 1.0], mission_vector=[1.0, 0.0]) >= 0.5
+    assert score_relevance("Grounding - Wikipedia", mission, vector=[1.0, 0.0], mission_vector=[1.0, 0.0]) >= 0.5
+
+    wiki_url = unquote(next(
+        item["url"] for item in search_targets("grounding and hallucination reduction")
+        if "site:en.wikipedia.org" in unquote(item["url"]).replace("+", " ") or "site%3Aen.wikipedia.org" in item["url"]
+    )).replace("+", " ")
+    assert "Hallucination (artificial intelligence)" in wiki_url
+    assert wikipedia_query("grounding and hallucination reduction").startswith("grounding and hallucination reduction")
+
+    html = """
+    <p>Grounding may refer to:</p>
+    <a href="https://en.wikipedia.org/wiki/Grounding">Grounding - Wikipedia</a>
+    <a href="https://en.wikipedia.org/wiki/Hallucination">Hallucination - Wikipedia</a>
+    <a href="https://en.wikipedia.org/wiki/Grounding_(discipline_technique)">Grounding (discipline technique)</a>
+    <a href="https://en.wikipedia.org/wiki/Nature_therapy">Nature therapy</a>
+    <a href="https://en.wikipedia.org/wiki/Sensory_deprivation">Sensory deprivation</a>
+    <a href="https://en.wikipedia.org/wiki/Main_Page">Main Page</a>
+    <a href="https://en.wikipedia.org/wiki/Wikipedia:Contents">Contents</a>
+    <a href="https://en.wikipedia.org/wiki/Wikipedia:Contact_us">Contact us</a>
+    <a href="https://en.wikipedia.org/wiki/Wikipedia:About">About</a>
+    <a href="https://en.wikipedia.org/wiki/Special:Search">Search</a>
+    <a href="https://en.wikipedia.org/wiki/Help:Contents">Help</a>
+    <a href="https://en.wikipedia.org/wiki/Talk:Grounding">Talk</a>
+    <a href="https://en.wikipedia.org/wiki/Category:Safety">Category</a>
+    <a href="https://de.wikipedia.org/wiki/Erdung">Erdung</a>
+    <a href="https://fr.wikipedia.org/wiki/Hallucination">Hallucination</a>
+    <a href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">Hallucination (artificial intelligence)</a>
+    """
+    leads, _communities = leads_from_document("article", "https://en.wikipedia.org/wiki/Grounding_(disambiguation)", html, depth=0)
+    assert [item["title"] for item in leads] == ["Hallucination (artificial intelligence)"]
+
+    ddg = """
+    <a href="/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FGrounding">Grounding - Wikipedia</a>
+    <a href="/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FHallucination">Hallucination - Wikipedia</a>
+    <a href="/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FHallucination_%28artificial_intelligence%29">Hallucination (artificial intelligence)</a>
+    """
+    found, _communities = leads_from_document("duckduckgo", "https://html.duckduckgo.com/html/", ddg, depth=0)
+    assert [item["title"] for item in found] == ["Hallucination (artificial intelligence)"]
+
+    queued = []
+    for title, url in [
+        ("Grounding - Wikipedia", "https://en.wikipedia.org/wiki/Grounding"),
+        ("Hallucination - Wikipedia", "https://en.wikipedia.org/wiki/Hallucination"),
+        ("Grounding (discipline technique)", "https://en.wikipedia.org/wiki/Grounding_(discipline_technique)"),
+        ("Nature therapy", "https://en.wikipedia.org/wiki/Nature_therapy"),
+        ("Sensory deprivation", "https://en.wikipedia.org/wiki/Sensory_deprivation"),
+        ("Main Page", "https://en.wikipedia.org/wiki/Main_Page"),
+        ("Contents", "https://en.wikipedia.org/wiki/Wikipedia:Contents"),
+        ("Contact us", "https://en.wikipedia.org/wiki/Wikipedia:Contact_us"),
+        ("Erdung", "https://de.wikipedia.org/wiki/Erdung"),
+        (accepted, "https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)"),
+    ]:
+        queued.append({
+            "url": url,
+            "title": title,
+            "why": "Search for grounding and hallucination reduction on Wikipedia",
+            "status": "queued",
+            "kind": "article",
+            "text": "",
+        })
+    kept, dropped = prune_frontier(queued, mission)
+    assert dropped == 9
+    assert [item["title"] for item in kept] == [accepted]
+
+    studied = []
+
+    async def fetch(url):
+        if "disambiguation" in url:
+            return Reading(
+                status="ok",
+                url=url,
+                title="Grounding",
+                text="Grounding may refer to:",
+                raw=html,
+                kind="article",
+            )
+        return Reading(
+            status="ok",
+            url=url,
+            title="Grounding - Wikipedia",
+            text="Grounding (discipline technique) is a parenting method. Nature therapy and sensory deprivation are related pages. " * 4,
+            raw=html,
+            kind="article",
+        )
+
+    async def study(source):
+        studied.append(source["url"])
+        return {"events": []}
+
+    parent = "https://en.wikipedia.org/wiki/Grounding"
+    child = {
+        "lead_id": "led_child",
+        "mission_id": "msn_test",
+        "url": "https://en.wikipedia.org/wiki/Nature_therapy",
+        "title": "Nature therapy",
+        "why": "Link on the page",
+        "from_url": parent,
+        "depth": 2,
+        "kind": "article",
+        "status": "queued",
+        "tries": 0,
+    }
+    sibling = {
+        "lead_id": "led_ai_wiki",
+        "mission_id": "msn_test",
+        "url": "https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)",
+        "title": accepted,
+        "why": "AI sense",
+        "from_url": "https://en.wikipedia.org/wiki/Hallucination_(disambiguation)",
+        "depth": 1,
+        "kind": "article",
+        "status": "queued",
+        "tries": 0,
+    }
+    page = {
+        "lead_id": "led_ground",
+        "mission_id": "msn_test",
+        "url": parent,
+        "title": accepted,
+        "why": "Search for grounding and hallucination reduction",
+        "from_url": "",
+        "depth": 1,
+        "kind": "article",
+        "status": "queued",
+        "tries": 0,
+        "text": "",
+    }
+    failed = asyncio.run(work_once(
+        mission=mission, frontier=[page, child, sibling], fetch=fetch, study=study, now=70, reads_at=[],
+    ))
+    assert studied == []
+    assert failed.action == "skip"
+    urls = {item["url"] for item in failed.frontier}
+    assert "https://en.wikipedia.org/wiki/Nature_therapy" not in urls
+    assert "https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)" in urls
+    assert "en.wikipedia.org" not in (mission.get("drift_hosts") or [])
+
+    dab = dict(page)
+    dab["lead_id"] = "led_dab"
+    dab["url"] = "https://en.wikipedia.org/wiki/Grounding_(disambiguation)"
+    dab["title"] = "Grounding (disambiguation)"
+    opened = asyncio.run(work_once(mission=mission, frontier=[dab], fetch=fetch, study=study, now=80, reads_at=[]))
+    assert studied == []
+    assert [item["title"] for item in opened.frontier if item.get("status") == "queued"] == [accepted]
+
+
 def test_choose_port_skips_a_busy_one():
     with __import__("socket").socket() as sock:
         sock.bind(("127.0.0.1", 0))

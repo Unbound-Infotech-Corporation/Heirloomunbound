@@ -1,3 +1,3 @@
 """Heirloom Study Hall — a local reading room that makes the twin better."""
 
-__version__ = "0.10.1"
+__version__ = "0.10.2"

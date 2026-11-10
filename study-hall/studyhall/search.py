@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 from html.parser import HTMLParser
-from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
+from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 from xml.etree import ElementTree
 
 COMMUNITY_HOSTS = (
@@ -16,6 +16,113 @@ COMMUNITY_HOSTS = (
     "mastodon.social",
     "bsky.app",
 )
+
+# These words also name non-AI pages. Alone they are not a reason to follow.
+AMBIGUOUS_TERMS = frozenset({
+    "grounding", "hallucination", "hallucinations",
+    "memory", "memories", "agent", "agents", "model", "models",
+    "voice", "voices", "prompt", "prompts", "assistant", "assistants",
+    "transformer", "transformers", "attention",
+})
+AI_TERMS = frozenset({
+    "ai", "llm", "llms", "chatbot", "chatbots", "rag", "gpt", "gemini",
+    "ollama", "personalization", "conversational", "nlp", "neural",
+})
+AI_PHRASES = (
+    "artificial intelligence",
+    "language model",
+    "large language",
+    "machine learning",
+    "neural network",
+    "deep learning",
+    "prompt engineering",
+    "intelligent agent",
+    "virtual assistant",
+    "voice user interface",
+    "voice interface",
+    "symbol grounding",
+)
+_WIKI_TITLE = (
+    ("hallucination", "Hallucination (artificial intelligence)"),
+    ("grounding", "grounding (artificial intelligence)"),
+    ("transformer", "Transformer (deep learning)"),
+    ("attention", "Attention (machine learning)"),
+    ("prompt", "Prompt engineering"),
+    ("agent", "Intelligent agent"),
+    ("assistant", "Virtual assistant"),
+    ("memory", "Memory (artificial intelligence)"),
+    ("voice", "Voice user interface"),
+    ("model", "Language model"),
+)
+_WIKI_NAMESPACES = frozenset({
+    "special", "help", "wikipedia", "portal", "talk", "category", "file",
+    "template", "user", "draft", "module", "mediawiki",
+})
+_WIKI_LABELS = frozenset({
+    "main page", "contents", "contact us", "contact", "about", "about wikipedia",
+})
+
+
+def wikipedia_query(query: str) -> str:
+    """Prefer the AI article when a query uses an ambiguous word."""
+    text = " ".join((query or "").split())
+    lowered = text.lower()
+    extras = []
+    for word, title in _WIKI_TITLE:
+        if re.search(rf"\b{word}s?\b", lowered) and title.lower() not in lowered:
+            extras.append(title)
+    if not extras:
+        return text
+    return text + " " + " ".join(extras)
+
+
+def _plain(text: str) -> str:
+    return unquote(text or "").replace("_", " ").lower()
+
+
+def has_ai_context(text: str) -> bool:
+    focus = _plain(text)
+    if any(phrase in focus for phrase in AI_PHRASES):
+        return True
+    tokens = set(re.findall(r"[a-z0-9]+", focus))
+    return bool(tokens & AI_TERMS)
+
+
+def wikipedia_host(url: str) -> str:
+    return (urlparse(url or "").hostname or "").lower().removeprefix("www.")
+
+
+def wikipedia_chrome(url: str, title: str = "") -> bool:
+    """Main page, namespaces, contact/contents/about, and other-language wikis."""
+    host = wikipedia_host(url)
+    if not host.endswith("wikipedia.org") and not host.endswith("wikimedia.org"):
+        return False
+    if host not in {"en.wikipedia.org", "en.m.wikipedia.org"}:
+        return True
+    path = unquote(urlparse(url).path or "")
+    if "/wiki/" not in path:
+        return True
+    name = path.split("/wiki/", 1)[1].split("?")[0].strip("/")
+    head = name.split("/", 1)[0]
+    spaced = head.replace("_", " ").lower()
+    if spaced in _WIKI_LABELS or head.lower() in {"main_page"}:
+        return True
+    namespace = head.split(":", 1)[0].lower() if ":" in head else ""
+    if namespace in _WIKI_NAMESPACES:
+        return True
+    label = " ".join((title or "").replace("_", " ").split()).lower()
+    label = label.removesuffix(" - wikipedia").strip()
+    if label in _WIKI_LABELS:
+        return True
+    return False
+
+
+def is_disambiguation(title: str, text: str = "", url: str = "") -> bool:
+    blob = f"{title} {url}".lower()
+    if "disambiguation" in blob:
+        return True
+    head = (text or "")[:900].lower()
+    return "may refer to" in head
 
 
 def search_targets(query: str, *, searxng: str = "", skip_hosts: set[str] | None = None) -> list[dict]:
@@ -35,7 +142,7 @@ def search_targets(query: str, *, searxng: str = "", skip_hosts: set[str] | None
         {"url": f"https://api.crossref.org/works?query={q}&rows=5", "kind": "crossref", "why": why},
         {"url": f"https://export.arxiv.org/api/query?search_query=all:{q}&start=0&max_results=5", "kind": "arxiv", "why": why},
         {"url": f"https://hn.algolia.com/api/v1/search?query={q}&tags=story&hitsPerPage=5", "kind": "hn", "why": why},
-        {"url": f"https://html.duckduckgo.com/html/?q={quote_plus(query.strip() + ' site:en.wikipedia.org')}", "kind": "duckduckgo", "why": why + " on Wikipedia"},
+        {"url": f"https://html.duckduckgo.com/html/?q={quote_plus(wikipedia_query(query) + ' site:en.wikipedia.org')}", "kind": "duckduckgo", "why": why + " on Wikipedia"},
         {"url": f"https://html.duckduckgo.com/html/?q={q}", "kind": "duckduckgo", "why": why},
         {"url": f"https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q={q}&limit=5", "kind": "bluesky", "why": why},
     ]
@@ -130,8 +237,10 @@ def _worth_following(url: str, title: str) -> bool:
         return path.startswith("/10.")
     if host.endswith("arxiv.org"):
         return path.startswith(("/abs/", "/pdf/", "/html/"))
-    if "wikipedia.org" in host:
-        return "/wiki/" in path and "special" not in path
+    if "wikipedia.org" in host or host.endswith("wikimedia.org"):
+        if wikipedia_chrome(url, title):
+            return False
+        return has_ai_context(f"{title} {unquote(url)}")
     if path.endswith(".pdf"):
         return True
     label = " ".join((title or "").split())
@@ -217,6 +326,8 @@ def leads_from_document(kind: str, page_url: str, body: str, *, depth: int) -> t
             urls = payload[3] if len(payload) > 3 else []
             for index, url in enumerate(urls):
                 title = titles[index] if index < len(titles) else url
+                if wikipedia_chrome(str(url), str(title)) or not has_ai_context(f"{title} {url}"):
+                    continue
                 add_lead(url, title, "Wikipedia open search")
         except (json.JSONDecodeError, TypeError, IndexError):
             pass
@@ -317,6 +428,10 @@ def leads_from_document(kind: str, page_url: str, body: str, *, depth: int) -> t
             if kind == "duckduckgo" and "uddg=" not in href and "uddg=" not in absolute:
                 continue
             if kind != "duckduckgo" and not _worth_following(absolute, text):
+                continue
+            if wikipedia_chrome(absolute, text):
+                continue
+            if wikipedia_host(absolute).endswith("wikipedia.org") and not has_ai_context(f"{text} {unquote(absolute)}"):
                 continue
             add_lead(absolute, text, "Link on the page")
         for match in re.findall(r"https?://arxiv\.org/abs/\d{4}\.\d{4,5}", raw):

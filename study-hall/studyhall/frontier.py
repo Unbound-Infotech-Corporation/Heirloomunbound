@@ -8,7 +8,16 @@ from typing import Awaitable, Callable
 from urllib.parse import urlparse
 
 from studyhall.embed import cosine, keyword_overlap
-from studyhall.search import community_targets, leads_from_document, search_targets
+from studyhall.search import (
+    AMBIGUOUS_TERMS,
+    community_targets,
+    has_ai_context,
+    is_disambiguation,
+    leads_from_document,
+    search_targets,
+    wikipedia_chrome,
+    wikipedia_host,
+)
 
 INDEX_KINDS = {"wikipedia", "arxiv", "openalex", "semanticscholar", "crossref", "hn", "reddit", "duckduckgo", "bluesky", "searxng"}
 PAGE_KINDS = {"article", "paper", "thread", "post", "pdf", "video"}
@@ -24,12 +33,6 @@ _GENERIC = frozenset({
     "training", "talk", "talks", "inspection", "inspections", "tool", "tools",
     "manual", "manuals", "workplace", "osha", "procedure", "procedures",
     "hand", "hands",
-})
-_CONTEXT = frozenset({
-    "ai", "llm", "llms", "assistant", "assistants", "agent", "agents",
-    "model", "models", "chatbot", "chatbots", "voice", "memory", "prompt",
-    "prompts", "grounding", "hallucination", "personalization", "chat",
-    "gpt", "gemini", "ollama", "rag", "conversational",
 })
 DRIFT_HOSTS = frozenset({
     "safetymanualosha.com",
@@ -68,13 +71,16 @@ def matches_mission(
         semantic = max(0.0, cosine(vector, mission_vector))
     if semantic >= EMBED_ACCEPT:
         return True, semantic, f"Followed. Embedding similarity {semantic:.2f} against the mission."
-    hits = sorted(_tokens(text) & _CONTEXT)
+    ambiguous = sorted(_tokens(text) & AMBIGUOUS_TERMS)
     generic = sorted(_tokens(text) & _GENERIC)
-    if not hits:
-        named = ", ".join(generic[:4]) or "those words"
-        return False, semantic, f"Skipped. '{named}' is not enough without an assistant, model, or AI term."
-    score = max(semantic, min(1.0, len(hits) / 2))
-    return True, score, "Followed. Matched " + ", ".join(hits) + "."
+    if has_ai_context(text):
+        score = max(semantic, min(1.0, 0.75 if ambiguous else 0.5))
+        return True, score, "Followed. The title or lead has an AI sense."
+    if ambiguous:
+        named = ", ".join(ambiguous)
+        return False, semantic, f"Skipped. '{named}' is another sense unless the title or lead says it is about AI."
+    named = ", ".join(generic[:4]) or "those words"
+    return False, semantic, f"Skipped. '{named}' is not enough without an assistant, model, or AI term."
 
 
 def score_relevance(text: str, mission: dict, *, vector: list[float] | None = None, mission_vector: list[float] | None = None) -> float:
@@ -225,12 +231,37 @@ _HOST_CAP = 4
 
 
 def _lead_blob(lead: dict) -> str:
+    """Title, URL, and lead text. The reason we queued it is not evidence."""
     return " ".join([
         str(lead.get("title") or ""),
         str(lead.get("url") or ""),
         str(lead.get("text") or ""),
-        str(lead.get("why") or ""),
     ])
+
+
+def _canon(url: str) -> str:
+    parsed = urlparse(url or "")
+    host = (parsed.hostname or "").lower().removeprefix("www.")
+    path = (parsed.path or "").rstrip("/")
+    return f"{host}{path}"
+
+
+def _wikipedia(url: str) -> bool:
+    host = wikipedia_host(url)
+    return host.endswith("wikipedia.org") or host.endswith("wikimedia.org")
+
+
+def drop_children(frontier: list[dict], page_url: str) -> list[dict]:
+    page = _canon(page_url)
+    if not page:
+        return frontier
+    kept = []
+    for item in frontier:
+        parent = _canon(str(item.get("from_url") or ""))
+        if parent and parent == page and item.get("status") in {"queued", "error", "retry"}:
+            continue
+        kept.append(item)
+    return kept
 
 
 def _vectors(vector_of, text: str, mission: dict) -> tuple[list[float] | None, list[float] | None]:
@@ -250,6 +281,10 @@ def _preflight(lead: dict, mission: dict, frontier: list[dict], now: float, vect
     host = _host(str(lead.get("url") or ""))
     if host_penalized(host, mission):
         return False, f"Skipped. {host} drifted off the mission, so its links are dropped."
+    if wikipedia_chrome(str(lead.get("url") or ""), str(lead.get("title") or "")):
+        return False, "Skipped. Wikipedia navigation, other languages, and project pages are not readings."
+    if "disambiguation" in lowered:
+        return True, "Disambiguation page. Only entries with an AI sense will be followed."
     if any(bit in lowered for bit in _MARKETING):
         return False, "Skipped before fetching. This looks like product, pricing, or login marketing."
     lead_vector, mission_vector = _vectors(vector_of, blob, mission)
@@ -277,6 +312,12 @@ def prune_frontier(items: list[dict], mission: dict) -> tuple[list[dict], int]:
         if waiting and host_penalized(host, mission):
             dropped += 1
             continue
+        if waiting and wikipedia_chrome(str(item.get("url") or ""), str(item.get("title") or "")):
+            dropped += 1
+            continue
+        if waiting and _wikipedia(str(item.get("url") or "")) and not has_ai_context(_lead_blob(item)):
+            dropped += 1
+            continue
         if waiting and item.get("kind") not in INDEX_KINDS:
             ok, _score, _reason = matches_mission(_lead_blob(item), mission)
             if not ok:
@@ -287,18 +328,21 @@ def prune_frontier(items: list[dict], mission: dict) -> tuple[list[dict], int]:
 
 
 def penalize(frontier: list[dict], mission: dict, host: str, page_url: str) -> list[dict]:
-    """Drop this page's children and anything still queued on the host."""
-    mission.setdefault("drift_hosts", [])
-    if host and host not in mission["drift_hosts"]:
-        mission["drift_hosts"].append(host)
-    kept = []
-    for item in frontier:
-        if item.get("from_url") == page_url and item.get("status") == "queued":
-            continue
+    """Drop this page's children. A shared encyclopedia is not banned outright."""
+    wiki = _wikipedia("https://" + host) if host else False
+    if host and not wiki:
+        mission.setdefault("drift_hosts", [])
+        if host not in mission["drift_hosts"]:
+            mission["drift_hosts"].append(host)
+    kept = drop_children(frontier, page_url)
+    if wiki:
+        return kept
+    narrowed = []
+    for item in kept:
         if _host(str(item.get("url") or "")) == host and item.get("status") in {"queued", "error", "retry"}:
             continue
-        kept.append(item)
-    return kept
+        narrowed.append(item)
+    return narrowed
 
 
 def _backoff(tries: int) -> float:
@@ -367,7 +411,7 @@ async def work_once(
             return Step(
                 action="skip",
                 status="running",
-                frontier=_replace(frontier, item["lead_id"], updated),
+                frontier=drop_children(_replace(frontier, item["lead_id"], updated), url),
                 events=[{"event": "activity", "data": {"message": reason, "url": url}}],
             )
     try:
@@ -464,8 +508,29 @@ async def work_once(
             frontier=_replace(frontier, item["lead_id"], updated),
             events=[{"event": "activity", "data": {"message": f"Skipped because '{block}' is blocked.", "url": url}}],
         )
+    lead_text = (title or "") + "\n" + (text or "")[:700]
     page_vector, mission_vector = _vectors(vector_of, text, mission)
-    on_topic, relevance, topic_reason = matches_mission(text, mission, vector=page_vector, mission_vector=mission_vector)
+    if is_disambiguation(title or item.get("title") or "", text, url):
+        parse_kind = item.get("kind") or kind or ""
+        body = raw or text
+        leads, communities = leads_from_document(parse_kind, url, body, depth=int(item.get("depth") or 0))
+        kept = [
+            lead for lead in leads
+            if int(lead.get("depth") or 0) <= max_depth
+            and not is_blocked(lead["url"], lead.get("title") or "", mission)
+            and not wikipedia_chrome(lead["url"], lead.get("title") or "")
+            and has_ai_context(f"{lead.get('title') or ''} {lead.get('url') or ''}")
+        ]
+        updated = {**item, "status": "disambiguation", "relevance": 0}
+        return Step(
+            action="skip",
+            status="running",
+            frontier=enqueue(drop_children(_replace(frontier, item["lead_id"], updated), url), kept, mission_id),
+            events=[{"event": "activity", "data": {"message": f"Disambiguation page. Followed {len(kept)} entries that name an AI sense.", "url": url}}],
+            edges=[{"from": url, "to": lead["url"], "why": lead["why"], "mission_id": mission_id} for lead in kept],
+            communities=communities,
+        )
+    on_topic, relevance, topic_reason = matches_mission(lead_text, mission, vector=page_vector, mission_vector=mission_vector)
     mark = highlight_span(text, mission)
     looking = {
         "event": "looking",
