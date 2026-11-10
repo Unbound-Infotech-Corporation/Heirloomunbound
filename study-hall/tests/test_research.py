@@ -882,6 +882,149 @@ def test_vendor_marketing_is_not_a_reading():
     assert all(item.get("url") != "https://openai.com/safety/deployment-safety-hub/monitoring" for item in step.frontier)
 
 
+def test_tool_pages_and_announcements_do_not_reach_the_panel():
+    from studyhall.gate import MARKETING, REVIEW_NOTE, PageGate, flag_marketing_drafts
+    from studyhall.frontier import prune_frontier
+
+    mission = _mission()
+    examples = [
+        ("https://promptessor.com/tools", "Promptessor tools"),
+        ("https://promptessor.com/ai-image-prompt-generator", "AI image prompt generator"),
+        ("https://promptessor.com/tools/prompt-generator", "Prompt generator"),
+        ("https://www.k2view.com/news-blog/k2view-secures-15m", "K2view secures $15M funding"),
+        ("https://www.k2view.com/news-blog/ai-context-optimizer", "AI Context Optimizer"),
+        ("https://www.k2view.com/news-blog/agentic-tdm", "Agentic TDM"),
+        ("https://www.rocketsoftware.com/news/partnership", "Rocket Software partnership announcement"),
+        ("https://example.test/blog/product-launches", "Acme launches an AI assistant"),
+    ]
+    queued = [
+        {"url": url, "title": title, "status": "queued", "kind": "article", "text": "AI assistants and language models"}
+        for url, title in examples
+    ]
+    queued.append({
+        "url": "https://example.test/blog/memory-for-assistants",
+        "title": "Long-term memory for conversational assistants",
+        "status": "queued",
+        "kind": "article",
+        "text": "Conversational assistants keep memory.",
+    })
+    kept, dropped = prune_frontier(queued, mission)
+    assert dropped == len(examples)
+    assert [item["url"] for item in kept] == ["https://example.test/blog/memory-for-assistants"]
+
+    asked = []
+
+    async def ask(prompt):
+        asked.append(prompt)
+        if "vendor.example" in prompt:
+            return '{"kind":"marketing_pr_tool","reason":"It is a product tour."}'
+        if "fail.example" in prompt:
+            raise RuntimeError("down")
+        return '{"kind":"research_or_educational","reason":"It teaches a method."}'
+
+    gate = PageGate(ask=ask)
+    studied = []
+
+    async def fetch(url):
+        if "vendor.example" in url:
+            return Reading(
+                status="ok",
+                url=url,
+                title="A note on assistants",
+                text="Long-term memory lets conversational assistants keep context. " * 12,
+                raw='<article><a href="https://vendor.example/tools/next">Next tool</a></article>',
+                kind="article",
+            )
+        return Reading(
+            status="ok",
+            url=url,
+            title="Long-term memory for conversational assistants",
+            text="Long-term memory lets conversational assistants keep context. " * 12,
+            kind="article",
+        )
+
+    async def study(source):
+        studied.append(source["url"])
+        return {"events": []}
+
+    vendor = {
+        "lead_id": "led_vendor",
+        "mission_id": "msn_test",
+        "url": "https://vendor.example/notes/assistants",
+        "title": "Long-term memory for conversational assistants",
+        "why": "a lead",
+        "from_url": "",
+        "depth": 1,
+        "kind": "article",
+        "status": "queued",
+        "tries": 0,
+    }
+    child = {
+        "lead_id": "led_vendor_child",
+        "mission_id": "msn_test",
+        "url": "https://vendor.example/tools/next",
+        "title": "Next tool",
+        "why": "Link on the page",
+        "from_url": vendor["url"],
+        "depth": 2,
+        "kind": "article",
+        "status": "queued",
+        "tries": 0,
+    }
+    blocked = asyncio.run(work_once(
+        mission=mission, frontier=[vendor, child], fetch=fetch, study=study, now=100, reads_at=[], classify=gate.verdict,
+    ))
+    assert studied == []
+    assert "product tour" in blocked.events[-1]["data"]["message"]
+    assert all(item.get("url") != child["url"] for item in blocked.frontier)
+    assert mission["host_penalty"]["vendor.example"] == 100 + 3600
+    again = asyncio.run(gate.verdict(vendor["url"], vendor["title"], "same page"))
+    assert again["kind"] == MARKETING
+    assert len(asked) == 1
+
+    research = dict(vendor)
+    research["lead_id"] = "led_research"
+    research["url"] = "https://library.example/blog/memory-for-assistants"
+    opened = asyncio.run(work_once(
+        mission=mission, frontier=[research], fetch=fetch, study=study, now=200, reads_at=[], classify=gate.verdict,
+    ))
+    assert studied == ["https://library.example/blog/memory-for-assistants"]
+    assert opened.action == "read"
+
+    quiet = dict(research)
+    quiet["lead_id"] = "led_quiet"
+    quiet["url"] = "https://fail.example/blog/memory-for-assistants"
+    asyncio.run(work_once(
+        mission=mission, frontier=[quiet], fetch=fetch, study=study, now=300, reads_at=[], classify=gate.verdict,
+    ))
+    assert studied[-1] == quiet["url"]
+
+    lessons = [
+        {"lesson_id": "les_ad", "status": "draft", "source_url": examples[3][0], "source_title": examples[3][1], "summary": "Funding news."},
+        {"lesson_id": "les_ok", "status": "draft", "source_url": "https://arxiv.org/abs/2601.00001", "source_title": "Memory for assistants", "summary": "A method."},
+    ]
+    marked = asyncio.run(flag_marketing_drafts(lessons, gate))
+    assert marked == 1
+    assert lessons[0]["status"] == "draft"
+    assert lessons[0]["review_note"] == REVIEW_NOTE
+    assert "review_note" not in lessons[1]
+
+    fresh = _mission()
+    frontier = [
+        {"lead_id": "led_read", "mission_id": "msn_test", "url": "https://a.example/blog/old", "title": "Old", "status": "read", "read_at": 900, "depth": 1, "kind": "article", "tries": 0},
+        {"lead_id": "led_a", "mission_id": "msn_test", "url": "https://a.example/blog/next", "title": "Long-term memory for conversational assistants", "status": "queued", "depth": 1, "kind": "article", "tries": 0, "why": "a lead", "from_url": ""},
+        {"lead_id": "led_b", "mission_id": "msn_test", "url": "https://b.example/blog/other", "title": "Long-term memory for conversational assistants", "status": "queued", "depth": 1, "kind": "article", "tries": 0, "why": "a lead", "from_url": ""},
+    ]
+    seen = []
+
+    async def fetch_host(url):
+        seen.append(url)
+        return Reading(status="ok", url=url, title="Long-term memory for conversational assistants", text="Long-term memory lets conversational assistants keep context. " * 8, kind="article")
+
+    asyncio.run(work_once(mission=fresh, frontier=frontier, fetch=fetch_host, study=study, now=1000, reads_at=[]))
+    assert seen == ["https://b.example/blog/other"]
+
+
 def test_choose_port_skips_a_busy_one():
     with __import__("socket").socket() as sock:
         sock.bind(("127.0.0.1", 0))

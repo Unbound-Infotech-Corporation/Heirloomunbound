@@ -73,8 +73,10 @@ _SKIP_SEGMENTS = {
     "download": "signup",
     "downloads": "signup",
     "try": "signup",
-    "customers": "customer",
+        "customers": "customer",
     "customer": "customer",
+    "tools": "product",
+    "tool": "product",
     "partners": "partner",
     "partner": "partner",
     "legal": "legal",
@@ -98,6 +100,9 @@ _COMPOUNDS = {
     "try-chatgpt": "signup",
     "safety-hub": "product",
     "deployment-safety": "product",
+    "news-blog": "press",
+    "press-release": "press",
+    "press-releases": "press",
 }
 _ANCHORS = (
     ("try chatgpt", "signup"),
@@ -126,6 +131,24 @@ def _segments(path: str) -> list[str]:
     return [part for part in unquote(path or "").lower().split("/") if part]
 
 
+def _pitch(title: str) -> str:
+    """Funding, partnership, and launch headlines are announcements, not research."""
+    label = " ".join((title or "").lower().split())
+    if not label:
+        return ""
+    if re.search(r"\bsecures\s+\$", label) or (re.search(r"\$\s?\d", label) and "funding" in label):
+        return "press"
+    if re.search(r"\braise[sd]?\b", label):
+        return "press"
+    if re.search(r"\bpartners?\s+with\b", label) or re.search(r"\bpartnership\b", label):
+        return "press"
+    if re.search(r"\bannounces?\b", label) or re.search(r"\bannouncement\b", label):
+        return "press"
+    if re.search(r"\blaunch(es|ed)?\b", label):
+        return "press"
+    return ""
+
+
 def _anchor_kind(title: str) -> str:
     label = " ".join((title or "").lower().split())
     if not label:
@@ -151,12 +174,16 @@ def _path_kind(path: str) -> str:
             skip = skip or compound
             continue
         token = part.replace("_", "-")
+        if token.endswith("-generator") or token.endswith("-converter"):
+            skip = skip or "product"
+            continue
         if token in _SKIP_SEGMENTS:
             skip = skip or _SKIP_SEGMENTS[token]
             continue
         head = token.split("-", 1)[0]
-        if head in _SKIP_SEGMENTS and head in {"ebook", "ebooks", "webinar", "webinars", "pricing", "careers", "jobs"}:
+        if head in _SKIP_SEGMENTS and head in {"ebook", "ebooks", "webinar", "webinars", "pricing", "careers", "jobs", "news", "press", "tools"}:
             skip = skip or _SKIP_SEGMENTS[head]
+            continue
         if token in _KEEP_SEGMENTS:
             keep = keep or _KEEP_SEGMENTS[token]
     if keep and not skip:
@@ -219,6 +246,9 @@ def classify_page(url: str, title: str = "", *, text: str = "", raw: str = "") -
     path_kind = _path_kind(path)
     if path_kind in SKIP_KINDS:
         return path_kind
+    pitch = _pitch(title)
+    if pitch:
+        return pitch
     anchor = _anchor_kind(title)
     if anchor in SKIP_KINDS and path_kind not in KEEP_KINDS:
         return anchor

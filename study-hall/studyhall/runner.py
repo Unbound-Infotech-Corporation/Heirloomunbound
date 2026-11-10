@@ -8,6 +8,7 @@ import time
 from studyhall.config import EMBED_MODELS, STUDY_OLLAMA
 from studyhall.embed import OllamaEmbedder
 from studyhall.frontier import work_once
+from studyhall.gate import PageGate, flag_marketing_drafts
 from studyhall.live import chat_event, lesson_event, proposal_event, short_turn
 from studyhall.missions import list_missions, running_missions, save_mission
 from studyhall.reader import Reading
@@ -36,6 +37,7 @@ class ResearchRunner:
         self._task: asyncio.Task | None = None
         self._last_pace_log = 0.0
         self.embed = OllamaEmbedder(STUDY_OLLAMA, EMBED_MODELS)
+        self.gate = PageGate()
 
     def publish(self, event: str, data: dict) -> None:
         if event == "activity" and isinstance(data.get("message"), str):
@@ -87,6 +89,7 @@ class ResearchRunner:
         )
         self.publish(intro["event"], intro["data"])
         self._prune_saved_frontier()
+        await self._flag_marketing_drafts()
         if automate_enabled():
             self._task = asyncio.create_task(self._loop())
 
@@ -105,6 +108,17 @@ class ResearchRunner:
                 "message": f"Removed {dropped} queued leads that were off the mission, including workplace-safety hosts.",
                 "url": "",
             })
+
+    async def _flag_marketing_drafts(self) -> None:
+        lessons = self.hall.store.read_items("lessons.json")
+        marked = await flag_marketing_drafts(lessons, self.gate)
+        if not marked:
+            return
+        self.hall.store.write_items("lessons.json", lessons)
+        self.publish("activity", {
+            "message": f"Marked {marked} draft lessons: source looked like marketing. They stay in the review queue for you to decide.",
+            "url": "",
+        })
 
     async def shutdown(self) -> None:
         if self._task is None:
@@ -147,6 +161,7 @@ class ResearchRunner:
                 now=time.time(),
                 reads_at=reads_at,
                 vector_of=self.embed,
+                classify=self.gate.verdict,
             )
             self.hall.store.write_items("frontier.json", step.frontier)
             self._publish_progress(step.events[-1]["data"].get("url", "") if step.events else "")

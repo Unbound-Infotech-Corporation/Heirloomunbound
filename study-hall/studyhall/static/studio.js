@@ -376,6 +376,7 @@ function lessonCard(lesson) {
       <p class="area">Lesson card · ${escapeHtml(lesson.moderator || "moderator")}</p>
       <h2>${escapeHtml(lesson.summary)}</h2>
       <p class="why">${escapeHtml(lesson.why_it_matters || "")}</p>
+      ${lesson.review_note ? `<p class="banner" data-testid="review-note">${escapeHtml(lesson.review_note)}</p>` : ""}
       <p class="meta"><span class="meter" style="--v:${Number(lesson.confidence) || 0}"><span></span></span> confidence ${Number(lesson.confidence || 0).toFixed(2)}</p>
       <ul class="cites">${cites}</ul>
       <div class="actions">
@@ -386,9 +387,11 @@ function lessonCard(lesson) {
 }
 
 function lessonsView() {
-  const rows = state.lessons.filter((lesson) => lesson.status === "filed");
-  if (!rows.length) return `<div class="empty"><h2>Nothing filed.</h2><p>A lesson reaches the twin only after you file it. Drafts stay in the study room.</p></div>`;
-  return rows.map((lesson) => lessonCard(lesson)).join("");
+  const flagged = state.lessons.filter((lesson) => lesson.status === "draft" && lesson.review_note);
+  const filed = state.lessons.filter((lesson) => lesson.status === "filed");
+  if (!flagged.length && !filed.length) return `<div class="empty"><h2>Nothing filed.</h2><p>A lesson reaches the twin only after you file it. Drafts stay in the study room.</p></div>`;
+  const waiting = flagged.map((lesson) => lessonCard(lesson)).join("");
+  return waiting + filed.map((lesson) => lessonCard(lesson)).join("");
 }
 
 function queueView() {

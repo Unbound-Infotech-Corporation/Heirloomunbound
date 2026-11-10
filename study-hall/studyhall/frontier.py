@@ -279,6 +279,18 @@ def _cap_queued(items: list[dict], limit: int) -> tuple[list[dict], int]:
     return kept, dropped
 
 
+def _penalize_host(mission: dict, host: str, now: float) -> None:
+    """Deprioritize a host for an hour. Other readings on that host can still be queued."""
+    if not host:
+        return
+    penalties = mission.setdefault("host_penalty", {})
+    try:
+        current = float(penalties.get(host) or 0)
+    except (TypeError, ValueError):
+        current = 0.0
+    penalties[host] = max(current, now + 3600)
+
+
 def drop_children(frontier: list[dict], page_url: str) -> list[dict]:
     page = _canon(page_url)
     if not page:
@@ -391,6 +403,7 @@ async def work_once(
     reads_at: list[float],
     searxng: str = "",
     vector_of=None,
+    classify=None,
 ) -> Step:
     """One unit of work. A dry frontier, a full pace, or a dead network does not stop the mission."""
     status = str(mission.get("status") or "stopped")
@@ -425,7 +438,25 @@ async def work_once(
             frontier=enqueue(frontier, seeded, mission_id),
             events=events,
         )
-    queued.sort(key=lambda lead: (0 if lead.get("kind") in PAGE_KINDS or lead.get("text") else 1, int(lead.get("depth") or 0)))
+    recent_hosts = {
+        _host(str(item.get("url") or ""))
+        for item in frontier
+        if item.get("status") == "read" and now - float(item.get("read_at") or 0) < 3600
+    }
+    penalized = mission.get("host_penalty") or {}
+
+    def _held(lead: dict) -> int:
+        host = _host(str(lead.get("url") or ""))
+        if host in recent_hosts:
+            return 1
+        try:
+            if float(penalized.get(host) or 0) > now:
+                return 1
+        except (TypeError, ValueError):
+            pass
+        return 0
+
+    queued.sort(key=lambda lead: (_held(lead), 0 if lead.get("kind") in PAGE_KINDS or lead.get("text") else 1, int(lead.get("depth") or 0)))
     item = queued[0]
     if "reddit.com" in (item.get("url") or "") and not item.get("text"):
         updated = {**item, "status": "needs_key"}
@@ -563,6 +594,7 @@ async def work_once(
             communities=communities,
         )
     if is_marketing(url, title or item.get("title") or "", text=text, raw=raw or ""):
+        _penalize_host(mission, _host(url), now)
         updated = {**item, "status": "marketing", "relevance": 0}
         return Step(
             action="skip",
@@ -613,6 +645,22 @@ async def work_once(
         })
     kept = [lead for lead in leads if int(lead.get("depth") or 0) <= max_depth and not is_blocked(lead["url"], lead.get("title") or "", mission)]
     edges = [{"from": url, "to": lead["url"], "why": lead["why"], "mission_id": mission_id} for lead in kept]
+    if classify is not None:
+        try:
+            verdict = await classify(url, title or item.get("title") or "", (text or "")[:1500])
+        except Exception:
+            verdict = {"kind": "research_or_educational", "reason": "The page-type check did not answer."}
+        if str((verdict or {}).get("kind") or "") == "marketing_pr_tool":
+            reason = str((verdict or {}).get("reason") or "It reads as marketing.")
+            _penalize_host(mission, _host(url), now)
+            updated = {**item, "status": "marketing", "relevance": relevance}
+            return Step(
+                action="skip",
+                status="running",
+                wait=0.0,
+                frontier=drop_children(_replace(frontier, item["lead_id"], updated), url),
+                events=[looking, {"event": "activity", "data": {"message": f"Skipped. The page looks like marketing. {reason} The panel was not asked and its links were dropped.", "url": url}}],
+            )
     study_payload = None
     try:
         study_payload = await study({
