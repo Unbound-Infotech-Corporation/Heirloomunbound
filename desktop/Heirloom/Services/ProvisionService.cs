@@ -44,10 +44,6 @@ public sealed class ProvisionService
             catch (Exception ex)
             {
                 mapped.Report(SetupCopy.HumanFault(ex, "getting hearing ready", cancellationToken));
-                if (profile.Id == "small")
-                {
-                    LastMessage = mapped is null ? "Hearing paused" : LastMessage;
-                }
             }
         }
 
