@@ -174,7 +174,20 @@ def test_restore_refuses_the_live_linux_box(tmp_path: Path):
     assert not Path(LINUX_LIVE_ROOT).exists()
 
 
-def test_restore_on_a_new_machine_can_use_its_own_data_root(tmp_path: Path):
+def test_live_data_root_from_the_environment_still_asks(tmp_path: Path, monkeypatch):
+    source = tmp_path / "backup"
+    dest = tmp_path / "HeirloomVault"
+    source.mkdir()
+    _backup(source)
+    monkeypatch.setenv("HEIRLOOM_DATA_ROOT", str(dest))
+    blocked = plan_restore(source, dest, box_mode=True, new_machine=False, confirm=True)
+    assert "new PC" in (blocked["refused"] or "")
+    allowed = plan_restore(source, dest, box_mode=True, new_machine=True, confirm=True)
+    assert allowed["refused"] is None
+
+
+def test_restore_on_a_new_machine_can_use_its_own_data_root(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("HEIRLOOM_DATA_ROOT", raising=False)
     source = tmp_path / "backup"
     dest = tmp_path / "HeirloomVault"
     source.mkdir()

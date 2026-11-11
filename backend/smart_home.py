@@ -188,15 +188,24 @@ def prepare_action(
     return result
 
 
+def _host_without_port(raw: str) -> str:
+    """Return the host, including a bracketed IPv6 address, without its port."""
+    if raw.startswith("["):
+        end = raw.find("]")
+        if end < 0:
+            raise SmartHomeRefused("That does not look like a device on your home network.")
+        return raw[1:end]
+    if raw.count(":") == 1 and "." in raw:
+        return raw.rsplit(":", 1)[0]
+    return raw
+
+
 def assert_lan_target(host: str) -> str:
     """Accept a home-network host. Refuse public internet hosts."""
     raw = (host or "").strip()
     if not raw or "://" in raw or " " in raw or len(raw) > 253:
         raise SmartHomeRefused("That does not look like a device on your home network.")
-    name = raw
-    if name.count(":") == 1 and "." in name:
-        name = name.rsplit(":", 1)[0]
-    name = name.strip("[]")
+    name = _host_without_port(raw)
     try:
         ip = ipaddress.ip_address(name)
     except ValueError:
@@ -205,6 +214,8 @@ def assert_lan_target(host: str) -> str:
         if not (ip.is_private or ip.is_loopback or ip.is_link_local):
             raise SmartHomeRefused("Smart home commands stay on your home network.")
         return raw
+    if ":" in name:
+        raise SmartHomeRefused("That does not look like a device on your home network.")
     lowered = name.lower().rstrip(".")
     if lowered == "localhost" or lowered.endswith(".local") or lowered.endswith(".lan") or "." not in lowered:
         return raw
@@ -243,7 +254,14 @@ def classify_discovery(record: dict[str, Any]) -> dict[str, Any]:
 
 def ha_token_url(host: str) -> str:
     target = assert_lan_target(host)
-    base = f"http://{target}:8123"
+    if target.startswith("["):
+        end = target.find("]")
+        port = target[end + 1:]
+        base = f"http://{target[:end + 1]}{port or ':8123'}"
+    elif target.count(":") == 1:
+        base = f"http://{target}"
+    else:
+        base = f"http://{target}:8123"
     return base.rstrip("/") + "/profile/security"
 
 

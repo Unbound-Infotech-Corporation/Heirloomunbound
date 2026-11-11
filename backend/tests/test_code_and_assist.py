@@ -76,6 +76,20 @@ def test_hunks_can_be_accepted_one_at_a_time():
     assert accepted == after
 
 
+def test_hunks_change_the_named_line_when_the_text_repeats():
+    before = "same\nsame\n"
+    hunks = diff_hunks(before, "same\nchanged\n")
+    assert len(hunks) == 1
+    assert hunks[0]["start_line"] == 2
+    assert apply_hunks(before, hunks, [hunks[0]["id"]]) == "same\nchanged\n"
+
+
+def test_several_inserts_keep_their_order():
+    before = "a\n"
+    hunks = diff_hunks(before, "a\nb\nc\n")
+    assert apply_hunks(before, hunks, [hunk["id"] for hunk in hunks]) == "a\nb\nc\n"
+
+
 def test_commands_wait_and_dangerous_ones_cannot_be_confirmed():
     waiting = approve_command("pytest -q", approved=False)
     assert waiting["needs_approval"] is True

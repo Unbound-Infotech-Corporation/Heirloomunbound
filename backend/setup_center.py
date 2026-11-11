@@ -691,6 +691,12 @@ def _refuse_destination(
     return None
 
 
+def configured_data_root() -> Path | None:
+    """The live data folder from the environment, when this process has one."""
+    raw = (os.environ.get("HEIRLOOM_DATA_ROOT") or "").strip()
+    return Path(raw) if raw else None
+
+
 def plan_restore(
     source: Path,
     dest: Path,
@@ -702,6 +708,8 @@ def plan_restore(
 ) -> dict[str, Any]:
     root = Path(source)
     target = Path(dest)
+    if data_root is None:
+        data_root = configured_data_root()
     refused = None
     if not root.is_dir():
         refused = "The backup folder was not found."

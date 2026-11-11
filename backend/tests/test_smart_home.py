@@ -78,6 +78,10 @@ def test_commands_stay_on_the_lan():
         assert_lan_target("8.8.8.8")
     with pytest.raises(SmartHomeRefused):
         assert_lan_target("evil.example")
+    with pytest.raises(SmartHomeRefused):
+        assert_lan_target("[2001:4860:4860::8888]:8123")
+    assert assert_lan_target("[fe80::1]") == "[fe80::1]"
+    assert ha_token_url("homeassistant.local:8123") == "http://homeassistant.local:8123/profile/security"
     transport = FakeTransport()
     public = shelly_set(transport, "192.168.1.40", True)
     assert public["authorization"] == ""
