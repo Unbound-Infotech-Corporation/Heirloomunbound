@@ -244,12 +244,14 @@ def _calendar_day(match: re.Match, raw: str, local_now: datetime, hour: int, min
 def _named_date(text: str, local_now: datetime, hour: int, minute: int):
     """The day the owner scheduled, not whichever date token sits nearest the clock.
 
-    A span and a weekday combine ('in 2 weeks on Thursday'). A calendar date
-    outranks a weekday label ('January 5, Thursday'). A date after 'about'
-    or 'dated' is the subject of the reminder, not its due day.
+    Tomorrow, today, and tonight are final: a weekday or a story date does not
+    move them. A span and a weekday combine ('in 2 weeks on Thursday'). A
+    calendar date outranks a weekday label ('January 5, Thursday'). A date
+    after 'about' or 'dated' is the subject of the reminder, not its due day.
     """
     raw = _schedule_clause(text)
-    relatives: list[tuple[int, object]] = []
+    named: list[tuple[int, object]] = []
+    spans: list[tuple[int, object]] = []
     weekdays: list[tuple[int, int]] = []
     calendars: list[tuple[int, object]] = []
     clock = _CLOCK.search(raw)
@@ -258,11 +260,11 @@ def _named_date(text: str, local_now: datetime, hour: int, minute: int):
     for match in re.finditer(r"\b(tomorrow|today|tonight)\b", raw, flags=re.IGNORECASE):
         word = match.group(1).lower()
         day = local_now.date() + (timedelta(days=1) if word == "tomorrow" else timedelta())
-        relatives.append((abs(match.start() - anchor), day))
+        named.append((abs(match.start() - anchor), day))
     for match in _RELATIVE_SPAN.finditer(raw):
         count = int(match.group(1))
         days = count * 7 if match.group(2).lower().startswith("week") else count
-        relatives.append((abs(match.start() - anchor), local_now.date() + timedelta(days=days)))
+        spans.append((abs(match.start() - anchor), local_now.date() + timedelta(days=days)))
     for match in _WEEKDAY.finditer(raw):
         weekdays.append((abs(match.start() - anchor), _WEEKDAYS[match.group(1).lower()]))
     for match in _MONTH_DAY.finditer(raw):
@@ -274,14 +276,16 @@ def _named_date(text: str, local_now: datetime, hour: int, minute: int):
         if day is not None:
             calendars.append((abs(match.start() - anchor), day))
 
-    if relatives and weekdays and not calendars:
-        base = min(relatives, key=lambda item: item[0])[1]
+    if named:
+        return min(named, key=lambda item: item[0])[1]
+    if spans and weekdays and not calendars:
+        base = min(spans, key=lambda item: item[0])[1]
         weekday = min(weekdays, key=lambda item: item[0])[1]
         return _weekday_on_or_after(base, weekday, hour, minute, local_now)
     if calendars:
         return min(calendars, key=lambda item: item[0])[1]
-    if relatives:
-        return min(relatives, key=lambda item: item[0])[1]
+    if spans:
+        return min(spans, key=lambda item: item[0])[1]
     if weekdays:
         weekday = min(weekdays, key=lambda item: item[0])[1]
         return _weekday_on_or_after(local_now.date(), weekday, hour, minute, local_now)

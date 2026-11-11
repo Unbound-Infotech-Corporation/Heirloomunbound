@@ -164,6 +164,15 @@ def test_thursday_at_3pm_uses_the_owner_zone_not_utc():
     later_local = datetime.fromisoformat(later).astimezone(ZoneInfo("America/Los_Angeles"))
     assert later_local.date().isoformat() == "2026-11-26"
     assert (later_local.hour, later_local.minute) == (15, 0)
+    mixed = resolve_due_at(
+        "The note from January 5 says remind me tomorrow at 3pm, Thursday is when they open",
+        "2027-01-05T15:00:00+00:00",
+        "America/Los_Angeles",
+        now,
+    )
+    mixed_local = datetime.fromisoformat(mixed).astimezone(ZoneInfo("America/Los_Angeles"))
+    assert mixed_local.date().isoformat() == "2026-11-12"
+    assert (mixed_local.hour, mixed_local.minute) == (15, 0)
     assert owner_timezone({"timezone": "America/Los_Angeles"}) == "America/Los_Angeles"
     assert owner_timezone({}, "America/Chicago") == "America/Chicago"
     assert owner_timezone({"timezone": "America/Los_Angeles"}, "America/Chicago") == "America/Chicago"
