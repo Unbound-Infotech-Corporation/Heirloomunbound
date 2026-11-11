@@ -2,6 +2,7 @@ import axios from "axios";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Eye, Radio } from "lucide-react";
+import { LOCAL_EDITION_LINE } from "../lib/pricing";
 import { usePageMeta } from "../lib/usePageMeta";
 import { isTester } from "../lib/tester";
 
@@ -321,7 +322,7 @@ export default function TwinLive() {
               className="underline"
               style={{ color: "var(--accent)" }}
             >
-              $79, lifetime
+              {LOCAL_EDITION_LINE}
             </a>
             .{" "}
           </>

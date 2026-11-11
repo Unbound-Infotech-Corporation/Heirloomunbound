@@ -87,7 +87,7 @@ class TestBilling:
         assert "lifetime" in data["packages"]
         pkg = data["packages"]["lifetime"]
         assert pkg["name"]
-        assert pkg["price"] == 79.00
+        assert pkg["price"] == 79.99
         assert pkg["currency"] == "usd"
         assert pkg["description"]
 

@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { ArrowRight, Brain, Heart, Lock, MessageCircleHeart, Mic, MonitorDown, Server } from "lucide-react";
 import { Link } from "react-router-dom";
+import { LOCAL_EDITION_LINE } from "../lib/pricing";
 import { usePageMeta } from "../lib/usePageMeta";
 import { isTester } from "../lib/tester";
 
@@ -8,7 +9,7 @@ export default function Landing() {
   usePageMeta({
     title: "Heirloom — Build the version of yourself that gets to stay.",
     description:
-      "A private archive of your voice, memories, beliefs, and stories. A daily AI biographer that becomes a digital twin your family can sit with one day. $79 lifetime. By Unbound Infotech.",
+      `A private archive of your voice, memories, beliefs, and stories. A daily AI biographer that becomes a digital twin your family can sit with one day. ${LOCAL_EDITION_LINE}. By Unbound Infotech.`,
   });
   return (
     <div className="min-h-screen relative overflow-hidden" style={{ background: "var(--bg-base)" }}>
@@ -48,7 +49,7 @@ export default function Landing() {
             className="hidden sm:inline tracking-wide"
             style={{ color: "var(--accent)" }}
           >
-            $79 — Buy lifetime
+            {LOCAL_EDITION_LINE}
           </Link>
           )}
           <Link

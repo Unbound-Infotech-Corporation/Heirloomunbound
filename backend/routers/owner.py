@@ -12,11 +12,21 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from deps import get_current_user
+from owner_privacy import OwnerHidden, require_owner
 from owner_rail import owner_response_fields, run_owner_turn
 from routers.live import publish_turn as live_publish_turn
 from twin_runtime import ensure_conversation
 
 router = APIRouter(prefix="/owner", tags=["owner"])
+
+
+def _owner_only(user: dict) -> dict:
+    """Heirs get 404 on Sit. The route does not advertise itself."""
+    try:
+        require_owner(user)
+    except OwnerHidden as exc:
+        raise HTTPException(status_code=404, detail="Not found") from exc
+    return user
 
 
 class OwnerChatReq(BaseModel):
@@ -29,6 +39,7 @@ class OwnerChatReq(BaseModel):
 
 @router.get("/conversation")
 async def get_owner_conversation(user: dict = Depends(get_current_user), limit: int = 80):
+    user = _owner_only(user)
     conv = await ensure_conversation(user["user_id"], kind="companion_owner")
     msgs = conv.get("messages", [])
     if limit and len(msgs) > limit:
@@ -47,6 +58,7 @@ async def owner_chat(body: OwnerChatReq, user: dict = Depends(get_current_user))
     Assist / Do legs include `receipt`. Both-leg turns also return
     `twin_reply` and `assist_reply` so Sit can keep Ask and Do separate.
     """
+    user = _owner_only(user)
     if user.get("account_status") == "refunded":
         raise HTTPException(status_code=403, detail="account_inactive")
 

@@ -40,6 +40,7 @@ import { getAppMenubarItems, getWindowMenus } from "./studio";
 import SetupCoach from "./studio/SetupCoach";
 import TourOverlay from "./TourOverlay";
 import { useAuth } from "../lib/auth";
+import { wouldSayLabel } from "../lib/wouldSay";
 import { api } from "../lib/api";
 import { healthLine, labModeFromHealth } from "../lib/lab";
 import { observerEnabled } from "../lib/observer";
@@ -61,7 +62,7 @@ const navItems = [
   { to: "/assignments", label: "Assignments", icon: ClipboardList, tid: "nav-assignments" },
   { to: "/twin", label: "Talk to twin", icon: Sparkles, tid: "nav-twin" },
   { to: "/memory", label: "Memory", icon: Brain, tid: "nav-memory" },
-  { to: "/would-say", label: "Would C L say that?", icon: Brain, tid: "nav-would-say" },
+  { to: "/would-say", label: "Would you say that?", icon: Brain, tid: "nav-would-say" },
   { to: "/mixer", label: "Mixer", icon: Volume2, tid: "nav-mixer" },
   { to: "/models", label: "Models", icon: Cpu, tid: "nav-models" },
   { to: "/setup", label: "First-run setup", icon: SlidersHorizontal, tid: "nav-setup" },
@@ -93,7 +94,7 @@ const WINDOW_TITLES = {
   "/assignments/new": "New assignment",
   "/twin": "Twin",
   "/memory": "Memory Studio",
-  "/would-say": "Would C L say that?",
+  "/would-say": "Would you say that?",
   "/mixer": "Mixer",
   "/models": "Models",
   "/setup": "First-run setup",
@@ -247,8 +248,9 @@ export default function AppLayout() {
     };
   }, []);
 
+  const wouldSay = wouldSayLabel(user?.name);
   const dockItems = [
-    ...navItems,
+    ...navItems.map((item) => (item.to === "/would-say" ? { ...item, label: wouldSay } : item)),
     ...(labOn ? [{ to: "/lab", label: "Lab", icon: FlaskConical, tid: "nav-lab" }] : []),
     ...(observerOn ? [{ to: "/observer", label: "Observer", icon: Eye, tid: "nav-observer" }] : []),
     ...(presenceOn ? [{ to: "/presence", label: "Presence", icon: ScanFace, tid: "nav-presence" }] : []),
@@ -277,6 +279,7 @@ export default function AppLayout() {
   };
 
   const title =
+    (location.pathname === "/would-say" ? wouldSay : null) ||
     WINDOW_TITLES[location.pathname] ||
     (location.pathname.startsWith("/lab") ? "Lab" : null) ||
     (location.pathname.startsWith("/observer") ? "Observer" : null) ||
@@ -287,13 +290,14 @@ export default function AppLayout() {
     () => ({
       navigate,
       logout,
+      ownerName: user?.name,
       setCaptureOpen,
       reopenSetupCoach: () => setCoachReopen((n) => n + 1),
       labMode: labOn,
       observerMode: observerOn,
       presenceMode: presenceOn,
     }),
-    [navigate, logout, labOn, observerOn, presenceOn]
+    [navigate, logout, user?.name, labOn, observerOn, presenceOn]
   );
   const menus = useMemo(
     () => getWindowMenus(location.pathname, menuCtx),

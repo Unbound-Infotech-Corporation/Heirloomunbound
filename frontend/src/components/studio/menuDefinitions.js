@@ -1,10 +1,13 @@
 /** Per-document-window menus (Photoshop-style), keyed by route. */
 
+import { wouldSayLabel } from "../../lib/wouldSay";
+
 function go(navigate, to) {
   return () => navigate(to);
 }
 
-function commonWindow(navigate) {
+function commonWindow(ctx) {
+  const navigate = ctx.navigate;
   return {
     label: "Window",
     items: [
@@ -14,7 +17,7 @@ function commonWindow(navigate) {
       { label: "Assignments", onClick: go(navigate, "/assignments"), hint: "background jobs" },
       { label: "Twin", onClick: go(navigate, "/twin"), hint: "conversation" },
       { label: "Memory Studio", onClick: go(navigate, "/memory"), hint: "what the Twin holds" },
-      { label: "Would C L say that?", onClick: go(navigate, "/would-say"), hint: "local scores" },
+      { label: wouldSayLabel(ctx.ownerName), onClick: go(navigate, "/would-say"), hint: "local scores" },
       { label: "First gift", onClick: go(navigate, "/first-gift"), hint: "sealed letter" },
       { label: "Mixer", onClick: go(navigate, "/mixer"), hint: "audio I/O" },
       { label: "Models", onClick: go(navigate, "/models"), hint: "provision" },
@@ -82,7 +85,7 @@ const ROUTE_MENUS = {
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/dashboard": (ctx) => [
     {
@@ -95,7 +98,7 @@ const ROUTE_MENUS = {
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/owner": (ctx) => [
     {
@@ -111,7 +114,7 @@ const ROUTE_MENUS = {
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/memory": (ctx) => [
     {
@@ -126,7 +129,7 @@ const ROUTE_MENUS = {
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/twin": (ctx) => [
     {
@@ -144,7 +147,7 @@ const ROUTE_MENUS = {
     },
     audioMenu(ctx.navigate),
     modelsMenu(ctx.navigate),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/mixer": (ctx) => [
     {
@@ -170,7 +173,7 @@ const ROUTE_MENUS = {
       ],
     },
     modelsMenu(ctx.navigate),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/models": (ctx) => [
     modelsMenu(ctx.navigate),
@@ -183,7 +186,7 @@ const ROUTE_MENUS = {
         { label: "Local PC companion", onClick: go(ctx.navigate, "/companion") },
       ],
     },
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/journal": (ctx) => [
     {
@@ -196,7 +199,7 @@ const ROUTE_MENUS = {
     },
     audioMenu(ctx.navigate),
     modelsMenu(ctx.navigate),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/photos": (ctx) => [
     {
@@ -209,7 +212,7 @@ const ROUTE_MENUS = {
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/sources": (ctx) => [
     {
@@ -221,7 +224,7 @@ const ROUTE_MENUS = {
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/companion": (ctx) => [
     {
@@ -234,7 +237,7 @@ const ROUTE_MENUS = {
     },
     modelsMenu(ctx.navigate),
     audioMenu(ctx.navigate),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/letters": (ctx) => [
     {
@@ -246,7 +249,7 @@ const ROUTE_MENUS = {
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/first-gift": (ctx) => [
     {
@@ -258,7 +261,7 @@ const ROUTE_MENUS = {
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/settings": (ctx) => [
     {
@@ -275,7 +278,7 @@ const ROUTE_MENUS = {
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/assignments": (ctx) => [
     {
@@ -287,7 +290,7 @@ const ROUTE_MENUS = {
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
   "/rooms": (ctx) => [
     {
@@ -302,7 +305,7 @@ const ROUTE_MENUS = {
       ],
     },
     editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
-    commonWindow(ctx.navigate),
+    commonWindow(ctx),
   ],
 };
 
@@ -368,7 +371,7 @@ export function getWindowMenus(pathname, ctx) {
       editMenu(ctx.navigate, ctx.logout, ctx.setCaptureOpen),
       audioMenu(ctx.navigate),
       modelsMenu(ctx.navigate),
-      commonWindow(ctx.navigate),
+      commonWindow(ctx),
     ];
   return withBoxWindows(menus, ctx);
 }
@@ -396,7 +399,7 @@ export function getAppMenubarItems(ctx) {
     },
     {
       label: "Window",
-      items: commonWindow(ctx.navigate).items,
+      items: commonWindow(ctx).items,
     },
     audioMenu(ctx.navigate),
     modelsMenu(ctx.navigate),

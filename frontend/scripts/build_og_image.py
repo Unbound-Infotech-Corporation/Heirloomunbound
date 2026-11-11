@@ -10,7 +10,7 @@ Layout (left-aligned, dark library bg + cyan U logo):
 |       that gets to stay.                                   |
 |                                                            |
 |       A private archive of your voice, memories            |
-|       and beliefs.  $79 lifetime.                          |
+|       and beliefs.  $79.99 one-time.                      |
 |                                                            |
 +------------------------------------------------------------+
 """
@@ -116,7 +116,7 @@ draw.text(
 
 # --- Price chip (bottom-left) ---
 chip_x, chip_y = X, 555
-chip_text = "$79  ·  LIFETIME  ·  NO SUBSCRIPTION"
+chip_text = "$79.99  ·  ONE-TIME  ·  LOCAL EDITION"
 chip_font = ImageFont.truetype(MONO, 14)
 # Measure text so the chip fits exactly
 tw = draw.textlength(chip_text, font=chip_font)

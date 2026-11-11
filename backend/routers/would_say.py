@@ -1,4 +1,4 @@
-"""Owner page API for the 'Would C L say that?' set. Heirs receive 404."""
+"""Owner page API for the 'Would you say that?' set. Heirs receive 404."""
 from __future__ import annotations
 
 import uuid

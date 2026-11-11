@@ -50,7 +50,7 @@ class TestPaymentLinkEndpoint:
         assert data.get("url") == EXPECTED_URL
         assert data.get("payment_link_id") == EXPECTED_PLINK_ID
         pkg = data.get("package") or {}
-        assert pkg.get("price") == 79.0
+        assert pkg.get("price") == 79.99
         assert pkg.get("currency") == "usd"
         assert pkg.get("name")
 
@@ -63,7 +63,7 @@ class TestPackagesRegression:
         assert "packages" in data
         life = data["packages"].get("lifetime")
         assert life is not None
-        assert life.get("price") == 79.0
+        assert life.get("price") == 79.99
         assert life.get("currency") == "usd"
         assert life.get("id") == "lifetime"
 

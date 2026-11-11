@@ -2,7 +2,7 @@
 
 Square 1024x1024 — Stripe shows it small (~150x150 in the sidebar), so the
 composition is iconic: cyan U logo, serif "Heirloom" wordmark, tiny accent
-"a continuation of you" line, gold "$79 LIFETIME" pill. Dark library bg with
+"a continuation of you" line, gold "$79.99 ONE-TIME" pill. Dark library bg with
 strong vignette for readability.
 """
 from PIL import Image, ImageDraw, ImageFont
@@ -71,8 +71,8 @@ tag_text = "a continuation of you"
 tw = draw.textlength(tag_text, font=f_tag)
 draw.text(((S - tw) // 2, 700), tag_text, fill=(180, 170, 158), font=f_tag)
 
-# --- $79 LIFETIME chip (bottom center) ---
-chip_text = "$79  ·  LIFETIME  ·  ONE-TIME"
+# --- $79.99 one-time Local Edition chip (bottom center) ---
+chip_text = "$79.99  ·  ONE-TIME  ·  LOCAL EDITION"
 cw = draw.textlength(chip_text, font=f_chip)
 chip_w = int(cw) + 56
 chip_h = 56

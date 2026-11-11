@@ -44,6 +44,7 @@ from studio_compute import (
     resolve_compute_device,
     user_compute,
 )
+from ollama_status import describe_ollama
 from studio_coach_vision import COACH_STEPS, classify_vendor_screen, observe_result
 from studio_setup import (
     build_twin_setup_progress,
@@ -452,6 +453,18 @@ def _llm_available() -> bool:
     return bool(os.environ.get("EMERGENT_LLM_KEY", "").strip())
 
 
+def _ollama_status(probe: dict | None, companion: dict | None) -> dict:
+    """Companion probe, then the Ollama this process is already using."""
+    from local_inference import ollama_base_url, ollama_ready
+
+    return describe_ollama(
+        probe,
+        companion,
+        live_ready=lambda: ollama_ready(timeout=1.5),
+        live_url=ollama_base_url(),
+    )
+
+
 def _feature_readiness(
     feature_id: str,
     chosen_backend: str,
@@ -503,16 +516,18 @@ def _feature_readiness(
     elif feature_id == "twin":
         effective = resolve_twin_backend({feature_id: chosen_backend, **eff}, probe, user=user)
         if effective == "ollama":
-            ready = bool((companion.get("ollama") or {}).get("ready"))
-            detail = (companion.get("ollama") or {}).get("detail") or "Start Ollama on the dedicated PC"
+            block = _ollama_status(probe, companion)
+            ready = bool(block.get("ready"))
+            detail = block.get("detail") or "Start Ollama on the dedicated PC"
         else:
             ready = _llm_available()
             detail = "Claude via hosted key" if ready else "No hosted LLM key — use Ollama locally"
     elif feature_id == "vision":
         effective = eff.get("vision", chosen_backend)
         if effective == "ollama":
-            ready = bool((companion.get("ollama") or {}).get("ready"))
-            detail = (companion.get("ollama") or {}).get("detail") or "Ollama + llava on dedicated PC"
+            block = _ollama_status(probe, companion)
+            ready = bool(block.get("ready"))
+            detail = block.get("detail") or "Ollama + llava on dedicated PC"
         else:
             ready = _llm_available()
             detail = "Claude vision via hosted key" if ready else "No hosted vision key"
@@ -617,8 +632,9 @@ async def get_models(user: dict = Depends(get_studio_user)):
                 avail = bool((companion.get("musetalk") or {}).get("ready"))
                 detail = (companion.get("musetalk") or {}).get("detail") or "start MuseTalk, then Probe"
             elif b["id"] == "ollama":
-                avail = bool((companion.get("ollama") or {}).get("ready"))
-                detail = (companion.get("ollama") or {}).get("detail") or "Ollama not detected"
+                block = _ollama_status(merged_probe, companion)
+                avail = bool(block.get("ready"))
+                detail = block.get("detail") or "Ollama not detected"
             cred_meta = credential_for_backend(b["id"])
             backends.append(
                 {
