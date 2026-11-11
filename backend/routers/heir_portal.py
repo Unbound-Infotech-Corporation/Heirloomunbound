@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from deps import EMERGENT_LLM_KEY, db
-from heir_guards import portal_conversation_id
+from heir_guards import heir_archive_query, portal_conversation_id, portal_turn_update
 from letter_unlock import letter_unlocked
 
 router = APIRouter(prefix="/heir-portal", tags=["heir-portal"])
@@ -74,20 +74,14 @@ async def _persist_portal_turn(
     now_iso = datetime.now(timezone.utc).isoformat()
     await db.conversations.update_one(
         {"conversation_id": session_id, "user_id": owner_id},
-        {
-            "$setOnInsert": {
-                "conversation_id": session_id,
-                "user_id": owner_id,
-                "kind": "heir_portal",
-                "heir_id": heir["heir_id"],
-                "created_at": now_iso,
-            },
-            "$set": {"updated_at": now_iso, "kind": "heir_portal", "heir_id": heir["heir_id"]},
-            "$push": {"messages": {"$each": [
-                {"role": "user", "content": user_text, "ts": now_iso},
-                {"role": "assistant", "content": reply_text, "ts": now_iso},
-            ]}},
-        },
+        portal_turn_update(
+            owner_id=owner_id,
+            heir_id=heir["heir_id"],
+            session_id=session_id,
+            user_text=user_text,
+            reply_text=reply_text,
+            now_iso=now_iso,
+        ),
         upsert=True,
     )
     return session_id
@@ -103,7 +97,7 @@ async def portal_summary(token: str):
     letters = await cursor.to_list(length=500)
     visible = [l for l in letters if _letter_unlocked(l, heir, now)]
 
-    total_entries = await db.entries.count_documents({"user_id": owner["user_id"]})
+    total_entries = await db.entries.count_documents(heir_archive_query(owner["user_id"]))
 
     return {
         "heir": {
@@ -160,12 +154,15 @@ async def portal_entries(token: str, limit: int = 100, offset: int = 0):
     owner_id = heir["user_id"]
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
+    query = heir_archive_query(owner_id)
     cursor = db.entries.find(
-        {"user_id": owner_id},
+        query,
         {"_id": 0, "user_id": 0},
     ).sort("created_at", -1).skip(offset).limit(limit)
     items = await cursor.to_list(length=limit)
-    total = await db.entries.count_documents({"user_id": owner_id})
+    for item in items:
+        item.pop("cleanup", None)
+    total = await db.entries.count_documents(query)
     return {"entries": items, "total": total, "offset": offset, "limit": limit}
 
 

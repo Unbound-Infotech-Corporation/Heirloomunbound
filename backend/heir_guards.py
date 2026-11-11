@@ -47,3 +47,46 @@ def sanitize_heir_patch(raw: dict | None) -> dict[str, Any]:
         for k, v in (raw or {}).items()
         if k not in _RELEASE_FIELDS and v is not None
     }
+
+
+def heir_archive_query(owner_id: str) -> dict:
+    """Archive rows an heir may see. Owner-only and private entries stay out."""
+    from memory_guard import mongo_query
+
+    return mongo_query(owner_id, "heir")
+
+
+def portal_turn_update(
+    *,
+    owner_id: str,
+    heir_id: str,
+    session_id: str,
+    user_text: str,
+    reply_text: str,
+    now_iso: str,
+) -> dict[str, Any]:
+    """Upsert operators for one heir turn.
+
+    A field may appear in ``$set`` or ``$setOnInsert``, never both. Mongo
+    rejects that overlap (WriteError 40) and the heir never sees the reply.
+    """
+    return {
+        "$setOnInsert": {
+            "conversation_id": session_id,
+            "user_id": owner_id,
+            "created_at": now_iso,
+        },
+        "$set": {
+            "updated_at": now_iso,
+            "kind": "heir_portal",
+            "heir_id": heir_id,
+        },
+        "$push": {
+            "messages": {
+                "$each": [
+                    {"role": "user", "content": user_text, "ts": now_iso},
+                    {"role": "assistant", "content": reply_text, "ts": now_iso},
+                ]
+            }
+        },
+    }
