@@ -12,22 +12,37 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Refuse-DevicePath {
+function Refuse-RawDevicePath {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return
     }
     $lower = $Path.ToLowerInvariant()
     if ($lower -match '^[a-z]:\\?$' -or $lower.StartsWith("\\.\") -or $lower.StartsWith("//./") -or $lower.StartsWith("/dev/")) {
-        throw "Refusing to write '$Path'. This script only builds an .iso file. Flash it with Rufus or balenaEtcher."
+        throw "Refusing to use '$Path'. This script only builds an .iso file. Flash it with Rufus or balenaEtcher."
     }
+}
+
+function Refuse-IsoOutput {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return
+    }
+    Refuse-RawDevicePath $Path
+    $lower = $Path.ToLowerInvariant()
     if (-not $lower.EndsWith(".iso")) {
         throw "Output must be a .iso file path, not '$Path'."
     }
 }
 
-Refuse-DevicePath $Output
-Refuse-DevicePath $Iso
+# Tests dot-source this file with HEIRLOOM_BUILD_USB_LIB_ONLY=1 and stop
+# before WSL runs. A normal launch leaves the variable unset.
+if ($env:HEIRLOOM_BUILD_USB_LIB_ONLY -eq "1") {
+    return
+}
+
+Refuse-IsoOutput $Output
+Refuse-IsoOutput $Iso
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoWin = (Resolve-Path (Join-Path $here "..\..")).Path
@@ -44,22 +59,30 @@ if ([string]::IsNullOrWhiteSpace($repoWsl)) {
 
 $bashArgs = @("box/autoinstall/build-usb.sh")
 if ($Config) {
-    Refuse-DevicePath $Config
-    $configWsl = (& wsl.exe wslpath -a (Resolve-Path $Config)).Trim()
+    # A config file is not an ISO. Refuse disks, then let WSL open the Windows path.
+    Refuse-RawDevicePath $Config
+    $configFull = (Resolve-Path -LiteralPath $Config).Path
+    $configWsl = (& wsl.exe wslpath -a $configFull).Trim()
+    if ([string]::IsNullOrWhiteSpace($configWsl)) {
+        throw "Could not convert $Config to a WSL path."
+    }
+    Refuse-RawDevicePath $configWsl
     $bashArgs += @("--config", $configWsl)
 }
 if ($Output) {
+    Refuse-IsoOutput $Output
     $outParent = Split-Path -Parent $Output
     if (-not (Test-Path $outParent)) {
         New-Item -ItemType Directory -Path $outParent | Out-Null
     }
     $outputWsl = (& wsl.exe wslpath -a $Output).Trim()
-    Refuse-DevicePath $outputWsl
+    Refuse-IsoOutput $outputWsl
     $bashArgs += @("--output", $outputWsl)
 }
 if ($Iso) {
-    $isoWsl = (& wsl.exe wslpath -a (Resolve-Path $Iso)).Trim()
-    Refuse-DevicePath $isoWsl
+    Refuse-IsoOutput $Iso
+    $isoWsl = (& wsl.exe wslpath -a (Resolve-Path -LiteralPath $Iso)).Trim()
+    Refuse-IsoOutput $isoWsl
     $bashArgs += @("--iso", $isoWsl)
 }
 if ($KernelExtra) {
