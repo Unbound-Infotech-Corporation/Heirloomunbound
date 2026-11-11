@@ -20,6 +20,7 @@ internal sealed class TrayController : IDisposable
     private readonly TwinLiveWindow _live;
     private readonly CaptionPlayer _player = new();
     private readonly CompanionHotkey _hotkey = new();
+    private readonly WritingHotkey _writingHotkey = new();
     private AssistLiveView _assist = AssistLiveView.Empty;
     private string _shownCaptionId = "";
     private string _playedAudioId = "";
@@ -52,6 +53,8 @@ internal sealed class TrayController : IDisposable
         ApplyAutostart(_store.Autostart);
         _hotkey.Pressed += () => _ = ArmPushToTalkAsync();
         _hotkey.Attach();
+        _writingHotkey.Pressed += ShowWritingCard;
+        _writingHotkey.Attach();
         _icon.ToolTipText = "Heirloom Twin Box";
         Paint(BoxLamp.Red);
         RebuildMenu();
@@ -501,12 +504,67 @@ internal sealed class TrayController : IDisposable
         }
     }
 
+    private void ShowWritingCard()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(ShowWritingCard);
+            return;
+        }
+
+        var selected = CaptureSelection();
+        var card = new WritingCardWindow(selected);
+        card.Show();
+    }
+
+    private static string CaptureSelection()
+    {
+        var before = "";
+        try
+        {
+            if (Clipboard.ContainsText())
+            {
+                before = Clipboard.GetText();
+            }
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            return SelectionCapture.AfterCopy(false, "", "");
+        }
+
+        try
+        {
+            SendCopy();
+            System.Threading.Thread.Sleep(80);
+            var copied = Clipboard.ContainsText() ? Clipboard.GetText() : "";
+            return SelectionCapture.AfterCopy(true, before, copied);
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            return SelectionCapture.AfterCopy(false, before, "");
+        }
+    }
+
+    private static void SendCopy()
+    {
+        const uint keyUp = 2;
+        foreach (var (key, down) in CopyChord.Sequence())
+        {
+            keybd_event(key, 0, down ? 0 : keyUp, UIntPtr.Zero);
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
     public void Dispose()
     {
         BoxClient.Unauthorized -= OnUnauthorized;
         _signals?.Dispose();
         _stop.Cancel();
         _hotkey.Dispose();
+        _writingHotkey.Dispose();
         _player.Dispose();
         _live.Shutdown();
         _caption.Close();

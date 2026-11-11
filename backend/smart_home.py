@@ -188,15 +188,24 @@ def prepare_action(
     return result
 
 
+def _host_without_port(raw: str) -> str:
+    """Return the host, including a bracketed IPv6 address, without its port."""
+    if raw.startswith("["):
+        end = raw.find("]")
+        if end < 0:
+            raise SmartHomeRefused("That does not look like a device on your home network.")
+        return raw[1:end]
+    if raw.count(":") == 1 and "." in raw:
+        return raw.rsplit(":", 1)[0]
+    return raw
+
+
 def assert_lan_target(host: str) -> str:
     """Accept a home-network host. Refuse public internet hosts."""
     raw = (host or "").strip()
     if not raw or "://" in raw or " " in raw or len(raw) > 253:
         raise SmartHomeRefused("That does not look like a device on your home network.")
-    name = raw
-    if name.count(":") == 1 and "." in name:
-        name = name.rsplit(":", 1)[0]
-    name = name.strip("[]")
+    name = _host_without_port(raw)
     try:
         ip = ipaddress.ip_address(name)
     except ValueError:
@@ -205,6 +214,8 @@ def assert_lan_target(host: str) -> str:
         if not (ip.is_private or ip.is_loopback or ip.is_link_local):
             raise SmartHomeRefused("Smart home commands stay on your home network.")
         return raw
+    if ":" in name:
+        raise SmartHomeRefused("That does not look like a device on your home network.")
     lowered = name.lower().rstrip(".")
     if lowered == "localhost" or lowered.endswith(".local") or lowered.endswith(".lan") or "." not in lowered:
         return raw
@@ -243,7 +254,14 @@ def classify_discovery(record: dict[str, Any]) -> dict[str, Any]:
 
 def ha_token_url(host: str) -> str:
     target = assert_lan_target(host)
-    base = f"http://{target}:8123"
+    if target.startswith("["):
+        end = target.find("]")
+        port = target[end + 1:]
+        base = f"http://{target[:end + 1]}{port or ':8123'}"
+    elif target.count(":") == 1:
+        base = f"http://{target}"
+    else:
+        base = f"http://{target}:8123"
     return base.rstrip("/") + "/profile/security"
 
 
@@ -361,3 +379,66 @@ def receipt_summary(decision: dict[str, Any]) -> str:
 
 def host_of(url: str) -> str:
     return urlparse(url).hostname or ""
+
+
+SSDP_MSEARCH = (
+    "M-SEARCH * HTTP/1.1\r\n"
+    "HOST: 239.255.255.250:1900\r\n"
+    "MAN: \"ssdp:discover\"\r\n"
+    "MX: 1\r\n"
+    "ST: ssdp:all\r\n"
+    "\r\n"
+)
+
+
+def parse_ssdp_message(raw: str) -> dict[str, Any]:
+    """Turn one SSDP reply into a discovery record. No socket is opened."""
+    headers: dict[str, str] = {}
+    for line in (raw or "").splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        headers[key.strip().lower()] = value.strip()
+    location = headers.get("location") or ""
+    return {
+        "source": "ssdp",
+        "st": headers.get("st") or headers.get("nt") or "",
+        "server": headers.get("server") or "",
+        "name": headers.get("usn") or headers.get("server") or "",
+        "host": host_of(location),
+        "location": location,
+    }
+
+
+def scan_ssdp(exchange) -> list[dict[str, Any]]:
+    """``exchange`` sends the search and returns reply payloads. Tests pass a fake."""
+    packets = exchange(SSDP_MSEARCH.encode("utf-8"), 1.5)
+    found = []
+    for packet in packets or []:
+        text = packet.decode("utf-8", "replace") if isinstance(packet, (bytes, bytearray)) else str(packet)
+        found.append(classify_discovery(parse_ssdp_message(text)))
+    return found
+
+
+def scan_lan_records() -> list[dict[str, Any]]:
+    """One short SSDP search on the home network. Read-only. No device is changed."""
+    import socket
+
+    def exchange(payload: bytes, timeout: float) -> list[bytes]:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+            sock.settimeout(timeout)
+            sock.sendto(payload, ("239.255.255.250", 1900))
+            replies: list[bytes] = []
+            while len(replies) < 32:
+                try:
+                    data, _addr = sock.recvfrom(8192)
+                except socket.timeout:
+                    break
+                replies.append(data)
+            return replies
+        finally:
+            sock.close()
+
+    return scan_ssdp(exchange)

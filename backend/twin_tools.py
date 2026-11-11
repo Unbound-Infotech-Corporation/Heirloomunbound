@@ -845,6 +845,9 @@ COMPUTER_TOOL_SCHEMAS: list[dict] = [
 ]
 
 TOOL_SCHEMAS += COMPUTER_TOOL_SCHEMAS
+from assist_studio_tools import STUDIO_SCHEMAS, STUDIO_TOOL_NAMES, exec_studio_tool
+
+TOOL_SCHEMAS += STUDIO_SCHEMAS
 
 
 TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
@@ -894,8 +897,22 @@ async def execute_tool(
     args: dict,
     *,
     audience: str | None = None,
+    role: str | None = None,
+    private_texts: list[str] | None = None,
 ) -> dict:
     """Public entrypoint. Returns {summary, ui?} — never raises."""
+    if name in STUDIO_TOOL_NAMES:
+        async def _search(query: str, _uid: str = user_id) -> dict:
+            return await exec_web_search(_uid, {"query": query})
+
+        return await exec_studio_tool(
+            name,
+            args or {},
+            role=role,
+            audience=audience,
+            search=_search if name == "web_research" else None,
+            private_texts=list(private_texts or []),
+        )
     if audience is not None and not is_owner_audience(audience) and name in OWNER_ONLY_TOOLS:
         return {"summary": "That stays with the owner.", "ui": {"error": "heir_forbidden"}}
     if name == "search_archive":

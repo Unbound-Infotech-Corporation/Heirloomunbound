@@ -259,10 +259,10 @@ def check_text(text: str, *, surface: str = "draft") -> dict[str, Any]:
         add("grammar", match.start(), match.start() + 3, "Use it's when you mean it is.", ["it's"])
     for match in re.finditer(r"\bit's\s+(own|color|colour|house|name)\b", raw, flags=re.IGNORECASE):
         add("grammar", match.start(), match.start() + 4, "Use its for possession.", ["its"])
-    for match in re.finditer(r"\byour\s+(going|welcome)\b", raw, flags=re.IGNORECASE):
-        if match.group(0).lower().startswith("your welcome") or "going" in match.group(0).lower():
-            if re.match(r"your\s+going", match.group(0), flags=re.IGNORECASE):
-                add("grammar", match.start(), match.start() + 4, "Use you're when you mean you are.", ["you're"])
+    for match in re.finditer(r"\byour\s+going\b", raw, flags=re.IGNORECASE):
+        add("grammar", match.start(), match.start() + 4, "Use you're when you mean you are.", ["you're"])
+    for match in re.finditer(r"\byour\s+welcome\b", raw, flags=re.IGNORECASE):
+        add("grammar", match.start(), match.end(), "Use you're when you mean you are.", ["you're welcome"])
     for match in re.finditer(r"\btheir\s+going\b", raw, flags=re.IGNORECASE):
         add("grammar", match.start(), match.start() + 5, "Use they're when you mean they are.", ["they're"])
     for match in re.finditer(r"\bover\s+their\b", raw, flags=re.IGNORECASE):

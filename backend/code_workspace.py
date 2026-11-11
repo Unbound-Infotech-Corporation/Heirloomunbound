@@ -175,26 +175,34 @@ def diff_hunks(before: str, after: str) -> list[dict[str, Any]]:
     return hunks
 
 
+def _hunk_lines(text: str) -> list[str]:
+    if not text:
+        return []
+    return text.splitlines(keepends=True)
+
+
 def apply_hunks(before: str, hunks: list[dict[str, Any]], accept_ids: list[str] | set[str]) -> str:
-    """Apply accepted hunks. Rejected hunks stay as they were."""
+    """Apply accepted hunks by their original line numbers.
+
+    Later hunks are applied first so an earlier insert does not shift the
+    line a later hunk was measured against. A repeated snippet is changed
+    only at ``start_line``, not at the first copy in the file.
+    """
     accepted = set(accept_ids)
-    updated = before
-    for hunk in hunks:
+    lines = before.splitlines(keepends=True)
+    planned: list[tuple[int, int, int, list[str]]] = []
+    for index, hunk in enumerate(hunks):
         if hunk.get("id") not in accepted:
             continue
-        old = hunk.get("before") or ""
-        new = hunk.get("after") or ""
-        if not old:
-            line = int(hunk.get("start_line") or 1)
-            rows = updated.splitlines(keepends=True)
-            index = max(0, min(len(rows), line - 1))
-            rows.insert(index, new if new.endswith("\n") or not new else new)
-            updated = "".join(rows)
-            continue
-        if old not in updated:
+        start = max(0, int(hunk.get("start_line") or 1) - 1)
+        old_lines = _hunk_lines(hunk.get("before") or "")
+        end = start + len(old_lines)
+        if "".join(lines[start:end]) != "".join(old_lines):
             raise CodeEditError(f"Could not find hunk {hunk.get('id')} in the file.")
-        updated = updated.replace(old, new, 1)
-    return updated
+        planned.append((start, index, end, _hunk_lines(hunk.get("after") or "")))
+    for start, _index, end, new_lines in sorted(planned, key=lambda item: (item[0], item[1]), reverse=True):
+        lines[start:end] = new_lines
+    return "".join(lines)
 
 
 def parse_porcelain(text: str) -> list[dict[str, str]]:

@@ -1,19 +1,23 @@
 # Heirloom Unbound — big update
 
-This is the plan for the Windows 11 Twin Box and the studio that will live on it. Linux keeps working. The current Linux Twin Box is not installed to, written, or wiped by this work.
+Screens for Setup, Home, Writing, and Code are in the WinUI studio (dock and Assist menu), stacked on the engines from #62. Assist chat can call the new tools. Twin chat cannot. Encrypted backups (`SHA256SUMS`, `MANIFEST`, split `.tar.gpg`, full set then incrementals) restore with a passphrase that is not stored. A plain folder still works.
+
+The work sits on pull request **#62**, which sits on **#60**.
 
 The work sits on pull request **#60** (`cursor/unbound-observer-prompt-cap-8cea`). That pull request is not merged here. Its brain fallback, observer prompt cap, assist-live failure handling, gpt-oss search rewrite, observer compact, companion poll recovery, and `/run/heirloom/observer` spool stay as they are.
 
 Twin routing is unchanged. `model_router.py` and `llm_provider.py` are not edited. The BIGDEAL brain at `http://192.168.0.60:11434` (`gpt-oss:120b`, strategy `single+odysseus_research`), Odysseus at `http://odysseus:7000` with its token file, and the box model as fallback all stay. When BIGDEAL is missing or slow, the box model still answers. On the new Windows PC, that local machine is the box.
 
-## What shipped in this pass
+## What shipped
 
-Engines and owner-only HTTP routes. The WinUI screens that call them are the next pass (this environment cannot compile the WinUI project). A small C# policy (`StudioPolicy`) mirrors the safety rules so the Windows app cannot skip them.
+**Engines (#62).** Owner-only HTTP routes and `StudioPolicy`. Heirs get 404.
+
+**Screens (this follow-up).** WinUI documents Setup, Home, Writing, and Code, on the dock and the Assist menu. Companion `Ctrl+Alt+H` opens an approval card and does not paste until you approve. Assist chat can call the studio tools. Twin chat cannot.
 
 | Area | What you can call now |
 |---|---|
-| Setup Center | `POST /api/setup/checklist`, `GET /api/setup/guides`, `POST /api/setup/secrets`, `POST /api/setup/restore/inventory`, `/plan`, `/apply` |
-| Smart home | `POST /api/smart-home/discover`, `POST /api/smart-home/act`, `GET /api/smart-home/home-assistant` |
+| Setup Center | `POST /api/setup/checklist`, `GET /api/setup/guides`, `POST /api/setup/secrets`, `POST /api/setup/restore/inventory`, `/plan`, `/apply`, `/inspect`, `/encrypted` |
+| Smart home | `POST /api/smart-home/discover`, `POST /api/smart-home/scan`, `POST /api/smart-home/act`, `GET /api/smart-home/home-assistant` |
 | Writing | `POST /api/writing/check`, `/rewrite`, `/paste`, `GET /api/writing/lookup` |
 | Code | `POST /api/code/open`, `/hunks`, `/command`, `/coder`, `/context` |
 | Assist tools | `GET /api/assist/tools`, `POST /api/assist/draft`, `/research`, `/mcp` |

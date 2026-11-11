@@ -101,6 +101,10 @@
                 </MenuBarItem>
                 <MenuBarItem Title="Assist">
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="assistant" Text="Work on this PC" />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="setup" Text="Setup Center" />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="home" Text="Smart home" />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="writing" Text="Writing" />
+                    <MenuFlyoutItem Click="OnMenuOpen" Tag="code" Text="Code" />
                     <MenuFlyoutItem Command="{x:Bind ViewModel.Assistant.NewConversationCommand}" Text="New job" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="mixer" Text="Mixer…" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="today" Text="Today" />
@@ -2436,6 +2440,62 @@
                             <Slider Width="280" Style="{StaticResource StudioSlider}" Value="72" />
                         </StackPanel>
                     </ScrollViewer>
+                </controls:StudioDocumentWindow>
+
+                <controls:StudioDocumentWindow
+                    x:Name="SetupDoc"
+                    Width="980"
+                    Height="680"
+                    Canvas.Left="46"
+                    Canvas.Top="28"
+                    Activated="OnDocActivated"
+                    CloseRequested="OnDocClose"
+                    DocumentId="setup"
+                    SubtitleText="Checklist, pages, and restore"
+                    TitleText="Setup">
+                    <controls:SetupCenterView />
+                </controls:StudioDocumentWindow>
+
+                <controls:StudioDocumentWindow
+                    x:Name="HomeDoc"
+                    Width="860"
+                    Height="620"
+                    Canvas.Left="70"
+                    Canvas.Top="48"
+                    Activated="OnDocActivated"
+                    CloseRequested="OnDocClose"
+                    DocumentId="home"
+                    SubtitleText="Lights, plugs, and heat"
+                    TitleText="Home">
+                    <controls:SmartHomeView />
+                </controls:StudioDocumentWindow>
+
+                <controls:StudioDocumentWindow
+                    x:Name="WritingDoc"
+                    Width="920"
+                    Height="640"
+                    Canvas.Left="88"
+                    Canvas.Top="40"
+                    Activated="OnDocActivated"
+                    CloseRequested="OnDocClose"
+                    DocumentId="writing"
+                    SubtitleText="Spelling, meaning, and paste approval"
+                    TitleText="Writing">
+                    <controls:WritingAssistView />
+                </controls:StudioDocumentWindow>
+
+                <controls:StudioDocumentWindow
+                    x:Name="CodeDoc"
+                    Width="1040"
+                    Height="700"
+                    Canvas.Left="36"
+                    Canvas.Top="24"
+                    Activated="OnDocActivated"
+                    CloseRequested="OnDocClose"
+                    DocumentId="code"
+                    SubtitleText="Files, review, and a local coder"
+                    TitleText="Code">
+                    <controls:CodeWorkspaceView />
                 </controls:StudioDocumentWindow>
             </Canvas>
 

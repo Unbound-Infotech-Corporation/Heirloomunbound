@@ -32,6 +32,8 @@ def test_spelling_grammar_style_tone_and_clarity():
     assert any(issue["suggestions"] == ["spelling"] for issue in missed["issues"])
     assert "grammar" in _kinds("Its a nice day and its going well.")
     assert "grammar" in _kinds("your going to like it")
+    welcome = check_text("your welcome")
+    assert any(issue["suggestions"] == ["you're welcome"] for issue in welcome["issues"])
     assert "grammar" in _kinds("I ate a apple")
     assert "grammar" not in _kinds("It took an hour")
     assert "style" in _kinds("This is very clear.")

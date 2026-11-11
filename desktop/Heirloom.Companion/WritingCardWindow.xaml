@@ -1,0 +1,26 @@
+<Window
+    x:Class="Heirloom.Companion.WritingCardWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Writing"
+    Width="420"
+    SizeToContent="Height"
+    WindowStyle="None"
+    AllowsTransparency="True"
+    Background="Transparent"
+    ShowInTaskbar="False"
+    Topmost="True"
+    ResizeMode="NoResize"
+    WindowStartupLocation="CenterScreen">
+    <Border Margin="12" Padding="16" Background="#F21C1A18" CornerRadius="6" BorderBrush="#FF36322E" BorderThickness="1">
+        <StackPanel>
+            <TextBlock Foreground="#FFA8A096" FontSize="12" Text="Writing" />
+            <TextBlock x:Name="Before" Margin="0,8,0,8" Foreground="#FFF2EFE9" FontSize="15" TextWrapping="Wrap" />
+            <TextBlock x:Name="After" Margin="0,0,0,12" Foreground="#FFD4A373" FontSize="15" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="No" Margin="0,0,8,0" Content="Not now" Click="OnNo" />
+                <Button x:Name="Yes" Content="Paste" Click="OnYes" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

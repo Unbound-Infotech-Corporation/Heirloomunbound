@@ -178,6 +178,10 @@ public partial class StudioShellViewModel : ObservableObject
         new("heirs", "Heirs", "\uE716"),
         new("letters", "Letters", "\uE715"),
         Head("Studio"),
+        new("setup", "Setup", "\uE8FB"),
+        new("home", "Home", "\uE80F"),
+        new("writing", "Writing", "\uE70F"),
+        new("code", "Code", "\uE943"),
         new("models", "Models", "\uE950"),
         new("thismachine", "This PC", "\uE770"),
         new("keys", "Keys", "\uE192"),
@@ -217,9 +221,9 @@ public partial class StudioShellViewModel : ObservableObject
             return;
         }
 
-        if (id == "assistant" && !_host.CanEdit)
+        if (!_host.CanEdit && id is "assistant" or "setup" or "home" or "writing" or "code")
         {
-            StatusLine = "Heir mode. Assist stays with the owner.";
+            StatusLine = "Heir mode. That stays with the owner.";
             return;
         }
 
@@ -275,6 +279,11 @@ public partial class StudioShellViewModel : ObservableObject
             case "thismachine":
                 _ = Models.RefreshAsync();
                 break;
+            case "setup":
+            case "home":
+            case "writing":
+            case "code":
+                break;
             case "today":
                 _ = Today.LoadAsync();
                 break;
@@ -283,6 +292,10 @@ public partial class StudioShellViewModel : ObservableObject
         StatusLine = id switch
         {
             "assistant" => "Assist  ·  work on this PC",
+            "setup" => "Setup  ·  get this PC ready",
+            "home" => "Home  ·  lights and heat",
+            "writing" => "Writing  ·  spelling and the dictionary",
+            "code" => "Code  ·  local coder",
             "twin" => "Twin  ·  grounded conversation",
             "caretaker" => "Caretaker  ·  box and companion",
             "style" => "Style  ·  how you talk",

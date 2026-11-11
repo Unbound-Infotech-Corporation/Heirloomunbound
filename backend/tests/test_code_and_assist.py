@@ -76,6 +76,20 @@ def test_hunks_can_be_accepted_one_at_a_time():
     assert accepted == after
 
 
+def test_hunks_change_the_named_line_when_the_text_repeats():
+    before = "same\nsame\n"
+    hunks = diff_hunks(before, "same\nchanged\n")
+    assert len(hunks) == 1
+    assert hunks[0]["start_line"] == 2
+    assert apply_hunks(before, hunks, [hunks[0]["id"]]) == "same\nchanged\n"
+
+
+def test_several_inserts_keep_their_order():
+    before = "a\n"
+    hunks = diff_hunks(before, "a\nb\nc\n")
+    assert apply_hunks(before, hunks, [hunk["id"] for hunk in hunks]) == "a\nb\nc\n"
+
+
 def test_commands_wait_and_dangerous_ones_cannot_be_confirmed():
     waiting = approve_command("pytest -q", approved=False)
     assert waiting["needs_approval"] is True
@@ -93,7 +107,74 @@ def test_commands_wait_and_dangerous_ones_cannot_be_confirmed():
     assert plan_agent("fix the test")["cloud"] is False
 
 
-def test_assist_tools_are_owner_only_and_private_text_stays_home():
+def test_assist_chat_tools_stay_off_the_twin_and_strip_memories():
+    import asyncio
+
+    from assist_studio_tools import exec_studio_tool, prompt_private_snippets, studio_names_for
+
+    prompt = "=== LONG-TERM MEMORY ===\n- Grew up in Vermont. [#12]\n- Mom\n===\n"
+    snippets = prompt_private_snippets(prompt)
+    assert "Grew up in Vermont." in snippets
+    assert "[#12]" not in " ".join(snippets)
+    assert "Mom" in snippets
+    cited = asyncio.run(exec_studio_tool(
+        "web_research",
+        {"query": "Look up Grew up in Vermont."},
+        role="assistant",
+        audience="owner",
+        private_texts=snippets,
+    ))
+    assert "Vermont" not in cited["summary"]
+    from owner_privacy import redact_private
+
+    assert redact_private("weather in Mombasa", ["Mom"]) == "weather in Mombasa"
+    assert redact_private("Call Mom tonight", ["Mom"]) == "Call [private] tonight"
+
+    assert "smart_home_set" in studio_names_for("assistant", "owner")
+    assert studio_names_for("twin", "owner") == set()
+    assert studio_names_for("assistant", "heir") == set()
+    assert studio_names_for("assistant", "owner", source="phone") == set()
+    memory = "private memory about the oak tree"
+    research = asyncio.run(exec_studio_tool(
+        "web_research",
+        {"query": f"Look up {memory}"},
+        role="assistant",
+        audience="owner",
+        private_texts=[memory],
+    ))
+    assert memory not in research["summary"]
+    assert memory not in str(research["ui"])
+    lamp = asyncio.run(exec_studio_tool(
+        "smart_home_set",
+        {"name": "Hall light", "kind": "light", "action": "off", "approved": True, "always_allow": True, "critical_confirm": True},
+        role="assistant",
+        audience="owner",
+    ))
+    assert lamp["ui"]["needs_confirm"] is True
+    assert lamp["ui"]["ok"] is False
+    blocked = asyncio.run(exec_studio_tool(
+        "smart_home_set",
+        {"name": "Kitchen fridge", "kind": "plug", "action": "off", "approved": True, "always_allow": True},
+        role="assistant",
+        audience="owner",
+    ))
+    assert blocked["ui"]["needs_confirm"] is True
+    twin = asyncio.run(exec_studio_tool(
+        "writing_rewrite",
+        {"text": "This is very long.", "mode": "shorter"},
+        role="twin",
+        audience="owner",
+    ))
+    assert twin["ui"]["error"] == "assist_only"
+    draft = asyncio.run(exec_studio_tool(
+        "draft_message",
+        {"to": "family@example.com", "body": f"Remember {memory}"},
+        role="assistant",
+        audience="owner",
+        private_texts=[memory],
+    ))
+    assert draft["ui"]["sent"] is False
+    assert memory not in draft["ui"]["body"]
     assert tools_for(role="assistant", audience="owner") 
     assert tools_for(role="twin", audience="owner") == []
     assert tools_for(role="assistant", audience="heir") == []
