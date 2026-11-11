@@ -56,7 +56,7 @@
   <Target Name="OmitPlaywrightTraceViewerFromPri" AfterTargets="CopyPlaywrightFilesToOutput">
     <ItemGroup>
       <Content Remove="@(Content)"
-                Condition="$([System.String]::Copy('%(Link)').Contains('traceViewer')) and $([System.String]::Copy('%(Filename)').Contains('.')) and $([System.String]::Copy('%(Filename)').Contains('-'))" />
+                Condition="$([System.String]::Copy('%(Identity)').Contains('traceViewer')) and $([System.String]::Copy('%(Filename)').Contains('.')) and $([System.String]::Copy('%(Filename)').Contains('-'))" />
     </ItemGroup>
   </Target>
 
