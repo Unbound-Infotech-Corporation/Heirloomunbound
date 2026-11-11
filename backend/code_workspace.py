@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from local_workstation import code_roots, path_is_under_any
 from owner_privacy import redact_private
 
 SKIP_DIRS = {
@@ -122,6 +123,8 @@ def assert_project(path: Path) -> Path:
     parts = {part.lower() for part in resolved.parts}
     if "vault" in parts or "observer" in parts:
         raise CodePrivacyError("That folder holds private memories, not project files.")
+    if not path_is_under_any(resolved, code_roots()):
+        raise CodePrivacyError("That folder is outside the code workspace.")
     if not resolved.is_dir():
         raise CodePrivacyError("Choose a project folder.")
     return resolved
