@@ -23,15 +23,15 @@ internal static class MachineSignals
                 hub.Raise(WakeReason.SleepResume, DateTimeOffset.UtcNow);
             }
         };
-        NetworkAddressChangedEventHandler network = (_, _) =>
-        {
+        NetworkAddressChangedEventHandler address = (_, _) =>
             hub.Raise(WakeReason.Network, DateTimeOffset.UtcNow);
-        };
+        NetworkAvailabilityChangedEventHandler availability = (_, _) =>
+            hub.Raise(WakeReason.Network, DateTimeOffset.UtcNow);
         try
         {
             SystemEvents.PowerModeChanged += power;
-            NetworkChange.NetworkAddressChanged += network;
-            NetworkChange.NetworkAvailabilityChanged += network;
+            NetworkChange.NetworkAddressChanged += address;
+            NetworkChange.NetworkAvailabilityChanged += availability;
         }
         catch (Exception)
         {
@@ -41,8 +41,8 @@ internal static class MachineSignals
         return new Subscription(() =>
         {
             SystemEvents.PowerModeChanged -= power;
-            NetworkChange.NetworkAddressChanged -= network;
-            NetworkChange.NetworkAvailabilityChanged -= network;
+            NetworkChange.NetworkAddressChanged -= address;
+            NetworkChange.NetworkAvailabilityChanged -= availability;
         });
     }
 
