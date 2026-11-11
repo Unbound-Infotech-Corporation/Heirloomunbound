@@ -43,6 +43,15 @@ TOOL_LABELS = {
     "web_search": "Search the web",
     "web_fetch": "Read a page",
     "run_skill": "Run a skill",
+    "smart_home_read": "Read a device",
+    "smart_home_set": "Change a device",
+    "draft_message": "Draft a message",
+    "web_research": "Research",
+    "code_edit": "Edit code",
+    "writing_check": "Check writing",
+    "writing_rewrite": "Rewrite writing",
+    "mcp_call": "Use a connector",
+    "spawn_subagent": "Work in the background",
 }
 
 _SUMMARY_MAX = 280

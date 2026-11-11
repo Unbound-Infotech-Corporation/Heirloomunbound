@@ -45,6 +45,7 @@ from routers import (
     photo_story,
     avatar,
     avatar_studio,
+    big_update,
     billing,
     brain,
     capture,
@@ -201,7 +202,20 @@ async def build_info():
         "status": "ok",
         "desktop_version": version,
         "git_sha": sha,
-        "features": ["studio", "first-run", "vendor-coach", "winui-native", "phone-twin", "rooms", "clones", "rooms-vr"],
+        "features": [
+            "studio",
+            "first-run",
+            "vendor-coach",
+            "winui-native",
+            "phone-twin",
+            "rooms",
+            "clones",
+            "rooms-vr",
+            "setup-center",
+            "smart-home",
+            "writing-assistant",
+            "code-workspace",
+        ],
         "has_studio_first_run": True,
         "primary_windows_product": "winui",
         "legacy_pyside_package": "/api/companion/desktop-package",
@@ -263,6 +277,11 @@ api_router.include_router(avatar_studio.router)
 api_router.include_router(user_keys.router)
 api_router.include_router(studio.router)
 api_router.include_router(support.router)
+api_router.include_router(big_update.setup_router)
+api_router.include_router(big_update.home_router)
+api_router.include_router(big_update.writing_router)
+api_router.include_router(big_update.code_router)
+api_router.include_router(big_update.assist_router)
 
 app.include_router(api_router)
 

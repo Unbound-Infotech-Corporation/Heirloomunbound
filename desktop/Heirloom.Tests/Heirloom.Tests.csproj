@@ -32,6 +32,7 @@
     <Compile Include="..\Heirloom\Services\WebIntent.cs" Link="WebIntent.cs" />
     <Compile Include="..\Heirloom\Services\VideoStudioCore.cs" Link="VideoStudioCore.cs" />
     <Compile Include="..\Heirloom\Services\VrModeCore.cs" Link="VrModeCore.cs" />
+    <Compile Include="..\Heirloom\Services\StudioPolicy.cs" Link="StudioPolicy.cs" />
     <Compile Include="..\Heirloom\Services\PhoneIntent.cs" Link="PhoneIntent.cs" />
     <Compile Include="..\Heirloom\Services\ThemeBrushWrite.cs" Link="ThemeBrushWrite.cs" />
   </ItemGroup>
