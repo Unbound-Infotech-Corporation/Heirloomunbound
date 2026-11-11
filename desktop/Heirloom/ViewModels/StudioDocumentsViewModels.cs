@@ -1627,7 +1627,7 @@ public partial class SettingsViewModel : ObservableObject
         VrGaze = host.Settings.Current.VrGaze;
         host.Settings.Changed += PullStoredVr;
         LibraryPath = host.Settings.Current.LibraryPath;
-        VersionLine = $"Heirloom {host.Version}  ·  {host.BuildId}  ·  Unbound Infotech";
+        VersionLine = ProductStamp.Title(host.Version) + "  ·  Unbound Infotech";
         SelectedScheme = ThemeService.Schemes.First(s => s.Id == ThemeService.NormalizeScheme(host.Settings.Current.ColorScheme));
         SelectedChrome = ThemeService.ChromeModes.First(s => s.Id == ThemeService.NormalizeMode(host.Settings.Current.ChromeMode));
         SelectedDockEdge = ThemeService.DockEdges.First(s => s.Id == ThemeService.NormalizeEdge(host.Settings.Current.DockEdge));

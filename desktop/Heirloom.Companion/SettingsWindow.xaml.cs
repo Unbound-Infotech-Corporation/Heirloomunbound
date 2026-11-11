@@ -175,15 +175,15 @@ public partial class SettingsWindow : Window
         Status.Text = "Signing in…";
         try
         {
-            var token = await BoxClient.LoginAsync(Address.Text, Email.Text, Password.Password, pin, pem).ConfigureAwait(true);
-            if (string.IsNullOrWhiteSpace(token))
+            var bundle = await BoxClient.LoginAsync(Address.Text, Email.Text, Password.Password, pin, pem).ConfigureAwait(true);
+            if (bundle is null || string.IsNullOrWhiteSpace(bundle.Session))
             {
                 Status.Text = "The box did not accept that email and password.";
                 return;
             }
 
             _store.SaveTrust(Address.Text, pin, pem);
-            _store.SaveSession(token);
+            _store.SaveBundle(bundle);
             Password.Password = "";
             ApplySessionChrome();
             Status.Text = "Signed in. The password was not saved.";

@@ -283,8 +283,8 @@ public partial class FirstRunViewModel : ObservableObject
         Fault = "";
         try
         {
-            var token = await BoxClient.LoginAsync(BoxUrl, BoxEmail, BoxPassword, _pendingPin, _pendingPem).ConfigureAwait(true);
-            if (string.IsNullOrWhiteSpace(token))
+            var bundle = await BoxClient.LoginAsync(BoxUrl, BoxEmail, BoxPassword, _pendingPin, _pendingPem).ConfigureAwait(true);
+            if (bundle is null || string.IsNullOrWhiteSpace(bundle.Session))
             {
                 Fault = "The box did not accept that email and password.";
                 return;
@@ -301,7 +301,7 @@ public partial class FirstRunViewModel : ObservableObject
             current.VrGaze = false;
             _host.Settings.Save();
             BoxPassword = "";
-            _host.Auth.SetSessionToken(token);
+            _host.Auth.Remember(bundle);
             RequestClose?.Invoke(this, "twin");
         }
         catch (Exception ex)

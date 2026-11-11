@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Heirloom.BoxCore;
 
 namespace Heirloom.Services;
 
@@ -19,7 +20,7 @@ public sealed class OllamaService
     private readonly HttpClient _generate = new()
     {
         BaseAddress = new Uri("http://127.0.0.1:11434"),
-        Timeout = TimeSpan.FromSeconds(50),
+        Timeout = ChatWait.LocalModel,
     };
 
     private readonly HttpClient _pull = new()

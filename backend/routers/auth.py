@@ -55,13 +55,14 @@ async def create_session(request: Request, response: Response):
             "last_login": datetime.now(timezone.utc).isoformat(),
         })
 
-    # Persist session
+    # Persist session. Web sign-in is not a Twin Box refresh pair.
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
     await db.user_sessions.insert_one({
         "user_id": user_id,
         "session_token": session_token,
         "expires_at": expires_at.isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "kind": "web",
     })
 
     response.set_cookie(
@@ -120,24 +121,20 @@ async def box_login(body: BoxLoginReq, response: Response):
             "last_login": datetime.now(timezone.utc).isoformat(),
         })
 
-    session_token = secrets_token()
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": session_token,
-        "expires_at": expires_at.isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    response.set_cookie(
-        key="session_token",
-        value=session_token,
-        max_age=7 * 24 * 60 * 60,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        path="/",
+    from session_renew import KIND_BOX, MongoSessionStore, issue
+
+    issued = issue(kind=KIND_BOX)
+    await MongoSessionStore().replace(
+        {},
+        issued.document(user_id, datetime.now(timezone.utc)),
     )
-    return {"user_id": user_id, "email": email, "name": name, "session_token": session_token}
+    _set_session_cookie(response, issued.session_token, samesite="lax")
+    return {
+        "user_id": user_id,
+        "email": email,
+        "name": name,
+        **issued.public(),
+    }
 
 
 def secrets_token() -> str:
@@ -146,8 +143,10 @@ def secrets_token() -> str:
 
 
 @router.get("/me")
-async def me(user: dict = Depends(get_current_user)):
-    return {
+async def me(request: Request, user: dict = Depends(get_current_user)):
+    from session_renew import attach_expiry
+
+    payload = {
         "user_id": user["user_id"],
         "email": user["email"],
         "name": user.get("name", ""),
@@ -163,6 +162,52 @@ async def me(user: dict = Depends(get_current_user)):
         **pairing_prefs_from_user(user),
         **routines_public(user),
     }
+    return attach_expiry(payload, getattr(request.state, "session_expires_at", None))
+
+
+def _set_session_cookie(response: Response, token: str, *, samesite: str) -> None:
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        max_age=7 * 24 * 60 * 60,
+        httponly=True,
+        secure=True,
+        samesite=samesite,
+        path="/",
+    )
+
+
+@router.post("/refresh")
+async def refresh_session(request: Request, response: Response):
+    """Rotate a Twin Box owner session. Hidden off the box. Heirs get 404.
+
+    A still-valid box (or legacy unlabeled) owner session can mint a refresh
+    token. After the access token expires, only an unexpired box refresh token
+    works. Web sessions and a dead refresh token stay 401.
+    """
+    from box_owner import box_mode
+    from session_renew import HIDDEN, ROTATE, MongoSessionStore, refresh_owner_session
+
+    if not box_mode():
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    outcome, issued = await refresh_owner_session(
+        MongoSessionStore(),
+        bearer=_extract_token(request) or "",
+        refresh_token=str(body.get("refresh_token") or ""),
+        box_mode=True,
+    )
+    if outcome == HIDDEN:
+        raise HTTPException(status_code=404, detail="Not found")
+    if outcome != ROTATE or issued is None:
+        raise HTTPException(status_code=401, detail="Session expired")
+    _set_session_cookie(response, issued.session_token, samesite="lax")
+    return issued.public()
 
 
 @router.post("/me/tour-complete")

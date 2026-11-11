@@ -1,3 +1,4 @@
+using Heirloom.BoxCore;
 using Heirloom.Services;
 using Microsoft.UI.Xaml;
 
@@ -14,7 +15,7 @@ public sealed partial class MainWindow : Window
         SetTitleBar(AppTitleBar);
         AppWindow.SetIcon("Assets/AppIcon.ico");
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1440, 900));
-        AppTitleBar.Title = $"Heirloom  {App.Host.Version}  ·  {App.Host.BuildId}";
+        AppTitleBar.Title = ProductStamp.Title(App.Host.Version);
         Closed += OnClosed;
         _tray = new TrayService(this);
         _tray.Attach();

@@ -168,20 +168,24 @@ public static class DpapiBoxSession
 
     public static string SessionFile(string root) => Path.Combine(root, "box-session.bin");
 
-    public static void Save(string path, string token)
+    public static void Save(string path, string token) => SaveBundle(path, new BoxSessionBundle(token ?? "", "", ""));
+
+    public static void SaveBundle(string path, BoxSessionBundle bundle)
     {
         if (!OperatingSystem.IsWindows())
         {
             throw new PlatformNotSupportedException("The box session token is stored with Windows DPAPI.");
         }
 
-        var raw = Encoding.UTF8.GetBytes(token ?? "");
+        var raw = Encoding.UTF8.GetBytes(bundle.HasRefresh || bundle.ExpiresAt.Length > 0 ? bundle.Encode() : (bundle.Session ?? ""));
         var protectedBytes = ProtectedData.Protect(raw, Entropy, DataProtectionScope.CurrentUser);
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
         File.WriteAllBytes(path, protectedBytes);
     }
 
-    public static string? TryRead(string path)
+    public static string? TryRead(string path) => TryReadBundle(path)?.Session;
+
+    public static BoxSessionBundle? TryReadBundle(string path)
     {
         if (!OperatingSystem.IsWindows() || !File.Exists(path))
         {
@@ -192,8 +196,7 @@ public static class DpapiBoxSession
         {
             var protectedBytes = File.ReadAllBytes(path);
             var raw = ProtectedData.Unprotect(protectedBytes, Entropy, DataProtectionScope.CurrentUser);
-            var token = Encoding.UTF8.GetString(raw).Trim();
-            return token.Length == 0 ? null : token;
+            return BoxSessionBundle.Parse(Encoding.UTF8.GetString(raw));
         }
         catch (CryptographicException)
         {
