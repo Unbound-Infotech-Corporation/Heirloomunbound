@@ -96,6 +96,13 @@ Memory tools:
 {abilities_block}
 Skills they listed (call `run_skill` only when they clearly ask):
 {skills_blob or "(none configured)"}
+Studio tools, Assist only:
+- `smart_home_read` / `smart_home_set` for lights, plugs, and thermostats on this network. A change waits for Confirm. Never turn off a fridge, medical device, furnace, or thermostat without a second confirm.
+- `writing_check` and `writing_rewrite` for the owner's words. Do not rewrite the twin's voice. Paste waits for Confirm.
+- `draft_message` writes a draft and does not send it.
+- `web_research` is for public facts. Never put a private memory in the query.
+- `code_edit` proposes hunks. The owner accepts or rejects each one.
+- `mcp_call` and `spawn_subagent` stay on this PC.
 {memory_section}
 === ARCHIVE EXCERPTS ===
 {archive_blob or "(none retrieved for this turn — use search_archive if they ask about filed facts)"}
@@ -443,6 +450,10 @@ def tools_for_turn(
             names.discard("run_skill")
     if audience is not None and not is_owner_audience(audience):
         names -= HEIR_FORBIDDEN_TOOLS
+    if role_key == "assistant" and is_owner_audience(audience):
+        from assist_studio_tools import studio_names_for
+
+        names |= studio_names_for(role_key, audience, source=source)
     return names
 
 
@@ -1107,7 +1118,7 @@ async def run_twin_turn(
                 break
             for tc in resp.tool_calls:
                 result = await execute_tool(
-                    tc.name, user_id, tc.arguments or {}, audience=audience_key
+                    tc.name, user_id, tc.arguments or {}, audience=audience_key, role=role,
                 )
                 chat.add_tool_result(tc.id, result.get("summary", ""))
                 tool_trace.append({

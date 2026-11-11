@@ -361,3 +361,66 @@ def receipt_summary(decision: dict[str, Any]) -> str:
 
 def host_of(url: str) -> str:
     return urlparse(url).hostname or ""
+
+
+SSDP_MSEARCH = (
+    "M-SEARCH * HTTP/1.1\r\n"
+    "HOST: 239.255.255.250:1900\r\n"
+    "MAN: \"ssdp:discover\"\r\n"
+    "MX: 1\r\n"
+    "ST: ssdp:all\r\n"
+    "\r\n"
+)
+
+
+def parse_ssdp_message(raw: str) -> dict[str, Any]:
+    """Turn one SSDP reply into a discovery record. No socket is opened."""
+    headers: dict[str, str] = {}
+    for line in (raw or "").splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        headers[key.strip().lower()] = value.strip()
+    location = headers.get("location") or ""
+    return {
+        "source": "ssdp",
+        "st": headers.get("st") or headers.get("nt") or "",
+        "server": headers.get("server") or "",
+        "name": headers.get("usn") or headers.get("server") or "",
+        "host": host_of(location),
+        "location": location,
+    }
+
+
+def scan_ssdp(exchange) -> list[dict[str, Any]]:
+    """``exchange`` sends the search and returns reply payloads. Tests pass a fake."""
+    packets = exchange(SSDP_MSEARCH.encode("utf-8"), 1.5)
+    found = []
+    for packet in packets or []:
+        text = packet.decode("utf-8", "replace") if isinstance(packet, (bytes, bytearray)) else str(packet)
+        found.append(classify_discovery(parse_ssdp_message(text)))
+    return found
+
+
+def scan_lan_records() -> list[dict[str, Any]]:
+    """One short SSDP search on the home network. Read-only. No device is changed."""
+    import socket
+
+    def exchange(payload: bytes, timeout: float) -> list[bytes]:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+            sock.settimeout(timeout)
+            sock.sendto(payload, ("239.255.255.250", 1900))
+            replies: list[bytes] = []
+            while len(replies) < 32:
+                try:
+                    data, _addr = sock.recvfrom(8192)
+                except socket.timeout:
+                    break
+                replies.append(data)
+            return replies
+        finally:
+            sock.close()
+
+    return scan_ssdp(exchange)

@@ -99,7 +99,22 @@ def test_commands_stay_on_the_lan():
         ha_service(transport, "https://example.com", token, "light", "turn_on", "light.hall")
 
 
-def test_discovery_maps_mainstream_devices():
+def test_ssdp_replies_become_devices():
+    from smart_home import parse_ssdp_message, scan_ssdp
+
+    raw = "\r\n".join([
+        "HTTP/1.1 200 OK",
+        "ST: urn:Belkin:device:controllee:1",
+        "USN: uuid:wemo-1",
+        "SERVER: Unspecified, UPnP/1.0, Unspecified",
+        "LOCATION: http://192.168.1.40:49153/setup.xml",
+        "",
+    ])
+    record = parse_ssdp_message(raw)
+    assert record["host"] == "192.168.1.40"
+    found = scan_ssdp(lambda _payload, _timeout: [raw.encode()])
+    assert found[0]["vendor"] == "wemo"
+    assert found[0]["local"] is True
     hue = classify_discovery({"source": "mdns", "service": "_hue._tcp.local", "name": "Bridge", "host": "192.168.1.8"})
     assert hue["vendor"] == "hue"
     matter = classify_discovery({"source": "mdns", "service": "_matter._tcp.local", "name": "Bulb"})

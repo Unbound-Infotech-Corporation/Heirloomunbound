@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="Heirloom.Controls.SmartHomeView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Padding="20,16" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid>
+            <StackPanel Spacing="4">
+                <TextBlock Style="{StaticResource StudioOverline}" Text="On this network" />
+                <TextBlock x:Name="Status" Style="{StaticResource StudioText}" TextWrapping="Wrap" />
+            </StackPanel>
+            <Button HorizontalAlignment="Right" Click="OnScan" Content="Scan" Style="{StaticResource StudioButtonPrimary}" />
+        </Grid>
+        <TextBlock Style="{StaticResource StudioMuted}" Text="Lights, plugs, and thermostats. Reading is free. A change asks the first time. A fridge, furnace, or thermostat asks every time you turn it off." TextWrapping="Wrap" />
+        <ListView x:Name="Devices" Grid.Row="2" SelectionMode="None" Style="{StaticResource StudioPlainList}">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Border Margin="0,0,0,8" Padding="12,10" Background="{StaticResource HeirloomBgElevatedBrush}" BorderBrush="{StaticResource HeirloomBorderBrush}" BorderThickness="1" CornerRadius="3">
+                        <Grid>
+                            <StackPanel Spacing="2">
+                                <TextBlock Style="{StaticResource StudioText}" Text="{Binding Name}" />
+                                <TextBlock Style="{StaticResource StudioCaption}" Text="{Binding Vendor}" />
+                            </StackPanel>
+                            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                                <Button Click="OnDevice" Content="On" Tag="{Binding Id}" Style="{StaticResource StudioButtonQuiet}" />
+                                <Button Click="OnDeviceOff" Content="Off" Tag="{Binding Id}" Style="{StaticResource StudioButtonQuiet}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+        <StackPanel Grid.Row="3" Spacing="8">
+            <TextBlock x:Name="Pending" Style="{StaticResource StudioText}" TextWrapping="Wrap" />
+            <Button HorizontalAlignment="Left" Click="OnConfirm" Content="Confirm" Style="{StaticResource StudioButtonPrimary}" />
+        </StackPanel>
+    </Grid>
+</UserControl>

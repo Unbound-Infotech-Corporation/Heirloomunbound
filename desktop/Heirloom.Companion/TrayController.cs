@@ -20,6 +20,7 @@ internal sealed class TrayController : IDisposable
     private readonly TwinLiveWindow _live;
     private readonly CaptionPlayer _player = new();
     private readonly CompanionHotkey _hotkey = new();
+    private readonly WritingHotkey _writingHotkey = new();
     private AssistLiveView _assist = AssistLiveView.Empty;
     private string _shownCaptionId = "";
     private string _playedAudioId = "";
@@ -52,6 +53,8 @@ internal sealed class TrayController : IDisposable
         ApplyAutostart(_store.Autostart);
         _hotkey.Pressed += () => _ = ArmPushToTalkAsync();
         _hotkey.Attach();
+        _writingHotkey.Pressed += ShowWritingCard;
+        _writingHotkey.Attach();
         _icon.ToolTipText = "Heirloom Twin Box";
         Paint(BoxLamp.Red);
         RebuildMenu();
@@ -501,12 +504,39 @@ internal sealed class TrayController : IDisposable
         }
     }
 
+    private void ShowWritingCard()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(ShowWritingCard);
+            return;
+        }
+
+        var selected = "";
+        try
+        {
+            if (Clipboard.ContainsText())
+            {
+                selected = Clipboard.GetText();
+            }
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            selected = "";
+        }
+
+        var card = new WritingCardWindow(selected);
+        card.Show();
+    }
+
     public void Dispose()
     {
         BoxClient.Unauthorized -= OnUnauthorized;
         _signals?.Dispose();
         _stop.Cancel();
         _hotkey.Dispose();
+        _writingHotkey.Dispose();
         _player.Dispose();
         _live.Shutdown();
         _caption.Close();

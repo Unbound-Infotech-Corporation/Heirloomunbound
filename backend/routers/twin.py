@@ -527,7 +527,13 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                         "name": tc.name,
                         "args": tc.arguments,
                     }) + "\n\n"
-                    result = await execute_tool(tc.name, user["user_id"], tc.arguments or {})
+                    result = await execute_tool(
+                        tc.name,
+                        user["user_id"],
+                        tc.arguments or {},
+                        audience=user.get("audience") or "owner",
+                        role="assistant" if assisting else "twin",
+                    )
                     chat.add_tool_result(tc.id, result.get("summary", ""))
                     tool_trace.append({
                         "id": tc.id,

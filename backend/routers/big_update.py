@@ -231,6 +231,49 @@ def post_plan(body: RestoreIn, user: dict = Depends(get_current_user)):
     )
 
 
+class EncryptedRestoreIn(BaseModel):
+    source: str
+    dest: str
+    passphrase: str = ""
+    confirm: bool = False
+    new_machine: bool = False
+    data_root: str | None = None
+
+
+@setup_router.post("/restore/inspect")
+def post_inspect(body: RestoreIn, user: dict = Depends(get_current_user)):
+    _owner(user)
+    from backup_gpg import inspect_backup
+
+    try:
+        return inspect_backup(Path(body.source))
+    except RestoreRefused as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@setup_router.post("/restore/encrypted")
+def post_encrypted(body: EncryptedRestoreIn, user: dict = Depends(get_current_user)):
+    _owner(user)
+    from backup_gpg import restore_encrypted
+
+    data_root = Path(body.data_root) if body.data_root else None
+    try:
+        result = restore_encrypted(
+            Path(body.source),
+            Path(body.dest),
+            body.passphrase,
+            confirm=body.confirm,
+            box_mode=box_mode_from_env(),
+            data_root=data_root,
+            new_machine=body.new_machine,
+        )
+    except RestoreRefused as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if body.passphrase and json_hides_secret(result, body.passphrase) is False:
+        raise HTTPException(status_code=500, detail="Refusing to return a passphrase.")
+    return result
+
+
 @setup_router.post("/restore/apply")
 def post_apply(body: RestoreIn, user: dict = Depends(get_current_user)):
     _owner(user)
@@ -247,6 +290,14 @@ def post_apply(body: RestoreIn, user: dict = Depends(get_current_user)):
         return apply_restore(plan)
     except RestoreRefused as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@home_router.post("/scan")
+def post_scan(user: dict = Depends(get_current_user)):
+    _owner(user)
+    from smart_home import scan_lan_records
+
+    return {"devices": scan_lan_records()}
 
 
 @home_router.post("/discover")

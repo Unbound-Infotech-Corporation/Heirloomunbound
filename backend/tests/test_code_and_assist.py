@@ -93,7 +93,46 @@ def test_commands_wait_and_dangerous_ones_cannot_be_confirmed():
     assert plan_agent("fix the test")["cloud"] is False
 
 
-def test_assist_tools_are_owner_only_and_private_text_stays_home():
+def test_assist_chat_tools_stay_off_the_twin_and_strip_memories():
+    import asyncio
+
+    from assist_studio_tools import exec_studio_tool, studio_names_for
+
+    assert "smart_home_set" in studio_names_for("assistant", "owner")
+    assert studio_names_for("twin", "owner") == set()
+    assert studio_names_for("assistant", "heir") == set()
+    assert studio_names_for("assistant", "owner", source="phone") == set()
+    memory = "private memory about the oak tree"
+    research = asyncio.run(exec_studio_tool(
+        "web_research",
+        {"query": f"Look up {memory}", "private_texts": [memory]},
+        role="assistant",
+        audience="owner",
+    ))
+    assert memory not in research["summary"]
+    assert memory not in str(research["ui"])
+    blocked = asyncio.run(exec_studio_tool(
+        "smart_home_set",
+        {"name": "Kitchen fridge", "kind": "plug", "action": "off", "approved": True, "always_allow": True},
+        role="assistant",
+        audience="owner",
+    ))
+    assert blocked["ui"]["needs_confirm"] is True
+    twin = asyncio.run(exec_studio_tool(
+        "writing_rewrite",
+        {"text": "This is very long.", "mode": "shorter"},
+        role="twin",
+        audience="owner",
+    ))
+    assert twin["ui"]["error"] == "assist_only"
+    draft = asyncio.run(exec_studio_tool(
+        "draft_message",
+        {"to": "family@example.com", "body": f"Remember {memory}", "private_texts": [memory]},
+        role="assistant",
+        audience="owner",
+    ))
+    assert draft["ui"]["sent"] is False
+    assert memory not in draft["ui"]["body"]
     assert tools_for(role="assistant", audience="owner") 
     assert tools_for(role="twin", audience="owner") == []
     assert tools_for(role="assistant", audience="heir") == []

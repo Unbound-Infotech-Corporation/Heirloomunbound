@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Heirloom code</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #121110; color: #f2efe9; }
+    #editor, textarea { width: 100%; height: 100%; border: 0; background: #121110; color: #f2efe9;
+      font: 14px/1.5 "Cascadia Mono", Consolas, monospace; padding: 16px; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <textarea id="fallback" spellcheck="false"># This pane is Monaco when vs/loader.js sits beside this file.
+# Until then you can type here. Edits still go through review.</textarea>
+  <script>
+    const fallback = document.getElementById("fallback");
+    const script = document.createElement("script");
+    script.src = "monaco/vs/loader.js";
+    script.onload = () => {
+      require.config({ paths: { vs: "monaco/vs" } });
+      require(["vs/editor/editor.main"], () => {
+        fallback.remove();
+        const node = document.createElement("div");
+        node.id = "editor";
+        document.body.appendChild(node);
+        monaco.editor.defineTheme("heirloom", {
+          base: "vs-dark",
+          inherit: true,
+          rules: [],
+          colors: { "editor.background": "#121110", "editor.foreground": "#f2efe9" }
+        });
+        monaco.editor.create(node, {
+          value: fallback.value,
+          language: "markdown",
+          theme: "heirloom",
+          fontFamily: "Cascadia Mono, Consolas, monospace",
+          fontSize: 14,
+          minimap: { enabled: false },
+          automaticLayout: true
+        });
+      });
+    };
+    script.onerror = () => {};
+    document.body.appendChild(script);
+  </script>
+</body>
+</html>
