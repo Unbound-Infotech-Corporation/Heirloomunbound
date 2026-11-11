@@ -26,6 +26,7 @@ OLLAMA_PROVIDER = "ollama"
 EMERGENT_PROVIDER = "emergent"
 BOX_CHAT_MODEL = "qwen2.5:14b"
 BOX_VISION_MODEL = "qwen2.5vl:7b"
+BRAIN_KEEP_ALIVE = "30m"
 
 # Names that mean "keep the current Emergent / Anthropic / OpenAI transport"
 # when the process is not a Twin Box.
@@ -71,6 +72,8 @@ class ChatCompletion:
     model: str
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
+    thinking: str = ""
+    done_reason: str = ""
 
 
 class CloudAiDisabled(RuntimeError):
@@ -249,12 +252,27 @@ def visible_answer(message: Mapping[str, Any]) -> str:
     return text.strip()
 
 
+def _message_thinking(message: Mapping[str, Any]) -> str:
+    for key in ("thinking", "reasoning"):
+        value = message.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _done_reason(data: Mapping[str, Any], choice: Mapping[str, Any]) -> str:
+    raw = data.get("done_reason") or choice.get("finish_reason") or ""
+    return str(raw or "").strip().lower()
+
+
 def parse_openai_chat(data: Mapping[str, Any]) -> ChatCompletion:
     choices = data.get("choices") or []
     message: Mapping[str, Any] = {}
+    choice: Mapping[str, Any] = {}
     if isinstance(choices, list) and choices:
         first = choices[0]
         if isinstance(first, Mapping):
+            choice = first
             raw_message = first.get("message") or {}
             if isinstance(raw_message, Mapping):
                 message = raw_message
@@ -268,6 +286,8 @@ def parse_openai_chat(data: Mapping[str, Any]) -> ChatCompletion:
         model=model.strip() if isinstance(model, str) else "",
         prompt_tokens=_as_int(usage.get("prompt_tokens")),
         completion_tokens=_as_int(usage.get("completion_tokens")),
+        thinking=_message_thinking(message),
+        done_reason=_done_reason(data, choice),
     )
 
 
@@ -333,6 +353,8 @@ async def complete_openai_chat(
     headers: Optional[Mapping[str, str]] = None,
     think: Any = None,
     num_predict: Optional[int] = None,
+    keep_alive: Optional[str] = None,
+    allow_empty: bool = False,
 ) -> ChatCompletion:
     """One non-streaming completion against Ollama's OpenAI-compatible API.
 
@@ -375,6 +397,9 @@ async def complete_openai_chat(
         limit = int(sampling["num_predict"])
         body["max_tokens"] = limit
         body["options"] = {"num_predict": limit}
+    alive = BRAIN_KEEP_ALIVE if keep_alive is None else keep_alive
+    if alive:
+        body["keep_alive"] = alive
     from brain_route import remember_answer
 
     remember_answer(name=answer_name, model=model_name, url=chosen_url, local_gpu=answer_gpu)
@@ -386,7 +411,7 @@ async def complete_openai_chat(
 
     data = await _send(url, body, timeout)
     completed = parse_openai_chat(data)
-    if not completed.text:
+    if not completed.text and not allow_empty:
         raise RuntimeError("Ollama returned empty content")
     if not completed.model:
         completed = ChatCompletion(
@@ -394,6 +419,8 @@ async def complete_openai_chat(
             model=str(body["model"]),
             prompt_tokens=completed.prompt_tokens,
             completion_tokens=completed.completion_tokens,
+            thinking=completed.thinking,
+            done_reason=completed.done_reason,
         )
     note_usage(completed)
     return completed

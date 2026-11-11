@@ -11,11 +11,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
+
+TYPED_TURN_FAILURE = "I couldn't answer that just now. Try again in a moment."
 
 from memorial_mode import POSTHUMOUS, memorial_is_posthumous
 from observer_privacy import redact_stored_text, screen_is_sensitive
@@ -616,39 +621,55 @@ async def advance_state(
     answered_now = False
     if inbox and str(inbox.get("id") or "") != str(current.get("answered_id") or ""):
         utterance = str(inbox.get("text") or "").strip()
-        result = await _speak_through_twin(turn, utterance, extra_system_for(current, gate))
-        current["answered_id"] = str(inbox.get("id") or "")
-        current["inbox"] = None
-        answered_now = True
-        if result.get("crisis") or result.get("backend") == "local_unavailable":
-            _speak(current, now, result.get("reply") or "")
+        inbox_id = str(inbox.get("id") or "")
+        try:
+            result = await _speak_through_twin(turn, utterance, extra_system_for(current, gate))
+        except Exception as exc:
+            logger.warning("assist live turn failed: %s", str(exc)[:160])
+            current["answered_id"] = inbox_id
+            current["inbox"] = None
+            _speak(current, now, TYPED_TURN_FAILURE)
             current["pending"] = None
+            answered_now = True
         else:
-            current = await _apply_utterance(
-                current,
-                utterance,
-                reply=str(result.get("reply") or ""),
-                now=now,
-                execute=execute,
-                allow_tools=gate["pc_tools"],
-            )
+            current["answered_id"] = inbox_id
+            current["inbox"] = None
+            answered_now = True
+            if result.get("crisis") or result.get("backend") == "local_unavailable":
+                _speak(current, now, result.get("reply") or "")
+                current["pending"] = None
+            else:
+                current = await _apply_utterance(
+                    current,
+                    utterance,
+                    reply=str(result.get("reply") or ""),
+                    now=now,
+                    execute=execute,
+                    allow_tools=gate["pc_tools"],
+                )
 
     if not answered_now and proactive_allowed(current, gate, now=now) and current.get("proactive_due"):
         prompt = (
             "One short aside about the room, only if it is worth interrupting. "
             "If it is not, answer with exactly …"
         )
-        result = await _speak_through_twin(turn, prompt, extra_system_for(current, gate))
-        current["proactive_due"] = False
-        current["last_proactive_at"] = float(now)
-        times = [float(item) for item in current.get("proactive_times") or [] if now - float(item) < 3600]
-        times.append(float(now))
-        current["proactive_times"] = times[-12:]
-        reply = str(result.get("reply") or "").strip()
-        if result.get("crisis"):
-            _speak(current, now, reply)
-        elif reply and reply not in {"…", "...", "…."}:
-            _speak(current, now, reply)
+        try:
+            result = await _speak_through_twin(turn, prompt, extra_system_for(current, gate))
+        except Exception as exc:
+            logger.warning("assist live aside failed: %s", str(exc)[:160])
+            current["proactive_due"] = False
+            current["last_proactive_at"] = float(now)
+        else:
+            current["proactive_due"] = False
+            current["last_proactive_at"] = float(now)
+            times = [float(item) for item in current.get("proactive_times") or [] if now - float(item) < 3600]
+            times.append(float(now))
+            current["proactive_times"] = times[-12:]
+            reply = str(result.get("reply") or "").strip()
+            if result.get("crisis"):
+                _speak(current, now, reply)
+            elif reply and reply not in {"…", "...", "…."}:
+                _speak(current, now, reply)
     elif not proactive_allowed(current, gate, now=now):
         current["proactive_due"] = False
     return current, public_view(current)

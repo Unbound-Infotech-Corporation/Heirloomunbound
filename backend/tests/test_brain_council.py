@@ -5,6 +5,11 @@ import asyncio
 import json
 
 from brain_council import (
+    SEARCH_FALLBACK_PREDICT,
+    SEARCH_FALLBACK_TIMEOUT,
+    SEARCH_QUERY_PREDICT,
+    SEARCH_QUERY_TIMEOUT,
+    salvage_search_query,
     clear_answer_meta,
     complete_turn,
     drafts_for_audience,
@@ -400,3 +405,225 @@ def test_ensemble_stays_off_until_opted_in(monkeypatch):
     assert calls["n"] == 1
     assert outcome.meta["experimental"] == "off"
     assert outcome.meta["path"] == "fast"
+
+
+def _arm_bigdeal(monkeypatch):
+    _env(monkeypatch, strategy="single+odysseus_research", odysseus=True)
+    monkeypatch.setenv("HEIRLOOM_BRAIN_URL", "http://192.168.0.50:11434")
+    monkeypatch.setenv("HEIRLOOM_BRAIN_MODEL", "gpt-oss:120b")
+    clear_caches()
+
+    async def probe_remote(url, headers, timeout):
+        return True
+
+    async def probe_ps(url, timeout):
+        return {"models": [{"size": 10, "size_vram": 10}]}
+
+    monkeypatch.setattr("brain_route.probe_remote", probe_remote)
+    monkeypatch.setattr("brain_route.probe_local_ps", probe_ps)
+
+
+def test_search_rewrite_keeps_gpt_oss_content_and_drops_thinking(monkeypatch):
+    _arm_bigdeal(monkeypatch)
+    question = "what is the latest news about the river road"
+    seen = {"rewrite": [], "asks": []}
+
+    async def poster(url, body, timeout):
+        blob = json.dumps(body)
+        if "web search query" in blob:
+            seen["rewrite"].append((url, body, timeout))
+            assert body["model"].startswith("gpt-oss")
+            assert body["think"] == "low"
+            assert body["options"]["num_predict"] == SEARCH_QUERY_PREDICT
+            assert timeout == SEARCH_QUERY_TIMEOUT
+            assert "SECRET VAULT" not in blob
+            assert "60/40" not in blob
+            return {
+                "model": body["model"],
+                "choices": [{
+                    "message": {
+                        "content": "<think>60/40 money split</think>\nriver road closure news",
+                        "thinking": "hidden reasoning about the vault",
+                    },
+                }],
+            }
+        assert "SECRET VAULT" in blob
+        return _completion("from the search notes", body["model"])
+
+    async def ask(kind, text, timeout):
+        seen["asks"].append((kind, text, timeout))
+        assert "60/40" not in text
+        assert "hidden reasoning" not in text
+        assert "SECRET VAULT" not in text
+        return OdysseusDraft(text="searxng notes", ok=True, model="searxng", via="search")
+
+    async def _run():
+        return await complete_turn(
+            [{"role": "system", "content": "SECRET VAULT FACT 60/40 money split"}, {"role": "user", "content": question}],
+            question,
+            audience="owner",
+            poster=poster,
+            odysseus_ask=ask,
+        )
+
+    outcome = asyncio.run(_run())
+    assert seen["asks"][0][1] == "river road closure news"
+    assert outcome.text == "from the search notes"
+    assert outcome.meta["search_query"] == "river road closure news"
+    assert len(seen["rewrite"]) == 1
+
+
+def test_search_rewrite_falls_back_to_qwen_then_the_question(monkeypatch):
+    _arm_bigdeal(monkeypatch)
+    question = "what is the latest news about the river road"
+    mode = {"qwen": "query"}
+
+    async def poster(url, body, timeout):
+        blob = json.dumps(body)
+        if "web search query" not in blob:
+            return _completion("answered", body["model"])
+        if str(body["model"]).startswith("gpt-oss"):
+            assert body["think"] == "low"
+            assert body["options"]["num_predict"] == SEARCH_QUERY_PREDICT
+            return {
+                "model": body["model"],
+                "choices": [{"message": {"content": "<think>only the trace</think>", "thinking": "only the trace"}}],
+            }
+        assert body["think"] is False
+        assert body["options"]["num_predict"] == SEARCH_FALLBACK_PREDICT
+        assert timeout == SEARCH_FALLBACK_TIMEOUT
+        assert "192.168.0.50" not in url
+        assert "SECRET VAULT" not in blob
+        if mode["qwen"] == "empty":
+            return {"model": body["model"], "choices": [{"message": {"content": "", "thinking": "still thinking"}}]}
+        return {
+            "model": body["model"],
+            "choices": [{"message": {"content": "qwen river query", "thinking": "skip this trace"}}],
+        }
+
+    asks = []
+
+    async def ask(kind, text, timeout):
+        asks.append(text)
+        assert "SECRET VAULT" not in text
+        assert "only the trace" not in text
+        return OdysseusDraft(text="notes", ok=True, via="search")
+
+    messages = [
+        {"role": "system", "content": "SECRET VAULT FACT"},
+        {"role": "user", "content": question},
+    ]
+
+    async def _run():
+        return await complete_turn(
+            messages,
+            question,
+            audience="owner",
+            poster=poster,
+            odysseus_ask=ask,
+        )
+
+    asyncio.run(_run())
+    assert asks == ["qwen river query"]
+
+    mode["qwen"] = "empty"
+    asks.clear()
+    asyncio.run(_run())
+    assert asks == [question]
+
+
+def test_length_limited_gpt_oss_thinking_still_yields_a_search_query(monkeypatch, caplog):
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    assert salvage_search_query("", "only the trace") == ""
+    assert salvage_search_query(
+        "",
+        "The owner wants current news, so the query should name the road.\nriver road closure news",
+    ) == "river road closure news"
+    _arm_bigdeal(monkeypatch)
+    question = "what is the latest news about the river road"
+    calls = []
+
+    async def poster(url, body, timeout):
+        blob = json.dumps(body)
+        if "web search query" not in blob:
+            assert body.get("keep_alive") == "30m"
+            return _completion("from the search notes", body["model"])
+        calls.append(body)
+        assert body["think"] == "low"
+        assert body["options"]["num_predict"] == SEARCH_QUERY_PREDICT
+        assert body.get("keep_alive") == "30m"
+        assert "SECRET VAULT" not in blob
+        return {
+            "model": "gpt-oss:120b",
+            "done_reason": "length",
+            "choices": [{
+                "finish_reason": "length",
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "thinking": (
+                        "Need a short web query for the latest reports.\n"
+                        "river road closure news"
+                    ),
+                },
+            }],
+        }
+
+    async def ask(kind, text, timeout):
+        assert text == "river road closure news"
+        assert "Need a short" not in text
+        return OdysseusDraft(text="searxng notes", ok=True, via="search")
+
+    async def _run():
+        return await complete_turn(
+            [{"role": "system", "content": "SECRET VAULT FACT"}, {"role": "user", "content": question}],
+            question,
+            audience="owner",
+            poster=poster,
+            odysseus_ask=ask,
+        )
+
+    outcome = asyncio.run(_run())
+    assert outcome.meta["search_query"] == "river road closure news"
+    assert len(calls) == 1
+    assert not any("search query rewrite failed" in record.message for record in caplog.records)
+
+
+def test_remote_timeout_falls_back_to_the_box_model(monkeypatch):
+    _env(monkeypatch, strategy="single", odysseus=False)
+    monkeypatch.setenv("HEIRLOOM_BRAIN_URL", "http://192.168.0.50:11434")
+    monkeypatch.setenv("HEIRLOOM_BRAIN_MODEL", "gpt-oss:120b")
+    clear_caches()
+
+    async def probe_remote(url, headers, timeout):
+        return True
+
+    async def probe_ps(url, timeout):
+        return {"models": [{"size": 10, "size_vram": 10}]}
+
+    monkeypatch.setattr("brain_route.probe_remote", probe_remote)
+    monkeypatch.setattr("brain_route.probe_local_ps", probe_ps)
+    seen = []
+
+    async def poster(url, body, timeout):
+        seen.append((url, dict(body)))
+        assert body.get("keep_alive") == "30m"
+        if "192.168.0.50" in url:
+            raise TimeoutError("cold gpt-oss load")
+        assert str(body["model"]).startswith("qwen")
+        return _completion("from the box", body["model"])
+
+    async def _run():
+        return await complete_turn(
+            [{"role": "user", "content": "thanks"}],
+            "thanks",
+            audience="owner",
+            poster=poster,
+        )
+
+    outcome = asyncio.run(_run())
+    assert outcome.text == "from the box"
+    assert any("192.168.0.50" in url for url, _body in seen)
+    assert any("127.0.0.1" in url for url, _body in seen)

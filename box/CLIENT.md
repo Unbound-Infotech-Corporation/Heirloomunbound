@@ -55,7 +55,7 @@ The menu can pause or resume the observer. That needs you to be signed in. **Ope
 - A short notice when the box drops offline or comes back. You can turn that off.
 - **Screen** sends the main monitor to the Twin Box on your home network so Observer can watch without the HDMI capture box. It is on until you turn it off. The picture is a small JPEG a couple of times a second, while Observer is set to auto or network. Pause stops it. The tray has the same switch.
 
-The companion never restarts the box, and it never restarts Windows.
+The companion never restarts the box, and it never restarts Windows. Health, Twin Live, and the screen and audio uploads each have their own timeout. If a request sits there through sleep or a network change, that loop starts again. A loop with no successful pass for three minutes is restarted. Notes go to `%LOCALAPPDATA%\Heirloom\logs`. That does not change `settings.json`.
 
 ## If the address or the disk changes
 

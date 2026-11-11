@@ -50,10 +50,19 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     command = args[0] if args else "status"
     if command in {"-h", "--help", "help"}:
-        print("Usage: observer_cli <status|pause|resume|digest>")
+        print("Usage: observer_cli <status|pause|resume|digest|compact>")
         return 0
     if command == "status":
         sys.stdout.write(format_status())
+        return 0
+    if command == "compact":
+        result = _store().compact_notes()
+        if result.get("changed"):
+            print(f"backup: {result.get('backup') or ''}")
+            print(f"notes: {result.get('before')} -> {result.get('after')}")
+        else:
+            print(f"notes unchanged: {result.get('after')}")
+        print(f"accepted: {result.get('accepted')}")
         return 0
     if not observer_enabled():
         print("Observer is off. Re-run the installer with --observer.", file=sys.stderr)

@@ -196,7 +196,12 @@ def test_daemon_shares_one_pipeline_and_install_writes_the_source(monkeypatch):
     install = (root / "box" / "install.sh").read_text(encoding="utf-8")
     assert 'upsert_env OBSERVER_SOURCE "auto"' in install
     assert 'upsert_env OBSERVER_NETWORK_FRESH_S "3"' in install
-    assert 'upsert_env OBSERVER_SCREEN_SPOOL "/run/heirloom-observer/screen"' in install
+    assert 'upsert_env OBSERVER_SCREEN_SPOOL "/run/heirloom/observer/screen"' in install
+    unit = (root / "box" / "observer" / "heirloom-observer.service").read_text(encoding="utf-8")
+    assert "RuntimeDirectoryPreserve=yes" in unit
+    assert "RuntimeDirectory=heirloom" in unit
+    compose = (root / "box" / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "/run/heirloom:/run/heirloom" in compose
     env = (root / "box" / "env.example").read_text(encoding="utf-8")
     assert "OBSERVER_SOURCE=auto" in env
     readme = (root / "box" / "README.md").read_text(encoding="utf-8")

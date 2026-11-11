@@ -2,7 +2,7 @@
 
 BIGDEAL is the Windows PC with the RTX PRO 6000 Blackwell (96 GB). It serves `gpt-oss:120b` to the Twin Box on the LAN. The box still runs its own Ollama (`qwen2.5:14b` and `qwen2.5vl:7b`) and uses that when BIGDEAL does not answer. No cloud model is involved.
 
-`HEIRLOOM_BRAIN_MODEL` changes the tag. The default call passes `think` `low` and `num_predict` 2500. The reply is the `content` field. The `thinking` trace is not shown.
+`HEIRLOOM_BRAIN_MODEL` changes the tag. The default call passes `think` `low`, `num_predict` 2500, and `keep_alive` `30m` so a cold load stays resident. The reply is the `content` field. The `thinking` trace is not shown. If BIGDEAL errors or the turn times out, that turn is answered by the box `qwen2.5:14b`. The Odysseus search-query rewrite uses `think` `low` and `num_predict` 256. A reply with empty content and `done_reason` `length` is read from the last line of the thinking trace, retried with thinking off, then the box qwen model.
 
 When the 96GB card leaves, use `qwen3:32b` and leave thinking off:
 

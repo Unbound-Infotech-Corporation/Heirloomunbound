@@ -22,6 +22,13 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"caretaker watchdog could not read ollama: {exc}", file=sys.stderr)
         return 0
+    try:
+        repaired = ops.repair_observer_mount()
+    except Exception as exc:  # noqa: BLE001
+        print(f"caretaker watchdog could not check the observer mount: {exc}", file=sys.stderr)
+        repaired = ""
+    if repaired:
+        print("caretaker watchdog: observer mount was stale, recreated box-api-1")
     decision = watchdog_decision(ps_text, log_text)
     if decision != "restart_ollama":
         print("caretaker watchdog: ollama still has the GPU")

@@ -18,10 +18,13 @@ internal sealed class ScreenPump : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private BoxSnapshot _snapshot = TrayStatus.Describe(false, null, BoxLink.DefaultBoxUrl, null);
 
-    public ScreenPump(CompanionStore store)
+    private readonly SupervisedLoop _loop;
+
+    public ScreenPump(CompanionStore store, CompanionLog log, WakeHub wake)
     {
         _store = store;
-        _ = RunAsync(_stop.Token);
+        _loop = new SupervisedLoop("screen", log, wake);
+        _ = _loop.RunAsync(RunOnceAsync, _stop.Token);
     }
 
     public void Note(BoxSnapshot snapshot)
@@ -40,52 +43,31 @@ internal sealed class ScreenPump : IDisposable
         }
     }
 
-    private async Task RunAsync(CancellationToken cancellationToken)
+    private async Task RunOnceAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        var snapshot = Current();
+        var fps = ScreenStream.SendFps(snapshot.ObserverFps, snapshot.ObserverSignal);
+        if (ScreenStream.MaySend(snapshot.ObserverPaused, _store.Screen, snapshot.Reachable, snapshot.ObserverMode))
         {
-            var snapshot = Current();
-            var fps = ScreenStream.SendFps(snapshot.ObserverFps, snapshot.ObserverSignal);
-            try
+            var jpeg = PrimaryScreen.CaptureJpeg(ScreenStream.TargetWidth, ScreenStream.JpegQuality);
+            snapshot = Current();
+            if (jpeg.Length > 0 && ScreenStream.MaySend(snapshot.ObserverPaused, _store.Screen, snapshot.Reachable, snapshot.ObserverMode))
             {
-                if (ScreenStream.MaySend(snapshot.ObserverPaused, _store.Screen, snapshot.Reachable, snapshot.ObserverMode))
+                var token = _store.Session();
+                if (!string.IsNullOrWhiteSpace(token))
                 {
-                    var jpeg = PrimaryScreen.CaptureJpeg(ScreenStream.TargetWidth, ScreenStream.JpegQuality);
-                    snapshot = Current();
-                    if (jpeg.Length > 0 && ScreenStream.MaySend(snapshot.ObserverPaused, _store.Screen, snapshot.Reachable, snapshot.ObserverMode))
-                    {
-                        var token = _store.Session();
-                        if (!string.IsNullOrWhiteSpace(token))
-                        {
-                            await BoxClient.PostScreenAsync(
-                                _store.BoxUrl,
-                                _store.Pin,
-                                _store.CaPem,
-                                token,
-                                jpeg,
-                                cancellationToken).ConfigureAwait(false);
-                        }
-                    }
-                }
-
-                await Task.Delay(ScreenStream.Interval(fps), cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-            catch (Exception)
-            {
-                try
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
+                    await BoxClient.PostScreenAsync(
+                        _store.BoxUrl,
+                        _store.Pin,
+                        _store.CaPem,
+                        token,
+                        jpeg,
+                        cancellationToken).ConfigureAwait(false);
                 }
             }
         }
+
+        await Task.Delay(ScreenStream.Interval(fps), cancellationToken).ConfigureAwait(false);
     }
 
     public void Dispose()
