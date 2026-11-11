@@ -46,15 +46,38 @@ def require_owner(user: Mapping[str, Any] | None) -> None:
         raise OwnerHidden("Not found")
 
 
+_SHORT_FACT = 8
+
+
+def _mentions(text: str, snippet: str) -> bool:
+    """A short fact matches a whole word. A longer line matches the phrase."""
+    if len(snippet) < 3:
+        return False
+    if " " in snippet or len(snippet) >= _SHORT_FACT:
+        return snippet in text
+    return re.search(rf"(?<!\w){re.escape(snippet)}(?!\w)", text, flags=re.IGNORECASE) is not None
+
+
 def redact_private(text: str, private_texts: list[str] | tuple[str, ...] | None) -> str:
-    """Replace owner-private snippets and known secret paths."""
+    """Replace owner-private snippets and known secret paths.
+
+    A three-letter fact such as ``Mom`` does not eat the inside of ``Moment``
+    or ``Mombasa``. A longer fact is still removed wherever that phrase appears.
+    """
     cleaned = text or ""
     for secret in private_texts or ():
         snippet = (secret or "").strip()
-        if len(snippet) < 3:
+        if not _mentions(cleaned, snippet):
             continue
-        if snippet in cleaned:
+        if " " in snippet or len(snippet) >= _SHORT_FACT:
             cleaned = cleaned.replace(snippet, "[private]")
+        else:
+            cleaned = re.sub(
+                rf"(?<!\w){re.escape(snippet)}(?!\w)",
+                "[private]",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
     for marker in PRIVATE_MARKERS:
         if marker in cleaned:
             cleaned = cleaned.replace(marker, "[private]")
@@ -65,7 +88,7 @@ def contains_private(text: str, private_texts: list[str] | tuple[str, ...] | Non
     raw = text or ""
     for secret in private_texts or ():
         snippet = (secret or "").strip()
-        if len(snippet) >= 4 and snippet in raw:
+        if _mentions(raw, snippet):
             return True
     return False
 

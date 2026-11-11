@@ -125,6 +125,10 @@ def test_assist_chat_tools_stay_off_the_twin_and_strip_memories():
         private_texts=snippets,
     ))
     assert "Vermont" not in cited["summary"]
+    from owner_privacy import redact_private
+
+    assert redact_private("weather in Mombasa", ["Mom"]) == "weather in Mombasa"
+    assert redact_private("Call Mom tonight", ["Mom"]) == "Call [private] tonight"
 
     assert "smart_home_set" in studio_names_for("assistant", "owner")
     assert studio_names_for("twin", "owner") == set()
