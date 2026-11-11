@@ -74,6 +74,20 @@ public static class HealthLog
 /// One HKCU Run value for the Companion. The legacy unspaced name is removed
 /// so a reboot cannot start a second copy of the same executable.
 /// </summary>
+/// <summary>
+/// Caretaker restart starts the replacement process and then shuts this one down.
+/// The single-instance mutex must be released first, or the child WaitOne(0) fails and exits.
+/// </summary>
+public static class InstanceHandoff
+{
+    public static void Restart(Action release, Action start, Action shutdown)
+    {
+        release();
+        start();
+        shutdown();
+    }
+}
+
 public static class CompanionAutostart
 {
     public const string ValueName = "Heirloom Companion";

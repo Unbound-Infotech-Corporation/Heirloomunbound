@@ -44,8 +44,15 @@ class MemorySessions:
 
     async def replace(self, old, new_doc):
         token = str(old.get("session_token") or "")
-        self.rows = [row for row in self.rows if row.get("session_token") != token]
-        self.rows.append(dict(new_doc))
+        doc = dict(new_doc)
+        if not token:
+            self.rows.append(doc)
+            return True
+        for index, row in enumerate(self.rows):
+            if row.get("session_token") == token:
+                self.rows[index] = doc
+                return True
+        return False
 
 
 def _owner(store: MemorySessions, user_id: str = "user_owner") -> None:
@@ -64,6 +71,34 @@ def _plant(store: MemorySessions, *, kind: str, access_delta: timedelta, refresh
         doc["refresh_expires_at"] = (now + refresh_delta).isoformat()
     store.rows.append(doc)
     return issued, now
+
+
+def test_a_second_rotation_of_the_same_token_does_not_mint_another_session():
+    store = MemorySessions()
+    _owner(store)
+    now = datetime(2026, 11, 11, 20, 0, tzinfo=timezone.utc)
+    store.rows.append({
+        "user_id": "user_owner",
+        "session_token": "live-access",
+        "expires_at": (now + timedelta(days=2)).isoformat(),
+        "kind": KIND_BOX,
+        "refresh_hash": token_hash("refresh-live"),
+        "refresh_expires_at": (now + timedelta(days=20)).isoformat(),
+    })
+
+    async def _once(bearer: str, refresh: str):
+        return await refresh_owner_session(
+            store, bearer=bearer, refresh_token=refresh, box_mode=True, now=now,
+        )
+
+    first, issued = asyncio.run(_once("live-access", "refresh-live"))
+    assert first == ROTATE
+    assert issued is not None
+    second, again = asyncio.run(_once("live-access", "refresh-live"))
+    assert second == REJECT
+    assert again is None
+    assert len(store.rows) == 1
+    assert store.rows[0]["session_token"] == issued.session_token
 
 
 def test_me_expiry_is_an_iso_timestamp():

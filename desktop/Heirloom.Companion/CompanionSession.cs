@@ -36,7 +36,9 @@ internal static class CompanionProcess
             return;
         }
 
-        Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
-        Application.Current?.Shutdown();
+        InstanceHandoff.Restart(
+            () => (Application.Current as App)?.ReleaseInstance(),
+            () => Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true }),
+            () => Application.Current?.Shutdown());
     }
 }

@@ -8,6 +8,17 @@ namespace Heirloom.Tests;
 public class BuyerRuntimeTests
 {
     [Fact]
+    public void Restart_releases_the_instance_before_the_child_starts()
+    {
+        var order = new List<string>();
+        InstanceHandoff.Restart(
+            () => order.Add("release"),
+            () => order.Add("start"),
+            () => order.Add("shutdown"));
+        Assert.Equal(new[] { "release", "start", "shutdown" }, order);
+    }
+
+    [Fact]
     public async Task Health_pass_does_not_touch_sta_objects_from_the_pool()
     {
         var gate = new StaAffinity();

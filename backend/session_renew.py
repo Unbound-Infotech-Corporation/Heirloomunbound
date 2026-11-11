@@ -155,7 +155,7 @@ class SessionStore(Protocol):
 
     async def find_user(self, user_id: str) -> Optional[dict]: ...
 
-    async def replace(self, old: Mapping[str, Any], new_doc: dict) -> None: ...
+    async def replace(self, old: Mapping[str, Any], new_doc: dict) -> bool: ...
 
 
 async def refresh_owner_session(
@@ -204,7 +204,9 @@ async def refresh_owner_session(
     if not _is_owner(user):
         return REJECT, None
     issued = issue(current, kind=KIND_BOX)
-    await store.replace(candidate, issued.document(str(candidate.get("user_id") or ""), current))
+    swapped = await store.replace(candidate, issued.document(str(candidate.get("user_id") or ""), current))
+    if not swapped:
+        return REJECT, None
     return ROTATE, issued
 
 
@@ -227,10 +229,17 @@ class MongoSessionStore:
         row = await db.users.find_one({"user_id": user_id}, {"_id": 0})
         return row if isinstance(row, dict) else None
 
-    async def replace(self, old: Mapping[str, Any], new_doc: dict) -> None:
+    async def replace(self, old: Mapping[str, Any], new_doc: dict) -> bool:
+        """Swap one session row in place. A second rotator of the same token loses."""
         from deps import db
 
         token = str(old.get("session_token") or "")
-        if token:
-            await db.user_sessions.delete_one({"session_token": token})
-        await db.user_sessions.insert_one(dict(new_doc))
+        doc = {key: value for key, value in dict(new_doc).items() if key != "_id"}
+        if not token:
+            await db.user_sessions.insert_one(doc)
+            return True
+        updated = await db.user_sessions.find_one_and_update(
+            {"session_token": token},
+            {"$set": doc},
+        )
+        return updated is not None
