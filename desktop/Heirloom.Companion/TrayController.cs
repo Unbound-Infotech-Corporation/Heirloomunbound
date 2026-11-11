@@ -520,28 +520,39 @@ internal sealed class TrayController : IDisposable
 
     private static string CaptureSelection()
     {
+        var before = "";
+        try
+        {
+            if (Clipboard.ContainsText())
+            {
+                before = Clipboard.GetText();
+            }
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            return SelectionCapture.AfterCopy(false, "", "");
+        }
+
         try
         {
             SendCopy();
             System.Threading.Thread.Sleep(80);
             var copied = Clipboard.ContainsText() ? Clipboard.GetText() : "";
-            return SelectionCapture.AfterCopy(true, copied);
+            return SelectionCapture.AfterCopy(true, before, copied);
         }
         catch (System.Runtime.InteropServices.COMException)
         {
-            return SelectionCapture.AfterCopy(false, "");
+            return SelectionCapture.AfterCopy(false, before, "");
         }
     }
 
     private static void SendCopy()
     {
-        const byte control = 0x11;
-        const byte c = 0x43;
         const uint keyUp = 2;
-        keybd_event(control, 0, 0, UIntPtr.Zero);
-        keybd_event(c, 0, 0, UIntPtr.Zero);
-        keybd_event(c, 0, keyUp, UIntPtr.Zero);
-        keybd_event(control, 0, keyUp, UIntPtr.Zero);
+        foreach (var (key, down) in CopyChord.Sequence())
+        {
+            keybd_event(key, 0, down ? 0 : keyUp, UIntPtr.Zero);
+        }
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]

@@ -35,10 +35,45 @@ public sealed class WritingPaste
 }
 
 /// <summary>
-/// The hotkey copies the highlight first. The clipboard from before that copy is not the selection.
+/// The hotkey copies the highlight first. A clipboard that did not change was not the selection.
 /// </summary>
 public static class SelectionCapture
 {
-    public static string AfterCopy(bool copySent, string? copied) =>
-        copySent ? (copied ?? "") : "";
+    public static string AfterCopy(bool copySent, string? before, string? copied)
+    {
+        if (!copySent)
+        {
+            return "";
+        }
+
+        var next = copied ?? "";
+        if (next == (before ?? ""))
+        {
+            return "";
+        }
+
+        return next;
+    }
+}
+
+/// <summary>
+/// Ctrl+Alt+H is still held when the hook runs. Release those keys before Ctrl+C.
+/// </summary>
+public static class CopyChord
+{
+    public const byte VkMenu = 0x12;
+    public const byte VkControl = 0x11;
+    public const byte VkH = 0x48;
+    public const byte VkC = 0x43;
+
+    public static IReadOnlyList<(byte Key, bool Down)> Sequence() =>
+    [
+        (VkH, false),
+        (VkMenu, false),
+        (VkControl, false),
+        (VkControl, true),
+        (VkC, true),
+        (VkC, false),
+        (VkControl, false),
+    ];
 }

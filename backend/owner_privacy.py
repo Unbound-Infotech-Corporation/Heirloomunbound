@@ -51,7 +51,7 @@ def redact_private(text: str, private_texts: list[str] | tuple[str, ...] | None)
     cleaned = text or ""
     for secret in private_texts or ():
         snippet = (secret or "").strip()
-        if len(snippet) < 4:
+        if len(snippet) < 3:
             continue
         if snippet in cleaned:
             cleaned = cleaned.replace(snippet, "[private]")

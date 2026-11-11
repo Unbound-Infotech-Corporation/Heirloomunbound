@@ -6,6 +6,7 @@ Drafts are never sent. Device changes that need Confirm return
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from assist_agent import draft_message, plan_subagent, prepare_mcp_arguments, prepare_research, validate_mcp
@@ -165,10 +166,11 @@ STUDIO_SCHEMAS: list[dict[str, Any]] = [
 
 
 def prompt_private_snippets(system: str) -> list[str]:
-    """Lines from the memory and archive sections of a prompt.
+    """Fact text from the memory and archive sections of a prompt.
 
-    A research or draft call redacts these even when the model copies them
-    into the tool arguments and does not label them private.
+    Citations like ``[#12]`` are removed so a copy of the fact, without the
+    id, is still redacted. Short lines are kept once they are a real fact
+    (three characters or more), not only lines of twelve or more.
     """
     text = system or ""
     chunks: list[str] = []
@@ -190,7 +192,8 @@ def prompt_private_snippets(system: str) -> list[str]:
     for block in chunks:
         for line in block.splitlines():
             cleaned = line.strip().lstrip("-").strip()
-            if len(cleaned) >= 12 and cleaned not in snippets:
+            cleaned = re.sub(r"\s*\[#[^\]]+\]", "", cleaned).strip()
+            if len(cleaned) >= 3 and cleaned not in snippets:
                 snippets.append(cleaned)
     return snippets
 

@@ -12,7 +12,12 @@ public class WritingPasteTests
         Assert.Null(card.PasteBack());
         card.Approve();
         Assert.Equal("This is long.", card.PasteBack());
-        Assert.Equal("", SelectionCapture.AfterCopy(false, "old clipboard"));
-        Assert.Equal("highlighted words", SelectionCapture.AfterCopy(true, "highlighted words"));
+        Assert.Equal("", SelectionCapture.AfterCopy(false, "old clipboard", "highlighted words"));
+        Assert.Equal("", SelectionCapture.AfterCopy(true, "old clipboard", "old clipboard"));
+        Assert.Equal("highlighted words", SelectionCapture.AfterCopy(true, "old clipboard", "highlighted words"));
+        var chord = CopyChord.Sequence();
+        var altUp = chord.ToList().FindIndex(step => step.Key == CopyChord.VkMenu && !step.Down);
+        var cDown = chord.ToList().FindIndex(step => step.Key == CopyChord.VkC && step.Down);
+        Assert.True(altUp >= 0 && cDown > altUp);
     }
 }

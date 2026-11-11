@@ -112,8 +112,19 @@ def test_assist_chat_tools_stay_off_the_twin_and_strip_memories():
 
     from assist_studio_tools import exec_studio_tool, prompt_private_snippets, studio_names_for
 
-    prompt = "=== LONG-TERM MEMORY ===\nprivate memory about the oak tree\n===\n"
-    assert "private memory about the oak tree" in prompt_private_snippets(prompt)
+    prompt = "=== LONG-TERM MEMORY ===\n- Grew up in Vermont. [#12]\n- Mom\n===\n"
+    snippets = prompt_private_snippets(prompt)
+    assert "Grew up in Vermont." in snippets
+    assert "[#12]" not in " ".join(snippets)
+    assert "Mom" in snippets
+    cited = asyncio.run(exec_studio_tool(
+        "web_research",
+        {"query": "Look up Grew up in Vermont."},
+        role="assistant",
+        audience="owner",
+        private_texts=snippets,
+    ))
+    assert "Vermont" not in cited["summary"]
 
     assert "smart_home_set" in studio_names_for("assistant", "owner")
     assert studio_names_for("twin", "owner") == set()
