@@ -12,5 +12,7 @@ public class WritingPasteTests
         Assert.Null(card.PasteBack());
         card.Approve();
         Assert.Equal("This is long.", card.PasteBack());
+        Assert.Equal("", SelectionCapture.AfterCopy(false, "old clipboard"));
+        Assert.Equal("highlighted words", SelectionCapture.AfterCopy(true, "highlighted words"));
     }
 }

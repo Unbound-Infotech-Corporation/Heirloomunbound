@@ -513,22 +513,39 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
-        var selected = "";
-        try
-        {
-            if (Clipboard.ContainsText())
-            {
-                selected = Clipboard.GetText();
-            }
-        }
-        catch (System.Runtime.InteropServices.COMException)
-        {
-            selected = "";
-        }
-
+        var selected = CaptureSelection();
         var card = new WritingCardWindow(selected);
         card.Show();
     }
+
+    private static string CaptureSelection()
+    {
+        try
+        {
+            SendCopy();
+            System.Threading.Thread.Sleep(80);
+            var copied = Clipboard.ContainsText() ? Clipboard.GetText() : "";
+            return SelectionCapture.AfterCopy(true, copied);
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            return SelectionCapture.AfterCopy(false, "");
+        }
+    }
+
+    private static void SendCopy()
+    {
+        const byte control = 0x11;
+        const byte c = 0x43;
+        const uint keyUp = 2;
+        keybd_event(control, 0, 0, UIntPtr.Zero);
+        keybd_event(c, 0, 0, UIntPtr.Zero);
+        keybd_event(c, 0, keyUp, UIntPtr.Zero);
+        keybd_event(control, 0, keyUp, UIntPtr.Zero);
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 
     public void Dispose()
     {

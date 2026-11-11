@@ -222,13 +222,13 @@ def _layer(root: Path, passphrase: str, *, runner: Callable[..., subprocess.Comp
     order = sorted(manifest, key=lambda row: (0 if row["kind"] == "full" else 1, row["date"], row["name"]))
     staging = Path(tempfile.mkdtemp(prefix="heirloom-restore-"))
     try:
-        for row in order:
+        for index, row in enumerate(order):
             blob = b"".join(part.read_bytes() for part in row["parts"])
             cipher = staging / (row["name"] + ".cipher")
             cipher.write_bytes(blob)
             tar_path = staging / (row["name"] + ".tar")
             _decrypt(cipher, tar_path, passphrase, runner=runner)
-            extract_root = staging / ("extract-" + row["date"] + "-" + row["kind"])
+            extract_root = staging / f"extract-{index}-{row['kind']}"
             extract_root.mkdir()
             _safe_extract(tar_path, extract_root)
             _overlay(_payload_root(extract_root), staging / "layered")

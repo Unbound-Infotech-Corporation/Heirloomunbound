@@ -1117,8 +1117,13 @@ async def run_twin_turn(
             if resp.finish_reason != "tool_calls" or not resp.tool_calls:
                 break
             for tc in resp.tool_calls:
+                from assist_studio_tools import prompt_private_snippets
+
                 result = await execute_tool(
-                    tc.name, user_id, tc.arguments or {}, audience=audience_key, role=role,
+                    tc.name, user_id, tc.arguments or {},
+                    audience=audience_key,
+                    role=role,
+                    private_texts=prompt_private_snippets(system),
                 )
                 chat.add_tool_result(tc.id, result.get("summary", ""))
                 tool_trace.append({

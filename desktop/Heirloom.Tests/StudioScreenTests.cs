@@ -24,7 +24,15 @@ public class StudioScreenTests
         Assert.DoesNotContain("horse", setup.PublicSnapshot());
         Assert.DoesNotContain("horse", setup.ToString());
         Assert.Equal("correct horse battery staple", setup.ConsumePassphrase());
-        Assert.False(setup.HasPassphrase);
+        Assert.Equal("encrypted", SetupCenterModel.RestoreRoute("gpg", true, true));
+        Assert.Equal("need-passphrase", SetupCenterModel.RestoreRoute("gpg", true, false));
+        Assert.Equal("bad-checksum", SetupCenterModel.RestoreRoute("gpg", false, true));
+        Assert.Equal("plain", SetupCenterModel.RestoreRoute("plain", true, false));
+        var thermostat = HomeDevice.FromDiscovery("climate.hall", "Hall", "nest", "thermostat");
+        Assert.Equal("thermostat", thermostat.Kind);
+        var fridge = HomeDevice.FromDiscovery("switch.kitchen", "uuid:Kitchen fridge", "kasa", "plug");
+        Assert.Equal("plug", fridge.Kind);
+        Assert.True(fridge.Critical);
     }
 
     [Fact]

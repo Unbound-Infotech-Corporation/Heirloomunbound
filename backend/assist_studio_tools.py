@@ -57,9 +57,6 @@ STUDIO_SCHEMAS: list[dict[str, Any]] = [
                     "kind": {"type": "string"},
                     "action": {"type": "string"},
                     "value": {"type": "number"},
-                    "approved": {"type": "boolean"},
-                    "critical_confirm": {"type": "boolean"},
-                    "always_allow": {"type": "boolean"},
                 },
                 "required": ["action"],
             },
@@ -167,6 +164,37 @@ STUDIO_SCHEMAS: list[dict[str, Any]] = [
 ]
 
 
+def prompt_private_snippets(system: str) -> list[str]:
+    """Lines from the memory and archive sections of a prompt.
+
+    A research or draft call redacts these even when the model copies them
+    into the tool arguments and does not label them private.
+    """
+    text = system or ""
+    chunks: list[str] = []
+    markers = (
+        "=== LONG-TERM MEMORY ===",
+        "=== YOUR LONG-TERM MEMORY ===",
+        "=== ARCHIVE EXCERPTS ===",
+        "=== ARCHIVE",
+    )
+    for marker in markers:
+        start = text.find(marker)
+        if start < 0:
+            continue
+        rest = text[start + len(marker):]
+        end = rest.find("\n===")
+        block = rest if end < 0 else rest[:end]
+        chunks.append(block)
+    snippets: list[str] = []
+    for block in chunks:
+        for line in block.splitlines():
+            cleaned = line.strip().lstrip("-").strip()
+            if len(cleaned) >= 12 and cleaned not in snippets:
+                snippets.append(cleaned)
+    return snippets
+
+
 def studio_names_for(role: str, audience: str | None, *, source: str = "web") -> set[str]:
     if (role or "").strip().lower() != "assistant":
         return set()
@@ -184,14 +212,18 @@ async def exec_studio_tool(
     role: str | None,
     audience: str | None,
     search=None,
+    private_texts: list[str] | None = None,
 ) -> dict[str, Any]:
     if name not in studio_names_for(role or "", audience):
         return {"summary": "That stays with Assist.", "ui": {"ok": False, "error": "assist_only"}}
     payload = args or {}
+    # The model does not choose which memories are private. The turn supplies them.
+    owned = [text for text in (private_texts or []) if (text or "").strip()]
     if name == "smart_home_read":
         decision = prepare_action({"id": payload.get("device_id"), "name": payload.get("name"), "kind": "light"}, "read")
         return {"summary": decision["reason"], "ui": {"ok": True, "needs_confirm": False}}
     if name == "smart_home_set":
+        # Confirm is the owner's button. Arguments cannot grant it.
         decision = prepare_action(
             {
                 "id": payload.get("device_id") or "",
@@ -200,24 +232,24 @@ async def exec_studio_tool(
             },
             str(payload.get("action") or "off"),
             payload.get("value"),
-            always_allow=bool(payload.get("always_allow")),
-            approved=bool(payload.get("approved")),
-            critical_confirm=bool(payload.get("critical_confirm")),
+            always_allow=False,
+            approved=False,
+            critical_confirm=False,
         )
         return {
             "summary": decision["reason"],
-            "ui": {"ok": bool(decision["executed"]), "needs_confirm": bool(decision["needs_approval"])},
+            "ui": {"ok": False, "needs_confirm": True},
         }
     if name == "draft_message":
         draft = draft_message(
             kind=str(payload.get("kind") or "email"),
             to=str(payload.get("to") or ""),
             body=str(payload.get("body") or ""),
-            private_texts=list(payload.get("private_texts") or []),
+            private_texts=owned,
         )
         return {"summary": "Draft ready. Nothing was sent.", "ui": {"ok": True, "sent": False, "body": draft["body"]}}
     if name == "web_research":
-        safe = prepare_research(str(payload.get("query") or ""), list(payload.get("private_texts") or []))
+        safe = prepare_research(str(payload.get("query") or ""), owned)
         if safe["payload"].strip() in {"", "[private]"}:
             return {"summary": "That memory stays on this PC.", "ui": {"ok": False}}
         if search is None:
@@ -244,7 +276,7 @@ async def exec_studio_tool(
     if name == "mcp_call":
         try:
             spec = validate_mcp({"command": payload.get("command") or "", "url": payload.get("url") or ""})
-            arguments = prepare_mcp_arguments(dict(payload.get("arguments") or {}), list(payload.get("private_texts") or []))
+            arguments = prepare_mcp_arguments(dict(payload.get("arguments") or {}), owned)
         except Exception as exc:  # noqa: BLE001 — the owner sees a sentence, not a stack
             return {"summary": str(exc), "ui": {"ok": False}}
         return {"summary": "Connector is on this PC.", "ui": {"ok": True, "needs_confirm": True, "spec": spec, "arguments": arguments}}

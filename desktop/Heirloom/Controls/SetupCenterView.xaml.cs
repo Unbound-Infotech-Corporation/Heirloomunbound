@@ -102,11 +102,32 @@ public sealed partial class SetupCenterView : UserControl
             return;
         }
 
-        var passphrase = _model.ConsumePassphrase();
-        var encrypted = passphrase.Length > 0;
+        var inspect = await App.Host.Api.PostSessionAsync("/api/setup/restore/inspect", new { source, dest });
+        if (inspect is null)
+        {
+            RestoreLine.Text = "Could not read that folder. " + App.Host.Api.LastFailure;
+            return;
+        }
+
+        var kind = inspect.Value.TryGetProperty("kind", out var kindEl) ? kindEl.GetString() : "plain";
+        var checksumsOk = !inspect.Value.TryGetProperty("checksums_ok", out var okEl) || okEl.ValueKind == JsonValueKind.True;
+        var route = SetupCenterModel.RestoreRoute(kind, checksumsOk, _model.HasPassphrase);
+        if (route == "bad-checksum")
+        {
+            RestoreLine.Text = "The checksums do not match. Nothing was opened.";
+            return;
+        }
+
+        if (route == "need-passphrase")
+        {
+            RestoreLine.Text = "This backup is encrypted. Enter the passphrase. It is not saved.";
+            return;
+        }
+
+        var passphrase = route == "encrypted" ? _model.ConsumePassphrase() : "";
         var result = await App.Host.Api.PostSessionAsync(
-            encrypted ? "/api/setup/restore/encrypted" : "/api/setup/restore/apply",
-            encrypted
+            route == "encrypted" ? "/api/setup/restore/encrypted" : "/api/setup/restore/apply",
+            route == "encrypted"
                 ? new { source, dest, passphrase, confirm = true, new_machine = true }
                 : (object)new { source, dest, confirm = true, new_machine = true });
         passphrase = "";

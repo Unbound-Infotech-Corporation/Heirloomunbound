@@ -898,6 +898,7 @@ async def execute_tool(
     *,
     audience: str | None = None,
     role: str | None = None,
+    private_texts: list[str] | None = None,
 ) -> dict:
     """Public entrypoint. Returns {summary, ui?} — never raises."""
     if name in STUDIO_TOOL_NAMES:
@@ -910,6 +911,7 @@ async def execute_tool(
             role=role,
             audience=audience,
             search=_search if name == "web_research" else None,
+            private_texts=list(private_texts or []),
         )
     if audience is not None and not is_owner_audience(audience) and name in OWNER_ONLY_TOOLS:
         return {"summary": "That stays with the owner.", "ui": {"error": "heir_forbidden"}}

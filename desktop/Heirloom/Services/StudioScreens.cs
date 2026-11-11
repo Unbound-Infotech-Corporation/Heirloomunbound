@@ -42,6 +42,21 @@ public sealed class SetupCenterModel
     public string RestoreDetail { get; private set; } = "Point at the backup folder, or at D:\\TwinBackup.";
     public bool HasPassphrase => _passphrase.Length > 0;
 
+    public static string RestoreRoute(string? kind, bool checksumsOk, bool hasPassphrase)
+    {
+        if (string.Equals(kind, "gpg", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!checksumsOk)
+            {
+                return "bad-checksum";
+            }
+
+            return hasPassphrase ? "encrypted" : "need-passphrase";
+        }
+
+        return "plain";
+    }
+
     public void Load(SetupSignals signals)
     {
         Steps =
@@ -353,7 +368,25 @@ public sealed class SmartHomeModel
     }
 }
 
-public sealed record HomeDevice(string Id, string Name, string Vendor, string Kind, bool Critical = false, string Role = "");
+public sealed record HomeDevice(string Id, string Name, string Vendor, string Kind, bool Critical = false, string Role = "")
+{
+    public static HomeDevice FromDiscovery(string id, string name, string vendor, string service = "")
+    {
+        var blob = $"{name} {vendor} {service}".ToLowerInvariant();
+        var kind = blob.Contains("thermostat", StringComparison.Ordinal)
+            || blob.Contains("climate", StringComparison.Ordinal)
+            || vendor is "ecobee" or "nest" or "honeywell"
+            ? "thermostat"
+            : blob.Contains("plug", StringComparison.Ordinal)
+                || blob.Contains("switch", StringComparison.Ordinal)
+                || vendor is "kasa" or "shelly" or "wemo" or "meross"
+                ? "plug"
+                : "light";
+        var critical = StudioPolicy.IsCritical(name, service + " " + vendor);
+        var label = string.IsNullOrWhiteSpace(name) ? vendor : name;
+        return new HomeDevice(id, label, vendor, kind, critical);
+    }
+}
 
 public sealed class CodeWorkspaceModel
 {

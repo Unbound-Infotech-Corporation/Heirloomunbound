@@ -110,7 +110,10 @@ def test_commands_wait_and_dangerous_ones_cannot_be_confirmed():
 def test_assist_chat_tools_stay_off_the_twin_and_strip_memories():
     import asyncio
 
-    from assist_studio_tools import exec_studio_tool, studio_names_for
+    from assist_studio_tools import exec_studio_tool, prompt_private_snippets, studio_names_for
+
+    prompt = "=== LONG-TERM MEMORY ===\nprivate memory about the oak tree\n===\n"
+    assert "private memory about the oak tree" in prompt_private_snippets(prompt)
 
     assert "smart_home_set" in studio_names_for("assistant", "owner")
     assert studio_names_for("twin", "owner") == set()
@@ -119,12 +122,21 @@ def test_assist_chat_tools_stay_off_the_twin_and_strip_memories():
     memory = "private memory about the oak tree"
     research = asyncio.run(exec_studio_tool(
         "web_research",
-        {"query": f"Look up {memory}", "private_texts": [memory]},
+        {"query": f"Look up {memory}"},
         role="assistant",
         audience="owner",
+        private_texts=[memory],
     ))
     assert memory not in research["summary"]
     assert memory not in str(research["ui"])
+    lamp = asyncio.run(exec_studio_tool(
+        "smart_home_set",
+        {"name": "Hall light", "kind": "light", "action": "off", "approved": True, "always_allow": True, "critical_confirm": True},
+        role="assistant",
+        audience="owner",
+    ))
+    assert lamp["ui"]["needs_confirm"] is True
+    assert lamp["ui"]["ok"] is False
     blocked = asyncio.run(exec_studio_tool(
         "smart_home_set",
         {"name": "Kitchen fridge", "kind": "plug", "action": "off", "approved": True, "always_allow": True},
@@ -141,9 +153,10 @@ def test_assist_chat_tools_stay_off_the_twin_and_strip_memories():
     assert twin["ui"]["error"] == "assist_only"
     draft = asyncio.run(exec_studio_tool(
         "draft_message",
-        {"to": "family@example.com", "body": f"Remember {memory}", "private_texts": [memory]},
+        {"to": "family@example.com", "body": f"Remember {memory}"},
         role="assistant",
         audience="owner",
+        private_texts=[memory],
     ))
     assert draft["ui"]["sent"] is False
     assert memory not in draft["ui"]["body"]

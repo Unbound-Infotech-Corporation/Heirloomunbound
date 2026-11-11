@@ -41,9 +41,9 @@ public sealed partial class SmartHomeView : UserControl
                     continue;
                 }
 
-                var critical = name.Contains("fridge", StringComparison.OrdinalIgnoreCase)
-                    || name.Contains("furnace", StringComparison.OrdinalIgnoreCase);
-                found.Add(new HomeDevice(id, string.IsNullOrWhiteSpace(name) ? vendor : name, vendor, "light", critical));
+                var label = string.IsNullOrWhiteSpace(name) ? vendor : name;
+                var service = row.TryGetProperty("service", out var serviceEl) ? serviceEl.GetString() ?? "" : "";
+                found.Add(HomeDevice.FromDiscovery(id, label, vendor, service));
             }
         }
 

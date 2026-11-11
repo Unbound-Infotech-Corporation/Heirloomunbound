@@ -33,3 +33,12 @@ public sealed class WritingPaste
 
     public string? PasteBack() => Approved ? After : null;
 }
+
+/// <summary>
+/// The hotkey copies the highlight first. The clipboard from before that copy is not the selection.
+/// </summary>
+public static class SelectionCapture
+{
+    public static string AfterCopy(bool copySent, string? copied) =>
+        copySent ? (copied ?? "") : "";
+}
