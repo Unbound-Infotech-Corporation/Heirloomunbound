@@ -25,6 +25,7 @@ from local_workstation import (
     PathRefused,
     WorkstationOnly,
     assert_restore_path,
+    confine_restore_paths,
     require_workstation,
 )
 from memory_guard import matches_document
@@ -101,6 +102,24 @@ def test_thursday_at_3pm_uses_the_owner_zone_not_utc():
     assert local.weekday() == 3
     assert (local.hour, local.minute) == (15, 0)
     assert local.isoformat().startswith("2026-11-12T15:00")
+    tomorrow = resolve_due_at(
+        "Remind me tomorrow at 3pm",
+        "2026-11-11T15:00:00+00:00",
+        "America/Los_Angeles",
+        now,
+    )
+    tomorrow_local = datetime.fromisoformat(tomorrow).astimezone(ZoneInfo("America/Los_Angeles"))
+    assert tomorrow_local.date().isoformat() == "2026-11-12"
+    assert (tomorrow_local.hour, tomorrow_local.minute) == (15, 0)
+    new_year = resolve_due_at(
+        "January 1st at 12pm",
+        "2026-11-12T12:00:00+00:00",
+        "America/Los_Angeles",
+        now,
+    )
+    new_year_local = datetime.fromisoformat(new_year).astimezone(ZoneInfo("America/Los_Angeles"))
+    assert new_year_local.date().isoformat() == "2027-01-01"
+    assert (new_year_local.hour, new_year_local.minute) == (12, 0)
     assert owner_timezone({"timezone": "America/Los_Angeles"}) == "America/Los_Angeles"
     assert owner_timezone({}, "America/Chicago") == "America/Chicago"
     assert owner_timezone({"timezone": "America/Los_Angeles"}, "America/Chicago") == "America/Chicago"
@@ -133,10 +152,15 @@ def test_hosted_filesystem_routes_stay_hidden_and_box_paths_stay_inside(tmp_path
     assert assert_restore_path(str(workspace)) == workspace.resolve()
     with pytest.raises(PathRefused):
         assert_restore_path(str(outside))
+    with pytest.raises(PathRefused):
+        confine_restore_paths("")
+    with pytest.raises(PathRefused):
+        confine_restore_paths("  ", str(workspace))
+    confine_restore_paths(None, str(workspace))
 
     router = (ROOT / "backend" / "routers" / "big_update.py").read_text(encoding="utf-8")
     assert router.count("_local_owner(user)") >= 6
-    assert "assert_restore_path" in router
+    assert "confine_restore_paths" in router
 
 
 def test_owner_sit_routes_require_the_owner():

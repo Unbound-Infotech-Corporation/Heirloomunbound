@@ -36,7 +36,7 @@ from code_workspace import (
     plan_agent,
 )
 from deps import get_current_user
-from local_workstation import PathRefused, WorkstationOnly, assert_restore_path, require_workstation
+from local_workstation import PathRefused, WorkstationOnly, confine_restore_paths, require_workstation
 from owner_privacy import OwnerHidden, PrivacyError, json_hides_secret, require_owner
 from setup_center import (
     CloudModelDeferred,
@@ -93,9 +93,7 @@ def _local_owner(user: dict) -> dict:
 
 def _confine_restore(*paths: str | None) -> None:
     try:
-        for raw in paths:
-            if raw:
-                assert_restore_path(raw)
+        confine_restore_paths(*paths)
     except PathRefused as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

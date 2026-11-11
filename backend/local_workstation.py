@@ -76,3 +76,11 @@ def assert_restore_path(raw: str) -> Path:
     if not path_is_under_any(path, restore_roots()):
         raise PathRefused("That folder is outside the Heirloom restore workspace.")
     return path.resolve()
+
+
+def confine_restore_paths(*paths: str | None) -> None:
+    """Check every provided path. An empty string is refused; None is omitted."""
+    for raw in paths:
+        if raw is None:
+            continue
+        assert_restore_path(raw)
