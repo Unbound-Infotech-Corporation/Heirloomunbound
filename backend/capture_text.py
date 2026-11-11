@@ -51,7 +51,6 @@ _MONTH_DAY = re.compile(
     re.IGNORECASE,
 )
 _ISO_DAY = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
-_YEAR = re.compile(r"\b(19|20)\d{2}\b")
 _RELATIVE_SPAN = re.compile(r"\bin\s+(\d+)\s+(day|days|week|weeks)\b", re.IGNORECASE)
 _OTHER_DATE = re.compile(
     r"\b(today|tomorrow|tonight|next\s+week|in\s+\d+\s+(?:day|days|week|weeks|month|months)|"
@@ -186,50 +185,66 @@ def _spoken_clock(text: str) -> tuple[int, int] | None:
     return hour, minute
 
 
+def _safe_date(year: int, month: int, day: int):
+    try:
+        return datetime(year, month, day).date()
+    except ValueError:
+        return None
+
+
+def _year_beside(text: str, start: int, end: int) -> int | None:
+    """A year counts only when it sits against the month-day, not elsewhere in the note."""
+    after = re.match(r"\s*,?\s*((?:19|20)\d{2})\b", text[end:end + 16])
+    if after:
+        return int(after.group(1))
+    before = re.search(r"\b((?:19|20)\d{2})\s*,?\s*$", text[max(0, start - 12):start])
+    if before:
+        return int(before.group(1))
+    return None
+
+
 def _named_date(text: str, local_now: datetime, hour: int, minute: int):
-    """The calendar day the owner named. None when the phrase has no date we can read."""
-    iso = _ISO_DAY.search(text or "")
-    if iso:
-        year, month, day = (int(iso.group(1)), int(iso.group(2)), int(iso.group(3)))
-        try:
-            return datetime(year, month, day).date()
-        except ValueError:
-            return None
-    month_day = _MONTH_DAY.search(text or "")
-    if month_day:
-        month = _MONTHS[month_day.group(1).lower().rstrip(".")]
-        day = int(month_day.group(2))
-        year_match = _YEAR.search(text or "")
-        year = int(year_match.group(0)) if year_match else local_now.year
-        try:
-            target = datetime(year, month, day).date()
-        except ValueError:
-            return None
-        if year_match is None and datetime(
-            target.year, target.month, target.day, hour, minute, tzinfo=local_now.tzinfo,
-        ) <= local_now:
-            try:
-                target = datetime(year + 1, month, day).date()
-            except ValueError:
-                target = datetime(year + 1, month, 28).date()
-        return target
-    span = _RELATIVE_SPAN.search(text or "")
-    if span:
-        count = int(span.group(1))
-        days = count * 7 if span.group(2).lower().startswith("week") else count
-        return local_now.date() + timedelta(days=days)
-    if re.search(r"\btomorrow\b", text or "", flags=re.IGNORECASE):
-        return local_now.date() + timedelta(days=1)
-    if re.search(r"\b(today|tonight)\b", text or "", flags=re.IGNORECASE):
-        return local_now.date()
-    day_match = _WEEKDAY.search(text or "")
-    if day_match:
-        want = _WEEKDAYS[day_match.group(1).lower()]
+    """The date cue closest to the clock. A story date farther away does not win."""
+    raw = text or ""
+    clock = _CLOCK.search(raw)
+    anchor = clock.start() if clock else 0
+    found: list[tuple[int, int, object]] = []
+
+    def keep(match: re.Match, rank: int, day) -> None:
+        if day is not None:
+            found.append((abs(match.start() - anchor), rank, day))
+
+    for match in re.finditer(r"\b(tomorrow|today|tonight)\b", raw, flags=re.IGNORECASE):
+        word = match.group(1).lower()
+        day = local_now.date() + (timedelta(days=1) if word == "tomorrow" else timedelta())
+        keep(match, 0, day)
+    for match in _RELATIVE_SPAN.finditer(raw):
+        count = int(match.group(1))
+        days = count * 7 if match.group(2).lower().startswith("week") else count
+        keep(match, 1, local_now.date() + timedelta(days=days))
+    for match in _WEEKDAY.finditer(raw):
+        want = _WEEKDAYS[match.group(1).lower()]
         delta = (want - local_now.weekday()) % 7
         if delta == 0 and (hour, minute) <= (local_now.hour, local_now.minute):
             delta = 7
-        return local_now.date() + timedelta(days=delta)
-    return None
+        keep(match, 2, local_now.date() + timedelta(days=delta))
+    for match in _MONTH_DAY.finditer(raw):
+        month = _MONTHS[match.group(1).lower().rstrip(".")]
+        day_num = int(match.group(2))
+        beside = _year_beside(raw, match.start(), match.end())
+        year = beside if beside is not None else local_now.year
+        target = _safe_date(year, month, day_num)
+        if target is not None and beside is None:
+            due = datetime(year, month, day_num, hour, minute, tzinfo=local_now.tzinfo)
+            if due <= local_now:
+                target = _safe_date(year + 1, month, day_num) or _safe_date(year + 1, month, 28)
+        keep(match, 3, target)
+    for match in _ISO_DAY.finditer(raw):
+        keep(match, 4, _safe_date(int(match.group(1)), int(match.group(2)), int(match.group(3))))
+    if not found:
+        return None
+    found.sort(key=lambda item: (item[0], item[1]))
+    return found[0][2]
 
 
 def _parse_iso(raw: str | None) -> datetime | None:

@@ -120,6 +120,24 @@ def test_thursday_at_3pm_uses_the_owner_zone_not_utc():
     new_year_local = datetime.fromisoformat(new_year).astimezone(ZoneInfo("America/Los_Angeles"))
     assert new_year_local.date().isoformat() == "2027-01-01"
     assert (new_year_local.hour, new_year_local.minute) == (12, 0)
+    story = resolve_due_at(
+        "Remind me tomorrow at 3pm about the note dated January 5, 1998",
+        "1998-01-05T15:00:00+00:00",
+        "America/Los_Angeles",
+        now,
+    )
+    story_local = datetime.fromisoformat(story).astimezone(ZoneInfo("America/Los_Angeles"))
+    assert story_local.date().isoformat() == "2026-11-12"
+    assert (story_local.hour, story_local.minute) == (15, 0)
+    born = resolve_due_at(
+        "I was born in 1980. Remind me January 1st at 12pm",
+        "1980-01-01T12:00:00+00:00",
+        "America/Los_Angeles",
+        now,
+    )
+    born_local = datetime.fromisoformat(born).astimezone(ZoneInfo("America/Los_Angeles"))
+    assert born_local.date().isoformat() == "2027-01-01"
+    assert (born_local.hour, born_local.minute) == (12, 0)
     assert owner_timezone({"timezone": "America/Los_Angeles"}) == "America/Los_Angeles"
     assert owner_timezone({}, "America/Chicago") == "America/Chicago"
     assert owner_timezone({"timezone": "America/Los_Angeles"}, "America/Chicago") == "America/Chicago"
