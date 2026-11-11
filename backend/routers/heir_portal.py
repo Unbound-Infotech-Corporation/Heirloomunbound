@@ -47,8 +47,16 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _letter_unlocked(letter: dict, heir: dict, now: datetime) -> bool:
-    return letter_unlocked(letter, heir, now)
+def _letter_unlocked(letter: dict, heir: dict, now: datetime, heirs: list[dict] | None = None) -> bool:
+    return letter_unlocked(letter, heir, now, heirs)
+
+
+async def _family(owner_id: str) -> list[dict]:
+    """Heir names for this owner. Used only to resolve a unique recipient name."""
+    return await db.heirs.find(
+        {"user_id": owner_id},
+        {"_id": 0, "heir_id": 1, "name": 1},
+    ).to_list(length=500)
 
 
 async def _persist_portal_turn(
@@ -95,7 +103,8 @@ async def portal_summary(token: str):
     # Count visible letters
     cursor = db.sealed_letters.find({"user_id": owner["user_id"]}, {"_id": 0})
     letters = await cursor.to_list(length=500)
-    visible = [l for l in letters if _letter_unlocked(l, heir, now)]
+    family = await _family(owner["user_id"])
+    visible = [l for l in letters if _letter_unlocked(l, heir, now, family)]
 
     total_entries = await db.entries.count_documents(heir_archive_query(owner["user_id"]))
 
@@ -123,9 +132,10 @@ async def portal_letters(token: str):
     now = _now()
     cursor = db.sealed_letters.find({"user_id": owner_id}, {"_id": 0}).sort("created_at", -1)
     letters = await cursor.to_list(length=500)
+    family = await _family(owner_id)
     out = []
     for l in letters:
-        if _letter_unlocked(l, heir, now):
+        if _letter_unlocked(l, heir, now, family):
             # Mark as delivered first time it's read
             if not l.get("delivered"):
                 await db.sealed_letters.update_one(

@@ -57,7 +57,7 @@ jobs:
         run: |
           python -m pip install -r requirements-ci.txt
           New-Item -ItemType Directory -Force -Path ../test-results | Out-Null
-          python -m pytest tests/test_byo_secrets.py tests/test_setup_center.py tests/test_smart_home.py tests/test_writing_assistant.py tests/test_code_and_assist.py tests/test_backup_gpg.py tests/test_assist_receipt.py tests/test_owner_rail.py tests/test_brain_route.py tests/test_llm_provider.py tests/test_odysseus_client.py tests/test_report_fixes.py -q --junitxml=../test-results/backend-windows.xml
+          python -m pytest tests/test_byo_secrets.py tests/test_setup_center.py tests/test_smart_home.py tests/test_writing_assistant.py tests/test_code_and_assist.py tests/test_backup_gpg.py tests/test_assist_receipt.py tests/test_owner_rail.py tests/test_brain_route.py tests/test_llm_provider.py tests/test_odysseus_client.py tests/test_report_fixes.py tests/test_letter_unlock.py -q --junitxml=../test-results/backend-windows.xml
 
       - name: Upload Windows logs
         if: always()
@@ -89,7 +89,7 @@ jobs:
         run: |
           python -m pip install -r requirements-ci.txt
           mkdir -p ../test-results
-          python -m pytest tests/test_byo_secrets.py tests/test_setup_center.py tests/test_smart_home.py tests/test_writing_assistant.py tests/test_code_and_assist.py tests/test_backup_gpg.py tests/test_assist_receipt.py tests/test_owner_rail.py tests/test_brain_route.py tests/test_llm_provider.py tests/test_odysseus_client.py tests/test_report_fixes.py -q --junitxml=../test-results/backend-linux.xml
+          python -m pytest tests/test_byo_secrets.py tests/test_setup_center.py tests/test_smart_home.py tests/test_writing_assistant.py tests/test_code_and_assist.py tests/test_backup_gpg.py tests/test_assist_receipt.py tests/test_owner_rail.py tests/test_brain_route.py tests/test_llm_provider.py tests/test_odysseus_client.py tests/test_report_fixes.py tests/test_letter_unlock.py -q --junitxml=../test-results/backend-linux.xml
 
       - name: Upload Linux logs
         if: always()

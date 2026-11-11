@@ -1,12 +1,16 @@
 """Sealed-letter visibility for the heir portal.
 
-A letter is visible only when it is sealed AND its trigger has fired.
-Heirs must never see drafts or on_age / on_date letters that are not due.
+A letter is visible only when it is sealed, its trigger has fired, and it
+is linked to this heir. A stored heir id is the link. A recipient name is
+a link only when it matches exactly one heir. Anything else stays hidden
+and the owner is told it needs a recipient link.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Optional
+
+NEEDS_RECIPIENT_LINK = "needs a recipient link"
 
 
 def parse_iso(value: Any) -> Optional[datetime]:
@@ -56,13 +60,60 @@ def on_age_ready(letter: dict, heir: dict, now: datetime) -> bool:
     return now >= add_years(anchor, age)
 
 
-def letter_unlocked(letter: dict, heir: dict, now: datetime) -> bool:
-    """A sealed letter is visible to the heir iff it's been sealed AND its
-    trigger has fired."""
+def normalize_recipient_name(value: Any) -> str:
+    """Case-folded full name. Not a first-name or substring match."""
+    return " ".join(str(value or "").casefold().split())
+
+
+def linked_heir_id(letter: dict, heirs: list[dict] | None = None) -> str | None:
+    """The one heir this letter may be shown to.
+
+    A stored heir id always wins. A name is used only when exactly one heir
+    record has that full name. Zero matches and two matches both stay unlinked.
+    """
+    stored = str(letter.get("recipient_heir_id") or "").strip()
+    if stored:
+        return stored
+    target = normalize_recipient_name(letter.get("recipient_name"))
+    if not target or not heirs:
+        return None
+    found: list[str] = []
+    for row in heirs:
+        heir_id = str(row.get("heir_id") or "").strip()
+        if heir_id and normalize_recipient_name(row.get("name")) == target:
+            found.append(heir_id)
+    unique = set(found)
+    if len(unique) == 1:
+        return found[0]
+    return None
+
+
+def needs_recipient_link(letter: dict, heirs: list[dict] | None = None) -> bool:
+    """True when no heir id is stored and the name is missing or not unique.
+
+    An explicit heir id is already a link, even if the roster is not loaded.
+    A dangling id (no remaining heir with that id) still needs a link when
+    the roster is known.
+    """
+    stored = str(letter.get("recipient_heir_id") or "").strip()
+    if stored:
+        if heirs is None:
+            return False
+        return not any(str(row.get("heir_id") or "").strip() == stored for row in heirs)
+    return linked_heir_id(letter, heirs) is None
+
+
+def letter_unlocked(
+    letter: dict,
+    heir: dict,
+    now: datetime,
+    heirs: list[dict] | None = None,
+) -> bool:
+    """A sealed letter is visible only to the heir it is linked to, after its trigger."""
     if not letter.get("sealed"):
         return False
-    rid = letter.get("recipient_heir_id")
-    if rid and rid != heir.get("heir_id"):
+    linked = linked_heir_id(letter, heirs)
+    if not linked or linked != str(heir.get("heir_id") or "").strip():
         return False
 
     trig = letter.get("trigger", "on_release")
