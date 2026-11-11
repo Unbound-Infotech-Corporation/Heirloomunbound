@@ -203,48 +203,89 @@ def _year_beside(text: str, start: int, end: int) -> int | None:
     return None
 
 
-def _named_date(text: str, local_now: datetime, hour: int, minute: int):
-    """The date cue closest to the clock. A story date farther away does not win."""
+_TOPIC = re.compile(r"\b(?:about|regarding|dated)\b", re.IGNORECASE)
+
+
+def _schedule_clause(text: str) -> str:
+    """Words that schedule the reminder. A date after 'about' or 'dated' is the subject."""
     raw = text or ""
     clock = _CLOCK.search(raw)
-    anchor = clock.start() if clock else 0
-    found: list[tuple[int, int, object]] = []
+    if not clock:
+        return raw
+    topic = _TOPIC.search(raw, clock.end())
+    return raw[: topic.start() if topic else len(raw)]
 
-    def keep(match: re.Match, rank: int, day) -> None:
-        if day is not None:
-            found.append((abs(match.start() - anchor), rank, day))
+
+def _weekday_on_or_after(base, weekday: int, hour: int, minute: int, local_now: datetime):
+    delta = (weekday - base.weekday()) % 7
+    if (
+        delta == 0
+        and base == local_now.date()
+        and (hour, minute) <= (local_now.hour, local_now.minute)
+    ):
+        delta = 7
+    return base + timedelta(days=delta)
+
+
+def _calendar_day(match: re.Match, raw: str, local_now: datetime, hour: int, minute: int):
+    month = _MONTHS[match.group(1).lower().rstrip(".")]
+    day_num = int(match.group(2))
+    beside = _year_beside(raw, match.start(), match.end())
+    year = beside if beside is not None else local_now.year
+    target = _safe_date(year, month, day_num)
+    if target is None or beside is not None:
+        return target
+    due = datetime(year, month, day_num, hour, minute, tzinfo=local_now.tzinfo)
+    if due > local_now:
+        return target
+    return _safe_date(year + 1, month, day_num) or _safe_date(year + 1, month, 28)
+
+
+def _named_date(text: str, local_now: datetime, hour: int, minute: int):
+    """The day the owner scheduled, not whichever date token sits nearest the clock.
+
+    A span and a weekday combine ('in 2 weeks on Thursday'). A calendar date
+    outranks a weekday label ('January 5, Thursday'). A date after 'about'
+    or 'dated' is the subject of the reminder, not its due day.
+    """
+    raw = _schedule_clause(text)
+    relatives: list[tuple[int, object]] = []
+    weekdays: list[tuple[int, int]] = []
+    calendars: list[tuple[int, object]] = []
+    clock = _CLOCK.search(raw)
+    anchor = clock.start() if clock else 0
 
     for match in re.finditer(r"\b(tomorrow|today|tonight)\b", raw, flags=re.IGNORECASE):
         word = match.group(1).lower()
         day = local_now.date() + (timedelta(days=1) if word == "tomorrow" else timedelta())
-        keep(match, 0, day)
+        relatives.append((abs(match.start() - anchor), day))
     for match in _RELATIVE_SPAN.finditer(raw):
         count = int(match.group(1))
         days = count * 7 if match.group(2).lower().startswith("week") else count
-        keep(match, 1, local_now.date() + timedelta(days=days))
+        relatives.append((abs(match.start() - anchor), local_now.date() + timedelta(days=days)))
     for match in _WEEKDAY.finditer(raw):
-        want = _WEEKDAYS[match.group(1).lower()]
-        delta = (want - local_now.weekday()) % 7
-        if delta == 0 and (hour, minute) <= (local_now.hour, local_now.minute):
-            delta = 7
-        keep(match, 2, local_now.date() + timedelta(days=delta))
+        weekdays.append((abs(match.start() - anchor), _WEEKDAYS[match.group(1).lower()]))
     for match in _MONTH_DAY.finditer(raw):
-        month = _MONTHS[match.group(1).lower().rstrip(".")]
-        day_num = int(match.group(2))
-        beside = _year_beside(raw, match.start(), match.end())
-        year = beside if beside is not None else local_now.year
-        target = _safe_date(year, month, day_num)
-        if target is not None and beside is None:
-            due = datetime(year, month, day_num, hour, minute, tzinfo=local_now.tzinfo)
-            if due <= local_now:
-                target = _safe_date(year + 1, month, day_num) or _safe_date(year + 1, month, 28)
-        keep(match, 3, target)
+        day = _calendar_day(match, raw, local_now, hour, minute)
+        if day is not None:
+            calendars.append((abs(match.start() - anchor), day))
     for match in _ISO_DAY.finditer(raw):
-        keep(match, 4, _safe_date(int(match.group(1)), int(match.group(2)), int(match.group(3))))
-    if not found:
-        return None
-    found.sort(key=lambda item: (item[0], item[1]))
-    return found[0][2]
+        day = _safe_date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        if day is not None:
+            calendars.append((abs(match.start() - anchor), day))
+
+    if relatives and weekdays and not calendars:
+        base = min(relatives, key=lambda item: item[0])[1]
+        weekday = min(weekdays, key=lambda item: item[0])[1]
+        return _weekday_on_or_after(base, weekday, hour, minute, local_now)
+    if calendars:
+        return min(calendars, key=lambda item: item[0])[1]
+    if relatives:
+        return min(relatives, key=lambda item: item[0])[1]
+    if weekdays:
+        weekday = min(weekdays, key=lambda item: item[0])[1]
+        return _weekday_on_or_after(local_now.date(), weekday, hour, minute, local_now)
+    return None
 
 
 def _parse_iso(raw: str | None) -> datetime | None:

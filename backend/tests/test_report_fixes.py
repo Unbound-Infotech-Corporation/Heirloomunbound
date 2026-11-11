@@ -138,6 +138,32 @@ def test_thursday_at_3pm_uses_the_owner_zone_not_utc():
     born_local = datetime.fromisoformat(born).astimezone(ZoneInfo("America/Los_Angeles"))
     assert born_local.date().isoformat() == "2027-01-01"
     assert (born_local.hour, born_local.minute) == (12, 0)
+    about = resolve_due_at(
+        "tomorrow at 3pm about January 5",
+        "2027-01-05T15:00:00+00:00",
+        "America/Los_Angeles",
+        now,
+    )
+    about_local = datetime.fromisoformat(about).astimezone(ZoneInfo("America/Los_Angeles"))
+    assert about_local.date().isoformat() == "2026-11-12"
+    labeled = resolve_due_at(
+        "January 5, Thursday at 3pm",
+        "2026-11-12T15:00:00+00:00",
+        "America/Los_Angeles",
+        now,
+    )
+    labeled_local = datetime.fromisoformat(labeled).astimezone(ZoneInfo("America/Los_Angeles"))
+    assert labeled_local.date().isoformat() == "2027-01-05"
+    assert (labeled_local.hour, labeled_local.minute) == (15, 0)
+    later = resolve_due_at(
+        "in 2 weeks on Thursday at 3pm",
+        "2026-11-12T15:00:00+00:00",
+        "America/Los_Angeles",
+        now,
+    )
+    later_local = datetime.fromisoformat(later).astimezone(ZoneInfo("America/Los_Angeles"))
+    assert later_local.date().isoformat() == "2026-11-26"
+    assert (later_local.hour, later_local.minute) == (15, 0)
     assert owner_timezone({"timezone": "America/Los_Angeles"}) == "America/Los_Angeles"
     assert owner_timezone({}, "America/Chicago") == "America/Chicago"
     assert owner_timezone({"timezone": "America/Los_Angeles"}, "America/Chicago") == "America/Chicago"
