@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { LOCAL_EDITION_LABEL } from "../lib/pricing";
 import { usePageMeta } from "../lib/usePageMeta";
 
 export default function Refunds() {
@@ -22,12 +23,12 @@ export default function Refunds() {
             If Heirloom is not what you hoped, write to{" "}
             <a href="mailto:support@heirloom.app" style={{ color: "var(--accent)" }}>support@heirloom.app</a> within
             <b style={{ color: "var(--text-primary)" }}> 30 days </b>
-            of your purchase and we will refund the full $79. No questions, no friction.
+            of your purchase and we will refund the full {LOCAL_EDITION_LABEL}. No questions, no friction.
             We will also delete your archive at the same time unless you ask us not to.
           </Section>
 
           <Section title="After 30 days">
-            Heirloom is a lifetime license, so we do not pro-rate refunds after 30 days. If you stop using the product, your
+            Heirloom Local Edition is a one-time purchase, so we do not pro-rate refunds after 30 days. If you stop using the product, your
             archive remains intact and can be picked up again at any time. You can also delete it permanently from Settings
             at any point.
           </Section>

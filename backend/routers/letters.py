@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from deps import db, get_current_user
+from letter_unlock import NEEDS_RECIPIENT_LINK, needs_recipient_link
 
 router = APIRouter(prefix="/letters", tags=["letters"])
 
@@ -42,6 +43,26 @@ class LetterUpdate(BaseModel):
     trigger: Optional[str] = None
     delivery_date: Optional[str] = None
     delivery_age: Optional[int] = None
+
+
+async def _roster(user_id: str) -> list[dict]:
+    return await db.heirs.find(
+        {"user_id": user_id},
+        {"_id": 0, "heir_id": 1, "name": 1},
+    ).to_list(length=500)
+
+
+def _with_link(letter: dict, heirs: list[dict]) -> dict:
+    """Tell the owner when a sealed letter is not tied to one heir."""
+    needs = needs_recipient_link(letter, heirs)
+    letter["needs_recipient_link"] = needs
+    if needs:
+        letter["recipient_link"] = NEEDS_RECIPIENT_LINK
+    return letter
+
+
+async def _present(user_id: str, letter: dict) -> dict:
+    return _with_link(letter, await _roster(user_id))
 
 
 def _validate_trigger(payload_trigger: str, delivery_date, delivery_age) -> None:
@@ -84,13 +105,15 @@ async def create_letter(payload: LetterCreate, user: dict = Depends(get_current_
     }
     await db.sealed_letters.insert_one(doc)
     doc.pop("_id", None)
-    return doc
+    return await _present(user["user_id"], doc)
 
 
 @router.get("")
 async def list_letters(user: dict = Depends(get_current_user)):
     cursor = db.sealed_letters.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1)
-    return await cursor.to_list(length=500)
+    letters = await cursor.to_list(length=500)
+    heirs = await _roster(user["user_id"])
+    return [_with_link(letter, heirs) for letter in letters]
 
 
 @router.get("/{letter_id}")
@@ -100,7 +123,7 @@ async def get_letter(letter_id: str, user: dict = Depends(get_current_user)):
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Letter not found")
-    return doc
+    return await _present(user["user_id"], doc)
 
 
 @router.patch("/{letter_id}")
@@ -138,7 +161,7 @@ async def update_letter(
     doc = await db.sealed_letters.find_one(
         {"letter_id": letter_id, "user_id": user["user_id"]}, {"_id": 0}
     )
-    return doc
+    return await _present(user["user_id"], doc)
 
 
 @router.post("/{letter_id}/seal")
@@ -152,7 +175,7 @@ async def seal_letter(letter_id: str, user: dict = Depends(get_current_user)):
     doc = await db.sealed_letters.find_one(
         {"letter_id": letter_id, "user_id": user["user_id"]}, {"_id": 0}
     )
-    return doc
+    return await _present(user["user_id"], doc)
 
 
 @router.post("/{letter_id}/unseal")
@@ -171,7 +194,7 @@ async def unseal_letter(letter_id: str, user: dict = Depends(get_current_user)):
     doc = await db.sealed_letters.find_one(
         {"letter_id": letter_id, "user_id": user["user_id"]}, {"_id": 0}
     )
-    return doc
+    return await _present(user["user_id"], doc)
 
 
 @router.delete("/{letter_id}")
@@ -214,20 +237,25 @@ async def assist(payload: AssistReq, user: dict = Depends(get_current_user)):
     occasion = f" for their {payload.occasion.strip()}" if payload.occasion else ""
     tone = (payload.tone or "warm and sincere").strip()
 
+    from llm_errors import llm_error
     from llm_provider import complete_text
 
-    text = await complete_text(
-        (
-            f"You help {user.get('name', 'the writer')} write a deeply personal sealed letter to {recipient}{occasion}, "
-            f"to be delivered in the future. Write it in FIRST PERSON as the writer, matching the voice in their "
-            f"writing samples below. Tone: {tone}. Draw ONLY on the notes and samples — invent no facts. "
-            f"150–300 words, honest and specific, no greeting-card clichés. "
-            f'Return STRICT JSON: {{"title": "<short title>", "body": "<the letter>"}}. No markdown, no preamble.\n\n'
-            f"=== The writer's voice (samples) ===\n{voice_blob}"
-        ),
-        f"Notes for the letter:\n{payload.notes}",
-        session_id=f"letter_{uuid.uuid4().hex[:8]}",
-    )
+    try:
+        text = await complete_text(
+            (
+                f"You help {user.get('name', 'the writer')} write a deeply personal sealed letter to {recipient}{occasion}, "
+                f"to be delivered in the future. Write it in FIRST PERSON as the writer, matching the voice in their "
+                f"writing samples below. Tone: {tone}. Draw ONLY on the notes and samples — invent no facts. "
+                f"150–300 words, honest and specific, no greeting-card clichés. "
+                f'Return STRICT JSON: {{"title": "<short title>", "body": "<the letter>"}}. No markdown, no preamble.\n\n'
+                f"=== The writer's voice (samples) ===\n{voice_blob}"
+            ),
+            f"Notes for the letter:\n{payload.notes}",
+            session_id=f"letter_{uuid.uuid4().hex[:8]}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        status, detail = llm_error(exc, what="Writing help")
+        raise HTTPException(status_code=status, detail=detail) from None
     text = text.strip()
     if text.startswith("```"):
         text = text.strip("`")

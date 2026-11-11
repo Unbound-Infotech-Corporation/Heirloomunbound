@@ -36,7 +36,7 @@ async def _user_d_id_key(user: dict) -> str:
     (Settings → BYO key) if present, else fall back to the platform default.
 
     Letting customers BYO their key means D-ID render costs come out of their
-    account, not ours — which is essential for the $79 lifetime price to work
+    account, not ours — which is essential for the one-time Local Edition price to work
     at scale."""
     stored = (user.get("d_id_api_key") or "").strip()
     if stored:

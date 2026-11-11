@@ -9,6 +9,7 @@ export const RECEIPT_STATUS_LABEL = {
   failed: "Failed",
   waiting_confirm: "Waiting for Confirm",
   planned: "Plan",
+  needs_pc: "Needs this PC",
 };
 
 export function receiptStatusLabel(status) {
@@ -37,8 +38,12 @@ export function normalizeReceipt(raw) {
     ? raw.plan.map((item) => String(item || "").trim()).filter(Boolean)
     : [];
   const statusKey = String(raw.status || "").trim();
-  const status = RECEIPT_STATUS_LABEL[statusKey] ? statusKey : "did";
-  const summary = String(raw.summary || "").trim();
+  let status = RECEIPT_STATUS_LABEL[statusKey] ? statusKey : "did";
+  let summary = String(raw.summary || "").trim();
+  if (!steps.length && statusKey === "did") {
+    status = "needs_pc";
+    summary = "Needs this PC. Nothing ran.";
+  }
   if (!summary && !steps.length && !plan.length) return null;
   return {
     status,

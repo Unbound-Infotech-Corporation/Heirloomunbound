@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { useAuth } from "../lib/auth";
+import { wouldSayLabel } from "../lib/wouldSay";
 
 function scoreLine(run) {
   if (!run) return "";
@@ -19,6 +21,8 @@ export default function WouldSay() {
   const [drafts, setDrafts] = useState([]);
   const [busy, setBusy] = useState(false);
   const [closed, setClosed] = useState(false);
+  const { user } = useAuth() || {};
+  const title = wouldSayLabel(user?.name);
 
   function load() {
     api.get("/would-say/cases")
@@ -100,7 +104,7 @@ export default function WouldSay() {
   if (closed) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-8" data-testid="would-say-page">
-        <h1 className="font-serif text-3xl">Would C L say that?</h1>
+        <h1 className="font-serif text-3xl">{title}</h1>
         <p className="text-sm mt-3" data-testid="would-say-closed">This set stays with the owner.</p>
       </div>
     );
@@ -110,7 +114,7 @@ export default function WouldSay() {
     <div className="max-w-3xl mx-auto px-4 py-8" data-testid="would-say-page">
       <div className="overline mb-2">local only</div>
       <h1 className="font-serif text-3xl mb-2" style={{ color: "var(--text-primary)" }}>
-        Would C L say that?
+        {title}
       </h1>
       <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
         Cases come from saved owner lines and the style profile. Style uses a local embedding.

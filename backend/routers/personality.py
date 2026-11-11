@@ -19,6 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from capture_text import canonical_text
 from deps import db, get_current_user
 
 router = APIRouter(prefix="/personality", tags=["personality"])
@@ -64,7 +65,7 @@ async def _gather_corpus(user_id: str) -> tuple[str, int]:
     chunks = []
     for e in entries:
         chunks.append(
-            f"[{e.get('type','').upper()}] {e.get('title','')}\n{(e.get('content') or '')[:1200]}\n"
+            f"[{e.get('type','').upper()}] {e.get('title','')}\n{canonical_text(e)[:1200]}\n"
         )
     return "\n".join(chunks), len(entries)
 

@@ -1,4 +1,4 @@
-"""Stripe Checkout — sell Heirloom Companion as a one-time $79 lifetime purchase.
+"""Stripe Checkout — sell Heirloom Local Edition as a one-time purchase.
 
 Flow:
 1. /buy frontend → POST /api/billing/checkout {package_id, origin_url, email}
@@ -31,18 +31,25 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 
 from deps import db
+from pricing import (
+    LOCAL_EDITION_CURRENCY,
+    LOCAL_EDITION_DESCRIPTION,
+    LOCAL_EDITION_NAME,
+    LOCAL_EDITION_PRICE,
+)
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
 STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
 
 # Server-side package catalogue. NEVER trust amounts from the client.
+# The id stays "lifetime" so existing checkout calls keep working.
 PACKAGES = {
     "lifetime": {
-        "name": "Heirloom Lifetime",
-        "price": 79.00,
-        "currency": "usd",
-        "description": "Lifetime Heirloom Companion + Cloud Archive. One payment, yours forever.",
+        "name": LOCAL_EDITION_NAME,
+        "price": LOCAL_EDITION_PRICE,
+        "currency": LOCAL_EDITION_CURRENCY,
+        "description": LOCAL_EDITION_DESCRIPTION,
     },
 }
 

@@ -1,4 +1,4 @@
-"""'Would C L say that?' — owner cases scored on this machine.
+"""'Would you say that?' — owner cases scored on this machine.
 
 Cases are prompts plus reference replies drawn from saved owner
 conversations and the style profile. The runner asks a chosen local brain,

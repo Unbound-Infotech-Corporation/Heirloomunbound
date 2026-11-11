@@ -407,9 +407,8 @@ def test_billing_packages():
     data = r.json()
     pkgs = data.get("packages", {}) if isinstance(data, dict) else {}
     assert pkgs, data
-    # find $79 plan ("lifetime")
-    found = any(p.get("price") == 79.0 or p.get("price") == 79 for p in pkgs.values())
-    assert found, f"No $79 plan: {pkgs}"
+    found = any(p.get("price") == 79.99 for p in pkgs.values())
+    assert found, f"No $79.99 Local Edition: {pkgs}"
 
 
 def test_billing_checkout():

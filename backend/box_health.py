@@ -9,10 +9,7 @@ import os
 from ai_disclosure import disclosure_enabled
 from lab_mode import box_mode_enabled, lab_mode_enabled
 from llm_provider import resolve_llm_provider
-
-PRODUCT_VERSION = "0.5.1"
-
-
+from product_info import PRODUCT_VERSION
 from observer_store import status_public
 from presence_store import status_public as presence_status_public
 

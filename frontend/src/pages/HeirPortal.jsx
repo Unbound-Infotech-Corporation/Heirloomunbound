@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { BookOpen, Loader2, Mail, MessageCircle, Send, Sparkles } from "lucide-react";
+import { heirVisibleEntries } from "../lib/heirEntries";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const PORTAL_BASE = `${BACKEND_URL}/api/heir-portal`;
@@ -51,7 +52,7 @@ export default function HeirPortal() {
     if (tab === "entries" && !entries) {
       axios
         .get(`${PORTAL_BASE}/${token}/entries`)
-        .then(({ data }) => setEntries(data.entries))
+        .then(({ data }) => setEntries(heirVisibleEntries(data.entries)))
         .catch(() => setEntries([]));
     }
   }, [tab, token, letters, entries]);

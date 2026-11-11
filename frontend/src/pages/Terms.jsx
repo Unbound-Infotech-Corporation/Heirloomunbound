@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { LOCAL_EDITION_LABEL, LOCAL_EDITION_NAME } from "../lib/pricing";
 import { usePageMeta } from "../lib/usePageMeta";
 
 export default function Terms() {
@@ -24,7 +25,7 @@ export default function Terms() {
           </Section>
 
           <Section title="What you are buying">
-            One <b>lifetime license</b> per Google account, currently priced at <b>$79 USD</b>, paid once via Stripe. The license includes:
+            One <b>one-time {LOCAL_EDITION_NAME}</b> license per Google account, currently priced at <b>{LOCAL_EDITION_LABEL} USD</b>, paid once via Stripe. No subscription. The license includes:
             <ul className="list-disc ml-6 space-y-1.5 mt-2">
               <li>Unlimited personal archive entries, photos, and interviews.</li>
               <li>Unlimited Twin conversations.</li>

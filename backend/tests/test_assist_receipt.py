@@ -6,6 +6,7 @@ from pathlib import Path
 from assist_receipt import (
     STATUS_DID,
     STATUS_FAILED,
+    STATUS_NEEDS_PC,
     STATUS_WAITING_CONFIRM,
     build_assist_receipt,
     receipt_for_role,
@@ -30,19 +31,22 @@ def test_receipt_omitted_for_twin_role():
     assert build_assist_receipt(trace, reply="Opened it.", include=False) is None
 
 
-def test_assist_without_tools_still_receipts():
-    rec = receipt_for_role("assistant", [], reply="I can do that after you Confirm.")
+def test_assist_without_tools_is_not_done():
+    rec = receipt_for_role("assistant", [], reply="I opened YouTube for you.")
     assert rec is not None
-    assert rec["status"] == STATUS_DID
+    assert rec["status"] == STATUS_NEEDS_PC
+    assert rec["status"] != STATUS_DID
     assert rec["steps"] == []
     assert rec["plan"] is None
-    assert rec["summary"].startswith("I can do that")
+    assert rec["summary"] == "Needs this PC. Nothing ran."
+    assert "YouTube" not in rec["summary"]
 
 
-def test_assist_empty_reply_no_tools_is_honest():
+def test_assist_empty_reply_no_tools_is_not_done():
     rec = build_assist_receipt([], reply="  ")
-    assert rec["summary"] == "Answered. No PC action this turn."
-    assert rec["status"] == STATUS_DID
+    assert rec["summary"] == "Needs this PC. Nothing ran."
+    assert rec["status"] == STATUS_NEEDS_PC
+    assert rec["status"] != "did"
 
 
 def test_did_single_step_has_no_plan():

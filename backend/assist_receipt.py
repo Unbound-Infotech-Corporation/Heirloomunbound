@@ -13,12 +13,14 @@ STATUS_DID = "did"
 STATUS_FAILED = "failed"
 STATUS_WAITING_CONFIRM = "waiting_confirm"
 STATUS_PLANNED = "planned"
+STATUS_NEEDS_PC = "needs_pc"
 
 VALID_STATUSES = frozenset({
     STATUS_DID,
     STATUS_FAILED,
     STATUS_WAITING_CONFIRM,
     STATUS_PLANNED,
+    STATUS_NEEDS_PC,
 })
 
 # Human labels for Assist tools. Twin archive tools are listed so a
@@ -101,6 +103,9 @@ def receipt_status(steps: list[dict[str, Any]]) -> str:
         return STATUS_WAITING_CONFIRM
     if steps and any(not s.get("ok") for s in steps):
         return STATUS_FAILED
+    executed = [s for s in steps if s.get("ok") and not s.get("needs_confirm")]
+    if not executed:
+        return STATUS_NEEDS_PC
     return STATUS_DID
 
 
@@ -126,6 +131,8 @@ def receipt_summary(
             detail = waiting.get("summary") or waiting.get("label") or "this action"
             return clip_summary(f"Waiting for Confirm — {detail}.")
         return "Waiting for Confirm in this document."
+    if status == STATUS_NEEDS_PC:
+        return "Needs this PC. Nothing ran."
     if status == STATUS_FAILED:
         failed = [s for s in steps if not s.get("ok") and not s.get("needs_confirm")]
         if failed:

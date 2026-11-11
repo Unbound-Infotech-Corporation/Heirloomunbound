@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowUpRight, ScanLine, ShieldCheck, Smartphone } from "lucide-react";
 import { Link } from "react-router-dom";
+import { LOCAL_EDITION_LINE, LOCAL_EDITION_NAME, formatPrice } from "../lib/pricing";
 import { usePageMeta } from "../lib/usePageMeta";
 import { isTester } from "../lib/tester";
 
@@ -11,9 +12,9 @@ const API = `${BACKEND}/api`;
 
 export default function Buy() {
   usePageMeta({
-    title: "$79 Lifetime — Heirloom by Unbound Infotech",
+    title: `${LOCAL_EDITION_LINE} — Heirloom by Unbound Infotech`,
     description:
-      "One-time $79 payment, no subscription. Lifetime access to Heirloom — your private AI archive, voice-cloned twin, sealed letters, and Windows companion. Paid securely via Stripe.",
+      `${LOCAL_EDITION_LINE}. No subscription. Heirloom — your private AI archive, voice-cloned twin, sealed letters, and Windows companion. Paid once via Stripe.`,
   });
 
   const [link, setLink] = useState(null);
@@ -95,13 +96,13 @@ export default function Buy() {
         <div className="grid lg:grid-cols-[1.2fr_1fr] gap-8 mb-10">
           {/* PRICE + EMAIL + CTA */}
           <div className="surface p-7" data-testid="buy-price-card">
-            <div className="overline mb-2">lifetime</div>
-            <h3 className="font-serif text-2xl mb-2">Heirloom Lifetime</h3>
+            <div className="overline mb-2">one-time</div>
+            <h3 className="font-serif text-2xl mb-2">Heirloom {LOCAL_EDITION_NAME}</h3>
             <div
               className="font-serif text-5xl mb-4"
               style={{ color: "var(--accent)" }}
             >
-              ${link?.package?.price ?? "79"}
+              {formatPrice(link?.package?.price)}
               <span
                 className="text-base ml-1"
                 style={{ color: "var(--text-muted)" }}
@@ -113,8 +114,7 @@ export default function Buy() {
               className="text-sm mb-6"
               style={{ color: "var(--text-secondary)" }}
             >
-              {link?.package?.description ||
-                "Lifetime Heirloom Companion + Cloud Archive. One payment, yours forever."}
+              {link?.package?.description || LOCAL_EDITION_LINE}
             </p>
 
             <label
@@ -156,7 +156,7 @@ export default function Buy() {
                 pointerEvents: checkoutUrl ? "auto" : "none",
               }}
             >
-              Pay ${link?.package?.price ?? "79"} with Stripe
+              Pay {formatPrice(link?.package?.price)} with Stripe
               <ArrowUpRight className="h-4 w-4" />
             </a>
 
@@ -185,7 +185,7 @@ export default function Buy() {
             >
               <img
                 src="/stripe-qr.png"
-                alt="Scan this QR code to pay $79 via Stripe"
+                alt={`Scan this QR code to pay ${formatPrice(link?.package?.price)} via Stripe`}
                 width={220}
                 height={220}
                 className="block"

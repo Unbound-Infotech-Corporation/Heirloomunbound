@@ -410,7 +410,7 @@ export default function Letters() {
                     </div>
                     <h3 className="font-serif text-2xl mb-2">{l.title}</h3>
                     <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                      to {heir?.name || l.recipient_name || "any released heir"} · {triggerLabel(l)}
+                      to {l.needs_recipient_link ? "needs a recipient link" : (heir?.name || l.recipient_name || "needs a recipient link")} · {triggerLabel(l)}
                     </div>
                   </div>
                   {!l.delivered && (

@@ -36,6 +36,7 @@ from code_workspace import (
     plan_agent,
 )
 from deps import get_current_user
+from local_workstation import PathRefused, WorkstationOnly, confine_restore_paths, require_workstation
 from owner_privacy import OwnerHidden, PrivacyError, json_hides_secret, require_owner
 from setup_center import (
     CloudModelDeferred,
@@ -78,6 +79,23 @@ def _owner(user: dict) -> dict:
     except OwnerHidden as exc:
         raise HTTPException(status_code=404, detail="Not found") from exc
     return user
+
+
+def _local_owner(user: dict) -> dict:
+    """Filesystem routes exist on a box or desktop. Hosted callers get 404."""
+    owner = _owner(user)
+    try:
+        require_workstation()
+    except WorkstationOnly as exc:
+        raise HTTPException(status_code=404, detail="Not found") from exc
+    return owner
+
+
+def _confine_restore(*paths: str | None) -> None:
+    try:
+        confine_restore_paths(*paths)
+    except PathRefused as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 class ChecklistIn(BaseModel):
@@ -210,7 +228,8 @@ def post_secret(body: SecretIn, user: dict = Depends(get_current_user)):
 
 @setup_router.post("/restore/inventory")
 def post_inventory(body: RestoreIn, user: dict = Depends(get_current_user)):
-    _owner(user)
+    _local_owner(user)
+    _confine_restore(body.source)
     try:
         return inventory_backup(Path(body.source))
     except RestoreRefused as exc:
@@ -219,7 +238,8 @@ def post_inventory(body: RestoreIn, user: dict = Depends(get_current_user)):
 
 @setup_router.post("/restore/plan")
 def post_plan(body: RestoreIn, user: dict = Depends(get_current_user)):
-    _owner(user)
+    _local_owner(user)
+    _confine_restore(body.source, body.dest, body.data_root)
     data_root = Path(body.data_root) if body.data_root else None
     return plan_restore(
         Path(body.source),
@@ -242,7 +262,8 @@ class EncryptedRestoreIn(BaseModel):
 
 @setup_router.post("/restore/inspect")
 def post_inspect(body: RestoreIn, user: dict = Depends(get_current_user)):
-    _owner(user)
+    _local_owner(user)
+    _confine_restore(body.source)
     from backup_gpg import inspect_backup
 
     try:
@@ -253,7 +274,8 @@ def post_inspect(body: RestoreIn, user: dict = Depends(get_current_user)):
 
 @setup_router.post("/restore/encrypted")
 def post_encrypted(body: EncryptedRestoreIn, user: dict = Depends(get_current_user)):
-    _owner(user)
+    _local_owner(user)
+    _confine_restore(body.source, body.dest, body.data_root)
     from backup_gpg import restore_encrypted
 
     data_root = Path(body.data_root) if body.data_root else None
@@ -276,7 +298,8 @@ def post_encrypted(body: EncryptedRestoreIn, user: dict = Depends(get_current_us
 
 @setup_router.post("/restore/apply")
 def post_apply(body: RestoreIn, user: dict = Depends(get_current_user)):
-    _owner(user)
+    _local_owner(user)
+    _confine_restore(body.source, body.dest, body.data_root)
     data_root = Path(body.data_root) if body.data_root else None
     plan = plan_restore(
         Path(body.source),
@@ -376,7 +399,7 @@ def post_paste(body: PasteIn, user: dict = Depends(get_current_user)):
 
 @code_router.post("/open")
 def post_open(body: CodeOpenIn, user: dict = Depends(get_current_user)):
-    _owner(user)
+    _local_owner(user)
     try:
         assert_project(Path(body.path))
         return list_tree(Path(body.path))

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ArrowRight, BookmarkCheck, Brain, Clock, Loader2, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
+import { browserTimeZone } from "../lib/captureTime";
 
 const PLACEHOLDERS = [
   "Call mom on Saturday at 2pm…",
@@ -23,7 +24,7 @@ export default function QuickCapture({ onCaptured }) {
     setBusy(true);
     setLast(null);
     try {
-      const { data } = await api.post("/capture", { text });
+      const { data } = await api.post("/capture", { text, timezone: browserTimeZone() });
       setLast(data);
       setText("");
       if (onCaptured) onCaptured(data);

@@ -8,15 +8,23 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from capture_text import (
+    grounded_cleanup,
+    grounded_tags,
+    grounded_title,
+    local_clock_line,
+    owner_timezone,
+    resolve_due_at,
+)
 from deps import EMERGENT_LLM_KEY, db, get_current_user
-from utils import escape_regex, rate_limit
+from utils import rate_limit
 
 router = APIRouter(prefix="/capture", tags=["capture"])
 
 
 CAPTURE_SYSTEM_TEMPLATE = """You are the Live Assistant inside Heirloom — a private "second brain" attached to a personality archive that someone is building over years.
 
-The current date and time (UTC) is: {now}. When parsing relative dates ("Saturday", "tomorrow", "in 2 hours"), always anchor to this exact moment.
+The owner's local date and time is: {now}. When parsing relative dates ("Saturday", "tomorrow", "Thursday at 3pm", "in 2 hours"), anchor to that local clock. "3pm" means 15:00 in the owner's time zone, not 15:00 UTC. Put that zone's offset on due_at.
 
 Each user message is a single quick thought captured in a hurry. Decide what to do with it. Output a SINGLE valid JSON object — no prose, no code fences — with this exact shape:
 
@@ -25,12 +33,13 @@ Each user message is a single quick thought captured in a hurry. Decide what to 
   "text": "<cleaned, first-person text>",
   "title": "<short evocative title, max 90 chars>",
   "tags": ["short","tags"],
-  "due_at": "<ISO8601 UTC if a date/time was mentioned, else null>",
+  "due_at": "<ISO8601 with the owner's offset if a date/time was mentioned, else null>",
   "answer_hint": "<if kind=question, restate the question concisely, else null>"
 }}
 
 Rules:
-- "reminder" = a future task, todo, errand, or scheduled obligation. Extract a date/time if present. Use the current date above as the anchor for relative phrases. Otherwise due_at = null.
+- "reminder" = a future task, todo, errand, or scheduled obligation. Extract a date/time if present. Use the local clock above as the anchor for relative phrases. "3pm" is 15:00 in that zone. Otherwise due_at = null.
+- "text" may only tighten the owner's words. Do not add facts, places, or adjectives they did not say. If you cannot, copy their words.
 - "memory" = a recollection of something that happened. "value" = a belief or principle. "advice" = guidance for descendants. "quote" = a saying. "note" = an idea/observation without a clear category.
 - "question" = the user is asking the archive about something they captured before. Set answer_hint.
 - DO NOT include any other keys. DO NOT explain. Output ONLY the JSON.
@@ -39,6 +48,7 @@ Rules:
 
 class CaptureReq(BaseModel):
     text: str
+    timezone: Optional[str] = None
 
 
 def _strip_fences(s: str) -> str:
@@ -50,15 +60,14 @@ def _strip_fences(s: str) -> str:
     return s.strip()
 
 
-async def _classify(text: str) -> dict:
+async def _classify(text: str, *, clock: str) -> dict:
     from llm_provider import complete_text, prefer_local
 
     if not prefer_local() and not EMERGENT_LLM_KEY:
         return {"kind": "note", "text": text, "title": text[:80], "tags": [], "due_at": None}
-    now_iso = datetime.now(timezone.utc).isoformat()
     try:
         raw = await complete_text(
-            CAPTURE_SYSTEM_TEMPLATE.format(now=now_iso),
+            CAPTURE_SYSTEM_TEMPLATE.format(now=clock),
             text,
             session_id=f"capture_{uuid.uuid4().hex[:8]}",
         )
@@ -115,24 +124,26 @@ async def capture(payload: CaptureReq, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Capture too long (4000 char max)")
     await rate_limit(user["user_id"], "capture", max_calls=30, per_seconds=60)
 
-    classification = await _classify(text)
+    now_dt = datetime.now(timezone.utc)
+    tz_name = owner_timezone(user, payload.timezone)
+    classification = await _classify(text, clock=local_clock_line(now_dt, tz_name))
     kind = classification.get("kind", "note")
-    title = (classification.get("title") or text[:80])[:120]
-    cleaned = classification.get("text") or text
-    tags = classification.get("tags") or []
-    due_at = classification.get("due_at")
-    now = datetime.now(timezone.utc).isoformat()
+    title = grounded_title(text, classification.get("title"))
+    cleanup = grounded_cleanup(text, classification.get("text"))
+    tags = grounded_tags(text, classification.get("tags") or [])
+    due_at = resolve_due_at(text, classification.get("due_at"), tz_name, now_dt)
+    now = now_dt.isoformat()
 
     response: dict = {"kind": kind, "title": title}
 
     if kind == "question":
-        # Search archive + answer
-        related = await _search_archive(user["user_id"], cleaned, limit=6)
+        # Search archive + answer from the owner's words, not a paraphrase.
+        related = await _search_archive(user["user_id"], text, limit=6)
         try:
-            answer = await _answer_question(user, cleaned, related)
+            answer = await _answer_question(user, text, related)
         except Exception as exc:  # noqa: BLE001
             answer = f"(could not answer: {exc!s})"
-        response["question"] = cleaned
+        response["question"] = text
         response["answer"] = answer
         response["sources"] = [
             {"entry_id": r["entry_id"], "title": r["title"], "type": r["type"]} for r in related
@@ -144,7 +155,7 @@ async def capture(payload: CaptureReq, user: dict = Depends(get_current_user)):
         await db.reminders.insert_one({
             "reminder_id": rid,
             "user_id": user["user_id"],
-            "text": cleaned,
+            "text": text,
             "notes": None,
             "due_at": due_at,
             "status": "open",
@@ -155,7 +166,9 @@ async def capture(payload: CaptureReq, user: dict = Depends(get_current_user)):
         })
         response["reminder_id"] = rid
         response["due_at"] = due_at
-        response["text"] = cleaned
+        response["text"] = text
+        if cleanup:
+            response["cleanup"] = cleanup
         return response
 
     # Everything else → an archive entry
@@ -168,12 +181,14 @@ async def capture(payload: CaptureReq, user: dict = Depends(get_current_user)):
         "user_id": user["user_id"],
         "type": archive_kind,
         "title": title,
-        "content": cleaned,
+        "content": text,
         "tags": tags,
         "source": "quick_capture",
         "created_at": now,
         "updated_at": now,
     }
+    if cleanup:
+        doc["cleanup"] = cleanup
     await db.entries.insert_one(doc)
     doc.pop("_id", None)
     response["entry"] = doc

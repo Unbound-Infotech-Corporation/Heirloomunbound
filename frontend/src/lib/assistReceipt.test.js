@@ -12,7 +12,19 @@ describe("assistReceipt helpers", () => {
     expect(receiptStatusLabel("failed")).toBe("Failed");
     expect(receiptStatusLabel("waiting_confirm")).toBe("Waiting for Confirm");
     expect(receiptStatusLabel("planned")).toBe("Plan");
+    expect(receiptStatusLabel("needs_pc")).toBe("Needs this PC");
     expect(receiptStatusLabel("")).toBe("Did");
+  });
+
+  test("an empty Did receipt is not done", () => {
+    const rec = normalizeReceipt({
+      status: "did",
+      summary: "I opened YouTube.",
+      steps: [],
+    });
+    expect(rec.status).toBe("needs_pc");
+    expect(rec.summary).toBe("Needs this PC. Nothing ran.");
+    expect(rec.summary).not.toMatch(/YouTube/);
   });
 
   test("normalizeReceipt drops empty payloads and keeps steps", () => {

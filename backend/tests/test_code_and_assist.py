@@ -45,7 +45,8 @@ def test_coder_stays_local_and_off_the_twin_router():
     assert "import llm_provider" not in source
 
 
-def test_project_tree_skips_secrets_and_the_vault(tmp_path: Path):
+def test_project_tree_skips_secrets_and_the_vault(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HEIRLOOM_CODE_ROOTS", str(tmp_path))
     project = tmp_path / "app"
     (project / "src").mkdir(parents=True)
     (project / "src" / "main.py").write_text("print(1)\n", encoding="utf-8")
