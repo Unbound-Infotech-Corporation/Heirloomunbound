@@ -32,8 +32,15 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-ci.txt
 
-      - name: Install GnuPG
-        run: choco install gnupg -y
+      - name: Use Git for Windows GnuPG
+        shell: pwsh
+        run: |
+          $gpg = "C:\Program Files\Git\usr\bin"
+          if (-not (Test-Path (Join-Path $gpg "gpg.exe"))) {
+            throw "gpg.exe was not found next to Git for Windows."
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $gpg
+          & (Join-Path $gpg "gpg.exe") --version
 
       - name: Build WinUI and run dotnet tests
         shell: pwsh
