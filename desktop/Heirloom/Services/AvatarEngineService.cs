@@ -316,9 +316,10 @@ public sealed class AvatarEngineService
 
     private static string? LastJson(string text)
     {
-        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Reverse())
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = lines.Length - 1; i >= 0; i--)
         {
-            var trimmed = line.Trim();
+            var trimmed = lines[i].Trim();
             if (trimmed.StartsWith('{') && trimmed.EndsWith('}'))
             {
                 return trimmed;
