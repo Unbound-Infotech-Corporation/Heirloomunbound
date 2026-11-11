@@ -125,9 +125,11 @@ class TestAvatarApiKey:
         assert me["masked_key"] == "test-k…7890"
         assert me["configured"] is True
 
-        # Verify persisted in DB
+        # Verify persisted in DB as a sealed value, not the plaintext key.
         u = db.users.find_one({"user_id": uid}, {"_id": 0})
-        assert u.get("d_id_api_key") == "test-key-1234567890"
+        stored_key = u.get("d_id_api_key") or ""
+        assert stored_key.startswith("enc:v1:")
+        assert "test-key-1234567890" not in stored_key
 
         # DELETE clears it
         r = requests.delete(f"{API}/avatar/api-key", headers=_auth(tok), timeout=15)

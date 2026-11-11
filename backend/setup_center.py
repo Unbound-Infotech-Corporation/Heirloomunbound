@@ -359,7 +359,13 @@ class FileSecretStore(SecretStore):
         super().__init__()
         self.root = Path(root)
 
+    def get(self, user_id: str, flow_id: str) -> str:
+        return self._secrets.get((user_id, flow_id), "")
+
     def put(self, user_id: str, flow_id: str, secret: str) -> None:
+        from byo_secrets import store_key
+
+        sealed = store_key(secret)
         super().put(user_id, flow_id, secret)
         self.root.mkdir(parents=True, exist_ok=True)
         secret_path = self.root / "secrets.json"
@@ -370,7 +376,7 @@ class FileSecretStore(SecretStore):
         if secret_path.is_file():
             existing = json.loads(secret_path.read_text(encoding="utf-8"))
         user_row = existing.setdefault(user_id, {})
-        user_row[flow_id] = secret
+        user_row[flow_id] = sealed
         secret_path.write_text(json.dumps(existing), encoding="utf-8")
         try:
             os.chmod(secret_path, 0o600)
@@ -380,6 +386,54 @@ class FileSecretStore(SecretStore):
             json.dumps({"keys": self.public_view(user_id)}),
             encoding="utf-8",
         )
+
+    def load(self) -> None:
+        """Read secrets.json. Plaintext values are sealed in place when the key is set."""
+        import json
+
+        from byo_secrets import ByoKeyMissing, is_sealed, read_key, store_key
+
+        secret_path = self.root / "secrets.json"
+        if not secret_path.is_file():
+            return
+        existing = json.loads(secret_path.read_text(encoding="utf-8"))
+        if not isinstance(existing, dict):
+            return
+        changed = False
+        for user_id, flows_row in existing.items():
+            if not isinstance(flows_row, dict):
+                continue
+            for flow_id, value in list(flows_row.items()):
+                if not isinstance(value, str) or not value.strip():
+                    continue
+                if is_sealed(value):
+                    try:
+                        plain = read_key(value)
+                    except ByoKeyMissing:
+                        continue
+                    super().put(user_id, flow_id, plain)
+                    continue
+                flows_row[flow_id] = store_key(value)
+                super().put(user_id, flow_id, value)
+                changed = True
+        if changed:
+            secret_path.write_text(json.dumps(existing), encoding="utf-8")
+            try:
+                os.chmod(secret_path, 0o600)
+            except OSError:
+                pass
+        public_rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for (user_id, _flow_id) in self._secrets:
+            if user_id in seen:
+                continue
+            seen.add(user_id)
+            public_rows.extend(self.public_view(user_id))
+        if public_rows:
+            (self.root / "public.json").write_text(
+                json.dumps({"keys": public_rows}),
+                encoding="utf-8",
+            )
 
 
 def flows() -> list[dict[str, Any]]:

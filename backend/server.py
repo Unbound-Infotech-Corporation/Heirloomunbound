@@ -106,6 +106,19 @@ async def _startup():
     install_box_guard()
     init_storage()
     await ensure_indexes()
+    try:
+        from byo_secrets import migrate_users
+
+        migrated = await migrate_users(db.users)
+        if migrated.get("reason"):
+            logger.info(
+                "BYO key migration skipped (%s). Existing keys were left unchanged.",
+                migrated["reason"],
+            )
+        else:
+            logger.info("BYO key migration updated %s user documents.", migrated.get("updated", 0))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("BYO key migration failed: %s", type(exc).__name__)
 
     async def _letter_delivery_loop():
         # Deliver date-triggered sealed letters shortly after their day arrives.

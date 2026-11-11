@@ -81,9 +81,19 @@ public partial class VendorCoachViewModel : ObservableObject
             return;
         }
 
-        await _host.Api.PostSessionAsync(svc.SavePath, new { api_key = DraftKey.Trim() }).ConfigureAwait(true);
+        var secret = DraftKey.Trim();
+        await _host.Api.PostSessionAsync(svc.SavePath, new { api_key = secret }).ConfigureAwait(true);
+        try
+        {
+            _host.Credentials.SaveByoKey(svc.Id, secret);
+            Hint = "Key stored in Credential Locker. Next vendor.";
+        }
+        catch (Exception ex)
+        {
+            Hint = "Saved on the server. Credential Locker did not take the key (" + ex.GetType().Name + ").";
+        }
+
         DraftKey = "";
-        Hint = "Key stored in Heirloom. Next vendor.";
     }
 
     private void Advance()

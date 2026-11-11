@@ -1,9 +1,9 @@
 """Encrypt connector secrets before they touch Mongo.
 
-ElevenLabs and the other BYO keys are stored as plain user fields. There is
-no shared encrypted store to reuse, so connector app passwords use Fernet.
-The key is ``CONNECTOR_SECRET_KEY`` (a Fernet key, or any long passphrase
-we hash into one). The password is never written in the clear.
+Mailbox passwords use Fernet. The key is ``CONNECTOR_SECRET_KEY`` (a Fernet
+key, or any long passphrase we hash into one). Per-user BYO API keys use
+``byo_secrets.py`` and ``HEIRLOOM_BYO_KEY``, which is a different secret.
+The password is never written in the clear.
 """
 from __future__ import annotations
 

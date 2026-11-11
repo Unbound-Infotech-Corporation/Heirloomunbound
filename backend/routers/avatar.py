@@ -22,6 +22,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 
+from byo_secrets import ByoKeyMissing, preview_key, read_key, store_key
 from deps import db, get_current_user
 
 router = APIRouter(prefix="/avatar", tags=["avatar"])
@@ -37,9 +38,14 @@ async def _user_d_id_key(user: dict) -> str:
     Letting customers BYO their key means D-ID render costs come out of their
     account, not ours — which is essential for the $79 lifetime price to work
     at scale."""
-    personal = (user.get("d_id_api_key") or "").strip()
-    if personal:
-        return personal
+    stored = (user.get("d_id_api_key") or "").strip()
+    if stored:
+        try:
+            personal = read_key(stored)
+        except ByoKeyMissing as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        if personal:
+            return personal
     if not D_ID_API_KEY:
         raise HTTPException(
             status_code=500,
@@ -220,22 +226,26 @@ async def upload_source(
 
 @router.get("/me")
 async def my_avatar(user: dict = Depends(get_current_user)):
-    personal_key = (user.get("d_id_api_key") or "").strip()
+    stored = (user.get("d_id_api_key") or "").strip()
     return {
         "avatar_source_url": user.get("avatar_source_url") or "",
         "default_url": DEFAULT_SOURCE_URL,
-        "configured": bool(personal_key or D_ID_API_KEY),
-        "has_personal_key": bool(personal_key),
-        "masked_key": (personal_key[:6] + "…" + personal_key[-4:]) if personal_key else "",
+        "configured": bool(stored or D_ID_API_KEY),
+        "has_personal_key": bool(stored),
+        "masked_key": preview_key(stored),
     }
 
 
 @router.put("/api-key")
 async def set_api_key(payload: ApiKeyReq, user: dict = Depends(get_current_user)):
     """User stores their personal D-ID key. We never log or return it in full."""
+    try:
+        sealed = store_key(payload.api_key.strip())
+    except ByoKeyMissing as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     await db.users.update_one(
         {"user_id": user["user_id"]},
-        {"$set": {"d_id_api_key": payload.api_key.strip()}},
+        {"$set": {"d_id_api_key": sealed}},
     )
     return {"has_personal_key": True, "masked": payload.api_key[:6] + "…" + payload.api_key[-4:]}
 
