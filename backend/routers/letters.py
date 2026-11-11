@@ -214,20 +214,25 @@ async def assist(payload: AssistReq, user: dict = Depends(get_current_user)):
     occasion = f" for their {payload.occasion.strip()}" if payload.occasion else ""
     tone = (payload.tone or "warm and sincere").strip()
 
+    from llm_errors import llm_error
     from llm_provider import complete_text
 
-    text = await complete_text(
-        (
-            f"You help {user.get('name', 'the writer')} write a deeply personal sealed letter to {recipient}{occasion}, "
-            f"to be delivered in the future. Write it in FIRST PERSON as the writer, matching the voice in their "
-            f"writing samples below. Tone: {tone}. Draw ONLY on the notes and samples — invent no facts. "
-            f"150–300 words, honest and specific, no greeting-card clichés. "
-            f'Return STRICT JSON: {{"title": "<short title>", "body": "<the letter>"}}. No markdown, no preamble.\n\n'
-            f"=== The writer's voice (samples) ===\n{voice_blob}"
-        ),
-        f"Notes for the letter:\n{payload.notes}",
-        session_id=f"letter_{uuid.uuid4().hex[:8]}",
-    )
+    try:
+        text = await complete_text(
+            (
+                f"You help {user.get('name', 'the writer')} write a deeply personal sealed letter to {recipient}{occasion}, "
+                f"to be delivered in the future. Write it in FIRST PERSON as the writer, matching the voice in their "
+                f"writing samples below. Tone: {tone}. Draw ONLY on the notes and samples — invent no facts. "
+                f"150–300 words, honest and specific, no greeting-card clichés. "
+                f'Return STRICT JSON: {{"title": "<short title>", "body": "<the letter>"}}. No markdown, no preamble.\n\n'
+                f"=== The writer's voice (samples) ===\n{voice_blob}"
+            ),
+            f"Notes for the letter:\n{payload.notes}",
+            session_id=f"letter_{uuid.uuid4().hex[:8]}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        status, detail = llm_error(exc, what="Writing help")
+        raise HTTPException(status_code=status, detail=detail) from None
     text = text.strip()
     if text.startswith("```"):
         text = text.strip("`")

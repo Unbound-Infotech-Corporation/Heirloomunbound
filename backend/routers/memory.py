@@ -24,7 +24,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from capture_text import canonical_text
 from deps import db, get_current_user
+from llm_errors import llm_error
 from llm_provider import complete_text
 
 router = APIRouter(prefix="/memory", tags=["memory"])
@@ -82,7 +84,7 @@ async def _gather_corpus(user_id: str) -> tuple[str, int]:
     chunks = []
     for e in entries:
         chunks.append(
-            f"[id={e.get('entry_id')}] [{e.get('type','').upper()}] {e.get('title','')}\n{(e.get('content') or '')[:1000]}\n"
+            f"[id={e.get('entry_id')}] [{e.get('type','').upper()}] {e.get('title','')}\n{canonical_text(e)[:1000]}\n"
         )
     return "\n".join(chunks)[:24000], len(entries)
 
@@ -98,7 +100,8 @@ async def _extract_facts(user_id: str) -> list[dict]:
             session_id=f"facts_{user_id}_{int(_now().timestamp())}",
         )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"LLM fact extraction failed: {exc!s}") from exc
+        status, detail = llm_error(exc, what="Rebuilding memories")
+        raise HTTPException(status_code=status, detail=detail) from None
 
     parsed = _extract_json(reply_text)
     if not isinstance(parsed, list):
