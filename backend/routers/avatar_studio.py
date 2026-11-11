@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from byo_secrets import ByoKeyMissing, read_key, scrub, store_key
 from deps import db, get_current_user
 
 router = APIRouter(prefix="/avatar-studio", tags=["avatar-studio"])
@@ -181,9 +182,13 @@ async def set_fal_key(payload: FalKeyReq, user: dict = Depends(get_current_user)
             {"user_id": user["user_id"]}, {"$unset": {"fal_api_key": ""}}
         )
         return {"has_user_key": False}
+    try:
+        sealed = store_key(key)
+    except ByoKeyMissing as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     await db.users.update_one(
         {"user_id": user["user_id"]},
-        {"$set": {"fal_api_key": key, "updated_at": _now_iso()}},
+        {"$set": {"fal_api_key": sealed, "updated_at": _now_iso()}},
     )
     return {"has_user_key": True}
 
@@ -236,7 +241,14 @@ async def enhance_avatar(body: EnhanceReq, user: dict = Depends(get_current_user
             "HEIRLOOM_BOX refused cloud AI caller=avatar.enhance provider=fal model=fal-ai/codeformer"
         )
         raise HTTPException(status_code=503, detail="Cloud image enhancement is disabled on this box.")
-    user_fal = (user.get("fal_api_key") or "").strip()
+    stored_fal = (user.get("fal_api_key") or "").strip()
+    if stored_fal:
+        try:
+            user_fal = read_key(stored_fal)
+        except ByoKeyMissing as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    else:
+        user_fal = ""
     effective_key = user_fal or FAL_KEY
     if not effective_key:
         raise HTTPException(
@@ -267,7 +279,7 @@ async def enhance_avatar(body: EnhanceReq, user: dict = Depends(get_current_user
         )
         result = await handler.get()
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"fal.ai failed: {exc!s}") from exc
+        raise HTTPException(status_code=400, detail=scrub(f"fal.ai failed: {exc!s}", effective_key)) from exc
 
     enhanced_url = (result or {}).get("image", {}).get("url") if isinstance(result, dict) else None
     if not enhanced_url:

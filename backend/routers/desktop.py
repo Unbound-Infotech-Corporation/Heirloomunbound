@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from box_desktop import client_chat_mode, resolve_desktop_user
+from byo_secrets import ByoKeyMissing, read_key, scrub
 from deps import db
 from routers.live import publish_avatar as live_publish_avatar
 from routers.live import publish_turn as live_publish_turn
@@ -39,8 +40,18 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _saved_key(user: dict, field: str) -> str:
+    stored = (user.get(field) or "").strip()
+    if not stored:
+        return ""
+    try:
+        return read_key(stored)
+    except ByoKeyMissing as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 def _did_auth(user: dict) -> str:
-    key = (user.get("d_id_api_key") or "").strip() or D_ID_API_KEY
+    key = _saved_key(user, "d_id_api_key") or D_ID_API_KEY
     if not key:
         raise HTTPException(
             status_code=500,
@@ -535,7 +546,7 @@ async def desktop_speak(payload: SpeakReq, ctx: dict = Depends(resolve_desktop_u
     QMediaPlayer plays from raw bytes and we want to avoid the ~33% size
     inflation."""
     user = ctx["user"]
-    key = (user.get("elevenlabs_api_key") or "").strip() or ELEVENLABS_API_KEY
+    key = _saved_key(user, "elevenlabs_api_key") or ELEVENLABS_API_KEY
     voice_id = (user.get("elevenlabs_voice_id") or "").strip()
     if not key or not voice_id:
         raise HTTPException(
@@ -569,11 +580,11 @@ async def desktop_speak(payload: SpeakReq, ctx: dict = Depends(resolve_desktop_u
                 json=body,
             )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"ElevenLabs upstream: {exc!s}") from exc
+        raise HTTPException(status_code=502, detail=scrub(f"ElevenLabs upstream: {exc!s}", key)) from exc
 
     if r.status_code >= 400:
         # Map common errors to clearer messages
-        snippet = r.text[:300]
+        snippet = scrub(r.text[:300], key)
         if r.status_code == 401:
             raise HTTPException(status_code=400, detail="ElevenLabs key invalid or revoked.")
         if r.status_code == 404:

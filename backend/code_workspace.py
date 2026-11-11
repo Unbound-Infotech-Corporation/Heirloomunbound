@@ -136,7 +136,7 @@ def list_tree(path: Path, *, limit: int = 200) -> dict[str, Any]:
         for name in filenames:
             if name in SECRET_NAMES or name.endswith(".token") or name.endswith(".pem"):
                 continue
-            files.append(os.path.relpath(os.path.join(dirpath, name), root))
+            files.append(Path(dirpath, name).relative_to(root).as_posix())
             if len(files) >= limit:
                 truncated = True
                 break

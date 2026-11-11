@@ -8,6 +8,7 @@ from elevenlabs.client import AsyncElevenLabs
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from byo_secrets import ByoKeyMissing, preview_key, read_key, scrub, store_key
 from deps import db, get_current_user
 
 router = APIRouter(prefix="/voice-clone", tags=["voice-clone"])
@@ -16,7 +17,20 @@ DEFAULT_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 
 
 def _resolve_key(user: dict) -> str:
-    return user.get("elevenlabs_api_key") or DEFAULT_KEY
+    stored = user.get("elevenlabs_api_key") or ""
+    if not str(stored).strip():
+        return DEFAULT_KEY
+    try:
+        return read_key(str(stored)) or DEFAULT_KEY
+    except ByoKeyMissing as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _seal(plaintext: str) -> str:
+    try:
+        return store_key(plaintext)
+    except ByoKeyMissing as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def _resolve_voice_id(user: dict) -> Optional[str]:
@@ -36,11 +50,11 @@ class TTSReq(BaseModel):
 
 @router.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
-    key = user.get("elevenlabs_api_key") or ""
+    stored = user.get("elevenlabs_api_key") or ""
     return {
-        "has_user_key": bool(user.get("elevenlabs_api_key")),
+        "has_user_key": bool(str(stored).strip()),
         "has_default_key": bool(DEFAULT_KEY),
-        "api_key_preview": (key[:6] + "…" + key[-4:]) if key else "",
+        "api_key_preview": preview_key(str(stored)),
         "voice_id": user.get("elevenlabs_voice_id") or "",
         "voice_name": user.get("elevenlabs_voice_name") or "",
     }
@@ -55,7 +69,7 @@ async def set_settings(payload: SettingsPayload, user: dict = Depends(get_curren
         update["elevenlabs_voice_name"] = ""
     else:
         if payload.api_key is not None:
-            update["elevenlabs_api_key"] = payload.api_key.strip()
+            update["elevenlabs_api_key"] = _seal(payload.api_key.strip())
         if payload.voice_id is not None:
             update["elevenlabs_voice_id"] = payload.voice_id.strip()
     if not update:
@@ -80,7 +94,7 @@ async def set_api_key(payload: ApiKeyOnly, user: dict = Depends(get_current_user
         )
         return {"has_user_key": False}
     await db.users.update_one(
-        {"user_id": user["user_id"]}, {"$set": {"elevenlabs_api_key": key}}
+        {"user_id": user["user_id"]}, {"$set": {"elevenlabs_api_key": _seal(key)}}
     )
     return {"has_user_key": True}
 
@@ -102,7 +116,7 @@ async def list_voices(user: dict = Depends(get_current_user)):
     try:
         resp = await client.voices.get_all()
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"ElevenLabs error: {exc!s}") from exc
+        raise HTTPException(status_code=502, detail=scrub(f"ElevenLabs error: {exc!s}", key)) from exc
 
     voices = []
     for v in getattr(resp, "voices", []) or []:
@@ -147,7 +161,7 @@ async def speak(payload: TTSReq, user: dict = Depends(get_current_user)):
             if chunk:
                 audio += chunk
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"ElevenLabs TTS failed: {exc!s}") from exc
+        raise HTTPException(status_code=502, detail=scrub(f"ElevenLabs TTS failed: {exc!s}", key)) from exc
 
     return {
         "audio_base64": base64.b64encode(audio).decode("ascii"),
@@ -187,7 +201,7 @@ async def clone_voice(
             files=samples,
         )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"ElevenLabs clone failed: {exc!s}") from exc
+        raise HTTPException(status_code=502, detail=scrub(f"ElevenLabs clone failed: {exc!s}", key)) from exc
 
     voice_id = getattr(result, "voice_id", None) or (
         result.get("voice_id") if isinstance(result, dict) else None

@@ -30,6 +30,7 @@ public partial class StudioShellViewModel : ObservableObject
         Import = new ImportViewModel(host);
         Sources = new SourcesViewModel(host);
         Heirs = new ContinuityViewModel(host);
+        SetupReminder = new SetupReminderViewModel(host);
         FirstRun.RequestClose += (_, room) =>
         {
             ShowFirstRun = false;
@@ -52,7 +53,6 @@ public partial class StudioShellViewModel : ObservableObject
         Glossary = new GlossaryViewModel();
         KitchenSink = new KitchenSinkViewModel();
         Coach = new VendorCoachViewModel(host);
-        SetupReminder = new SetupReminderViewModel(host);
         SetupReminder.VisibilityChanged += (_, _) => SyncReminderChrome();
         SetupReminder.OpenDocumentRequested += (_, id) => OpenDocument(id);
         SyncReminderChrome();

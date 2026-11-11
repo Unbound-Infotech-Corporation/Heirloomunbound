@@ -50,6 +50,16 @@
     <ProjectReference Include="..\Heirloom.BoxCore\Heirloom.BoxCore.csproj" />
   </ItemGroup>
 
+  <!-- Playwright's trace viewer ships Vite files such as index.CFOW-Ezb.css.
+       MakePri reads the dotted name as a resource qualifier and warns PRI249.
+       The node driver still copies. These three files are only the viewer skin. -->
+  <Target Name="OmitPlaywrightTraceViewerFromPri" AfterTargets="CopyPlaywrightFilesToOutput">
+    <ItemGroup>
+      <Content Remove="@(Content)"
+                Condition="$([System.String]::Copy('%(Identity)').Contains('traceViewer')) and $([System.String]::Copy('%(Filename)').Contains('.')) and $([System.String]::Copy('%(Filename)').Contains('-'))" />
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="H.NotifyIcon.WinUI" Version="2.3.0" />

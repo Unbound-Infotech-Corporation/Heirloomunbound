@@ -454,7 +454,36 @@ public class BoxClientTests
             [SettingsPatch.CompanionWakePhrase] = "hey twin",
         }));
         Assert.Equal("hey twin", SettingsPatch.ReadString(path, SettingsPatch.CompanionWakePhrase, ""));
+        hold.Dispose();
         File.Delete(path);
+    }
+
+    [Fact]
+    public void Settings_patch_overwrites_when_replace_is_denied()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "heirloom-settings-" + Guid.NewGuid().ToString("n") + ".json");
+        File.WriteAllText(path, """{"companion_audio_mic":true,"companion_wake_phrase":"old phrase"}""");
+        SettingsPatch.ResetTestHooks();
+        SettingsPatch.SimulateReplaceSharingViolation = true;
+        try
+        {
+            Assert.True(SettingsPatch.Write(path, new Dictionary<string, object?>
+            {
+                [SettingsPatch.CompanionWakePhrase] = "hey twin",
+            }));
+            var text = File.ReadAllText(path);
+            Assert.Contains("hey twin", text);
+            Assert.Contains("companion_audio_mic", text);
+            Assert.DoesNotContain("old phrase", text);
+        }
+        finally
+        {
+            SettingsPatch.ResetTestHooks();
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
     }
 
     [Fact]

@@ -19,6 +19,7 @@ import abilities as ab
 import phone_inbound as inbound
 import phone_policy as policy
 import phone_retell as retell
+from byo_secrets import ByoKeyMissing, read_key
 from deps import db
 from routers.studio import get_studio_user
 from twin_runtime import ensure_conversation, run_twin_turn
@@ -132,7 +133,11 @@ async def provision_number(user: dict = Depends(get_studio_user)):
 
     name = (user.get("name") or "Heirloom Twin").strip() or "Heirloom Twin"
     eleven_id = (user.get("elevenlabs_voice_id") or "").strip()
-    eleven_key = (user.get("elevenlabs_api_key") or "").strip()
+    stored_eleven = (user.get("elevenlabs_api_key") or "").strip()
+    try:
+        eleven_key = read_key(stored_eleven) if stored_eleven else ""
+    except ByoKeyMissing as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     voice_id = retell.DEFAULT_STOCK_VOICE
     voice_kind = "stock"
     if eleven_id:

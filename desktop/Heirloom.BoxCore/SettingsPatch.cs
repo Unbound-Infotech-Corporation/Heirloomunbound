@@ -34,11 +34,17 @@ public static class SettingsPatch
     internal static int MaxAttempts { get; set; } = 5;
     internal static TimeSpan RetryDelay { get; set; } = TimeSpan.FromMilliseconds(40);
 
+    /// <summary>
+    /// Tests the path Windows takes when ReplaceFile refuses an open destination.
+    /// </summary>
+    internal static bool SimulateReplaceSharingViolation { get; set; }
+
     internal static void ResetTestHooks()
     {
         IoFailuresBeforeSuccess = 0;
         MaxAttempts = 5;
         RetryDelay = TimeSpan.FromMilliseconds(40);
+        SimulateReplaceSharingViolation = false;
     }
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
@@ -177,13 +183,37 @@ public static class SettingsPatch
                 writer.Write(contents);
             }
 
-            if (File.Exists(path))
+            try
             {
-                File.Replace(temp, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
+                if (SimulateReplaceSharingViolation)
+                {
+                    throw new IOException("settings.json is in use.");
+                }
+
+                if (File.Exists(path))
+                {
+                    // ReplaceFile on Windows fails while any handle has the destination open,
+                    // even when that handle used FileShare.ReadWrite. Linux rename does not.
+                    File.Replace(temp, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
+                }
+                else
+                {
+                    File.Move(temp, path);
+                }
             }
-            else
+            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && File.Exists(path))
             {
-                File.Move(temp, path);
+                OverwriteShared(path, contents);
+                try
+                {
+                    if (File.Exists(temp))
+                    {
+                        File.Delete(temp);
+                    }
+                }
+                catch (Exception deleteEx) when (deleteEx is IOException or UnauthorizedAccessException)
+                {
+                }
             }
         }
         catch
@@ -201,6 +231,15 @@ public static class SettingsPatch
 
             throw;
         }
+    }
+
+    private static void OverwriteShared(string path, string contents)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Write, ShareMode);
+        using var writer = new StreamWriter(stream);
+        writer.Write(contents);
+        writer.Flush();
+        stream.SetLength(stream.Position);
     }
 
     private static bool Retry(Action action)

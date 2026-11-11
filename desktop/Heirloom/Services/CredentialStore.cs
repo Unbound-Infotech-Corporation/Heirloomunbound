@@ -1,3 +1,4 @@
+using Heirloom.BoxCore;
 using Windows.Security.Credentials;
 
 namespace Heirloom.Services;
@@ -25,6 +26,22 @@ public sealed class CredentialStore
     {
         Write("session", null);
         Write("device", null);
+    }
+
+    /// <summary>
+    /// Credential Locker entry for a BYO API key. The name is one of
+    /// <see cref="ByoKeyFile.Names"/>. The password is not written to settings.json.
+    /// </summary>
+    public void SaveByoKey(string name, string? secret)
+    {
+        ByoKeyFile.RequireKnown(name);
+        Write("byo-" + name, secret);
+    }
+
+    public string? ReadByoKey(string name)
+    {
+        ByoKeyFile.RequireKnown(name);
+        return Read("byo-" + name);
     }
 
     private static string? Read(string name)

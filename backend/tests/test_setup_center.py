@@ -72,12 +72,13 @@ def test_home_assistant_token_must_stay_on_the_lan():
     assert json_hides_secret(store.public_view("owner"), "ha_token_value_1234")
 
 
-def test_file_store_public_copy_hides_the_key(tmp_path: Path):
+def test_file_store_public_copy_hides_the_key(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HEIRLOOM_BYO_KEY", "test-byo-key-material-not-a-real-secret")
     store = FileSecretStore(tmp_path)
     store.put("owner", "huggingface", SECRET)
     public = json.loads((tmp_path / "public.json").read_text(encoding="utf-8"))
     assert json_hides_secret(public, SECRET)
-    assert SECRET in (tmp_path / "secrets.json").read_text(encoding="utf-8")
+    assert SECRET not in (tmp_path / "secrets.json").read_text(encoding="utf-8")
 
 
 def test_checklist_and_repair_stay_local():

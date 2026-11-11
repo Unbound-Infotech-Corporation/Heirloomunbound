@@ -1,0 +1,8 @@
+# Packages for the unit files GitHub Actions runs.
+# backend/requirements.txt also pins a private litellm wheel, PySide6, and
+# emergentintegrations. Those are not needed for this suite and are not
+# installed in CI.
+pytest==9.1.1
+requests==2.34.2
+python-dotenv==1.2.2
+cryptography==49.0.0
