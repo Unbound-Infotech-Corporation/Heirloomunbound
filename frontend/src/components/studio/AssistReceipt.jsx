@@ -10,6 +10,7 @@ const STATUS_TONE = {
   failed: { color: "var(--danger)", border: "var(--danger)" },
   waiting_confirm: { color: "var(--accent)", border: "var(--accent)" },
   planned: { color: "var(--text-muted)", border: "var(--border-default)" },
+  needs_pc: { color: "var(--text-secondary)", border: "var(--border-default)" },
 };
 
 function Chip({ tone, children, testid, icon: Icon }) {
