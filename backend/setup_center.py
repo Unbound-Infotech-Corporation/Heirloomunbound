@@ -413,7 +413,14 @@ class FileSecretStore(SecretStore):
                         continue
                     super().put(user_id, flow_id, plain)
                     continue
-                flows_row[flow_id] = store_key(value)
+                try:
+                    sealed = store_key(value)
+                except ByoKeyMissing:
+                    # Keep using the saved plaintext. Do not rewrite the file
+                    # until HEIRLOOM_BYO_KEY is set.
+                    super().put(user_id, flow_id, value)
+                    continue
+                flows_row[flow_id] = sealed
                 super().put(user_id, flow_id, value)
                 changed = True
         if changed:

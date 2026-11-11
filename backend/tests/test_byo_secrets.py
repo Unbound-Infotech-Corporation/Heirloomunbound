@@ -185,6 +185,39 @@ def test_file_store_migrates_existing_plaintext(tmp_path: Path, monkeypatch):
     assert store.get("owner", "huggingface") == SECRET
 
 
+def test_file_store_load_keeps_plaintext_when_the_sealer_is_missing(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("HEIRLOOM_BYO_KEY", raising=False)
+    original = json.dumps({
+        "owner": {"huggingface": SECRET},
+        "other": {"home_assistant": "ha_token_value_1234"},
+    })
+    (tmp_path / "secrets.json").write_text(original, encoding="utf-8")
+    store = FileSecretStore(tmp_path)
+    store.load()
+    assert store.get("owner", "huggingface") == SECRET
+    assert store.get("other", "home_assistant") == "ha_token_value_1234"
+    assert (tmp_path / "secrets.json").read_text(encoding="utf-8") == original
+    public = (tmp_path / "public.json").read_text(encoding="utf-8")
+    assert SECRET not in public
+    assert "ha_token_value_1234" not in public
+
+
+def test_file_store_load_continues_past_an_unreadable_sealed_value(tmp_path: Path, monkeypatch):
+    sealed = store_key(SECRET, ENV)
+    monkeypatch.delenv("HEIRLOOM_BYO_KEY", raising=False)
+    (tmp_path / "secrets.json").write_text(
+        json.dumps({"owner": {"huggingface": sealed, "home_assistant": "ha_token_value_1234"}}),
+        encoding="utf-8",
+    )
+    store = FileSecretStore(tmp_path)
+    store.load()
+    assert store.get("owner", "huggingface") == ""
+    assert store.get("owner", "home_assistant") == "ha_token_value_1234"
+    raw = (tmp_path / "secrets.json").read_text(encoding="utf-8")
+    assert SECRET not in raw
+    assert "ha_token_value_1234" in raw
+
+
 def test_file_store_refuses_a_new_key_when_the_sealer_is_missing(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("HEIRLOOM_BYO_KEY", raising=False)
     store = FileSecretStore(tmp_path)
