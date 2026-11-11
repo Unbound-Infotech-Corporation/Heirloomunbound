@@ -96,3 +96,4 @@ frontend/node_modules/.cache/default-development/10.pack
 credentials.json
 *.key
 .credentials
+.heirloom-studio-plus/
