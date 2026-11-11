@@ -1,5 +1,7 @@
 # Smoke check for the Windows PC and for GitHub Actions (windows-latest).
-# Builds desktop/Heirloom (WinUI 3, .NET 8, x64) and runs desktop/Heirloom.Tests.
+# Builds desktop/Heirloom (WinUI 3, .NET 8, x64), publishes desktop/Heirloom.Companion
+# self-contained for win-x64 (BIGDEAL has no shared .NET runtime), and runs
+# desktop/Heirloom.Tests.
 # Pass -ResultsDir to also write a TRX log. The script does not claim a pass
 # from any machine that did not run it.
 param(
@@ -9,6 +11,8 @@ param(
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
 $buildProj = Join-Path $root "desktop/Heirloom/Heirloom.csproj"
+$companionProj = Join-Path $root "desktop/Heirloom.Companion/Heirloom.Companion.csproj"
+$companionOut = Join-Path $root "desktop/dist/Heirloom.Companion"
 $testProj = Join-Path $root "desktop/Heirloom.Tests/Heirloom.Tests.csproj"
 $failed = @()
 
@@ -16,6 +20,12 @@ Write-Host "Building desktop/Heirloom (WinUI 3, .NET 8, win-x64)..."
 & dotnet build $buildProj -c Release -r win-x64
 if ($LASTEXITCODE -ne 0) {
     $failed += "build"
+}
+
+Write-Host "Publishing desktop/Heirloom.Companion (self-contained win-x64, no shared runtime)..."
+& dotnet publish $companionProj -c Release -r win-x64 --self-contained true -o $companionOut /p:PublishTrimmed=false
+if ($LASTEXITCODE -ne 0) {
+    $failed += "companion"
 }
 
 Write-Host "Running desktop/Heirloom.Tests..."
@@ -30,7 +40,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if ($failed.Count -eq 0) {
-    Write-Host "PASS: WinUI build and dotnet tests succeeded."
+    Write-Host "PASS: WinUI build, Companion publish, and dotnet tests succeeded."
     exit 0
 }
 

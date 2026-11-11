@@ -42,7 +42,7 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value $gpg
           & (Join-Path $gpg "gpg.exe") --version
 
-      - name: Build WinUI and run dotnet tests
+      - name: Build WinUI, publish Companion, and run dotnet tests
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path test-results | Out-Null
