@@ -25,6 +25,7 @@
     <Product>Heirloom Unbound</Product>
     <Company>Unbound Infotech</Company>
     <Version>0.5.1</Version>
+    <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 

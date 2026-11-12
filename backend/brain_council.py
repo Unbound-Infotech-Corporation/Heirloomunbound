@@ -87,7 +87,12 @@ _HARD_PREFIXES = (
 )
 _PICK_RE = re.compile(r"\bPICK:\s*(bigdeal|box|odysseus)\b", re.IGNORECASE)
 _ORDER = ("bigdeal", "odysseus", "box")
-DRAFT_TIMEOUT = 35.0
+# A fresh Ollama process needed 56.31s to preload qwen2.5:14b (2026-11-11).
+# 35s turned that cold load into an empty timeout and a fake twin reply.
+# Warm chats still return as soon as the model answers (about a second).
+# This cap is the whole non-streaming call (weight load plus the reply).
+COLD_LOAD_SECONDS = 56.31
+DRAFT_TIMEOUT = 120.0
 SEARCH_QUERY_TIMEOUT = 12.0
 SEARCH_QUERY_PREDICT = 256
 SEARCH_RETRY_PREDICT = 128
@@ -279,6 +284,76 @@ def _meta(
     return row
 
 
+def is_load_timeout(exc: BaseException) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+    name = type(exc).__name__.lower()
+    if "timeout" in name:
+        return True
+    text = str(exc).lower()
+    return "timed out" in text or "timeout" in text
+
+
+def describe_draft_error(exc: BaseException) -> str:
+    """Honest text for a cold local load. TimeoutError stringifies to empty."""
+    if is_load_timeout(exc):
+        return "the local model is still loading"
+    text = str(exc).strip()
+    return text or type(exc).__name__
+
+
+def local_preload_target(
+    *,
+    box: bool,
+    remote_url: str,
+    local_url: str,
+    local_model: str,
+) -> Optional[tuple[str, str]]:
+    """Local Ollama only. A configured remote brain is ignored on purpose."""
+    if not box:
+        return None
+    url = (local_url or "").strip()
+    if not url:
+        return None
+    model = (local_model or "").strip() or "qwen2.5:14b"
+    _ = remote_url
+    return url, model
+
+
+async def preload_configured_local_model() -> str:
+    """Load the box model into VRAM at process start. Failures do not block startup.
+
+    Never calls a remote brain. The public web (not a Twin Box) skips this.
+    """
+    from box_owner import box_mode
+    from brain_route import current_settings
+    from llm_provider import complete_openai_chat
+
+    settings = await current_settings()
+    target = local_preload_target(
+        box=box_mode(),
+        remote_url=settings.remote_url,
+        local_url=settings.local_url,
+        local_model=settings.local_model,
+    )
+    if target is None:
+        return "skipped"
+    url, model = target
+    try:
+        await complete_openai_chat(
+            [{"role": "user", "content": "Reply with one word: ready"}],
+            model=model,
+            base_url=url,
+            pin_host=True,
+            timeout=DRAFT_TIMEOUT,
+            num_predict=8,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.info("local model preload did not finish: %s", describe_draft_error(exc))
+        return "failed"
+    return "loaded"
+
+
 def _label(strategy: str, path: str, names: list[str]) -> str:
     from brain_route import brain_label
 
@@ -380,8 +455,15 @@ async def _single(
             keep_alive=BRAIN_KEEP_ALIVE,
         )
     except Exception as exc:
-        completed = await _box_after_remote(messages, poster=poster, timeout=timeout, exc=exc)
+        try:
+            completed = await _box_after_remote(messages, poster=poster, timeout=timeout, exc=exc)
+        except Exception as second:  # noqa: BLE001
+            completed = None
+            if is_load_timeout(second):
+                exc = second
         if completed is None:
+            if is_load_timeout(exc):
+                raise RuntimeError(describe_draft_error(exc)) from exc
             raise
     from brain_route import last_answer
 

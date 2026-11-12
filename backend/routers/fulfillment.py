@@ -111,6 +111,7 @@ async def consume_magic_link(magic_token: str, response: Response):
         "expires_at": (_now() + timedelta(days=7)).isoformat(),
         "issued_via": "magic_link",
         "created_at": _now_iso(),
+        "kind": "web",
     })
 
     # Burn the magic-link so it can't be reused

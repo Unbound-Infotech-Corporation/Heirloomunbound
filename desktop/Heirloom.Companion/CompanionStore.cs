@@ -94,7 +94,11 @@ public sealed class CompanionStore
 
     public string? Session() => DpapiBoxSession.TryRead(DpapiBoxSession.SessionFile(Root));
 
+    public BoxSessionBundle? Bundle() => DpapiBoxSession.TryReadBundle(DpapiBoxSession.SessionFile(Root));
+
     public void SaveSession(string token) => DpapiBoxSession.Save(DpapiBoxSession.SessionFile(Root), token);
+
+    public void SaveBundle(BoxSessionBundle bundle) => DpapiBoxSession.SaveBundle(DpapiBoxSession.SessionFile(Root), bundle);
 
     public void ClearSession() => OwnerSession.DeleteFile(DpapiBoxSession.SessionFile(Root));
 

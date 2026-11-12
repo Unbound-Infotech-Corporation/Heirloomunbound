@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Heirloom.BoxCore;
@@ -709,6 +710,7 @@ public partial class TwinViewModel : ObservableObject
         Status = "Thinking…";
         AvatarState = "thinking";
         SetNow("Thinking from what you filed.");
+        await _host.Auth.EnsureFreshAsync(cancellationToken).ConfigureAwait(true);
 
         if (await TryOwnerBrowseAsync(text, cancellationToken).ConfigureAwait(true))
         {
@@ -771,38 +773,69 @@ public partial class TwinViewModel : ObservableObject
         }
 
         var remoteTwin = BoxLink.TwinUsesRemoteApi(_host.Settings.Current.RunMode);
-        if (string.IsNullOrWhiteSpace(reply) && !remoteTwin)
+        var askModel = string.IsNullOrWhiteSpace(reply);
+        using var loadingHint = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var loadingTask = askModel ? ShowLoadingHintAsync(loadingHint.Token) : Task.CompletedTask;
+        try
         {
-            await _host.Ollama.ProbeAsync(cancellationToken).ConfigureAwait(true);
-            var model = _host.Ollama.ChatModel;
-            if (_host.Ollama.IsReachable && !string.IsNullOrWhiteSpace(model))
+            if (string.IsNullOrWhiteSpace(reply) && !remoteTwin)
             {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeout.CancelAfter(TimeSpan.FromSeconds(50));
-                var local = await _host.Ollama.CompleteDetailedAsync(model, prompt, system, timeout.Token).ConfigureAwait(true);
-                reply = local.Text;
+                await _host.Ollama.ProbeAsync(cancellationToken).ConfigureAwait(true);
+                var model = _host.Ollama.ChatModel;
+                if (_host.Ollama.IsReachable && !string.IsNullOrWhiteSpace(model))
+                {
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    timeout.CancelAfter(ChatWait.LocalModel);
+                    var local = await _host.Ollama.CompleteDetailedAsync(model, prompt, system, timeout.Token).ConfigureAwait(true);
+                    reply = local.Text;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(reply) && (remoteTwin || !grounded || pack.HasPassages))
+            {
+                var cloud = await AskTwinAsync(text, grounded, audience, pack, cancellationToken).ConfigureAwait(true);
+                if (cloud is null && TwinFailure.IsSessionExpired(_host.Api.LastFailure)
+                    && await _host.Auth.TryRenewAsync(cancellationToken).ConfigureAwait(true))
+                {
+                    cloud = await AskTwinAsync(text, grounded, audience, pack, cancellationToken).ConfigureAwait(true);
+                }
+
+                if (cloud is { } json && json.TryGetProperty("reply", out var r))
+                {
+                    reply = r.GetString();
+                    if (json.TryGetProperty("brain", out var brainNode))
+                    {
+                        var brain = brainNode.GetString();
+                        if (!string.IsNullOrWhiteSpace(brain))
+                        {
+                            Status = "Brain " + brain;
+                        }
+                    }
+                }
+            }
+        }
+        finally
+        {
+            loadingHint.Cancel();
+            try
+            {
+                await loadingTask.ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
             }
         }
 
-        if (string.IsNullOrWhiteSpace(reply) && (remoteTwin || !grounded || pack.HasPassages))
+        var signInAgain = false;
+        var modelStillLoading = false;
+        if (string.IsNullOrWhiteSpace(reply))
         {
-            using var cloudTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cloudTimeout.CancelAfter(TimeSpan.FromSeconds(25));
-            var cloud = await _host.Api.PostAsync(
-                "/desktop/chat",
-                new { text, mode = "twin", grounded, persona = Persona, audience, twin_pack = pack.ToWire() },
-                cloudTimeout.Token).ConfigureAwait(true);
-            if (cloud is { } json && json.TryGetProperty("reply", out var r))
+            var honest = TwinFailure.HonestReply(_host.Ollama.LastError, _host.Api.LastFailure);
+            if (honest is not null)
             {
-                reply = r.GetString();
-                if (json.TryGetProperty("brain", out var brainNode))
-                {
-                    var brain = brainNode.GetString();
-                    if (!string.IsNullOrWhiteSpace(brain))
-                    {
-                        Status = "Brain " + brain;
-                    }
-                }
+                reply = honest;
+                signInAgain = TwinFailure.IsSessionExpired(_host.Api.LastFailure);
+                modelStillLoading = !signInAgain;
             }
         }
 
@@ -817,13 +850,23 @@ public partial class TwinViewModel : ObservableObject
         }
 
         reply ??= TwinSilence();
-        if (!CanEdit)
+        if (!CanEdit && !signInAgain && !modelStillLoading)
         {
             reply = TwinSafety.WithAside(reply, grief);
         }
 
         var citation = pack.HasPassages ? "Grounded in: " + LastCitation : LastCitation;
         ClearNow();
+        if (signInAgain || modelStillLoading)
+        {
+            Lines.Add(new ChatLine("twin", reply));
+            _lastTwinReply = "";
+            CanOfferVideo = false;
+            Status = signInAgain ? "Sign in again" : TwinFailure.ModelLoading;
+            AvatarState = "listening";
+            return;
+        }
+
         Lines.Add(new ChatLine("twin", reply, citation));
         _lastTwinReply = reply.Trim();
         CanOfferVideo = CanEdit
@@ -1132,6 +1175,34 @@ public partial class TwinViewModel : ObservableObject
         _lastFiled = 0;
         Status = "Took back the last filed sentence. Say New if the chat should forget it too.";
         Filed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async Task<JsonElement?> AskTwinAsync(
+        string text,
+        bool grounded,
+        string audience,
+        TwinPack pack,
+        CancellationToken cancellationToken)
+    {
+        using var cloudTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cloudTimeout.CancelAfter(ChatWait.BoxReply);
+        return await _host.Api.PostAsync(
+            "/desktop/chat",
+            new { text, mode = "twin", grounded, persona = Persona, audience, twin_pack = pack.ToWire() },
+            cloudTimeout.Token).ConfigureAwait(true);
+    }
+
+    private async Task ShowLoadingHintAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(ChatWait.ShowLoadingAfter, cancellationToken).ConfigureAwait(true);
+            Status = TwinFailure.ModelLoading;
+            SetNow(TwinFailure.ModelLoading);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private string TwinSilence()

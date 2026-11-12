@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Heirloom.BoxCore;
 using Heirloom.Services;
 
 namespace Heirloom.ViewModels;
@@ -113,7 +114,7 @@ public partial class StudioShellViewModel : ObservableObject
                 StatusLine = Mixer.Status;
             }
         };
-        StatusLine = "Heirloom " + host.Version + "  ·  " + host.BuildId;
+        StatusLine = ProductStamp.Title(host.Version);
         RefreshWindowLine();
     }
 

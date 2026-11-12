@@ -143,6 +143,18 @@ async def _startup():
 
     app.state.routines_task = asyncio.create_task(_standing_routines_loop())
 
+    async def _preload_local_model():
+        # A recreated Ollama needed ~56s before the first 14b token. Warm it
+        # in the background. Twin Box only; a remote brain URL is not called.
+        try:
+            from brain_council import preload_configured_local_model
+
+            await preload_configured_local_model()
+        except Exception as exc:  # noqa: BLE001
+            logger.info("local model preload skipped: %s", type(exc).__name__)
+
+    app.state.preload_task = asyncio.create_task(_preload_local_model())
+
 
 api_router = APIRouter(prefix="/api")
 

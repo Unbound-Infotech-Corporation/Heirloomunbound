@@ -15,7 +15,15 @@ public sealed record TrustOffer(string Host, string LeafSha256, string PinSha256
 
 public static class BoxClient
 {
+    private static readonly SemaphoreSlim RecoverGate = new(1, 1);
+
     public static event Action? Unauthorized;
+
+    /// <summary>
+    /// One quiet refresh before the tray treats 401 as signed-out.
+    /// Return true when a new owner session was stored.
+    /// </summary>
+    public static Func<CancellationToken, Task<bool>>? Recover { get; set; }
 
     private static async Task<HttpResponseMessage> SendObservedAsync(
         HttpClient http,
@@ -27,7 +35,24 @@ public static class BoxClient
         var response = await http.SendAsync(request, deadline.Token).ConfigureAwait(false);
         if (reportUnauthorized && response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            Unauthorized?.Invoke();
+            var recovered = false;
+            if (Recover is not null)
+            {
+                await RecoverGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    recovered = await Recover(cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    RecoverGate.Release();
+                }
+            }
+
+            if (!recovered)
+            {
+                Unauthorized?.Invoke();
+            }
         }
 
         return response;
@@ -107,7 +132,7 @@ public static class BoxClient
         return new TrustOffer(uri.Host, leaf, pin, pem);
     }
 
-    public static async Task<string?> LoginAsync(
+    public static async Task<BoxSessionBundle?> LoginAsync(
         string baseUrl,
         string email,
         string password,
@@ -126,13 +151,49 @@ public static class BoxClient
         }
 
         using var doc = JsonDocument.Parse(text);
-        if (!doc.RootElement.TryGetProperty("session_token", out var token))
+        return BoxSessionBundle.FromApi(doc.RootElement);
+    }
+
+    public static async Task<BoxSessionBundle?> RefreshAsync(
+        string baseUrl,
+        string? pin,
+        string? caPem,
+        string? sessionToken,
+        string? refreshToken,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken) && string.IsNullOrWhiteSpace(refreshToken))
         {
             return null;
         }
 
-        var value = token.GetString();
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        try
+        {
+            using var http = Create(baseUrl, pin, caPem, TimeSpan.FromSeconds(20));
+            using var request = new HttpRequestMessage(HttpMethod.Post, Api(baseUrl, "/api/auth/refresh"));
+            if (!string.IsNullOrWhiteSpace(sessionToken))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sessionToken.Trim());
+            }
+
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(new { refresh_token = refreshToken ?? "" }),
+                Encoding.UTF8,
+                "application/json");
+            using var response = await SendObservedAsync(http, request, cancellationToken, reportUnauthorized: false).ConfigureAwait(false);
+            var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(text))
+            {
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(text);
+            return BoxSessionBundle.FromApi(doc.RootElement);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException or UriFormatException)
+        {
+            return null;
+        }
     }
 
     public static async Task<HealthProbe> HealthAsync(

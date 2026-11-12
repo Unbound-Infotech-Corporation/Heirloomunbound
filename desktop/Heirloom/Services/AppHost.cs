@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using Heirloom.BoxCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,7 +28,9 @@ public sealed class AppHost : IDisposable
     public ProvisionService Provision { get; }
     public ScreenCaptureService Screen { get; }
 
-    public string Version => "0.5.1";
+    public string Version => ProductStamp.Display(
+        typeof(AppHost).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
+
     public string BuildId => Settings.Current.BuildId;
     public bool CanEdit =>
         !string.Equals(Settings.Current.AppMode, "heir", StringComparison.OrdinalIgnoreCase);
@@ -44,7 +47,7 @@ public sealed class AppHost : IDisposable
         services.AddSingleton(Credentials);
         services.AddHttpClient<HeirloomApiClient>(client =>
         {
-            client.Timeout = TimeSpan.FromSeconds(60);
+            client.Timeout = ChatWait.HttpClient;
         }).ConfigurePrimaryHttpMessageHandler(() =>
         {
             var handler = new HttpClientHandler();
@@ -134,6 +137,7 @@ public sealed class AppHost : IDisposable
         Vault.Open();
         AutostartService.Apply(Settings.Current.Autostart);
         Auth.LoadBoxSession();
+        await Auth.EnsureFreshAsync();
         Poller.Start();
         var pending = !Settings.Current.SetupComplete && !Settings.Current.SetupSkipped;
         if (BoxLink.StartsLocalModels(Settings.Current.RunMode) && !pending)

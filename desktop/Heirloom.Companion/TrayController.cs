@@ -30,6 +30,10 @@ internal sealed class TrayController : IDisposable
     private string _micStatus = "";
     private bool _wasCertificate;
     private TimeSpan _delay = PollSchedule.Healthy;
+    private DateTimeOffset? _lastHealthLog;
+    private string _lastHealthKey = "";
+    private DateTimeOffset? _lastRenewAttempt;
+    private readonly Func<CancellationToken, Task<bool>> _recover;
     private Icon? _current;
     private readonly CompanionLog _log = new(CompanionLog.DefaultDirectory());
     private readonly WakeHub _wake = new();
@@ -46,6 +50,8 @@ internal sealed class TrayController : IDisposable
         _live.DeclineRequested += id => _ = DeclineAsync(id);
         _live.TypedRequested += text => _ = SendTypedAsync(text);
         BoxClient.Unauthorized += OnUnauthorized;
+        _recover = TryRecoverAsync;
+        BoxClient.Recover = _recover;
     }
 
     public void Start()
@@ -65,50 +71,183 @@ internal sealed class TrayController : IDisposable
 
     private async Task PollOnceAsync(CancellationToken cancellationToken)
     {
-            var url = _store.BoxUrl;
-            var probe = await BoxClient.HealthAsync(url, _store.Pin, _store.CaPem, cancellationToken).ConfigureAwait(true);
-            var next = TrayStatus.Describe(probe.Reachable, probe.LatencyMs, url, probe.Body, probe.Failure);
-            var healthy = next.Lamp != BoxLamp.Red;
-            _delay = PollSchedule.Next(_delay, healthy);
-            MaybeToast(next);
-            _snapshot = next;
-            _audio.Note(next);
-            _screen.Note(next);
-            var signedIn = !string.IsNullOrWhiteSpace(_store.Session());
-            if (CompanionSync.ShouldPush(signedIn, _wasReachable, next.Reachable))
+        HealthFrame? frame = null;
+        await CompanionHealthPass.RunAsync(
+            async ct => frame = await CollectAsync(ct).ConfigureAwait(false),
+            () =>
             {
-                await PushSettingsAsync(cancellationToken).ConfigureAwait(true);
-            }
-
-            if (signedIn && next.Reachable)
+                if (frame is not null)
+                {
+                    ApplyFrame(frame);
+                }
+            },
+            () => Application.Current?.Dispatcher.CheckAccess() == true,
+            action =>
             {
-                await PollCaretakerAsync(cancellationToken).ConfigureAwait(true);
-            }
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher is null)
+                {
+                    return;
+                }
 
-            await PollAssistAsync(cancellationToken).ConfigureAwait(true);
-            _wasReachable = next.Reachable;
-            _wasCertificate = next.CertificateFailed;
-            _micStatus = _audio.MicFault;
-            var tip = string.IsNullOrWhiteSpace(_micStatus) ? next.Tooltip : next.Tooltip + "\n" + _micStatus;
-            await Application.Current.Dispatcher.InvokeAsync(() =>
-            {
-                _icon.ToolTipText = tip;
-                Paint(next.Lamp);
-                RebuildMenu();
-            });
-            await Task.Delay(_delay, cancellationToken).ConfigureAwait(true);
-    }
+                if (dispatcher.CheckAccess())
+                {
+                    action();
+                    return;
+                }
 
-    private void MaybeToast(BoxSnapshot next)
-    {
-        if (!_store.Toasts || _wasReachable is null)
+                dispatcher.Invoke(action);
+            },
+            cancellationToken).ConfigureAwait(false);
+        if (frame is null)
         {
             return;
         }
 
-        if (_wasReachable == next.Reachable && _wasCertificate == next.CertificateFailed)
+        NoteHealth(frame);
+        _wasReachable = frame.Snapshot.Reachable;
+        _wasCertificate = frame.Snapshot.CertificateFailed;
+        await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<HealthFrame> CollectAsync(CancellationToken cancellationToken)
+    {
+        var url = _store.BoxUrl;
+        var probe = await BoxClient.HealthAsync(url, _store.Pin, _store.CaPem, cancellationToken).ConfigureAwait(false);
+        var next = TrayStatus.Describe(probe.Reachable, probe.LatencyMs, url, probe.Body, probe.Failure);
+        var healthy = next.Lamp != BoxLamp.Red;
+        _delay = PollSchedule.Next(_delay, healthy);
+        _snapshot = next;
+        _audio.Note(next);
+        _screen.Note(next);
+        await MaybeRenewAsync(cancellationToken).ConfigureAwait(false);
+        var signedIn = !string.IsNullOrWhiteSpace(_store.Session());
+        if (CompanionSync.ShouldPush(signedIn, _wasReachable, next.Reachable))
+        {
+            await PushSettingsAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var restart = false;
+        if (signedIn && next.Reachable)
+        {
+            restart = await PollCaretakerAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var assist = await FetchAssistAsync(cancellationToken).ConfigureAwait(false);
+        _micStatus = _audio.MicFault;
+        var tip = string.IsNullOrWhiteSpace(_micStatus) ? next.Tooltip : next.Tooltip + "\n" + _micStatus;
+        var toast = TakeToast(next);
+        return new HealthFrame(next, tip, signedIn, toast, assist, restart);
+    }
+
+    private void ApplyFrame(HealthFrame frame)
+    {
+        if (frame.Toast is { } toast)
+        {
+            _icon.ShowNotification(toast.Title, toast.Body);
+        }
+
+        _icon.ToolTipText = frame.Tip;
+        Paint(frame.Snapshot.Lamp);
+        RebuildMenu();
+        if (frame.Assist is { } assist)
+        {
+            ApplyAssist(assist);
+        }
+
+        if (frame.Restart)
+        {
+            CompanionProcess.Restart();
+        }
+    }
+
+    private void NoteHealth(HealthFrame frame)
+    {
+        var key = frame.Snapshot.Reachable + "|" + frame.SignedIn + "|" + frame.Snapshot.Lamp;
+        var now = DateTimeOffset.UtcNow;
+        var changed = !string.Equals(key, _lastHealthKey, StringComparison.Ordinal);
+        if (!HealthLog.ShouldWrite(_lastHealthLog, now, changed))
         {
             return;
+        }
+
+        _lastHealthKey = key;
+        _lastHealthLog = now;
+        _log.Write("health", HealthLog.Line(frame.Snapshot.Reachable, frame.SignedIn, frame.Snapshot.Lamp));
+    }
+
+    private async Task MaybeRenewAsync(CancellationToken cancellationToken)
+    {
+        var bundle = _store.Bundle();
+        if (bundle is null || string.IsNullOrWhiteSpace(bundle.Session))
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var expires = SessionClock.Parse(bundle.ExpiresAt);
+        if (!SessionClock.ShouldRenew(expires, now, bundle.HasRefresh))
+        {
+            return;
+        }
+
+        if (!SessionClock.AttemptDue(_lastRenewAttempt, now))
+        {
+            return;
+        }
+
+        _lastRenewAttempt = now;
+        var next = await BoxClient.RefreshAsync(
+            _store.BoxUrl,
+            _store.Pin,
+            _store.CaPem,
+            bundle.Session,
+            bundle.Refresh,
+            cancellationToken).ConfigureAwait(false);
+        if (next is not null)
+        {
+            _store.SaveBundle(next);
+        }
+    }
+
+    private async Task<bool> TryRecoverAsync(CancellationToken cancellationToken)
+    {
+        var bundle = _store.Bundle();
+        if (bundle is null)
+        {
+            return false;
+        }
+
+        var next = await BoxClient.RefreshAsync(
+            _store.BoxUrl,
+            _store.Pin,
+            _store.CaPem,
+            bundle.Session,
+            bundle.Refresh,
+            cancellationToken).ConfigureAwait(false);
+        if (next is null)
+        {
+            var newer = _store.Bundle();
+            return newer is not null
+                && !string.IsNullOrWhiteSpace(newer.Session)
+                && !string.Equals(newer.Session, bundle.Session, StringComparison.Ordinal);
+        }
+
+        _store.SaveBundle(next);
+        _authNotice = "";
+        return true;
+    }
+
+    private TrayToast? TakeToast(BoxSnapshot next)
+    {
+        if (!_store.Toasts || _wasReachable is null)
+        {
+            return null;
+        }
+
+        if (_wasReachable == next.Reachable && _wasCertificate == next.CertificateFailed)
+        {
+            return null;
         }
 
         var title = next.Reachable
@@ -121,7 +260,7 @@ internal sealed class TrayController : IDisposable
             : next.CertificateFailed
                 ? CertificatePin.CheckFailed
                 : "The box did not answer.";
-        Application.Current.Dispatcher.Invoke(() => _icon.ShowNotification(title, body));
+        return new TrayToast(title, body);
     }
 
     private void Paint(BoxLamp lamp)
@@ -248,18 +387,18 @@ internal sealed class TrayController : IDisposable
         await BoxClient.PutAssistSettingsAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, settings, cancellationToken).ConfigureAwait(true);
     }
 
-    private async Task PollCaretakerAsync(CancellationToken cancellationToken)
+    private async Task<bool> PollCaretakerAsync(CancellationToken cancellationToken)
     {
         var token = _store.Session();
         if (string.IsNullOrWhiteSpace(token))
         {
-            return;
+            return false;
         }
 
         var json = await BoxClient.GetCaretakerCompanionAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(true);
         if (!CaretakerGuard.WantsRepush(json) && !CaretakerGuard.WantsRestart(json))
         {
-            return;
+            return false;
         }
 
         if (CaretakerGuard.WantsRepush(json))
@@ -268,10 +407,7 @@ internal sealed class TrayController : IDisposable
         }
 
         await BoxClient.AckCaretakerCompanionAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(true);
-        if (CaretakerGuard.WantsRestart(json))
-        {
-            CompanionProcess.Restart();
-        }
+        return CaretakerGuard.WantsRestart(json);
     }
 
     private async Task ToggleStreamAsync(string source, bool enabled)
@@ -292,44 +428,49 @@ internal sealed class TrayController : IDisposable
         }
     }
 
-    private async Task PollAssistAsync(CancellationToken cancellationToken)
+    private async Task<AssistFetch?> FetchAssistAsync(CancellationToken cancellationToken)
     {
         var token = _store.Session();
         if (string.IsNullOrWhiteSpace(token) || !_snapshot.Reachable)
         {
-            return;
+            return null;
         }
 
-        var json = await BoxClient.GetAssistLiveAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(true);
-        var micJson = await BoxClient.GetAssistMicAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(true);
+        var json = await BoxClient.GetAssistLiveAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(false);
+        var micJson = await BoxClient.GetAssistMicAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, cancellationToken).ConfigureAwait(false);
         if (json is null && micJson is null)
         {
-            return;
+            return null;
         }
 
         var view = json is null ? _assist : AssistLive.Parse(json);
-        if (json is not null)
+        byte[]? wav = null;
+        if (view.HasAudio && view.AudioId.Length > 0 && view.AudioId != _playedAudioId)
         {
-            _assist = view;
+            wav = await BoxClient.GetAssistAudioAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, view.AudioId, cancellationToken).ConfigureAwait(false);
         }
 
-        _live.Apply(view, MicTranscript.Parse(micJson));
-        if (view.CaptionId != _shownCaptionId)
+        return new AssistFetch(view, json is not null, MicTranscript.Parse(micJson), wav);
+    }
+
+    private void ApplyAssist(AssistFetch fetch)
+    {
+        if (fetch.ReplaceView)
         {
-            _shownCaptionId = view.CaptionId;
-            _caption.ShowCaption(view.Caption);
+            _assist = fetch.View;
         }
 
-        if (!view.HasAudio || view.AudioId.Length == 0 || view.AudioId == _playedAudioId)
+        _live.Apply(fetch.View, fetch.Mic);
+        if (fetch.View.CaptionId != _shownCaptionId)
         {
-            return;
+            _shownCaptionId = fetch.View.CaptionId;
+            _caption.ShowCaption(fetch.View.Caption);
         }
 
-        var wav = await BoxClient.GetAssistAudioAsync(_store.BoxUrl, _store.Pin, _store.CaPem, token, view.AudioId, cancellationToken).ConfigureAwait(true);
-        if (wav is { Length: > 12 })
+        if (fetch.Wav is { Length: > 12 })
         {
-            _playedAudioId = view.AudioId;
-            _player.Play(wav);
+            _playedAudioId = fetch.View.AudioId;
+            _player.Play(fetch.Wav);
         }
     }
 
@@ -463,24 +604,28 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
-        const string name = "Heirloom Companion";
-        using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-            @"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
-        if (key is null)
+        var plan = CompanionAutostart.Build(enabled, Environment.ProcessPath);
+        try
         {
-            return;
-        }
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
+            if (key is null)
+            {
+                return;
+            }
 
-        if (!enabled)
-        {
-            key.DeleteValue(name, throwOnMissingValue: false);
-            return;
-        }
+            foreach (var name in plan.Delete)
+            {
+                key.DeleteValue(name, throwOnMissingValue: false);
+            }
 
-        var exe = Environment.ProcessPath;
-        if (!string.IsNullOrWhiteSpace(exe))
+            if (plan.WriteName is not null && plan.WriteValue is not null)
+            {
+                key.SetValue(plan.WriteName, plan.WriteValue);
+            }
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.Security.SecurityException)
         {
-            key.SetValue(name, "\"" + exe + "\"");
         }
     }
 
@@ -560,6 +705,11 @@ internal sealed class TrayController : IDisposable
 
     public void Dispose()
     {
+        if (BoxClient.Recover == _recover)
+        {
+            BoxClient.Recover = null;
+        }
+
         BoxClient.Unauthorized -= OnUnauthorized;
         _signals?.Dispose();
         _stop.Cancel();
@@ -574,4 +724,16 @@ internal sealed class TrayController : IDisposable
         _icon.Dispose();
         _stop.Dispose();
     }
+
+    private sealed record TrayToast(string Title, string Body);
+
+    private sealed record AssistFetch(AssistLiveView View, bool ReplaceView, MicTranscript? Mic, byte[]? Wav);
+
+    private sealed record HealthFrame(
+        BoxSnapshot Snapshot,
+        string Tip,
+        bool SignedIn,
+        TrayToast? Toast,
+        AssistFetch? Assist,
+        bool Restart);
 }

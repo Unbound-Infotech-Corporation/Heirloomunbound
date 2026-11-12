@@ -678,3 +678,53 @@ public static class TwinPackJson
 
     public static string Serialize(TwinPack pack) => JsonSerializer.Serialize(pack.ToWire(), Options);
 }
+
+/// <summary>
+/// Session expiry and a cold local model are not a dull twin and not a missing model install.
+/// </summary>
+public static class TwinFailure
+{
+    public const string SessionExpired = "Your sign-in expired. Sign in again to keep talking as your twin.";
+
+    public const string ModelLoading = "Loading the local model…";
+
+    public const string ModelNotReady = "The local model is still loading. Ask again in a moment.";
+
+    public static bool IsSessionExpired(string? failure)
+    {
+        var text = failure ?? "";
+        return text.Contains("Session expired", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("Invalid session", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("Not authenticated", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsModelLoading(string? failure)
+    {
+        var text = failure ?? "";
+        if (text.Length == 0)
+        {
+            return false;
+        }
+
+        return text.Contains("still loading", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("Local twin (Ollama) failed", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("timed out", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("Timeout", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("HTTP 502", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static string? HonestReply(string? localError, string? apiFailure)
+    {
+        if (IsSessionExpired(apiFailure))
+        {
+            return SessionExpired;
+        }
+
+        if (IsModelLoading(apiFailure) || IsModelLoading(localError))
+        {
+            return ModelNotReady;
+        }
+
+        return null;
+    }
+}
