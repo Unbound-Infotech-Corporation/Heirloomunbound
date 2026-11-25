@@ -270,18 +270,21 @@ _PERSONAL_MEMORY = re.compile(
 
 
 _ASK = re.compile(
-    r"(?i)^(?:what|who|where|when|which|how|did|do|does|was|were|is|are|can|could|would|tell me|remind me|describe)\b"
+    r"(?i)^(?:what|who|where|when|which|how|did|was|were|tell me|describe)\b"
+)
+_ACTION = re.compile(
+    r"(?i)\b(?:remind me|help me|set a reminder|can you|could you|would you)\b"
 )
 
 
 def asks_for_personal_memory(text: str) -> bool:
-    """A question or recall request about the owner's own life.
+    """A recall question about the owner's own life.
 
     "Tell me about my first car" and "did I have a dog" count.
-    "I'm going home" and "help me with this job" do not.
+    A reminder or a help request does not, even if it names a dog or a car.
     """
     raw = " ".join((text or "").split())
-    if not raw:
+    if not raw or _ACTION.search(raw):
         return False
     asking = raw.endswith("?") or bool(_ASK.match(raw))
     if not asking:
