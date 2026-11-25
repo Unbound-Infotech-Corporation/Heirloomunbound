@@ -219,7 +219,7 @@ async def grounding_for_turn(
     keyword_hits = select_cards(allowed, question)
     query_vector = None
     vectors: dict[str, list[float]] = {}
-    if should_embed(allowed, keyword_hits):
+    if should_embed(allowed, question):
         try:
             from local_inference import ollama_embed_many
 

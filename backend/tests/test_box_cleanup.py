@@ -493,9 +493,17 @@ def test_stopwords_do_not_cite_an_unrelated_card():
     )
     assert [card["card_id"] for card in recalled] == ["lab"]
     assert blend_score(0.0, 0.4) == 0.0
-    assert should_embed([lab, car], []) is True
-    assert should_embed([lab], recalled) is False
-    assert should_embed([{"status": "pending", "card_id": "x"}], []) is False
+    assert should_embed([lab, car], "What was my dog named?") is True
+    assert should_embed([dog], "What was my dog named?") is False
+    assert should_embed([car, lab], "What was my first dog named?") is True
+    weak = select_cards(
+        [lab, car],
+        "What was my first dog named?",
+        query_vector=[1.0, 0.0],
+        vectors={"lab": [0.95, 0.05], "car": [0.0, 1.0]},
+    )
+    assert weak[0]["card_id"] == "lab"
+    assert should_embed([{"status": "pending", "card_id": "x"}], "What was my dog named?") is False
     paraphrase = citations_that_ground("My dog was named Duke.", why_from([car, lab]))
     assert [card["card_id"] for card in paraphrase] == ["lab"]
     assert "first person" in FIRST_PERSON.lower()

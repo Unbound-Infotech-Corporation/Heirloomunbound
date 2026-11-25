@@ -266,11 +266,16 @@ def _cosine(left: list[float] | None, right: list[float] | None) -> float | None
     return dot / (left_norm * right_norm)
 
 
-def should_embed(cards: list[dict], keyword_hits: list[dict]) -> bool:
-    """Ask Ollama only when keywords missed and an approved card could be a paraphrase."""
-    if keyword_hits:
+def should_embed(cards: list[dict], query: str) -> bool:
+    """Ask Ollama when no approved card already contains every content word.
+
+    A single shared word is not enough to skip paraphrase search.
+    """
+    approved = [card for card in cards or [] if str(card.get("status") or "") == "approved"]
+    if not approved:
         return False
-    return any(str(card.get("status") or "") == "approved" for card in cards or [])
+    best = max(_score_card(card, query) for card in approved)
+    return best < 1.0
 
 
 def blend_score(keyword: float, cosine: float | None) -> float:
