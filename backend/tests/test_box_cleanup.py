@@ -298,6 +298,29 @@ def test_interview_becomes_an_approved_memory_and_grounds_the_answer():
         )
         assert "kitchen table" in partial["reply"]
         assert partial["why"][0]["card_id"] == "card_kept"
+
+        async def refused(system, user):
+            del system, user
+            return "I don't remember anything about the kitchen table."
+
+        blank = await answer_grounded(
+            "What did Dad teach you at the kitchen table?",
+            [approved],
+            refused,
+        )
+        assert blank["why"] == []
+        assert "don't have an approved memory" in blank["reply"]
+
+        async def second_person(system, user):
+            del system, user
+            return "Your first lesson was at that kitchen table."
+
+        owned = await answer_grounded(
+            "What did Dad teach you at the kitchen table?",
+            [approved],
+            second_person,
+        )
+        assert owned["reply"].startswith("My first lesson")
         entry = entry_from_card({**approved, "user_id": "owner"})
         assert entry["visibility"] == "owner"
         assert entry["type"] == "memory"

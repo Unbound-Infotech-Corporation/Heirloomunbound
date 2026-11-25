@@ -332,14 +332,15 @@ def as_owner_voice(text: str) -> str:
 
 
 def _declines(reply: str) -> bool:
-    """A bare refusal. A real memory that mentions not remembering a detail stays."""
+    """A refusal. A memory that continues after but/though is kept."""
     folded = " ".join((reply or "").lower().split())
-    if not any(phrase in folded for phrase in _DECLINE):
+    hit = next((phrase for phrase in _DECLINE if phrase in folded), "")
+    if not hit:
         return False
-    leftover = folded
-    for phrase in _DECLINE:
-        leftover = leftover.replace(phrase, " ")
-    return len(_tokens(leftover)) < 3
+    after = folded.split(hit, 1)[1]
+    if re.search(r"\b(but|except|though|however)\b", after):
+        return len(_tokens(after)) < 3
+    return True
 
 
 def citations_that_ground(reply: str, cards: list[dict]) -> list[dict]:
@@ -425,7 +426,7 @@ async def answer_grounded(question: str, cards: list[dict], complete: Complete) 
         }
     block = grounding_block(used)
     try:
-        reply = spoken_reply(await complete(ANSWER_SYSTEM, f"{block}\n\nQuestion: {question}") or "")
+        reply = as_owner_voice(await complete(ANSWER_SYSTEM, f"{block}\n\nQuestion: {question}") or "")
     except Exception:
         reply = ""
     if not reply or _declines(reply):
