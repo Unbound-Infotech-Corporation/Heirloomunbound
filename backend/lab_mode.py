@@ -422,21 +422,6 @@ def _match_count(row: Mapping[str, Any], query: Mapping[str, Any]) -> bool:
     return True
 
 
-class _CountDB:
-    """Tiny stand-in so report counts can be tested without Mongo."""
-
-    def __init__(self, tables: Mapping[str, list[Mapping[str, Any]]]) -> None:
-        self.tables = tables
-
-    def __getitem__(self, name: str) -> "_CountDB":
-        self._name = name
-        return self
-
-    def count_documents(self, query: Mapping[str, Any]) -> int:
-        rows = self.tables.get(getattr(self, "_name", ""), [])
-        return sum(1 for row in rows if _match_count(row, query))
-
-
 def activity_counts(day: str, db: Any = None) -> dict[str, int]:
     """Vault memories, conversations, and unanswered prompts for one day.
 

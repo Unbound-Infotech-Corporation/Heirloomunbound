@@ -131,7 +131,7 @@ def choose_prompt(
         if str(row.get("created_at") or "")[:10] == today:
             return {"prompt": row, "create": False, "persist": False, "waiting": 0}
     if not book:
-        return {"prompt": None, "create": False, "waiting": 0}
+        return {"prompt": None, "create": False, "persist": False, "waiting": 0}
     try:
         index = datetime.fromisoformat(today).toordinal()
     except ValueError:

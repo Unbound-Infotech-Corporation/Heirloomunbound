@@ -300,6 +300,9 @@ def test_interview_becomes_an_approved_memory_and_grounds_the_answer():
         )
         assert chosen["persist"] is False
         assert chosen["prompt"]["prompt_id"] == ""
+        empty = choose_prompt([], today="2026-11-25", catalog=[])
+        assert empty["persist"] is False
+        assert empty["prompt"] is None
 
     asyncio.run(_run())
 
