@@ -177,7 +177,11 @@ def test_streamed_twin_message_returns_text(monkeypatch):
 
     async def complete(*args, **kwargs):
         del args, kwargs
-        return TurnOutcome(text="My dog was named Duke.", meta={"model": "qwen2.5:14b"}, label="local")
+        return TurnOutcome(
+            text="My first car was a rusty old Ford Escort.",
+            meta={"model": "qwen2.5:14b"},
+            label="local",
+        )
 
     import twin_runtime
     import twin_safety
@@ -209,11 +213,20 @@ def test_streamed_twin_message_returns_text(monkeypatch):
     conversation_id = started.json()["conversation_id"]
     response = client.post(
         "/api/twin/message",
-        json={"conversation_id": conversation_id, "message": "What was my dog named?"},
+        json={"conversation_id": conversation_id, "message": "Hello there"},
     )
     assert response.status_code == 200
     body = response.text
     assert "event: error" not in body
     assert "cannot access local variable" not in body
-    assert "My dog was named Duke." in body
+    assert "Ford Escort" in body
     assert "event: done" in body
+    ungrounded = client.post(
+        "/api/twin/message",
+        json={"conversation_id": conversation_id, "message": "What was my first car?"},
+    )
+    assert ungrounded.status_code == 200
+    denied = ungrounded.text
+    assert "don't have that memory yet" in denied
+    assert "Ford" not in denied
+    assert "event: error" not in denied

@@ -282,7 +282,7 @@ def test_interview_becomes_an_approved_memory_and_grounds_the_answer():
         approved = approve_fields(approved_src, {"title": "The kitchen table"})
         early = await answer_grounded("What did Dad teach you at the table?", [pending], complete)
         assert early["why"] == []
-        assert "don't have an approved memory" in early["reply"]
+        assert "don't have that memory yet" in early["reply"]
         late = await answer_grounded("What did Dad teach you at the kitchen table?", [pending, approved], complete)
         assert late["why"][0]["card_id"] == "card_kept"
         assert late["why"][0]["title"] == "The kitchen table"
@@ -311,7 +311,7 @@ def test_interview_becomes_an_approved_memory_and_grounds_the_answer():
             refused,
         )
         assert blank["why"] == []
-        assert "don't have an approved memory" in blank["reply"]
+        assert "don't have that memory yet" in blank["reply"]
 
         async def second_person(system, user):
             del system, user
@@ -475,6 +475,7 @@ def test_stopwords_do_not_cite_an_unrelated_card():
     assert spoken_reply('search_archive("first car")') == ""
     assert as_owner_voice("Your first car was a Chevy.") == "My first car was a Chevy."
     assert as_owner_voice("I looked at your question.") == "I looked at your question."
+    assert "I remember" in as_owner_voice("Maybe that's the dog you were thinking of?")
     lab = {
         "status": "approved",
         "card_id": "lab",
@@ -656,6 +657,85 @@ def test_voice_is_local_and_chatterbox_can_see_a_gpu(monkeypatch):
     assert module.pick_device(False) == "cpu"
 
 
+def test_owner_words_are_the_only_memory_and_ungrounded_questions_decline():
+    from routers.memory import owner_episode_text, sourced_facts
+    from memory_cards import NO_MEMORY_YET, asks_for_personal_memory, cards_reached_through_archive
+    from box_selftest import judge
+
+    assert asks_for_personal_memory("What was my first car?") is True
+    assert asks_for_personal_memory("Hello there") is False
+    said = owner_episode_text([
+        {"role": "user", "content": "I had soup."},
+        {"role": "assistant", "content": "My first car was a rusty old Ford Escort."},
+    ])
+    assert "soup" in said
+    assert "Ford" not in said
+    kept = sourced_facts(
+        [
+            {"fact": "Has a blue Chevy", "source_entry_id": "ent_real"},
+            {"fact": "Had a Ford Escort", "source_entry_id": "ent_invented"},
+            {"fact": "No source"},
+        ],
+        {"ent_real"},
+    )
+    assert [row["fact"] for row in kept] == ["Has a blue Chevy"]
+    car = {"status": "approved", "card_id": "car", "title": "First Car", "story": "My first car was a blue Chevy."}
+    archive = "[MEMORY card=car] First Car\nMy first car was a blue Chevy.\n"
+    assert cards_reached_through_archive(archive, [car])[0]["card_id"] == "car"
+    rows = judge(
+        "My first car was a blue Chevy.",
+        "I drove a blue Chevy when I was young.",
+        "My first car was a blue Chevy.",
+        "A blue Chevy.",
+        NO_MEMORY_YET,
+        True,
+    )
+    assert all(ok for _name, ok in rows)
+
+    import local_inference
+
+    original = local_inference.ollama_embed_many
+
+    async def embedded(texts, timeout=None, keep_alive="30m"):
+        del timeout, keep_alive
+        assert texts[0].startswith("search_query:")
+        assert texts[1].startswith("search_document:")
+        return [[1.0, 0.0], [0.66, 0.2], [0.1, 0.9]]
+
+    async def _ask():
+        young = {
+            "status": "approved",
+            "card_id": "car",
+            "title": "First Car",
+            "story": "My first car was a blue Chevy.",
+            "people": [],
+        }
+        other = {
+            "status": "approved",
+            "card_id": "dog",
+            "title": "Duke",
+            "story": "A black lab named Duke.",
+            "people": ["Duke"],
+        }
+
+        async def complete(system, user):
+            del system, user
+            return "I drove a blue Chevy when I was young."
+
+        from memory_cards import answer_grounded
+
+        return await answer_grounded("What did I drive when I was young?", [young, other], complete)
+
+    local_inference.ollama_embed_many = embedded
+    local_inference._embed_warm = True
+    try:
+        result = asyncio.run(_ask())
+    finally:
+        local_inference.ollama_embed_many = original
+    assert "Chevy" in result["reply"]
+    assert result["why"][0]["card_id"] == "car"
+
+
 def test_upgrade_skips_installed_apt_and_replaces_a_real_observer_dir(tmp_path):
     install = ROOT / "box" / "install.sh"
     text = install.read_text(encoding="utf-8")
@@ -694,3 +774,30 @@ test -L '{empty}'
 """
     subprocess.run(["bash", "-c", script_empty], check=True)
     assert empty.is_symlink()
+    kept = tmp_path / "mongo"
+    kept.mkdir()
+    kept.chmod(0o755)
+    script_keep = f"""
+set -euo pipefail
+log() {{ :; }}
+run() {{ "$@"; }}
+eval "$(sed -n '/^ensure_data_dir()/,/^}}/p' '{install}')"
+ensure_data_dir '{kept}'
+"""
+    subprocess.run(["bash", "-c", script_keep], check=True)
+    assert oct(kept.stat().st_mode & 0o777) == oct(0o755)
+    paused = subprocess.run(
+        ["bash", "-c", f"""
+systemctl() {{ printf '%s\\n' "$*"; }}
+log() {{ :; }}
+UPGRADE=1
+DRY_RUN=0
+eval "$(sed -n '/^pause_caretaker_for_upgrade()/,/^}}/p' '{install}')"
+pause_caretaker_for_upgrade
+exit 1
+"""],
+        capture_output=True,
+        text=True,
+    )
+    assert "stop heirloom-caretaker.timer" in paused.stdout
+    assert "start heirloom-caretaker.timer" in paused.stdout

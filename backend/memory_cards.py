@@ -15,6 +15,9 @@ from typing import Any, Awaitable, Callable, Optional
 from standing_routines import GAP_PROMPTS
 
 EMBED_MODEL = "nomic-embed-text"
+EMBED_FLOOR = 0.60
+EMBED_MARGIN = 0.05
+NO_MEMORY_YET = "I don't have that memory yet. Record it, and I'll keep it."
 Complete = Callable[[str, str], Awaitable[str]]
 
 DAILY_REFLECTIONS: tuple[tuple[str, str], ...] = (
@@ -245,6 +248,28 @@ def embed_mode(*, listed: list[str], pull_ok: bool = False, pull_error: str = ""
     return "pull"
 
 
+def embed_query(text: str) -> str:
+    """nomic-embed-text query prefix. The document prefix is the other half of the pair."""
+    body = " ".join((text or "").split())
+    return f"search_query: {body}" if body else ""
+
+
+def embed_document(text: str) -> str:
+    body = " ".join((text or "").split())
+    return f"search_document: {body}" if body else ""
+
+
+_PERSONAL_MEMORY = re.compile(
+    r"(?i)\b(?:what|who|where|when|which|how)\b[\s\S]{0,80}\b(?:my|i|me)\b"
+    r"|\b(?:my|i)\b[\s\S]{0,48}\b(?:first car|dog|dad|father|mom|mother|childhood|grew up|named|drive|drove|family|brother|sister)\b"
+)
+
+
+def asks_for_personal_memory(text: str) -> bool:
+    """A question about the owner's own life, not a general chat turn."""
+    return bool(_PERSONAL_MEMORY.search(text or ""))
+
+
 def card_embed_text(card: dict) -> str:
     people = ", ".join(card.get("people") or [])
     return " ".join(
@@ -278,12 +303,15 @@ def should_embed(cards: list[dict], query: str) -> bool:
     return best < 1.0
 
 
-def blend_score(keyword: float, cosine: float | None) -> float:
-    """Keywords stay in charge of exact words. A strong local embedding can recall a paraphrase.
+def blend_score(keyword: float, cosine: float | None, *, best_cosine: float | None = None) -> float:
+    """Keywords stay in charge of exact words.
 
-    A weak embedding does not invent a match, so an unrelated card still scores 0.
+    An embedding counts when it clears the floor and stays within a small margin of the
+    best card. A weak score, such as a car card beside a dog question, stays at the keyword score.
     """
-    if cosine is None or cosine < 0.72:
+    if cosine is None or best_cosine is None:
+        return keyword
+    if cosine < EMBED_FLOOR or cosine < best_cosine - EMBED_MARGIN:
         return keyword
     return max(keyword, cosine)
 
@@ -332,14 +360,19 @@ def select_cards(
     ``vectors`` are local embeddings (nomic-embed-text). Missing vectors fall
     back to keywords, which still ignore stopwords.
     """
-    ranked: list[tuple[float, dict]] = []
+    pending: list[tuple[float, float | None, dict]] = []
     known = vectors or {}
     for card in cards or []:
         if str(card.get("status") or "") != "approved":
             continue
         keyword = _score_card(card, query)
         cosine = _cosine(query_vector, known.get(str(card.get("card_id") or "")))
-        score = blend_score(keyword, cosine)
+        pending.append((keyword, cosine, card))
+    cosines = [cosine for _keyword, cosine, _card in pending if cosine is not None]
+    best_cosine = max(cosines) if cosines else None
+    ranked: list[tuple[float, dict]] = []
+    for keyword, cosine, card in pending:
+        score = blend_score(keyword, cosine, best_cosine=best_cosine)
         if score <= 0:
             continue
         ranked.append((score, card))
@@ -351,6 +384,7 @@ _DECLINE = (
     "don't remember",
     "do not remember",
     "don't have an approved memory",
+    "don't have that memory yet",
     "do not have an approved memory",
     "nothing filed",
 )
@@ -385,7 +419,46 @@ def as_owner_voice(text: str) -> str:
     def _own(match: re.Match) -> str:
         return match.group(1) + ("My" if match.group(2)[:1].isupper() else "my")
 
-    return re.sub(r"(^|[.!?]\s+)([Yy]our)\b", _own, raw)
+    spoken = re.sub(r"(^|[.!?]\s+)([Yy]our)\b", _own, raw)
+    spoken = re.sub(r"\byou were thinking of\b", "I remember", spoken, flags=re.IGNORECASE)
+    spoken = re.sub(r"\byou're thinking of\b", "I remember", spoken, flags=re.IGNORECASE)
+    spoken = re.sub(r"\bwere you\b", "was I", spoken, flags=re.IGNORECASE)
+    return spoken
+
+
+def cards_reached_through_archive(archive: str, cards: list[dict]) -> list[dict]:
+    """Approved cards whose vault copy is already in the archive text."""
+    text = archive or ""
+    folded = text.lower()
+    found: list[dict] = []
+    for card in cards or []:
+        if str(card.get("status") or "") != "approved":
+            continue
+        card_id = str(card.get("card_id") or "")
+        title = str(card.get("title") or "").strip()
+        story = str(card.get("story") or "").strip()
+        if card_id and f"card={card_id}" in text:
+            found.append(card)
+            continue
+        if title and len(title) > 2 and title.lower() in folded:
+            found.append(card)
+            continue
+        if story and len(story) > 24 and story[:80].lower() in folded:
+            found.append(card)
+    return found
+
+
+def merge_cards(primary: list[dict], extra: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    rows: list[dict] = []
+    for card in [*(primary or []), *(extra or [])]:
+        card_id = str(card.get("card_id") or "")
+        if card_id and card_id in seen:
+            continue
+        if card_id:
+            seen.add(card_id)
+        rows.append(card)
+    return rows
 
 
 def _declines(reply: str) -> bool:
@@ -474,29 +547,41 @@ async def draft_card(transcript: str, question: str, complete: Complete) -> dict
     return card_from_model(words, question, model_text)
 
 
+async def recall_cards(question: str, cards: list[dict]) -> list[dict]:
+    """Keyword hits, then local embeddings when the keyword match is incomplete."""
+    keyword_hits = select_cards(cards, question)
+    if not should_embed(cards, question):
+        return keyword_hits
+    try:
+        from local_inference import embed_timeout, ollama_embed_many
+    except Exception:
+        return keyword_hits
+    approved = [card for card in cards or [] if str(card.get("status") or "") == "approved"]
+    texts = [embed_query(question), *[embed_document(card_embed_text(card)) for card in approved]]
+    embedded = await ollama_embed_many(texts, timeout=embed_timeout())
+    if not embedded:
+        return keyword_hits
+    vectors = {
+        str(card.get("card_id") or ""): vector
+        for card, vector in zip(approved, embedded[1:])
+    }
+    return select_cards(cards, question, vectors=vectors, query_vector=embedded[0])
+
+
 async def answer_grounded(question: str, cards: list[dict], complete: Complete) -> dict[str, Any]:
-    used = select_cards(cards, question)
+    used = await recall_cards(question, cards)
     if not used:
-        return {
-            "reply": "I don't have an approved memory about that.",
-            "why": [],
-        }
+        return {"reply": NO_MEMORY_YET, "why": []}
     block = grounding_block(used)
     try:
         reply = as_owner_voice(await complete(ANSWER_SYSTEM, f"{block}\n\nQuestion: {question}") or "")
     except Exception:
         reply = ""
     if not reply or _declines(reply):
-        return {
-            "reply": "I don't have an approved memory about that.",
-            "why": [],
-        }
+        return {"reply": NO_MEMORY_YET, "why": []}
     grounded = citations_that_ground(reply, used)
     if not grounded:
-        return {
-            "reply": "I don't have an approved memory about that.",
-            "why": [],
-        }
+        return {"reply": NO_MEMORY_YET, "why": []}
     return {"reply": reply, "why": why_from(grounded)}
 
 

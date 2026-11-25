@@ -146,7 +146,9 @@ async def _archive_blob(
         return ""
     chunks = []
     for e in list(docs.values()):
-        chunks.append(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n")
+        card_id = str(e.get("card_id") or "")
+        marker = f" card={card_id}" if card_id else ""
+        chunks.append(f"[{e['type'].upper()}{marker}] {e['title']}\n{e['content']}\n")
     return "\n".join(chunks)
 
 
@@ -351,6 +353,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             payload.message,
             audience=turn_audience,
             heir_surface=bool(user.get("heir_surface")),
+            archive_text=archive,
         )
         if card_block:
             archive = (archive + "\n\n" + card_block).strip()
@@ -435,27 +438,45 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     }) + "\n\n"
                 from brain_council import complete_turn
 
-                from memory_cards import FIRST_PERSON, as_owner_voice, citations_that_ground, spoken_reply
+                from memory_cards import (
+                    FIRST_PERSON,
+                    NO_MEMORY_YET,
+                    as_owner_voice,
+                    asks_for_personal_memory,
+                    citations_that_ground,
+                    spoken_reply,
+                )
 
-                voiced = list(ollama_messages)
-                if voiced and voiced[0].get("role") == "system":
-                    voiced[0] = {**voiced[0], "content": voiced[0]["content"] + "\n\n" + FIRST_PERSON}
+                if (
+                    not specialist_id
+                    and asks_for_personal_memory(message_text)
+                    and not why_cards
+                ):
+                    full = NO_MEMORY_YET
+                    cited = []
+                    from brain_council import TurnOutcome
+
+                    outcome = TurnOutcome(text=full, meta={"grounded": False}, label="no-memory")
                 else:
-                    voiced.insert(0, {"role": "system", "content": FIRST_PERSON})
-                outcome = await complete_turn(voiced, message_text, audience=turn_audience)
-                speak = spoken_reply if specialist_id else as_owner_voice
-                full = speak(outcome.text)
-                if not full:
-                    retry = list(voiced)
-                    retry.append({
-                        "role": "user",
-                        "content": "Answer in the first person from the archive already given. Do not call tools.",
-                    })
-                    outcome = await complete_turn(retry, message_text, audience=turn_audience)
-                    full = speak(outcome.text) or "I don't remember that yet."
-                # Do not assign why_cards here. That name is closed over from message(),
-                # and an assignment would make the read on this line an unbound local.
-                cited = citations_that_ground(full, why_cards)
+                    voiced = list(ollama_messages)
+                    if voiced and voiced[0].get("role") == "system":
+                        voiced[0] = {**voiced[0], "content": voiced[0]["content"] + "\n\n" + FIRST_PERSON}
+                    else:
+                        voiced.insert(0, {"role": "system", "content": FIRST_PERSON})
+                    outcome = await complete_turn(voiced, message_text, audience=turn_audience)
+                    speak = spoken_reply if specialist_id else as_owner_voice
+                    full = speak(outcome.text)
+                    if not full:
+                        retry = list(voiced)
+                        retry.append({
+                            "role": "user",
+                            "content": "Answer in the first person from the archive already given. Do not call tools.",
+                        })
+                        outcome = await complete_turn(retry, message_text, audience=turn_audience)
+                        full = speak(outcome.text) or "I don't remember that yet."
+                    # Do not assign why_cards here. That name is closed over from message(),
+                    # and an assignment would make the read on this line an unbound local.
+                    cited = citations_that_ground(full, why_cards)
                 if full:
                     yield "data: " + json.dumps({"text": full}) + "\n\n"
             except Exception as exc:  # noqa: BLE001

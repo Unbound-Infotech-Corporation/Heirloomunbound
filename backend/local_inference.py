@@ -171,13 +171,36 @@ def embed_model() -> str:
     return (os.environ.get("OLLAMA_EMBED_MODEL") or "nomic-embed-text").strip() or "nomic-embed-text"
 
 
-async def ollama_embed_many(texts: list[str], *, timeout: float = 2.0) -> list[list[float]] | None:
+_embed_warm = False
+
+
+def embed_timeout() -> float:
+    """Cold nomic-embed-text load is about 16s. Later calls are short."""
+    return 4.0 if _embed_warm else 25.0
+
+
+async def warm_embed_model() -> bool:
+    """Load the embedding model and ask Ollama to keep it resident."""
+    global _embed_warm
+    loaded = await ollama_embed_many(["search_query: ready"], timeout=25.0, keep_alive="30m")
+    _embed_warm = bool(loaded)
+    return _embed_warm
+
+
+async def ollama_embed_many(
+    texts: list[str],
+    *,
+    timeout: float | None = None,
+    keep_alive: str = "30m",
+) -> list[list[float]] | None:
     """Local embeddings from the box Ollama. None when the model is absent."""
     rows = [text for text in texts if (text or "").strip()]
     if not rows or len(rows) != len(texts):
         return None
     url = f"{ollama_base_url().rstrip('/')}/api/embed"
-    body = {"model": embed_model(), "input": rows}
+    body = {"model": embed_model(), "input": rows, "keep_alive": keep_alive}
+    if timeout is None:
+        timeout = embed_timeout()
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(url, json=body)

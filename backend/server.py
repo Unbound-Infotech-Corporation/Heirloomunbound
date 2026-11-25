@@ -345,6 +345,16 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+async def warm_box_embeddings():
+    """Keep nomic-embed-text loaded on a Twin Box so the first recall is not a cold start."""
+    if os.environ.get("HEIRLOOM_BOX") != "1":
+        return
+    from local_inference import warm_embed_model
+
+    asyncio.create_task(warm_embed_model())
+
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     task = getattr(app.state, "letter_task", None)

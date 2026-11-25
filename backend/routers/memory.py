@@ -106,17 +106,14 @@ async def _extract_facts(user_id: str) -> list[dict]:
     parsed = _extract_json(reply_text)
     if not isinstance(parsed, list):
         return []
+    known_ids = set(re.findall(r"\[id=([^\]]+)\]", corpus))
     facts: list[dict] = []
-    for raw in parsed[:MAX_FACTS_IN_PROMPT]:
-        if not isinstance(raw, dict) or not raw.get("fact"):
-            continue
+    for raw in sourced_facts(parsed, known_ids)[:MAX_FACTS_IN_PROMPT]:
         facts.append({
             "fact_id": f"fact_{uuid.uuid4().hex[:10]}",
-            "fact": str(raw["fact"])[:280],
-            "kind": str(raw.get("kind", "other"))[:32],
-            "source_entry_id": raw.get("source_entry_id") if isinstance(raw.get("source_entry_id"), str) else None,
             "visibility": "heir",
             "created_at": _now_iso(),
+            **raw,
         })
     return facts
 
@@ -152,9 +149,41 @@ async def get_or_refresh_facts(user_id: str) -> list[dict]:
 
 
 # ---------------- Episodic summaries ----------------
-EPISODE_SYSTEM = """You are a journal keeper. Summarise this conversation between the user and their own digital twin in 2-3 short sentences. Focus on what was learned, what the user revealed about themselves, or any commitments they made. Refer to the user as 'they'.
+EPISODE_SYSTEM = """You are a journal keeper. These lines are only what the owner said.
+Summarise them in 2-3 short sentences. Do not add any fact they did not say.
+If they revealed nothing about their life, say they chatted and name no people, places, or possessions.
+Refer to the owner as 'they'.
 
 Return ONLY plain text — no JSON, no markdown headers, no preface. Just the summary."""
+
+
+def owner_episode_text(messages: list[dict]) -> str:
+    """The owner's words only. A twin reply is not a memory."""
+    lines: list[str] = []
+    for message in messages or []:
+        if str(message.get("role") or "") != "user":
+            continue
+        content = " ".join(str(message.get("content") or "").split())
+        if content:
+            lines.append(content[:1500])
+    return "\n".join(lines)
+
+
+def sourced_facts(parsed: list, known_ids: set[str]) -> list[dict]:
+    """Drop a fact that does not point at an archive entry the owner filed."""
+    facts: list[dict] = []
+    for raw in parsed or []:
+        if not isinstance(raw, dict) or not raw.get("fact"):
+            continue
+        source = raw.get("source_entry_id")
+        if not isinstance(source, str) or source not in known_ids:
+            continue
+        facts.append({
+            "fact": str(raw["fact"])[:280],
+            "kind": str(raw.get("kind", "other"))[:32],
+            "source_entry_id": source,
+        })
+    return facts
 
 
 async def maybe_summarise_episode(user_id: str, conversation_id: str) -> Optional[str]:
@@ -173,9 +202,13 @@ async def maybe_summarise_episode(user_id: str, conversation_id: str) -> Optiona
         return None
 
     turns = msgs[summarised_through:]
-    transcript = "\n".join(
-        f"{m.get('role','user').upper()}: {m.get('content','')[:1500]}" for m in turns
-    )
+    transcript = owner_episode_text(turns)
+    if not transcript.strip():
+        await db.conversations.update_one(
+            {"conversation_id": conversation_id, "user_id": user_id},
+            {"$set": {"summarised_through": len(msgs)}},
+        )
+        return None
 
     try:
         summary = await complete_text(

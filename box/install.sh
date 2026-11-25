@@ -143,6 +143,14 @@ apt_install() {
   run apt-get install -y "${missing[@]}"
 }
 
+pause_caretaker_for_upgrade() {
+  if [[ "${UPGRADE}" -eq 1 && "${DRY_RUN}" -eq 0 ]]; then
+    systemctl stop heirloom-caretaker.timer || true
+    trap 'systemctl start heirloom-caretaker.timer || true' EXIT
+    log "Upgrade paused heirloom-caretaker.timer until this script exits"
+  fi
+}
+
 prepare_log() {
   local dir
   dir="$(dirname "${LOG_PATH}")"
@@ -523,19 +531,28 @@ ensure_owner_group() {
   fi
 }
 
+ensure_data_dir() {
+  local path="$1"
+  if [[ -d "${path}" ]]; then
+    log "keeping owner and mode of ${path}"
+    return 0
+  fi
+  run install -d -m 2750 -o root -g heirloom "${path}"
+}
+
 write_tree() {
   log "Preparing ${DATA_ROOT} and /etc/heirloom"
   ensure_owner_group
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/vault"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/lab"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/lab-reports"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/backups"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/mongo"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/ollama"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/caddy"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/caddy-config"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/whisper"
+  ensure_data_dir "${DATA_ROOT}"
+  ensure_data_dir "${DATA_ROOT}/vault"
+  ensure_data_dir "${DATA_ROOT}/lab"
+  ensure_data_dir "${DATA_ROOT}/lab-reports"
+  ensure_data_dir "${DATA_ROOT}/backups"
+  ensure_data_dir "${DATA_ROOT}/mongo"
+  ensure_data_dir "${DATA_ROOT}/ollama"
+  ensure_data_dir "${DATA_ROOT}/caddy"
+  ensure_data_dir "${DATA_ROOT}/caddy-config"
+  ensure_data_dir "${DATA_ROOT}/whisper"
   if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
     run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/observer"
   fi
@@ -1015,6 +1032,11 @@ start_stack() {
   docker compose "${args[@]}" exec -T ollama ollama pull "${model}"
   if ! docker compose "${args[@]}" exec -T ollama ollama pull nomic-embed-text; then
     log "nomic-embed-text did not pull. Memory search stays on keywords until that model is present."
+  else
+    curl -fsS --max-time 40 http://127.0.0.1:11434/api/embed \
+      -H 'Content-Type: application/json' \
+      -d '{"model":"nomic-embed-text","input":"search_query: ready","keep_alive":"30m"}' \
+      >/dev/null || log "nomic-embed-text pulled, but the warm-up call did not finish"
   fi
   if [[ "${WITH_OBSERVER}" -eq 1 && -n "${observer_model}" ]]; then
     docker compose "${args[@]}" exec -T ollama ollama pull "${observer_model}"
@@ -1135,6 +1157,7 @@ main() {
     printf 'Re-run as root: sudo bash box/install.sh\n' >&2
     exit 1
   fi
+  pause_caretaker_for_upgrade
   log "Heirloom Twin Box installer root=${ROOT} data=${DATA_ROOT} lan=${LAN_IP} dry_run=${DRY_RUN} unattended=${UNATTENDED} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} observer_audio=${WITH_OBSERVER_AUDIO} presence=${WITH_PRESENCE} nvme_power_fix=${NVME_POWER_FIX} brain_url=${BRAIN_URL:-off} odysseus_url=${ODYSSEUS_URL:-off}"
   apply_unattended
   require_ubuntu
@@ -1185,6 +1208,18 @@ main() {
     UPGRADE=0
     upsert_env HEIRLOOM_OBSERVER "1" "${DATA_ROOT}/box.env"
     UPGRADE="${saved_upgrade}"
+  fi
+  if [[ "${UPGRADE}" -eq 1 && -f "${DATA_ROOT}/box.env" ]]; then
+    local loaded=""
+    loaded="$(awk -F= '/^OLLAMA_MAX_LOADED_MODELS=/{val=substr($0, index($0, "=")+1)} END {print val}' "${DATA_ROOT}/box.env")"
+    loaded="${loaded//$'\r'/}"
+    if [[ -z "${loaded}" || "${loaded}" -lt 3 ]]; then
+    local saved_loaded="${UPGRADE}"
+    UPGRADE=0
+    upsert_env OLLAMA_MAX_LOADED_MODELS "3" "${DATA_ROOT}/box.env"
+    UPGRADE="${saved_loaded}"
+      log "Upgrade sets OLLAMA_MAX_LOADED_MODELS=3 so the chat model and nomic-embed-text can both stay loaded"
+    fi
   fi
   write_compose_args
   write_cron
