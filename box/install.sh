@@ -1067,6 +1067,10 @@ main() {
     WITH_OBSERVER=1
     WITH_OBSERVER_AUDIO=1
     log "Observer opt-in is set; keeping Observer on"
+  elif [[ "${UPGRADE}" -eq 1 && "${WITH_OBSERVER}" -eq 0 && -f "${DATA_ROOT}/observer/owner-opt-in.json" ]] && grep -q '"enabled": true' "${DATA_ROOT}/observer/owner-opt-in.json"; then
+    WITH_OBSERVER=1
+    WITH_OBSERVER_AUDIO=1
+    log "Upgrade keeps Observer on"
   elif [[ "${WITH_OBSERVER}" -eq 0 && -f /etc/heirloom/observer.enabled ]]; then
     log "Old /etc/heirloom/observer.enabled is ignored. Observer stays off until: heirloom-box observer on"
   fi
@@ -1116,11 +1120,6 @@ main() {
   if gpu_present && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
     USE_GPU=1
   fi
-  if [[ "${UPGRADE}" -eq 1 && "${WITH_OBSERVER}" -eq 0 && -f "${DATA_ROOT}/observer/owner-opt-in.json" ]] && grep -q '"enabled": true' "${DATA_ROOT}/observer/owner-opt-in.json"; then
-    WITH_OBSERVER=1
-    WITH_OBSERVER_AUDIO=1
-    log "Upgrade keeps Observer on"
-  fi
   if [[ "${UPGRADE}" -eq 1 ]]; then
     log "Upgrade does not install or change the NVIDIA driver"
     log "Upgrade rebuilds containers and reinstalls units, scripts, and tmpfiles"
@@ -1138,6 +1137,12 @@ main() {
   fi
   write_tree
   write_env "${model}" "${observer_model}" "${mib}" "${max_loaded}" "${vision_keep}"
+  if [[ "${UPGRADE}" -eq 1 && "${WITH_OBSERVER}" -eq 1 && -f "${DATA_ROOT}/box.env" ]]; then
+    local saved_upgrade="${UPGRADE}"
+    UPGRADE=0
+    upsert_env HEIRLOOM_OBSERVER "1" "${DATA_ROOT}/box.env"
+    UPGRADE="${saved_upgrade}"
+  fi
   write_compose_args
   write_cron
   install_observer

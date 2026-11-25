@@ -146,13 +146,19 @@ def choose_prompt(
             "persist": not waiting,
             "waiting": len(waiting),
         }
-    fresh = [
+    today_rows = [
         row for row in prompts or []
-        if str(row.get("created_at") or "")[:10] == today and str(row.get("status") or "") != "answered"
+        if str(row.get("created_at") or "")[:10] == today
     ]
-    if fresh:
-        return {"prompt": fresh[-1], "create": False, "persist": False, "waiting": len(waiting)}
-    # A stale backlog stays counted, but the question on the page is today's.
+    open_today = [row for row in today_rows if str(row.get("status") or "") != "answered"]
+    if open_today:
+        return {"prompt": open_today[-1], "create": False, "persist": False, "waiting": len(waiting)}
+    if today_rows:
+        # Today's question was already answered. Do not insert another one.
+        if waiting:
+            return {"prompt": waiting[0], "create": False, "persist": False, "waiting": len(waiting)}
+        return {"prompt": None, "create": False, "persist": False, "waiting": 0}
+    # A stale backlog stays counted, but the first question of the day is today's.
     if not book:
         return {"prompt": None, "create": False, "persist": False, "waiting": 0}
     try:
@@ -311,20 +317,29 @@ def spoken_reply(text: str) -> str:
 
 
 def as_owner_voice(text: str) -> str:
-    """The twin is the owner. 'Your first car' is 'My first car'."""
+    """The twin is the owner. A sentence that starts with 'Your' is 'My'.
+
+    Mid-sentence 'your' stays, so 'your question' is left alone.
+    """
     raw = spoken_reply(text)
     if not raw:
         return ""
 
     def _own(match: re.Match) -> str:
-        return "My" if match.group(0)[:1].isupper() else "my"
+        return match.group(1) + ("My" if match.group(2)[:1].isupper() else "my")
 
-    return re.sub(r"\b[Yy]our\b", _own, raw)
+    return re.sub(r"(^|[.!?]\s+)([Yy]our)\b", _own, raw)
 
 
 def _declines(reply: str) -> bool:
-    folded = (reply or "").lower()
-    return any(phrase in folded for phrase in _DECLINE)
+    """A bare refusal. A real memory that mentions not remembering a detail stays."""
+    folded = " ".join((reply or "").lower().split())
+    if not any(phrase in folded for phrase in _DECLINE):
+        return False
+    leftover = folded
+    for phrase in _DECLINE:
+        leftover = leftover.replace(phrase, " ")
+    return len(_tokens(leftover)) < 3
 
 
 def citations_that_ground(reply: str, cards: list[dict]) -> list[dict]:
@@ -410,7 +425,7 @@ async def answer_grounded(question: str, cards: list[dict], complete: Complete) 
         }
     block = grounding_block(used)
     try:
-        reply = as_owner_voice(await complete(ANSWER_SYSTEM, f"{block}\n\nQuestion: {question}") or "")
+        reply = spoken_reply(await complete(ANSWER_SYSTEM, f"{block}\n\nQuestion: {question}") or "")
     except Exception:
         reply = ""
     if not reply or _declines(reply):

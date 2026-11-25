@@ -286,6 +286,18 @@ def test_interview_becomes_an_approved_memory_and_grounds_the_answer():
         assert late["why"][0]["title"] == "The kitchen table"
         assert "kitchen table" in late["why"][0]["story"]
         assert "1978" in late["reply"]
+
+        async def partial_complete(system, user):
+            del system, user
+            return "I don't remember the year, but we sat at the kitchen table."
+
+        partial = await answer_grounded(
+            "What did Dad teach you at the kitchen table?",
+            [approved],
+            partial_complete,
+        )
+        assert "kitchen table" in partial["reply"]
+        assert partial["why"][0]["card_id"] == "card_kept"
         entry = entry_from_card({**approved, "user_id": "owner"})
         assert entry["visibility"] == "owner"
         assert entry["type"] == "memory"
@@ -437,6 +449,7 @@ def test_stopwords_do_not_cite_an_unrelated_card():
     assert citations_that_ground("I don't remember.", why_from([car, dog])) == []
     assert spoken_reply('search_archive("first car")') == ""
     assert as_owner_voice("Your first car was a Chevy.") == "My first car was a Chevy."
+    assert as_owner_voice("I looked at your question.") == "I looked at your question."
     assert "first person" in FIRST_PERSON.lower()
     twin = (ROOT / "backend" / "routers" / "twin.py").read_text(encoding="utf-8")
     assert "citations_that_ground" in twin
@@ -469,6 +482,16 @@ def test_a_custom_question_is_filed_and_a_stale_prompt_is_not_today():
     assert filed["prompt_id"]
     assert filed["status"] == "draft"
     assert waiting_items([filed]) == []
+    answered_today = {
+        "prompt_id": "prm_today",
+        "key": "car",
+        "question": "What was your first car?",
+        "status": "answered",
+        "created_at": "2026-11-25T08:00:00+00:00",
+    }
+    again = choose_prompt([answered_today, stale[0]], today="2026-11-25", catalog=catalog)
+    assert again["create"] is False
+    assert again["prompt"]["prompt_id"] == "prm_oct"
 
 
 def test_dry_run_purge_does_not_need_the_lock(tmp_path):
@@ -510,6 +533,10 @@ def test_upgrade_preserves_env_and_does_not_touch_drivers(tmp_path):
     assert "Upgrade does not install or change the NVIDIA driver" in install
     assert "Upgrade keeps OLLAMA_TWIN_MODEL" in install
     assert "Upgrade keeps the chatterbox compose profile" in install
+    wish = install.find("Upgrade keeps Observer on")
+    model_pick = install.find('mib="$(vram_mib)"')
+    assert 0 < wish < model_pick
+    assert 'upsert_env HEIRLOOM_OBSERVER "1"' in install
     assert "cmd_upgrade" in box
     env = tmp_path / "box.env"
     env.write_text("OLLAMA_TWIN_MODEL=qwen2.5:14b\nHEIRLOOM_LLM_PROVIDER=ollama\n", encoding="utf-8")
