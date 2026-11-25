@@ -269,24 +269,31 @@ _PERSONAL_MEMORY = re.compile(
 )
 
 
-_ASK = re.compile(
-    r"(?i)^(?:what|who|where|when|which|how|did|was|were|tell me|describe)\b"
+# A task keeps its verb after an optional "can you". A recall question does not.
+_TASK = re.compile(
+    r"(?i)^(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
+    r"(?:remind me to|set a reminder|help me(?!\s+(?:remember|recall)))\b"
 )
-_ACTION = re.compile(
-    r"(?i)\b(?:remind me|help me|set a reminder|can you|could you|would you)\b"
+_RECALL = re.compile(
+    r"(?i)^(?:please\s+)?"
+    r"(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
+    r"(?:help me\s+(?:remember|recall)\b|"
+    r"what|who|where|when|which|how|did|was|were|do|does|is|are|"
+    r"tell me|describe|do you|remind me (?:about|what|who|of))\b"
 )
 
 
 def asks_for_personal_memory(text: str) -> bool:
     """A recall question about the owner's own life.
 
-    "Tell me about my first car" and "did I have a dog" count.
-    A reminder or a help request does not, even if it names a dog or a car.
+    "Tell me about my first car", "did I have a dog", and "can you tell me
+    about my first car?" count, with or without a question mark.
+    "Remind me to feed my dog" and "can you help me with my car?" do not.
     """
     raw = " ".join((text or "").split())
-    if not raw or _ACTION.search(raw):
+    if not raw or _TASK.match(raw):
         return False
-    asking = raw.endswith("?") or bool(_ASK.match(raw))
+    asking = raw.endswith("?") or bool(_RECALL.match(raw))
     if not asking:
         return False
     return bool(_PERSONAL_MEMORY.search(raw))
