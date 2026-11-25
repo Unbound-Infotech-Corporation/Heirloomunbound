@@ -64,12 +64,12 @@ export function routineActionHref(nudge) {
   if (!nudge || typeof nudge !== "object") return "/owner";
   if (nudge.kind === "weekly_biographer") {
     const q = nudge.action_prompt || nudge.title || "";
-    return `/interviewer?topic=${encodeURIComponent(q)}&key=weekly_biographer`;
+    return `/record?topic=${encodeURIComponent(q)}&key=weekly_biographer`;
   }
   if (nudge.kind === "sealed_letter_nudge") return "/letters";
   if (nudge.action_href) return nudge.action_href;
   if (nudge.kind === "morning_brief") return "/reminders";
-  return `/interviewer?topic=${encodeURIComponent(nudge.action_prompt || nudge.title || "")}&key=nudge_${nudge.nudge_id || "today"}`;
+  return `/record?topic=${encodeURIComponent(nudge.action_prompt || nudge.title || "")}&key=nudge_${nudge.nudge_id || "today"}`;
 }
 
 export function heirPortalMustExcludeRoutines(src) {

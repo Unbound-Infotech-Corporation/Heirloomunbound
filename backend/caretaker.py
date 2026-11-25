@@ -220,6 +220,36 @@ def timeout_report(errors: list[str], *, lost: bool, reachable: bool) -> dict[st
     return {"timed_out": True, "cause": cause, "samples": hits[:3]}
 
 
+def parse_systemctl_show(text: str) -> dict[str, Any]:
+    """``systemctl show`` key=value lines. Missing keys stay empty."""
+    fields: dict[str, str] = {}
+    for line in (text or "").splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        fields[key.strip()] = value.strip()
+    try:
+        restarts = int(fields.get("NRestarts") or 0)
+    except ValueError:
+        restarts = 0
+    return {
+        "n_restarts": restarts,
+        "active": fields.get("ActiveState") or "",
+        "sub": fields.get("SubState") or "",
+        "result": fields.get("Result") or "",
+        "checked_at": _now(),
+    }
+
+
+def observer_opt_actions(*, wished: Optional[bool], etc_present: bool, env_on: bool) -> list[str]:
+    """What the host should do so the unit matches the owner's opt-in."""
+    if wished is True and not (etc_present and env_on):
+        return ["enable"]
+    if wished is False and (etc_present or env_on):
+        return ["disable"]
+    return []
+
+
 def health_view(
     *,
     observer: Optional[dict] = None,

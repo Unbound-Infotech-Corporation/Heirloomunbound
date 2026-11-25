@@ -168,6 +168,7 @@ export default function Twin() {
     let specialistName = "";
     let labTurnId = "";
     let sourceLabel = "";
+    let whyCards = [];
     await streamSSE(
       "/twin/message",
       {
@@ -196,6 +197,7 @@ export default function Twin() {
               specialist_id: selectedAssistant || undefined,
               lab_turn_id: labTurnId || undefined,
               source_label: sourceLabel || undefined,
+              why: whyCards.length ? whyCards : undefined,
             },
           ],
         }));
@@ -217,6 +219,8 @@ export default function Twin() {
           labTurnId = data.lab_turn_id;
         } else if (eventName === "source" && data?.source_label) {
           sourceLabel = data.source_label;
+        } else if (eventName === "why" && Array.isArray(data?.why)) {
+          whyCards = data.why;
         } else if (eventName === "tool") {
           // Merge start + result rows by id so the chip updates in place
           const idx = toolTrace.findIndex((t) => t.id === data.id);
@@ -456,6 +460,16 @@ export default function Twin() {
                 {watchedSourceLabel(m.source_label) ? (
                   <div className="overline mt-2" data-testid={`twin-source-${i}`}>
                     {watchedSourceLabel(m.source_label)}
+                  </div>
+                ) : null}
+                {m.why?.length ? (
+                  <div className="mt-2 text-sm" data-testid={`twin-why-${i}`}>
+                    <div className="overline mb-1">Why did I say that?</div>
+                    {m.why.map((item) => (
+                      <Link key={item.card_id} to={`/record?card=${item.card_id}`} className="block">
+                        {item.title}
+                      </Link>
+                    ))}
                   </div>
                 ) : null}
                 {m.tool_trace && m.tool_trace.length > 0 && (

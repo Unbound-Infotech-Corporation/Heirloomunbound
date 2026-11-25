@@ -340,6 +340,9 @@ internal sealed class TrayController : IDisposable
         var open = new MenuItem { Header = "Open Twin" };
         open.Click += (_, _) => OpenTwin();
         menu.Items.Add(open);
+        var record = new MenuItem { Header = "Record a memory" };
+        record.Click += (_, _) => Process.Start(new ProcessStartInfo(BoxLink.RecordMemory(_store.BoxUrl)) { UseShellExecute = true });
+        menu.Items.Add(record);
         var settings = new MenuItem { Header = "Settings" };
         settings.Click += (_, _) => new SettingsWindow(_store).Show();
         menu.Items.Add(settings);

@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from observer_learn import jaccard, normalize_note_text, tokenize
-from observer_store import HIGH_CONFIDENCE, ObserverStore, observer_dir, observer_enabled
+from observer_store import ObserverStore, observer_dir, observer_enabled
 
 WATCHED_SOURCE = "from what I've watched"
 PROMPT_NOTE_LIMIT = 24
@@ -142,16 +142,14 @@ def select_for_prompt(notes: list[dict], query: str = "") -> list[dict]:
 
 
 def notes_for_prompt(notes: list[dict], *, audience: str, heir_surface: bool = False) -> list[dict]:
-    """Accepted notes, plus the owner's high-confidence pending notes."""
-    heir = heir_surface or (audience or "").strip().lower() == "heir"
+    """Only notes the owner accepted. Pending notes are never facts, at any confidence."""
+    del audience, heir_surface
     picked: list[dict] = []
     for note in notes:
         if str(note.get("source") or "") == "vr_gaze":
             continue
         status = str(note.get("status") or "pending").strip().lower()
         if status == "accepted":
-            picked.append(note)
-        elif not heir and float(note.get("confidence") or 0) >= HIGH_CONFIDENCE:
             picked.append(note)
     return picked
 

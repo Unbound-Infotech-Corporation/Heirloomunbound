@@ -17,6 +17,9 @@ public class BoxClientTests
     [InlineData(true, """{"observer":{"paused":false,"signal":"no-signal","fps":0,"notes_today":0}}""", BoxLamp.Amber)]
     [InlineData(true, """{"observer":{"paused":false,"signal":"paused","fps":0,"notes_today":0}}""", BoxLamp.Amber)]
     [InlineData(true, """{"status":"ok"}""", BoxLamp.Amber)]
+    [InlineData(true, """{"status":"degraded","observer":{"paused":false,"signal":"ok","fresh":false,"fps":2}}""", BoxLamp.Amber)]
+    [InlineData(true, """{"status":"failing","observer":{"paused":false,"signal":"failing","fps":2}}""", BoxLamp.Red)]
+    [InlineData(true, """{"status":"ok","observer":{"paused":false,"signal":"stale","fps":2}}""", BoxLamp.Amber)]
     public void Lamp_follows_health(bool reachable, string? json, BoxLamp expected)
     {
         JsonElement? health = null;
@@ -74,6 +77,7 @@ public class BoxClientTests
             """;
         var snap = TrayStatus.Describe(true, 9, "https://192.168.0.111", json);
         Assert.Equal(BoxLamp.Green, snap.Lamp);
+        Assert.Equal("https://192.168.0.111/record", BoxLink.RecordMemory("https://192.168.0.111"));
         Assert.Equal(2d, snap.ObserverFps);
         Assert.Equal("ok", snap.ObserverSignal);
         Assert.Equal("auto", snap.ObserverMode);

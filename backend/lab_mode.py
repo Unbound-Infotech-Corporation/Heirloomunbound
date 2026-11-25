@@ -221,40 +221,72 @@ def summarize_turns(turns: list[Mapping[str, Any]]) -> dict[str, Any]:
     return summary
 
 
+def turns_on_day(turns: list[Mapping[str, Any]], day: str) -> list[Mapping[str, Any]]:
+    """Rows whose timestamp is that calendar day. Undated rows are not counted as today."""
+    stamp = (day or "").strip()[:10]
+    picked: list[Mapping[str, Any]] = []
+    for row in turns:
+        ts = str(row.get("ts") or "")[:10]
+        if stamp and ts == stamp:
+            picked.append(row)
+    return picked
+
+
+def _count_lines(summary: dict[str, Any], *, failed: int) -> list[str]:
+    return [
+        f"- Turns: {summary['turns']}",
+        f"- Useful: {summary['up']}",
+        f"- Not useful: {summary['down']}",
+        f"- Failed replies: {failed}",
+        (
+            "- Approvals created / approved / declined: "
+            f"{summary['approvals_created']} / {summary['approvals_approved']} / {summary['approvals_declined']}"
+        ),
+    ]
+
+
 def render_report(
     turns: list[Mapping[str, Any]],
     *,
     day: str,
     observer_markdown: str = "",
+    extras: Optional[Mapping[str, Any]] = None,
 ) -> str:
-    """Local markdown. No transcripts."""
-    summary = summarize_turns(turns)
+    """Local markdown. Today is that calendar day. All-time is labeled as all-time."""
+    today_rows = turns_on_day(list(turns), day)
+    today = summarize_turns(today_rows)
+    everything = summarize_turns(list(turns))
+    extra = dict(extras or {})
     lines = [
         f"# Heirloom lab report — {day}",
         "",
         "Local only. This file stays on the box.",
         "",
-        "## Counts",
-        f"- Turns: {summary['turns']}",
-        f"- Useful: {summary['up']}",
-        f"- Not useful: {summary['down']}",
-        f"- Errors: {summary['errors']}",
-        (
-            "- Approvals created / approved / declined: "
-            f"{summary['approvals_created']} / {summary['approvals_approved']} / {summary['approvals_declined']}"
-        ),
+        "## Today",
+        *_count_lines(today, failed=today["errors"]),
+        f"- New memories: {int(extra.get('memories_today') or 0)}",
+        f"- Conversations: {int(extra.get('conversations_today') or 0)}",
+        f"- Observer cards: {int(extra.get('observer_cards_today') or 0)}",
+        f"- Unanswered prompts: {int(extra.get('unanswered_prompts') or 0)}",
         "",
-        "## By route",
+        "## All-time",
+        "These totals are everything on the box, not what happened today.",
+        *_count_lines(everything, failed=everything["errors"]),
+        f"- Memories: {int(extra.get('memories_all') or 0)}",
+        f"- Conversations: {int(extra.get('conversations_all') or 0)}",
+        f"- Observer cards: {int(extra.get('observer_cards_all') or 0)}",
+        "",
+        "## By route (today)",
     ]
-    routes = summary["by_route"]
+    routes = today["by_route"]
     if not routes:
         lines.append("- (none)")
     else:
         for name in sorted(routes):
             lines.append(f"- {name}: {routes[name]}")
-    lines.extend(["", "## Errors"])
+    lines.extend(["", "## Errors (today)"])
     errors = 0
-    for row in turns:
+    for row in today_rows:
         err = str(row.get("error") or "").strip()
         if not err:
             continue
@@ -262,9 +294,9 @@ def render_report(
         lines.append(f"- {row.get('route') or 'unknown'}: {err}")
     if errors == 0:
         lines.append("- (none)")
-    lines.extend(["", "## Notes"])
+    lines.extend(["", "## Notes (today)"])
     notes = 0
-    for row in turns:
+    for row in today_rows:
         feedback = row.get("feedback") if isinstance(row.get("feedback"), Mapping) else None
         if not feedback:
             continue
@@ -276,9 +308,9 @@ def render_report(
         lines.append(f"- {vote} ({row.get('route') or 'unknown'}): {note}")
     if notes == 0:
         lines.append("- (none)")
-    extra = (observer_markdown or "").strip()
-    if extra:
-        lines.extend(["", extra])
+    digest = (observer_markdown or "").strip()
+    if digest:
+        lines.extend(["", digest])
     lines.append("")
     return "\n".join(lines)
 
@@ -290,13 +322,14 @@ def write_report(
     day: Optional[str] = None,
     keep: int = 30,
     observer_markdown: str = "",
+    extras: Optional[Mapping[str, Any]] = None,
 ) -> Path:
     folder = Path(dest)
     folder.mkdir(parents=True, exist_ok=True)
     stamp = day or _day()
     path = folder / f"lab-report-{stamp}.md"
     path.write_text(
-        render_report(turns, day=stamp, observer_markdown=observer_markdown),
+        render_report(turns, day=stamp, observer_markdown=observer_markdown, extras=extras),
         encoding="utf-8",
     )
     _rotate(folder, keep=keep)
@@ -383,6 +416,7 @@ def publish_report(
     token: Optional[str] = None,
     repo: Optional[str] = None,
     opener: Any = None,
+    extras: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, Any]:
     """Write today's markdown. File a GitHub issue only when token and repo are set."""
     stamp = _day(now)
@@ -393,7 +427,20 @@ def publish_report(
         digest = nightly_digest_markdown()
     except OSError:
         digest = ""
-    path = write_report(store.read_all(), dest, day=stamp, observer_markdown=digest)
+    counts = dict(extras or {})
+    try:
+        from observer_store import ObserverStore, observer_dir
+
+        notes = ObserverStore(observer_dir()).read_notes()
+        counts.setdefault("observer_cards_all", len(notes))
+        counts.setdefault(
+            "observer_cards_today",
+            sum(1 for note in notes if str(note.get("created_at") or "")[:10] == stamp),
+        )
+    except OSError:
+        counts.setdefault("observer_cards_all", 0)
+        counts.setdefault("observer_cards_today", 0)
+    path = write_report(store.read_all(), dest, day=stamp, observer_markdown=digest, extras=counts)
     result: dict[str, Any] = {
         "path": str(path),
         "day": stamp,

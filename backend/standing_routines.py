@@ -291,7 +291,7 @@ def compose_weekly_biographer(snapshot: dict | None) -> dict[str, Any] | None:
         ),
         "action_type": "journal",
         "action_prompt": question,
-        "action_href": "/interviewer",
+        "action_href": "/record",
         "action_label": "Sit with this",
     }
 

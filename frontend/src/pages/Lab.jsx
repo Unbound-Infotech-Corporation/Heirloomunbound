@@ -12,6 +12,7 @@ export default function Lab() {
   const [summary, setSummary] = useState(null);
   const [report, setReport] = useState("");
   const [closed, setClosed] = useState(false);
+  const [observerNote, setObserverNote] = useState("");
 
   useEffect(() => {
     api.get("/health")
@@ -50,6 +51,32 @@ export default function Lab() {
             {JSON.stringify(health, null, 2)}
           </pre>
         ) : null}
+      </section>
+
+      <section className="surface p-5 mb-6" data-testid="lab-observer-opt">
+        <div className="overline mb-2">observer</div>
+        <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+          {health?.observer?.enabled
+            ? "Observer is on. It offers a few cards a day. Nothing is saved until you accept it."
+            : "Observer is off. Leave it off unless you want the box to watch the screen."}
+        </p>
+        <button
+          type="button"
+          className="px-4 py-2 text-sm rounded-sm"
+          style={{ border: "1px solid var(--border-default)" }}
+          data-testid="observer-opt-toggle"
+          onClick={() => {
+            const enabled = !health?.observer?.enabled;
+            api.put("/observer/opt-in", { enabled }).then(() => {
+              setObserverNote(enabled
+                ? "Saved. Observer turns on within a few minutes. On the box, sudo heirloom-box observer on does it now."
+                : "Saved. Observer turns off within a few minutes. On the box, sudo heirloom-box observer off does it now.");
+            }).catch(() => setObserverNote("Could not save that. On the box, use sudo heirloom-box observer off."));
+          }}
+        >
+          {health?.observer?.enabled ? "Turn observer off" : "Turn observer on"}
+        </button>
+        {observerNote ? <p className="text-sm mt-3" data-testid="observer-opt-note">{observerNote}</p> : null}
       </section>
 
       {health?.observer?.enabled ? (

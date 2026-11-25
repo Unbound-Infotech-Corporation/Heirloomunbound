@@ -64,6 +64,7 @@ from routers import (
     letters,
     live,
     memory,
+    memory_loop,
     music,
     nudges,
     oauth,
@@ -274,6 +275,7 @@ api_router.include_router(rooms.router)
 api_router.include_router(phone.router)
 api_router.include_router(nudges.router)
 api_router.include_router(memory.router)
+api_router.include_router(memory_loop.router)
 api_router.include_router(brain.router)
 api_router.include_router(would_say.router)
 api_router.include_router(music.router)

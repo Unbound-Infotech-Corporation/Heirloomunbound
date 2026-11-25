@@ -42,6 +42,7 @@ import Presence from "@/pages/Presence";
 import Buy from "@/pages/Buy";
 import BuySuccess from "@/pages/BuySuccess";
 import Today from "@/pages/Today";
+import RecordMemory from "@/pages/RecordMemory";
 import Reminders from "@/pages/Reminders";
 import FirstRunSetup from "@/pages/FirstRunSetup";
 import PhonePair from "@/pages/PhonePair";
@@ -100,6 +101,7 @@ function AppRouter() {
       >
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/today" element={<Today />} />
+        <Route path="/record" element={<RecordMemory />} />
         <Route path="/reminders" element={<Reminders />} />
         <Route path="/sources" element={<Sources />} />
         <Route path="/interviewer" element={<Interviewer />} />

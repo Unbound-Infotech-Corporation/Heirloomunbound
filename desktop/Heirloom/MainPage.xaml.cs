@@ -1,4 +1,6 @@
 using System.Collections.Specialized;
+using System.Diagnostics;
+using Heirloom.BoxCore;
 using Heirloom.Controls;
 using Heirloom.Services;
 using Heirloom.ViewModels;
@@ -302,6 +304,12 @@ public sealed partial class MainPage : Page
         {
             ViewModel.OpenDocument(id);
         }
+    }
+
+    private void OnRecordMemory(object sender, RoutedEventArgs e)
+    {
+        var url = BoxLink.RecordMemory(App.Host.Settings.Current.BoxUrl);
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     }
 
     private void OnDocClose(object sender, RoutedEventArgs e)

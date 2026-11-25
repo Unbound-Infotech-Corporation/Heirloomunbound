@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   BookOpen,
+  BookmarkPlus,
   Box,
   Brain,
   Camera,
@@ -48,6 +49,7 @@ import { presenceEnabled } from "../lib/presence";
 
 const navItems = [
   { to: "/today", label: "Today", icon: Sunrise, tid: "nav-today" },
+  { to: "/record", label: "Record a memory", icon: BookmarkPlus, tid: "nav-record" },
   { to: "/dashboard", label: "Archive", icon: Home, tid: "nav-dashboard" },
   { to: "/reminders", label: "Reminders", icon: ListTodo, tid: "nav-reminders" },
   { to: "/interviewer", label: "Interviewer", icon: MessageCircleHeart, tid: "nav-interviewer" },
@@ -77,6 +79,7 @@ const navItems = [
 
 const WINDOW_TITLES = {
   "/today": "Today",
+  "/record": "Record a memory",
   "/dashboard": "Archive",
   "/reminders": "Reminders",
   "/interviewer": "Interviewer",

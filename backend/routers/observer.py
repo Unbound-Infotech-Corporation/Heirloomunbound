@@ -22,6 +22,10 @@ from vr_mode import accept_gaze, clamp_vr_prefs
 router = APIRouter(prefix="/observer", tags=["observer"])
 
 
+class OptInReq(BaseModel):
+    enabled: bool
+
+
 class FeedbackReq(BaseModel):
     note_id: str = Field(..., min_length=4, max_length=80)
     vote: str = Field(..., min_length=2, max_length=32)
@@ -53,6 +57,22 @@ def _gate(user: dict) -> ObserverStore:
     if user.get("heir_surface") or not is_owner_audience(user.get("audience") or "owner"):
         raise HTTPException(status_code=404, detail="Not found")
     return ObserverStore(observer_dir())
+
+
+@router.put("/opt-in")
+async def set_observer_opt_in(body: OptInReq, user: dict = Depends(get_current_user)):
+    """Owner wish. The caretaker applies it to systemd within a few minutes."""
+    store = _gate(user)
+    import json
+
+    store.root.mkdir(parents=True, exist_ok=True)
+    path = store.root / "owner-opt-in.json"
+    path.write_text(json.dumps({"enabled": bool(body.enabled)}) + "\n", encoding="utf-8")
+    return {
+        "enabled": bool(body.enabled),
+        "applied": False,
+        "detail": "Saved. The box applies it within a few minutes. For right now, on the box: sudo heirloom-box observer on",
+    }
 
 
 @router.get("/status")

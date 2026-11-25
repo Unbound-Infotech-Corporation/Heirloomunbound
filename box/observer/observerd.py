@@ -36,7 +36,7 @@ from observer_audio import (  # noqa: E402
 from observer_capture import (  # noqa: E402
     IdleClock,
     analysis_due,
-    assert_ram_dir,
+    canonical_ram_dir,
     ffmpeg_clip_command,
     ffmpeg_grab_command,
     ffmpeg_gray_command,
@@ -623,8 +623,12 @@ def main() -> int:
     if not observer_enabled():
         print("HEIRLOOM_OBSERVER is off", file=sys.stderr)
         return 0
-    ram = assert_ram_dir(os.environ.get("OBSERVER_RAM_DIR", "/run/heirloom/observer"))
-    ram.mkdir(parents=True, exist_ok=True)
+    ram = canonical_ram_dir(os.environ.get("OBSERVER_RAM_DIR", "") or None)
+    try:
+        ram.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"Observer cannot write {ram}: {exc}", file=sys.stderr)
+        return 1
     store = ObserverStore(observer_dir())
     store.root.mkdir(parents=True, exist_ok=True)
     idle = IdleClock()

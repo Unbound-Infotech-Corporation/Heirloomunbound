@@ -50,7 +50,19 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     command = args[0] if args else "status"
     if command in {"-h", "--help", "help"}:
-        print("Usage: observer_cli <status|pause|resume|digest|compact>")
+        print("Usage: observer_cli <status|pause|resume|digest|compact|purge>")
+        return 0
+    if command == "purge":
+        apply = "--apply" in args[1:]
+        result = _store().purge_noise(apply=apply)
+        print(f"pending notes: {result.get('pending_notes')}")
+        print(f"accepted notes kept: {result.get('accepted_notes')}")
+        print(f"captions: {result.get('observations')}")
+        print(f"bytes: {result.get('bytes')}")
+        if result.get("applied"):
+            print(f"deleted. backup: {result.get('backup') or '(none)'}")
+        else:
+            print("dry-run. pass --apply to delete pending notes and captions.")
         return 0
     if command == "status":
         sys.stdout.write(format_status())

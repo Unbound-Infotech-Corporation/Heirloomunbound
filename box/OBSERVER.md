@@ -117,11 +117,11 @@ Notes are timestamped, `source=observer`, and start as `pending` with a confiden
 
 Games are named when the title or window matches a known game, and the decision summary is built from words in the allowed text (failure, retry, risk, patience, explore, objective). The box is not told a watch-list of apps. The classes above are how notes are shaped, not a list of things to hunt.
 
-Accepted notes, and the owner's pending notes at confidence `0.75` or higher, are background in the Twin prompt. They sit under owner-recorded vault passages. If a reply relies on them, the source label is `from what I've watched`.
+Only notes you have marked That's me are background in the Twin prompt. Pending notes are not facts, whatever their confidence. They sit under owner-recorded vault passages. If a reply relies on an accepted note, the source label is `from what I've watched`.
 
 The prompt keeps at most 24 of those notes, ranked by the question, then accepted status, confidence, and recency. Near-duplicates are dropped. Each note is cut at 280 characters and the section stops at 6,000 characters.
 
-Heard lines that repeat as a longer copy of the same text are stored once, as the longest copy, cut at 1,200 characters. New notes are limited to 40 an hour and 80 a day. Accepted notes are kept. Pending notes older than 21 days are dropped, and at most 240 pending notes remain. Owner memories are not sent to Odysseus, and heirs still see only accepted notes.
+Heard lines that repeat as a longer copy of the same text are stored once, as the longest copy, cut at 1,200 characters. New notes are limited to 5 an hour and 5 a day. Accepted notes are kept. Pending notes older than 21 days are dropped, and at most 240 pending notes remain. Owner memories are not sent to Odysseus, and heirs still see only accepted notes.
 
 ```bash
 heirloom-box observer compact
@@ -235,6 +235,8 @@ heirloom-box observer pause
 heirloom-box observer resume
 heirloom-box observer digest
 heirloom-box observer compact
+heirloom-box observer purge
+heirloom-box observer purge --apply
 ```
 
 ## Install
@@ -244,7 +246,9 @@ sudo bash box/install.sh --observer
 sudo bash box/install.sh --observer-audio
 ```
 
-`--observer-audio` is the same switch as `--observer`. Both install `ffmpeg`, `v4l-utils`, `tesseract-ocr`, `alsa-utils`, a Python venv with faster-whisper plus the CUDA 12 cublas/cudnn wheels, `/etc/heirloom/observer.enabled`, and `heirloom-observer.service`, and pull the vision tag when VRAM selected one. Audio settings are written to `box.env` before the service is restarted, so a daemon that was already running picks them up. A later `sudo bash box/install.sh` without the flag keeps Observer on while that marker file exists. A dry-run does not create the marker.
+`--observer-audio` is the same switch as `--observer`. Both install `ffmpeg`, `v4l-utils`, `tesseract-ocr`, `alsa-utils`, a Python venv with faster-whisper plus the CUDA 12 cublas/cudnn wheels, `/etc/heirloom/observer.opt-in`, and `heirloom-observer.service`, and pull the vision tag when VRAM selected one. Audio settings are written to `box.env` before the service is restarted, so a daemon that was already running picks them up. A later `sudo bash box/install.sh` without the flag leaves Observer off unless `/etc/heirloom/observer.opt-in` is already there. The old `/etc/heirloom/observer.enabled` file is ignored. Turn it on with `sudo heirloom-box observer on` and off with `sudo heirloom-box observer off`. A dry-run does not create the opt-in file.
+
+When Observer is on it writes at most five candidate cards a day. They stay pending until you mark That's me. Pending cards are not used as facts. `heirloom-box observer purge` counts leftover noise notes and captions and deletes nothing. Add `--apply` to delete the pending notes and captions after it copies them to a `.purge.bak` file. Accepted notes stay.
 
 On the Windows PC, OBS sends the main monitor to the EVGA HDMI input with desktop audio on that output. The companion tray is signed in. System audio and Microphone in the tray are the two switches. HDMI audio is used while `arecord -l` shows the XR1. The companion sends speaker loopback only when that device is absent, and it sends the microphone when the box has no C920.
 

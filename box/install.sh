@@ -618,6 +618,8 @@ write_env() {
     fi
     upsert_env OBSERVER_WHISPER_MODEL "${whisper_model}" "${env_file}"
     upsert_env OBSERVER_WHISPER_DEVICE "${whisper_device}" "${env_file}"
+  else
+    upsert_env HEIRLOOM_OBSERVER "0" "${env_file}"
   fi
   if [[ "${WITH_PRESENCE}" -eq 1 ]]; then
     local speak="0"
@@ -718,9 +720,34 @@ EOF
   chmod 644 "${cron_file}"
 }
 
+ensure_observer_runtime() {
+  install -d -m 0755 /run/heirloom/observer/audio/system /run/heirloom/observer/audio/mic /run/heirloom/observer/screen
+  if [[ -d /run/heirloom-observer && ! -L /run/heirloom-observer ]]; then
+    cp -a /run/heirloom-observer/. /run/heirloom/observer/ || true
+    rm -rf /run/heirloom-observer
+  fi
+  ln -sfn /run/heirloom/observer /run/heirloom-observer
+}
+
 install_observer() {
   if [[ "${WITH_OBSERVER}" -eq 0 ]]; then
-    log "Observer not requested. Product builds leave it off."
+    log "Observer is off. Turn it on later with: heirloom-box observer on"
+    if [[ "${DRY_RUN}" -eq 1 ]]; then
+      log "would install the corrected heirloom-observer.service and systemctl disable --now it"
+      return 0
+    fi
+    install_unit "${ROOT}/box/observer/heirloom-observer.service" /etc/systemd/system/heirloom-observer.service
+    install -d -m 0755 /etc/tmpfiles.d
+    install -m 0644 "${ROOT}/box/observer/heirloom-observer.tmpfiles" /etc/tmpfiles.d/heirloom-observer.conf
+    ensure_observer_runtime
+    if command -v systemd-tmpfiles >/dev/null 2>&1; then
+      systemd-tmpfiles --create /etc/tmpfiles.d/heirloom-observer.conf || true
+    fi
+    mkdir -p "${DATA_ROOT}/observer"
+    printf '%s\n' '{"enabled": false}' > "${DATA_ROOT}/observer/owner-opt-in.json"
+    systemctl daemon-reload || true
+    systemctl disable --now heirloom-observer.service || true
+    systemctl reset-failed heirloom-observer.service || true
     return 0
   fi
   log "Observer requested. Installing ffmpeg, v4l-utils, tesseract-ocr, alsa-utils, the systemd unit, and the udev rule."
@@ -731,7 +758,7 @@ install_observer() {
     log "would write /etc/tmpfiles.d/heirloom-observer.conf for /run/heirloom/observer/audio and /run/heirloom/observer/screen"
     log "would create ${DATA_ROOT}/observer/venv and pip install faster-whisper nvidia-cublas-cu12 nvidia-cudnn-cu12"
     log "would write heirloom-observer.service.d/cuda-libs.conf with LD_LIBRARY_PATH for those wheels"
-    log "would touch /etc/heirloom/observer.enabled and systemctl restart heirloom-observer.service after box.env is written"
+    log "would write /etc/heirloom/observer.opt-in and systemctl restart heirloom-observer.service after box.env is written"
     return 0
   fi
   install -m 0755 "${ROOT}/box/observer/heirloom-observer" /usr/local/bin/heirloom-observer
@@ -740,19 +767,15 @@ install_observer() {
   install -m 0644 "${ROOT}/box/observer/99-heirloom-observer.rules" /etc/udev/rules.d/99-heirloom-observer.rules
   install -d -m 0755 /etc/tmpfiles.d
   install -m 0644 "${ROOT}/box/observer/heirloom-observer.tmpfiles" /etc/tmpfiles.d/heirloom-observer.conf
+  ensure_observer_runtime
   if command -v systemd-tmpfiles >/dev/null 2>&1; then
     systemd-tmpfiles --create /etc/tmpfiles.d/heirloom-observer.conf || true
-  else
-    install -d -m 0755 /run/heirloom/observer/audio/system /run/heirloom/observer/audio/mic /run/heirloom/observer/screen
-  if [[ -d /run/heirloom-observer && ! -L /run/heirloom-observer ]]; then
-    cp -a /run/heirloom-observer/. /run/heirloom/observer/ || true
-    rm -rf /run/heirloom-observer
-  fi
-  ln -sfn /run/heirloom/observer /run/heirloom-observer
   fi
   install -d -m 0755 /etc/heirloom
-  touch /etc/heirloom/observer.enabled
-  chmod 644 /etc/heirloom/observer.enabled
+  touch /etc/heirloom/observer.opt-in
+  chmod 644 /etc/heirloom/observer.opt-in
+  mkdir -p "${DATA_ROOT}/observer"
+  printf '%s\n' '{"enabled": true}' > "${DATA_ROOT}/observer/owner-opt-in.json"
   install_observer_audio_venv
   write_observer_library_dropin
   systemctl daemon-reload
@@ -1018,10 +1041,12 @@ main() {
     LAN_IP="127.0.0.1"
   fi
   prepare_log
-  if [[ "${WITH_OBSERVER}" -eq 0 && -f /etc/heirloom/observer.enabled ]]; then
+  if [[ "${WITH_OBSERVER}" -eq 0 && -f /etc/heirloom/observer.opt-in ]]; then
     WITH_OBSERVER=1
     WITH_OBSERVER_AUDIO=1
-    log "Observer marker /etc/heirloom/observer.enabled is present; keeping Observer on"
+    log "Observer opt-in is set; keeping Observer on"
+  elif [[ "${WITH_OBSERVER}" -eq 0 && -f /etc/heirloom/observer.enabled ]]; then
+    log "Old /etc/heirloom/observer.enabled is ignored. Observer stays off until: heirloom-box observer on"
   fi
   if [[ "${WITH_PRESENCE}" -eq 0 && -f /etc/heirloom/presence.enabled ]]; then
     WITH_PRESENCE=1

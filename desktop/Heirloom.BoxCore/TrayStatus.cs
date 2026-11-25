@@ -43,9 +43,38 @@ public static class TrayStatus
             return BoxLamp.Amber;
         }
 
+        if (health.Value.TryGetProperty("status", out var top) && top.ValueKind == JsonValueKind.String)
+        {
+            var name = top.GetString() ?? "";
+            if (string.Equals(name, "failing", StringComparison.OrdinalIgnoreCase))
+            {
+                return BoxLamp.Red;
+            }
+
+            if (string.Equals(name, "degraded", StringComparison.OrdinalIgnoreCase))
+            {
+                return BoxLamp.Amber;
+            }
+        }
+
         var paused = Flag(observer, "paused");
         var signal = Text(observer, "signal");
         var fps = Number(observer, "fps");
+        if (string.Equals(signal, "failing", StringComparison.OrdinalIgnoreCase))
+        {
+            return BoxLamp.Red;
+        }
+
+        if (string.Equals(signal, "stale", StringComparison.OrdinalIgnoreCase))
+        {
+            return BoxLamp.Amber;
+        }
+
+        if (observer.TryGetProperty("fresh", out var fresh) && fresh.ValueKind == JsonValueKind.False)
+        {
+            return BoxLamp.Amber;
+        }
+
         var live = string.Equals(signal, "signal", StringComparison.OrdinalIgnoreCase)
             || string.Equals(signal, "ok", StringComparison.OrdinalIgnoreCase);
         if (!paused && live && fps > 0)

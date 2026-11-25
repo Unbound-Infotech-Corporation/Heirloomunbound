@@ -342,6 +342,15 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     if user.get("heir_surface"):
         turn_audience = "heir"
     archive = await _archive_blob(user["user_id"], query_hint=payload.message, audience=turn_audience)
+    why_cards: list[dict] = []
+    try:
+        from routers.memory_loop import grounding_for_turn
+
+        card_block, why_cards = await grounding_for_turn(user["user_id"], payload.message)
+        if card_block:
+            archive = (archive + "\n\n" + card_block).strip()
+    except Exception:
+        why_cards = []
     skills = await _skills_blob(user["user_id"])
     memory_pack = await build_memory_pack(user["user_id"], query_hint=payload.message, audience=turn_audience)
     memory_blob = format_memory_pack_for_prompt(memory_pack)
@@ -438,6 +447,8 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     assistant_turn["clone_id"] = specialist_id
                 if specialist_name:
                     assistant_turn["specialist_name"] = specialist_name
+                if why_cards:
+                    assistant_turn["why"] = why_cards
                 if watched_reply:
                     from observer_prompt import WATCHED_SOURCE
 
@@ -464,6 +475,11 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             if lab_line:
                 yield lab_line
             if error is None:
+                if why_cards:
+                    yield "event: why\ndata: " + json.dumps({
+                        "label": "Why did I say that?",
+                        "why": why_cards,
+                    }) + "\n\n"
                 source_line = _source_sse(watched_reply)
                 if source_line:
                     yield source_line
@@ -576,6 +592,8 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             assistant_turn["clone_id"] = specialist_id
         if specialist_name:
             assistant_turn["specialist_name"] = specialist_name
+        if why_cards:
+            assistant_turn["why"] = why_cards
         if watched_reply:
             from observer_prompt import WATCHED_SOURCE
 
@@ -602,6 +620,11 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         lab_line = _lab_sse(user, route=lab_route, started=started)
         if lab_line:
             yield lab_line
+        if why_cards:
+            yield "event: why\ndata: " + json.dumps({
+                "label": "Why did I say that?",
+                "why": why_cards,
+            }) + "\n\n"
         source_line = _source_sse(watched_reply)
         if source_line:
             yield source_line

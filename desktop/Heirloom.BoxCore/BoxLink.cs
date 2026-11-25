@@ -45,6 +45,9 @@ public static class BoxLink
 
     public static string WebHome(string? boxUrl) => Normalize(string.IsNullOrWhiteSpace(boxUrl) ? DefaultBoxUrl : boxUrl) + "/";
 
+    /// <summary>The one memory flow on the Twin Box. WinUI and Companion open this page.</summary>
+    public static string RecordMemory(string? boxUrl) => Normalize(string.IsNullOrWhiteSpace(boxUrl) ? DefaultBoxUrl : boxUrl) + "/record";
+
     public static string Normalize(string url)
     {
         var text = (url ?? "").Trim();

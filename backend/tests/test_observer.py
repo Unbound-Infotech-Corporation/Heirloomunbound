@@ -462,11 +462,20 @@ def test_prompt_uses_watched_label_and_skips_heirs_pending():
         notes=notes,
         enabled=True,
     )
-    assert owner.relied is True
-    assert owner.citation.endswith(WATCHED_SOURCE)
-    assert "lower priority" in owner.block
-    assert "VS Code" in owner.block
+    assert owner.relied is False
+    assert "play" not in owner.block
     assert "Terminal" not in owner.block
+    accepted = attach_observer_context(
+        "note#1",
+        "Where do I work in VS Code?",
+        audience="owner",
+        notes=notes,
+        enabled=True,
+    )
+    assert accepted.relied is True
+    assert accepted.citation.endswith(WATCHED_SOURCE)
+    assert "lower priority" in accepted.block
+    assert "VS Code" in accepted.block
     heir = attach_observer_context(
         "",
         "How long do I stay with play?",
@@ -742,6 +751,7 @@ def test_compact_backs_up_then_keeps_accepted_notes(tmp_path: Path, monkeypatch,
     assert len(list(tmp_path.glob("notes.jsonl.*.bak"))) == 1
 
     monkeypatch.setenv("HEIRLOOM_OBSERVER_DIR", str(tmp_path))
+    monkeypatch.setattr("observer_store._now", lambda now=None: moment if now is None else now)
     from observer_cli import main
 
     assert main(["compact"]) == 0

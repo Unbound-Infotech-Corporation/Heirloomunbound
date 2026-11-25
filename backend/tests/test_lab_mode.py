@@ -83,8 +83,13 @@ def test_telemetry_is_local_and_omits_message_text(tmp_path, monkeypatch):
 
 def test_report_is_markdown_without_transcripts(tmp_path):
     store = LabStore(tmp_path / "lab")
+    from datetime import datetime, timedelta, timezone
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
     store.append({
         "turn_id": "lab_a",
+        "ts": f"{today}T03:00:00+00:00",
         "route": "assist",
         "latency_ms": 10,
         "model": "qwen2.5:3b",
@@ -97,17 +102,27 @@ def test_report_is_markdown_without_transcripts(tmp_path):
     })
     store.append({
         "turn_id": "lab_b",
+        "ts": f"{yesterday}T03:00:00+00:00",
         "route": "clone",
         "error": "timeout",
         "approvals_declined": 2,
         "feedback": None,
     })
-    text = render_report(store.read_all(), day="2026-10-12")
-    assert "2026-10-12" in text
+    text = render_report(
+        store.read_all(),
+        day=today,
+        extras={"memories_today": 1, "memories_all": 4, "conversations_today": 1, "conversations_all": 3},
+    )
+    assert today in text
+    assert "## Today" in text
+    assert "## All-time" in text
+    assert "Turns: 1" in text
     assert "Turns: 2" in text
+    assert "New memories: 1" in text
+    assert "Memories: 4" in text
     assert "assist: 1" in text
     assert "did the job" in text
-    assert "timeout" in text
+    assert "timeout" not in text.split("## All-time", 1)[0]
     path = publish_report(store, tmp_path / "reports")["path"]
     assert path.endswith(".md")
     assert "did the job" in open(path, encoding="utf-8").read()
