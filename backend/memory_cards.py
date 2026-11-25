@@ -285,7 +285,7 @@ _TASK = re.compile(
 _HOWTO = re.compile(
     r"(?i)^(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
     r"how\s+(?:do|can|should|would|could)\b"
-    r"(?!\s+(?:i|we)\s+(?:remember|recall)\b)"
+    r"(?!\s+(?:i|we)\s+(?:remember|recall)(?!\s+to)\b)"
 )
 _OBLIGATION = re.compile(
     r"(?i)^(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"

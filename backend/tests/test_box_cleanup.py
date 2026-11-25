@@ -684,6 +684,7 @@ def test_owner_words_are_the_only_memory_and_ungrounded_questions_decline():
     assert asks_for_personal_memory("Can we drive to the store?") is False
     assert asks_for_personal_memory("Remember my dog needs feeding") is False
     assert asks_for_personal_memory("How do I remember my first car?") is True
+    assert asks_for_personal_memory("How do I remember to feed my dog?") is False
     assert asks_for_personal_memory("Where did we grow up?") is True
     assert asks_for_personal_memory("My first car was a Chevy") is False
     assert asks_for_personal_memory("remind me to feed my dog") is False
