@@ -221,5 +221,5 @@ async def grounding_for_turn(
         used = await recall_cards(question, allowed)
     except Exception:
         used = []
-    used = merge_cards(used, cards_reached_through_archive(archive_text, allowed))
+    used = merge_cards(used, cards_reached_through_archive(archive_text, allowed, question))
     return grounding_block(used), why_from(used)

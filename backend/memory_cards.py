@@ -259,9 +259,14 @@ def embed_document(text: str) -> str:
     return f"search_document: {body}" if body else ""
 
 
+_LIFE = (
+    r"car|cars|dog|dad|father|mom|mother|childhood|grew up|named|name|"
+    r"drive|drove|driven|family|brother|sister|wife|husband|son|daughter|"
+    r"born|school|house|home|job"
+)
 _PERSONAL_MEMORY = re.compile(
-    r"(?i)\b(?:what|who|where|when|which|how)\b[\s\S]{0,80}\b(?:my|i|me)\b"
-    r"|\b(?:my|i)\b[\s\S]{0,48}\b(?:first car|dog|dad|father|mom|mother|childhood|grew up|named|drive|drove|family|brother|sister)\b"
+    rf"(?i)\b(?:my|i|me)\b[\s\S]{{0,48}}\b(?:{_LIFE})\b"
+    rf"|\b(?:{_LIFE})\b[\s\S]{{0,48}}\b(?:my|i|me)\b"
 )
 
 
@@ -426,13 +431,18 @@ def as_owner_voice(text: str) -> str:
     return spoken
 
 
-def cards_reached_through_archive(archive: str, cards: list[dict]) -> list[dict]:
-    """Approved cards whose vault copy is already in the archive text."""
+def cards_reached_through_archive(archive: str, cards: list[dict], question: str = "") -> list[dict]:
+    """Approved cards whose vault copy is in the archive and matches this question.
+
+    A recent card that merely sits in the archive blob is not grounding.
+    """
     text = archive or ""
     folded = text.lower()
     found: list[dict] = []
     for card in cards or []:
         if str(card.get("status") or "") != "approved":
+            continue
+        if not question or _score_card(card, question) <= 0:
             continue
         card_id = str(card.get("card_id") or "")
         title = str(card.get("title") or "").strip()

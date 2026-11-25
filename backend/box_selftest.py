@@ -199,8 +199,9 @@ def run() -> int:
         print("FAIL no owner user on this box")
         return 1
     user_id = str(user["user_id"])
-    issued = issue(clock.now(timezone.utc))
-    db.user_sessions.insert_one(issued.document(user_id, clock.now(timezone.utc)))
+    now = datetime.now(timezone.utc)
+    issued = issue(now)
+    db.user_sessions.insert_one(issued.document(user_id, now))
     api = Api("http://127.0.0.1:8001", issued.session_token)
     card_id = ""
     prompt_id = ""

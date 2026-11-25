@@ -664,6 +664,8 @@ def test_owner_words_are_the_only_memory_and_ungrounded_questions_decline():
 
     assert asks_for_personal_memory("What was my first car?") is True
     assert asks_for_personal_memory("Hello there") is False
+    assert asks_for_personal_memory("How do I restart the printer?") is False
+    assert asks_for_personal_memory("What should I cook tonight?") is False
     said = owner_episode_text([
         {"role": "user", "content": "I had soup."},
         {"role": "assistant", "content": "My first car was a rusty old Ford Escort."},
@@ -680,8 +682,14 @@ def test_owner_words_are_the_only_memory_and_ungrounded_questions_decline():
     )
     assert [row["fact"] for row in kept] == ["Has a blue Chevy"]
     car = {"status": "approved", "card_id": "car", "title": "First Car", "story": "My first car was a blue Chevy."}
-    archive = "[MEMORY card=car] First Car\nMy first car was a blue Chevy.\n"
-    assert cards_reached_through_archive(archive, [car])[0]["card_id"] == "car"
+    dog = {"status": "approved", "card_id": "dog", "title": "Duke", "story": "A black lab named Duke."}
+    archive = (
+        "[MEMORY card=car] First Car\nMy first car was a blue Chevy.\n"
+        "[MEMORY card=dog] Duke\nA black lab named Duke.\n"
+    )
+    reached = cards_reached_through_archive(archive, [car, dog], "What was my first car?")
+    assert [row["card_id"] for row in reached] == ["car"]
+    assert cards_reached_through_archive(archive, [car, dog], "") == []
     rows = judge(
         "My first car was a blue Chevy.",
         "I drove a blue Chevy when I was young.",
@@ -734,6 +742,67 @@ def test_owner_words_are_the_only_memory_and_ungrounded_questions_decline():
         local_inference.ollama_embed_many = original
     assert "Chevy" in result["reply"]
     assert result["why"][0]["card_id"] == "car"
+
+
+def test_selftest_mints_a_session_and_cleans_up(monkeypatch):
+    import box_selftest
+
+    class Table:
+        def __init__(self):
+            self.inserted = []
+
+        def insert_one(self, doc):
+            self.inserted.append(doc)
+
+        def delete_many(self, query):
+            del query
+            return None
+
+        def find_one(self, query, projection=None):
+            del query, projection
+            return {"user_id": "owner", "audience": "owner"}
+
+    class Database:
+        def __init__(self):
+            self.users = Table()
+            self.user_sessions = Table()
+
+        def __getattr__(self, name):
+            return Table()
+
+    database = Database()
+    monkeypatch.setattr(box_selftest, "_db", lambda: database)
+
+    class FakeApi:
+        def __init__(self, base, token):
+            self.base = base
+            self.token = token
+
+        def answer(self, transcript, question):
+            del transcript, question
+            return {"card": {"card_id": "card_test", "prompt_id": "prm_test"}, "prompt": {"prompt_id": "prm_test"}}
+
+        def approve(self, card_id):
+            del card_id
+            return {}
+
+        def ask(self, question):
+            if "dog" in question:
+                return "I don't have that memory yet."
+            return "My first car was a blue Chevy."
+
+        def chat(self, question):
+            if "dog" in question:
+                return "conv_unknown", "I don't have that memory yet."
+            return "conv_car", "My first car was a blue Chevy."
+
+        def transcribe(self, wav):
+            del wav
+            return True
+
+    monkeypatch.setattr(box_selftest, "Api", FakeApi)
+    assert box_selftest.run() == 0
+    assert database.user_sessions.inserted
 
 
 def test_upgrade_skips_installed_apt_and_replaces_a_real_observer_dir(tmp_path):
