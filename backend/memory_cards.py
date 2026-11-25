@@ -275,7 +275,8 @@ _PERSONAL_MEMORY = re.compile(
 # A task keeps its verb after an optional "can you". A recall question does not.
 _TASK = re.compile(
     r"(?i)^(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
-    r"(?:remind me to|set a reminder|help me(?!\s+(?:remember|recall))|plan my)\b"
+    r"(?:remind me to|remember to|recall to|set a reminder|"
+    r"help me(?!\s+(?:remember|recall))|plan my)\b"
 )
 _HOWTO = re.compile(
     r"(?i)^(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
@@ -284,7 +285,7 @@ _HOWTO = re.compile(
 _RECALL = re.compile(
     r"(?i)^(?:please\s+)?"
     r"(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
-    r"(?:help me\s+(?:remember|recall)\b|"
+    r"(?:help me\s+(?:remember|recall)\b|remember|recall|"
     r"what|who|where|when|which|how|did|was|were|do|does|is|are|"
     r"tell me|describe|do you|remind me (?:about|what|who|of))\b"
 )
