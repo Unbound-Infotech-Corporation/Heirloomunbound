@@ -413,6 +413,7 @@ cmd_upgrade() {
   root="$(read_root)"
   if [[ -z "${root}" || ! -f "${root}/box/install.sh" ]]; then
     echo "Run this from a Twin Box that already has box/install.sh." >&2
+    echo "The first time, from the repo root: sudo bash box/install.sh --upgrade" >&2
     exit 1
   fi
   exec bash "${root}/box/install.sh" --upgrade

@@ -152,10 +152,10 @@ From the repo root on a box that is already running:
 
 ```bash
 git pull
-sudo heirloom-box upgrade
+sudo bash box/install.sh --upgrade
 ```
 
-The same thing is `sudo bash box/install.sh --upgrade`.
+Once that has installed the new `heirloom-box`, later upgrades are `sudo heirloom-box upgrade`.
 
 This rebuilds the containers and reinstalls the units, scripts, and tmpfiles. It keeps `box.env` values and permissions, `OLLAMA_TWIN_MODEL`, the compose profiles (chatterbox included), and the GPU overlay. It leaves the NVIDIA driver alone.
 
