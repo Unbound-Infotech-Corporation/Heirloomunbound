@@ -275,6 +275,7 @@ observer_toggle() {
       fi
     fi
     systemctl daemon-reload || true
+    systemctl reset-failed heirloom-observer.service || true
     systemctl enable --now heirloom-observer.service
     echo "Observer is on. It will offer a few candidate cards a day. Nothing is saved until you accept it."
     return 0

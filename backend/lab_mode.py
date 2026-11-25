@@ -408,6 +408,81 @@ def file_github_issue(
     return str(html or "")
 
 
+def _match_count(row: Mapping[str, Any], query: Mapping[str, Any]) -> bool:
+    for key, expected in query.items():
+        value = row.get(key)
+        if isinstance(expected, Mapping) and "$regex" in expected:
+            prefix = str(expected["$regex"])
+            if prefix.startswith("^"):
+                prefix = prefix[1:]
+            if not str(value or "").startswith(prefix):
+                return False
+        elif value != expected:
+            return False
+    return True
+
+
+class _CountDB:
+    """Tiny stand-in so report counts can be tested without Mongo."""
+
+    def __init__(self, tables: Mapping[str, list[Mapping[str, Any]]]) -> None:
+        self.tables = tables
+
+    def __getitem__(self, name: str) -> "_CountDB":
+        self._name = name
+        return self
+
+    def count_documents(self, query: Mapping[str, Any]) -> int:
+        rows = self.tables.get(getattr(self, "_name", ""), [])
+        return sum(1 for row in rows if _match_count(row, query))
+
+
+def activity_counts(day: str, db: Any = None) -> dict[str, int]:
+    """Vault memories, conversations, and unanswered prompts for one day.
+
+    Approved memory cards are also vault entries, so entries are the count.
+    Cards fill in only when the entry write did not happen.
+    """
+    database = db if db is not None else _activity_db()
+    if database is None:
+        return {}
+
+    def n(collection: str, query: Mapping[str, Any]) -> int:
+        try:
+            return int(database[collection].count_documents(query))
+        except (OSError, TypeError, ValueError, AttributeError):
+            return 0
+
+    prefix = {"$regex": f"^{day}"}
+    memories_today = n("entries", {"type": "memory", "created_at": prefix})
+    memories_all = n("entries", {"type": "memory"})
+    if memories_all == 0:
+        memories_all = n("memory_cards", {"status": "approved"})
+        memories_today = n("memory_cards", {"status": "approved", "approved_at": prefix})
+    return {
+        "memories_today": memories_today,
+        "memories_all": memories_all,
+        "conversations_today": n("conversations", {"created_at": prefix}),
+        "conversations_all": n("conversations", {}),
+        "unanswered_prompts": n("daily_prompts", {"status": "unanswered"}),
+    }
+
+
+def _activity_db() -> Any:
+    url = (os.environ.get("MONGO_URL") or "").strip()
+    if not url:
+        return None
+    try:
+        from pymongo import MongoClient
+
+        client = MongoClient(url, serverSelectionTimeoutMS=400)
+        client.admin.command("ping")
+    except Exception:
+        return None
+    name = (os.environ.get("DB_NAME") or "heirloom").strip() or "heirloom"
+    return client[name]
+
+
 def publish_report(
     store: LabStore,
     dest: Path,
@@ -428,6 +503,11 @@ def publish_report(
     except OSError:
         digest = ""
     counts = dict(extras or {})
+    try:
+        for key, value in activity_counts(stamp).items():
+            counts.setdefault(key, value)
+    except OSError:
+        pass
     try:
         from observer_store import ObserverStore, observer_dir
 

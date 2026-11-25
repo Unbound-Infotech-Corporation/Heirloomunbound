@@ -18,6 +18,7 @@ from memory_cards import (
     new_card_doc,
     new_prompt_doc,
     select_cards,
+    visible_cards,
     why_from,
 )
 
@@ -131,7 +132,7 @@ async def answer(body: AnswerReq, user: dict = Depends(get_current_user)):
             prompt = found
     if body.question:
         prompt["question"] = body.question
-    if not prompt.get("prompt_id"):
+    if not prompt.get("prompt_id") and choice.get("persist", True):
         prompt = new_prompt_doc(user_id, prompt)
         await db.daily_prompts.insert_one(dict(prompt))
     try:
@@ -197,11 +198,18 @@ async def ask(body: AskReq, user: dict = Depends(get_current_user)):
     return result
 
 
-async def grounding_for_turn(user_id: str, question: str) -> tuple[str, list[dict]]:
-    """Approved cards for the twin prompt. Pending cards are left out."""
+async def grounding_for_turn(
+    user_id: str,
+    question: str,
+    *,
+    audience: str = "owner",
+    heir_surface: bool = False,
+) -> tuple[str, list[dict]]:
+    """Approved cards for the twin prompt. Pending and owner-private cards stay out."""
     try:
         cards = await _cards(user_id)
     except Exception:
         return "", []
-    used = select_cards(cards, question)
+    allowed = visible_cards(cards, audience=audience, heir_surface=heir_surface)
+    used = select_cards(allowed, question)
     return grounding_block(used), why_from(used)

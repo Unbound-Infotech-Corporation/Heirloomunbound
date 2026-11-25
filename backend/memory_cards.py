@@ -106,9 +106,9 @@ def choose_prompt(
     if key or question:
         for row in waiting:
             if key and str(row.get("key") or "") == key:
-                return {"prompt": row, "create": False, "waiting": len(waiting)}
+                return {"prompt": row, "create": False, "persist": False, "waiting": len(waiting)}
             if question and str(row.get("question") or "") == question:
-                return {"prompt": row, "create": False, "waiting": len(waiting)}
+                return {"prompt": row, "create": False, "persist": False, "waiting": len(waiting)}
         match = next((item for item in book if item["key"] == key or item["question"] == question), None)
         shown = {
             "prompt_id": "",
@@ -117,12 +117,19 @@ def choose_prompt(
             "status": "unanswered",
             "created_at": "",
         }
-        return {"prompt": shown, "create": False, "waiting": len(waiting)}
+        # A suggested topic can be answered now. It must not become a second
+        # unanswered row while older questions are still waiting.
+        return {
+            "prompt": shown,
+            "create": not waiting,
+            "persist": not waiting,
+            "waiting": len(waiting),
+        }
     if waiting:
-        return {"prompt": waiting[0], "create": False, "waiting": len(waiting)}
+        return {"prompt": waiting[0], "create": False, "persist": False, "waiting": len(waiting)}
     for row in prompts or []:
         if str(row.get("created_at") or "")[:10] == today:
-            return {"prompt": row, "create": False, "waiting": 0}
+            return {"prompt": row, "create": False, "persist": False, "waiting": 0}
     if not book:
         return {"prompt": None, "create": False, "waiting": 0}
     try:
@@ -139,6 +146,7 @@ def choose_prompt(
             "created_at": "",
         },
         "create": True,
+        "persist": True,
         "waiting": 0,
     }
 
@@ -223,6 +231,20 @@ def _score_card(card: dict, query: str) -> float:
     if not hay_tokens:
         return 0.0
     return len(query_tokens & hay_tokens) / len(query_tokens)
+
+
+def visible_cards(
+    cards: list[dict],
+    *,
+    audience: str = "owner",
+    heir_surface: bool = False,
+) -> list[dict]:
+    """Owner-private cards stay out of heir and caller prompts."""
+    heir = heir_surface or (audience or "").strip().lower() in {"heir", "caller"}
+    if not heir:
+        return list(cards or [])
+    hidden = {"owner", "private"}
+    return [card for card in cards or [] if str(card.get("visibility") or "owner") not in hidden]
 
 
 def select_cards(cards: list[dict], query: str, *, limit: int = 3) -> list[dict]:

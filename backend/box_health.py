@@ -63,7 +63,9 @@ def assess_model_probe(probe: Optional[dict], *, now: Optional[datetime] = None,
 
 def overall_status(*, observer: dict, model: Optional[dict], box: bool) -> str:
     """No false green. Observer off is fine. A stale signal or a dead model is not."""
-    if str(observer.get("signal") or "") == "failing" or str(observer.get("unit") or "") == "failing":
+    if observer.get("enabled") and (
+        str(observer.get("signal") or "") == "failing" or str(observer.get("unit") or "") == "failing"
+    ):
         return "failing"
     if observer.get("enabled") and not observer.get("fresh"):
         return "degraded"

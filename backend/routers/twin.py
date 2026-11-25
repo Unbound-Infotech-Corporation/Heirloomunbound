@@ -346,7 +346,12 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
     try:
         from routers.memory_loop import grounding_for_turn
 
-        card_block, why_cards = await grounding_for_turn(user["user_id"], payload.message)
+        card_block, why_cards = await grounding_for_turn(
+            user["user_id"],
+            payload.message,
+            audience=turn_audience,
+            heir_surface=bool(user.get("heir_surface")),
+        )
         if card_block:
             archive = (archive + "\n\n" + card_block).strip()
     except Exception:

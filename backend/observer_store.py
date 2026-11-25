@@ -1,11 +1,13 @@
 """Local observer files. Notes and short clips only. Never a raw stream."""
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
 import shutil
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -53,8 +55,32 @@ def _flag(name: str, raw: Optional[str] = None) -> bool:
     return (raw or "").strip().lower() in _ON
 
 
+def read_observer_opt_in(root: Optional[Path] = None) -> Optional[bool]:
+    """Live owner wish. ``None`` when the file is absent.
+
+    The API container keeps the env it was created with. The opt-in file is on
+    the shared data volume, so health can see a toggle without a recreate.
+    """
+    folder = root if root is not None else observer_dir()
+    path = Path(folder) / "owner-opt-in.json"
+    if not path.is_file():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8") or "null")
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(loaded, dict) or "enabled" not in loaded:
+        return None
+    return bool(loaded.get("enabled"))
+
+
 def observer_enabled(raw: Optional[str] = None) -> bool:
-    return _flag("HEIRLOOM_OBSERVER", raw)
+    if raw is not None:
+        return _flag("HEIRLOOM_OBSERVER", raw)
+    wished = read_observer_opt_in()
+    if wished is not None:
+        return wished
+    return _flag("HEIRLOOM_OBSERVER", None)
 
 
 def observer_dir(raw: Optional[str] = None) -> Path:
@@ -175,6 +201,24 @@ class ObserverStore:
         self.clips_dir = self.root / "clips"
         self.clip_index = self.clips_dir / "index.jsonl"
         self.digest_dir = self.root / "digests"
+        self._held = False
+
+    @contextmanager
+    def _exclusive(self):
+        """One writer at a time, including the host daemon and the API container."""
+        if self._held:
+            yield
+            return
+        self.root.mkdir(parents=True, exist_ok=True)
+        handle = (self.root / ".store.lock").open("a+")
+        self._held = True
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
+            self._held = False
 
     def read_notes(self) -> list[dict]:
         return _read_jsonl(self.notes_path)
@@ -215,6 +259,10 @@ class ObserverStore:
         The same sentence is not written again while it is still the recent
         picture. Identical notes are also skipped when the draft is built.
         """
+        with self._exclusive():
+            return self._add_observations(rows)
+
+    def _add_observations(self, rows: list[dict]) -> list[dict]:
         self.root.mkdir(parents=True, exist_ok=True)
         recent = _read_jsonl(self.observations_path)[-12:]
         for row in rows:
@@ -265,6 +313,10 @@ class ObserverStore:
             return {"stored": False, "reason": "channel"}
         if bool(self.read_state().get("paused")):
             return {"stored": False, "reason": "paused"}
+        with self._exclusive():
+            return self._add_transcript_locked(row, channel)
+
+    def _add_transcript_locked(self, row: dict, channel: str) -> dict:
         self.root.mkdir(parents=True, exist_ok=True)
         moment = str(row.get("ts") or _now().isoformat())
         if row.get("dropped"):
@@ -372,6 +424,10 @@ class ObserverStore:
         return created
 
     def apply_feedback(self, note_id: str, vote: str) -> dict:
+        with self._exclusive():
+            return self._apply_feedback(note_id, vote)
+
+    def _apply_feedback(self, note_id: str, vote: str) -> dict:
         key = (vote or "").strip().lower().replace(" ", "_").replace("'", "")
         aliases = {
             "thats_me": "thats_me",
@@ -463,6 +519,10 @@ class ObserverStore:
 
     def _append_note(self, note: dict) -> dict:
         """Write one note. Heard lines that grow are merged. New notes are rate-limited."""
+        with self._exclusive():
+            return self._append_note_locked(note)
+
+    def _append_note_locked(self, note: dict) -> dict:
         prepared = _prepare_stored_note(note)
         existing = self.read_notes()
         if str(prepared.get("kind") or "") == "heard":
@@ -490,6 +550,10 @@ class ObserverStore:
 
         A second run that finds nothing to change does not write another backup.
         """
+        with self._exclusive():
+            return self._compact_notes(now=now)
+
+    def _compact_notes(self, *, now: Optional[datetime] = None) -> dict:
         rows = self.read_notes()
         compacted = compact_note_rows(rows, now=now)
         accepted_ids = {
@@ -673,7 +737,12 @@ class ObserverStore:
 
         Accepted notes stay. Age is measured from the newest row, so a replay
         of an old log is not wiped just because the clock has moved on.
+        The read and the rewrite share the store lock with accept and compact.
         """
+        with self._exclusive():
+            return self._trim_noise(now=now)
+
+    def _trim_noise(self, *, now: Optional[datetime] = None) -> dict:
         observations = _read_jsonl(self.observations_path)
         anchor = _now(now) if now is not None else _newest_moment(observations) or _now()
         cutoff = anchor - timedelta(days=OBSERVATION_KEEP_DAYS)
@@ -726,6 +795,10 @@ class ObserverStore:
         Accepted notes, suppressions, and the owner's state file stay.
         """
         del now
+        with self._exclusive():
+            return self._purge_noise(apply=apply)
+
+    def _purge_noise(self, *, apply: bool) -> dict:
         notes = self.read_notes()
         pending = [note for note in notes if str(note.get("status") or "pending") == "pending"]
         accepted = [note for note in notes if str(note.get("status") or "") == "accepted"]
@@ -1120,6 +1193,8 @@ def unit_is_crash_looping(unit: dict | None, *, now: Optional[datetime] = None) 
         restarts = int(unit.get("n_restarts") or 0)
     except (TypeError, ValueError):
         restarts = 0
+    if active == "active":
+        return False
     if result == "start-limit-hit":
         return True
     return restarts >= 5 and active in {"failed", "activating", "auto-restart", "deactivating"}
@@ -1134,12 +1209,16 @@ def honest_signal(
     unit: dict | None = None,
     fresh_s: int = SIGNAL_FRESH_S,
 ) -> tuple[str, bool]:
-    """Live signal. A status file older than ``fresh_s`` is not ok."""
+    """Live signal. A status file older than ``fresh_s`` is not ok.
+
+    A stopped observer is off. A leftover crash-loop snapshot does not fail
+    the box after the owner has turned the watcher off.
+    """
     current = _now(now)
-    if unit_is_crash_looping(unit, now=current):
-        return "failing", False
     if not enabled:
         return "off", False
+    if unit_is_crash_looping(unit, now=current):
+        return "failing", False
     age_ok = moment is not None and (current - moment).total_seconds() <= fresh_s
     if not age_ok:
         if recorded in {"ok", "signal"}:

@@ -94,6 +94,7 @@ def _apply_observer_wish() -> None:
         if lines or env_file.parent.is_dir():
             env_file.write_text("\n".join(updated) + ("\n" if updated else ""), encoding="utf-8")
         if enabled:
+            subprocess.run(["systemctl", "reset-failed", "heirloom-observer.service"], check=False, timeout=20)
             subprocess.run(["systemctl", "enable", "--now", "heirloom-observer.service"], check=False, timeout=20)
         else:
             subprocess.run(["systemctl", "disable", "--now", "heirloom-observer.service"], check=False, timeout=20)

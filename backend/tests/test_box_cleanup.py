@@ -8,7 +8,7 @@ from pathlib import Path
 
 from box_health import assess_model_probe, health_payload, overall_status, probe_local_chat
 from caretaker import observer_opt_actions, parse_systemctl_show
-from lab_mode import render_report, turns_on_day
+from lab_mode import LabStore, activity_counts, publish_report, render_report, turns_on_day
 from memory_cards import (
     answer_grounded,
     approve_fields,
@@ -20,8 +20,10 @@ from memory_cards import (
     new_card_doc,
     new_prompt_doc,
     select_cards,
+    visible_cards,
     waiting_items,
 )
+from observer_store import read_observer_opt_in
 from observer_capture import canonical_ram_dir
 from observer_prompt import notes_for_prompt
 from observer_store import (
@@ -132,6 +134,14 @@ def test_stale_status_and_crash_loop_are_not_ok():
     assert unit_is_crash_looping(looping, now=now) is True
     signal, fresh = honest_signal("ok", enabled=True, moment=fresh_moment, now=now, unit=looping)
     assert signal == "failing" and fresh is False
+    signal, fresh = honest_signal("ok", enabled=False, moment=stale_moment, now=now, unit=looping)
+    assert signal == "off" and fresh is False
+    quiet = overall_status(
+        observer={"enabled": False, "signal": "off", "fresh": False, "unit": "failing"},
+        model={"ok": True},
+        box=True,
+    )
+    assert quiet == "ok"
     running = {"n_restarts": 500, "active": "active", "checked_at": now.isoformat()}
     assert unit_is_crash_looping(running, now=now) is False
     status = overall_status(observer={"enabled": True, "signal": "stale", "fresh": False, "unit": ""}, model={"ok": True}, box=True)
@@ -272,5 +282,99 @@ def test_interview_becomes_an_approved_memory_and_grounds_the_answer():
         assert select_cards([pending], "Dad table") == []
         assert embed_mode(listed=[], pull_ok=False, pull_error="missing") == "keyword"
         assert embed_mode(listed=["nomic-embed-text:latest"], pull_ok=False) == "embed"
+        private = [{
+            "status": "approved",
+            "visibility": "owner",
+            "card_id": "card_kept",
+            "title": "The kitchen table",
+            "story": "Dad and I sat at the kitchen table in 1978.",
+            "question": stored["question"],
+        }]
+        assert visible_cards(private, audience="heir") == []
+        assert select_cards(visible_cards(private, audience="heir"), "kitchen table") == []
+        chosen = choose_prompt(
+            prompts,
+            today="2026-11-25",
+            chosen_key="childhood",
+            chosen_question="Describe the home you grew up in.",
+        )
+        assert chosen["persist"] is False
+        assert chosen["prompt"]["prompt_id"] == ""
 
     asyncio.run(_run())
+
+
+def test_opt_in_file_overrides_the_container_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("HEIRLOOM_OBSERVER_DIR", str(tmp_path))
+    monkeypatch.setenv("HEIRLOOM_OBSERVER", "0")
+    assert read_observer_opt_in(tmp_path) is None
+    from observer_store import observer_enabled
+
+    assert observer_enabled() is False
+    (tmp_path / "owner-opt-in.json").write_text('{"enabled": true}\n', encoding="utf-8")
+    assert observer_enabled() is True
+    (tmp_path / "owner-opt-in.json").write_text('{"enabled": false}\n', encoding="utf-8")
+    monkeypatch.setenv("HEIRLOOM_OBSERVER", "1")
+    assert observer_enabled() is False
+
+
+class _Rows:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def count_documents(self, query):
+        from lab_mode import _match_count
+
+        return sum(1 for row in self.rows if _match_count(row, query))
+
+
+class _DB:
+    def __init__(self, tables):
+        self.tables = tables
+
+    def __getitem__(self, name):
+        return _Rows(self.tables.get(name, []))
+
+
+def test_activity_counts_read_the_day_and_the_pile():
+    db = _DB({
+        "entries": [
+            {"type": "memory", "created_at": "2026-11-25T01:00:00+00:00"},
+            {"type": "memory", "created_at": "2026-11-01T01:00:00+00:00"},
+            {"type": "story", "created_at": "2026-11-25T01:00:00+00:00"},
+        ],
+        "conversations": [
+            {"created_at": "2026-11-25T02:00:00+00:00"},
+            {"created_at": "2026-11-01T02:00:00+00:00"},
+        ],
+        "daily_prompts": [
+            {"status": "unanswered"},
+            {"status": "answered"},
+        ],
+    })
+    counts = activity_counts("2026-11-25", db)
+    assert counts["memories_today"] == 1
+    assert counts["memories_all"] == 2
+    assert counts["conversations_today"] == 1
+    assert counts["conversations_all"] == 2
+    assert counts["unanswered_prompts"] == 1
+
+
+def test_publish_report_uses_activity_counts(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "lab_mode.activity_counts",
+        lambda day: {
+            "memories_today": 2,
+            "memories_all": 5,
+            "conversations_today": 1,
+            "conversations_all": 3,
+            "unanswered_prompts": 4,
+        },
+    )
+    store = LabStore(tmp_path / "lab")
+    store.append({"turn_id": "lab_z", "ts": "2026-11-25T04:00:00+00:00", "route": "twin"})
+    path = Path(publish_report(store, tmp_path / "reports", now=datetime(2026, 11, 25, tzinfo=timezone.utc))["path"])
+    text = path.read_text(encoding="utf-8")
+    assert "New memories: 2" in text
+    assert "Memories: 5" in text
+    assert "Unanswered prompts: 4" in text
