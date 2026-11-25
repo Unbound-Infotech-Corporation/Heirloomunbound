@@ -71,8 +71,8 @@ internal sealed class AudioPump : IDisposable
 
     private void SyncDevices(BoxSnapshot snapshot)
     {
-        var sendSystem = _store.SystemAudio && AssistLive.MaySend(snapshot.ObserverPaused, snapshot.SystemAudio);
-        var sendMic = _store.MicAudio && AssistLive.MaySend(snapshot.ObserverPaused, snapshot.MicAudio);
+        var sendSystem = _store.SystemAudio && AssistLive.MaySend(snapshot.ObserverPaused, snapshot.SystemAudio, snapshot.ObserverEnabled);
+        var sendMic = _store.MicAudio && AssistLive.MaySend(snapshot.ObserverPaused, snapshot.MicAudio, snapshot.ObserverEnabled);
         if (sendSystem)
         {
             StartLoopback();
@@ -192,7 +192,7 @@ internal sealed class AudioPump : IDisposable
             return;
         }
 
-        if (AssistLive.MaySend(snapshot.ObserverPaused, snapshot.SystemAudio))
+        if (AssistLive.MaySend(snapshot.ObserverPaused, snapshot.SystemAudio, snapshot.ObserverEnabled))
         {
             var system = Take(_system);
             if (system.Length > 0)
@@ -201,7 +201,7 @@ internal sealed class AudioPump : IDisposable
             }
         }
 
-        if (AssistLive.MaySend(snapshot.ObserverPaused, snapshot.MicAudio))
+        if (AssistLive.MaySend(snapshot.ObserverPaused, snapshot.MicAudio, snapshot.ObserverEnabled))
         {
             var mic = Take(_mic);
             if (mic.Length > 0)

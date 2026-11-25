@@ -118,6 +118,31 @@ run() {
   "$@"
 }
 
+# Upgrade must not call apt-get when the packages are already installed.
+# apt-get install configures every pending package, including a half-installed
+# kernel whose NVIDIA DKMS build fails and stops the rest of the upgrade.
+apt_install() {
+  local missing=()
+  local pkg
+  for pkg in "$@"; do
+    if ! dpkg -s "${pkg}" >/dev/null 2>&1; then
+      missing+=("${pkg}")
+    fi
+  done
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    log "packages already installed: $*"
+    return 0
+  fi
+  if [[ "${UPGRADE}" -eq 1 ]]; then
+    log "Upgrade apt-get install: ${missing[*]}"
+    if ! apt-get install -y "${missing[@]}"; then
+      log "Upgrade warning: apt-get install failed (${missing[*]}). Continuing with containers and units."
+    fi
+    return 0
+  fi
+  run apt-get install -y "${missing[@]}"
+}
+
 prepare_log() {
   local dir
   dir="$(dirname "${LOG_PATH}")"
@@ -742,13 +767,28 @@ EOF
   chmod 644 "${cron_file}"
 }
 
-ensure_observer_runtime() {
-  install -d -m 0755 /run/heirloom/observer/audio/system /run/heirloom/observer/audio/mic /run/heirloom/observer/screen
-  if [[ -d /run/heirloom-observer && ! -L /run/heirloom-observer ]]; then
-    cp -a /run/heirloom-observer/. /run/heirloom/observer/ || true
-    rm -rf /run/heirloom-observer
+link_observer_spool() {
+  local link="$1"
+  local target="$2"
+  mkdir -p "${target}/audio/system" "${target}/audio/mic" "${target}/screen"
+  if [[ -L "${link}" ]]; then
+    ln -sfn "${target}" "${link}"
+    return 0
   fi
-  ln -sfn /run/heirloom/observer /run/heirloom-observer
+  if [[ -d "${link}" ]]; then
+    # A real directory left by an older install. ln -sfn would put the symlink inside it.
+    if [[ -n "$(ls -A "${link}" 2>/dev/null || true)" ]]; then
+      cp -a "${link}/." "${target}/" || true
+    fi
+    rm -rf "${link}"
+  elif [[ -e "${link}" ]]; then
+    rm -rf "${link}"
+  fi
+  ln -sfn "${target}" "${link}"
+}
+
+ensure_observer_runtime() {
+  link_observer_spool /run/heirloom-observer /run/heirloom/observer
 }
 
 install_observer() {
@@ -774,7 +814,7 @@ install_observer() {
   fi
   log "Observer requested. Installing ffmpeg, v4l-utils, tesseract-ocr, alsa-utils, the systemd unit, and the udev rule."
   log "Observer audio: faster-whisper in ${DATA_ROOT}/observer/venv. Transcripts only; PCM stays in /run."
-  run apt-get install -y ffmpeg v4l-utils tesseract-ocr alsa-utils python3-venv
+  apt_install ffmpeg v4l-utils tesseract-ocr alsa-utils python3-venv
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would install /usr/local/bin/heirloom-observer, heirloom-observer.service, and 99-heirloom-observer.rules"
     log "would write /etc/tmpfiles.d/heirloom-observer.conf for /run/heirloom/observer/audio and /run/heirloom/observer/screen"
@@ -880,7 +920,7 @@ install_presence() {
   log "Presence requested. Installing python3-opencv, v4l-utils, ffmpeg, the systemd unit, and the udev rule."
   log "Face models: YuNet (MIT) and SFace (Apache-2.0) from the OpenCV Zoo. InsightFace pretrained models are not installed."
   log "GPU budget is 512 MiB free. Presence stays on CPU when Ollama leaves less than that."
-  run apt-get install -y python3-opencv v4l-utils ffmpeg
+  apt_install python3-opencv v4l-utils ffmpeg
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would download YuNet (MIT) https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
     log "would download SFace (Apache-2.0) https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
@@ -963,7 +1003,7 @@ start_stack() {
   fi
   log "Starting containers from ${ROOT}"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    log "would docker compose up -d and ollama pull ${model}"
+    log "would docker compose up -d and ollama pull ${model} and nomic-embed-text"
     if [[ "${WITH_OBSERVER}" -eq 1 && -n "${observer_model}" ]]; then
       log "would ollama pull ${observer_model}"
     elif [[ "${WITH_OBSERVER}" -eq 1 ]]; then
@@ -973,6 +1013,9 @@ start_stack() {
   fi
   docker compose "${args[@]}" up -d --build
   docker compose "${args[@]}" exec -T ollama ollama pull "${model}"
+  if ! docker compose "${args[@]}" exec -T ollama ollama pull nomic-embed-text; then
+    log "nomic-embed-text did not pull. Memory search stays on keywords until that model is present."
+  fi
   if [[ "${WITH_OBSERVER}" -eq 1 && -n "${observer_model}" ]]; then
     docker compose "${args[@]}" exec -T ollama ollama pull "${observer_model}"
   elif [[ "${WITH_OBSERVER}" -eq 1 ]]; then

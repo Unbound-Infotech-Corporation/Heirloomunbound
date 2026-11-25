@@ -6,6 +6,7 @@ Owner-private cards stay on the box; this module does not call Odysseus.
 from __future__ import annotations
 
 import json
+import math
 import re
 import uuid
 from datetime import datetime, timezone
@@ -119,7 +120,7 @@ def choose_prompt(
     chosen_key: str = "",
     chosen_question: str = "",
 ) -> dict[str, Any]:
-    """The next question. A stale backlog stays counted; the page shows today's question."""
+    """The next question. An open prompt or nudge is shown as-is. Nothing new is added while any are waiting."""
     book = catalog if catalog is not None else prompt_catalog()
     waiting = waiting_items(prompts, nudges)
     key = (chosen_key or "").strip()
@@ -146,20 +147,18 @@ def choose_prompt(
             "persist": not waiting,
             "waiting": len(waiting),
         }
-    today_rows = [
-        row for row in prompts or []
-        if str(row.get("created_at") or "")[:10] == today
-    ]
-    # A custom answer is filed as a draft. It is linked to its card and is not today's question.
-    open_today = [row for row in today_rows if str(row.get("status") or "") == "unanswered"]
-    if open_today:
-        return {"prompt": open_today[-1], "create": False, "persist": False, "waiting": len(waiting)}
-    if any(str(row.get("status") or "") == "answered" for row in today_rows):
-        # Today's question was already answered. Do not insert another one.
-        if waiting:
-            return {"prompt": waiting[0], "create": False, "persist": False, "waiting": len(waiting)}
-        return {"prompt": None, "create": False, "persist": False, "waiting": 0}
-    # A stale backlog stays counted, but the first question of the day is today's.
+    # Open prompts and nudges are the queue. Do not add another while any are waiting.
+    if waiting:
+        today_open = [
+            row for row in waiting
+            if str(row.get("created_at") or "")[:10] == today and row.get("source") != "nudge"
+        ]
+        return {
+            "prompt": today_open[-1] if today_open else waiting[0],
+            "create": False,
+            "persist": False,
+            "waiting": len(waiting),
+        }
     if not book:
         return {"prompt": None, "create": False, "persist": False, "waiting": 0}
     try:
@@ -246,6 +245,37 @@ def embed_mode(*, listed: list[str], pull_ok: bool = False, pull_error: str = ""
     return "pull"
 
 
+def card_embed_text(card: dict) -> str:
+    people = ", ".join(card.get("people") or [])
+    return " ".join(
+        part for part in (
+            str(card.get("title") or ""),
+            str(card.get("era") or ""),
+            people,
+            str(card.get("story") or ""),
+        ) if part
+    )
+
+
+def _cosine(left: list[float] | None, right: list[float] | None) -> float | None:
+    if not left or not right or len(left) != len(right):
+        return None
+    dot = sum(a * b for a, b in zip(left, right))
+    left_norm = math.sqrt(sum(a * a for a in left)) or 1.0
+    right_norm = math.sqrt(sum(b * b for b in right)) or 1.0
+    return dot / (left_norm * right_norm)
+
+
+def blend_score(keyword: float, cosine: float | None) -> float:
+    """Keywords stay in charge of exact words. A strong local embedding can recall a paraphrase.
+
+    A weak embedding does not invent a match, so an unrelated card still scores 0.
+    """
+    if cosine is None or cosine < 0.72:
+        return keyword
+    return max(keyword, cosine)
+
+
 def _score_card(card: dict, query: str) -> float:
     hay = " ".join([
         str(card.get("title") or ""),
@@ -277,13 +307,27 @@ def visible_cards(
     return [card for card in cards or [] if str(card.get("visibility") or "owner") not in hidden]
 
 
-def select_cards(cards: list[dict], query: str, *, limit: int = 3) -> list[dict]:
-    """Approved cards only. Pending cards cannot ground an answer."""
+def select_cards(
+    cards: list[dict],
+    query: str,
+    *,
+    limit: int = 3,
+    vectors: dict[str, list[float]] | None = None,
+    query_vector: list[float] | None = None,
+) -> list[dict]:
+    """Approved cards only. Pending cards cannot ground an answer.
+
+    ``vectors`` are local embeddings (nomic-embed-text). Missing vectors fall
+    back to keywords, which still ignore stopwords.
+    """
     ranked: list[tuple[float, dict]] = []
+    known = vectors or {}
     for card in cards or []:
         if str(card.get("status") or "") != "approved":
             continue
-        score = _score_card(card, query)
+        keyword = _score_card(card, query)
+        cosine = _cosine(query_vector, known.get(str(card.get("card_id") or "")))
+        score = blend_score(keyword, cosine)
         if score <= 0:
             continue
         ranked.append((score, card))

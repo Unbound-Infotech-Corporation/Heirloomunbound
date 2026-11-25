@@ -434,7 +434,7 @@ internal sealed class TrayController : IDisposable
     private async Task<AssistFetch?> FetchAssistAsync(CancellationToken cancellationToken)
     {
         var token = _store.Session();
-        if (string.IsNullOrWhiteSpace(token) || !_snapshot.Reachable)
+        if (string.IsNullOrWhiteSpace(token) || !AssistLive.MayPoll(_snapshot.ObserverEnabled, _snapshot.Reachable))
         {
             return null;
         }

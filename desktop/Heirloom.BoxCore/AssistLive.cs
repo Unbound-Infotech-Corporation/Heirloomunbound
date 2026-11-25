@@ -28,9 +28,14 @@ public static class AssistLive
     public const int PttWindowSeconds = 8;
     public const string DefaultChord = "Ctrl+Shift+Space";
 
-    public static bool MaySend(bool observerPaused, AudioStreamView stream)
+    public static bool MayPoll(bool observerEnabled, bool reachable)
     {
-        if (observerPaused)
+        return observerEnabled && reachable;
+    }
+
+    public static bool MaySend(bool observerPaused, AudioStreamView stream, bool observerEnabled = true)
+    {
+        if (!observerEnabled || observerPaused)
         {
             return false;
         }

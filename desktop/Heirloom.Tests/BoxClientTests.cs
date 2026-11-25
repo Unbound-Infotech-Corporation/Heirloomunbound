@@ -83,6 +83,18 @@ public class BoxClientTests
         Assert.Equal("auto", snap.ObserverMode);
         Assert.Contains("network", snap.Tooltip);
         Assert.True(ScreenStream.MaySend(snap.ObserverPaused, enabled: true, snap.Reachable, snap.ObserverMode));
+        Assert.False(snap.ObserverEnabled);
+        Assert.False(ScreenStream.MaySend(snap.ObserverPaused, enabled: true, snap.Reachable, snap.ObserverMode, snap.ObserverEnabled));
+        Assert.False(AssistLive.MayPoll(snap.ObserverEnabled, snap.Reachable));
+
+        const string watching = """
+            {"observer":{"enabled":true,"paused":false,"signal":"ok","source":"network","mode":"auto","fps":2,"notes_today":1}}
+            """;
+        var on = TrayStatus.Describe(true, 9, "https://192.168.0.111", watching);
+        Assert.True(on.ObserverEnabled);
+        Assert.True(ScreenStream.MaySend(on.ObserverPaused, enabled: true, on.Reachable, on.ObserverMode, on.ObserverEnabled));
+        Assert.True(AssistLive.MayPoll(on.ObserverEnabled, on.Reachable));
+        Assert.False(AssistLive.MayPoll(observerEnabled: false, reachable: true));
     }
 
     [Fact]

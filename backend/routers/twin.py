@@ -425,6 +425,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         async def gen_local():
             full = ""
             error = None
+            cited: list[dict] = []
             try:
                 if specialist_id:
                     yield "event: specialist\ndata: " + json.dumps({
@@ -452,7 +453,9 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     })
                     outcome = await complete_turn(retry, message_text, audience=turn_audience)
                     full = speak(outcome.text) or "I don't remember that yet."
-                why_cards = citations_that_ground(full, why_cards)
+                # Do not assign why_cards here. That name is closed over from message(),
+                # and an assignment would make the read on this line an unbound local.
+                cited = citations_that_ground(full, why_cards)
                 if full:
                     yield "data: " + json.dumps({"text": full}) + "\n\n"
             except Exception as exc:  # noqa: BLE001
@@ -469,8 +472,8 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     assistant_turn["clone_id"] = specialist_id
                 if specialist_name:
                     assistant_turn["specialist_name"] = specialist_name
-                if why_cards:
-                    assistant_turn["why"] = why_cards
+                if cited:
+                    assistant_turn["why"] = cited
                 if watched_reply:
                     from observer_prompt import WATCHED_SOURCE
 
@@ -497,10 +500,10 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             if lab_line:
                 yield lab_line
             if error is None:
-                if why_cards:
+                if cited:
                     yield "event: why\ndata: " + json.dumps({
                         "label": "Why did I say that?",
-                        "why": why_cards,
+                        "why": cited,
                     }) + "\n\n"
                 source_line = _source_sse(watched_reply)
                 if source_line:

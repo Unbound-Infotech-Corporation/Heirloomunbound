@@ -167,6 +167,36 @@ def transcribe_whisper_bytes(
     return " ".join(parts).strip()
 
 
+def embed_model() -> str:
+    return (os.environ.get("OLLAMA_EMBED_MODEL") or "nomic-embed-text").strip() or "nomic-embed-text"
+
+
+async def ollama_embed_many(texts: list[str], *, timeout: float = 8.0) -> list[list[float]] | None:
+    """Local embeddings from the box Ollama. None when the model is absent."""
+    rows = [text for text in texts if (text or "").strip()]
+    if not rows or len(rows) != len(texts):
+        return None
+    url = f"{ollama_base_url().rstrip('/')}/api/embed"
+    body = {"model": embed_model(), "input": rows}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, json=body)
+        if response.status_code >= 400:
+            return None
+        payload = response.json()
+    except Exception:
+        return None
+    vectors = payload.get("embeddings") if isinstance(payload, dict) else None
+    if not isinstance(vectors, list) or len(vectors) != len(rows):
+        return None
+    cleaned: list[list[float]] = []
+    for vector in vectors:
+        if not isinstance(vector, list) or not vector:
+            return None
+        cleaned.append([float(item) for item in vector])
+    return cleaned
+
+
 async def probe_ollama_models() -> dict[str, Any]:
     if not ollama_ready():
         return {"ready": False, "detail": "Ollama not reachable", "models": []}

@@ -27,7 +27,8 @@ public sealed record BoxSnapshot(
     bool CertificateFailed = false,
     double ObserverFps = 0,
     string ObserverSignal = "",
-    string ObserverMode = "");
+    string ObserverMode = "",
+    bool ObserverEnabled = false);
 
 public static class TrayStatus
 {
@@ -116,6 +117,7 @@ public static class TrayStatus
 
         var host = string.IsNullOrWhiteSpace(address) ? BoxLink.DefaultBoxUrl : address.Trim();
         var paused = false;
+        var observerEnabled = false;
         var systemAudio = AudioStreamView.Off;
         var micAudio = AudioStreamView.Off;
         var observerFps = 0.0;
@@ -130,6 +132,7 @@ public static class TrayStatus
                 observerFps = Number(observerNode, "fps");
                 observerSignal = Text(observerNode, "signal");
                 observerMode = Text(observerNode, "mode");
+                observerEnabled = Flag(observerNode, "enabled");
             }
             systemAudio = AudioLine(body, "system");
             micAudio = AudioLine(body, "mic");
@@ -167,7 +170,8 @@ public static class TrayStatus
             certificateFailed,
             observerFps,
             observerSignal,
-            observerMode);
+            observerMode,
+            observerEnabled);
     }
 
     public static bool CompanionShouldSend(AudioStreamView stream)

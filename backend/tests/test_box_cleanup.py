@@ -13,6 +13,7 @@ from memory_cards import (
     FIRST_PERSON,
     as_owner_voice,
     answer_grounded,
+    blend_score,
     approve_fields,
     card_from_model,
     choose_prompt,
@@ -473,6 +474,26 @@ def test_stopwords_do_not_cite_an_unrelated_card():
     assert spoken_reply('search_archive("first car")') == ""
     assert as_owner_voice("Your first car was a Chevy.") == "My first car was a Chevy."
     assert as_owner_voice("I looked at your question.") == "I looked at your question."
+    lab = {
+        "status": "approved",
+        "card_id": "lab",
+        "title": "Duke",
+        "story": "A black lab named Duke.",
+        "people": ["Duke"],
+    }
+    # 'dog' is not in the story and 'named' is a stopword, so keywords score 0.
+    assert select_cards([lab, car], "What was my dog named?") == []
+    assert select_cards([lab, car], "What was my dog called?") == []
+    recalled = select_cards(
+        [lab, car],
+        "What was my dog named?",
+        query_vector=[1.0, 0.0],
+        vectors={"lab": [0.95, 0.05], "car": [0.0, 1.0]},
+    )
+    assert [card["card_id"] for card in recalled] == ["lab"]
+    assert blend_score(0.0, 0.4) == 0.0
+    paraphrase = citations_that_ground("My dog was named Duke.", why_from([car, lab]))
+    assert [card["card_id"] for card in paraphrase] == ["lab"]
     assert "first person" in FIRST_PERSON.lower()
     twin = (ROOT / "backend" / "routers" / "twin.py").read_text(encoding="utf-8")
     assert "citations_that_ground" in twin
@@ -489,9 +510,17 @@ def test_a_custom_question_is_filed_and_a_stale_prompt_is_not_today():
     }]
     catalog = [{"key": "car", "label": "car", "question": "What was your first car?"}]
     today = choose_prompt(stale, today="2026-11-25", catalog=catalog)
-    assert today["create"] is True
-    assert today["prompt"]["question"] == "What was your first car?"
+    assert today["create"] is False
+    assert today["prompt"]["prompt_id"] == "prm_oct"
     assert today["waiting"] == 1
+    nudges = [
+        {"nudge_id": f"n{i}", "status": "open", "kind": "weekly_biographer", "action_prompt": f"Question {i}", "created_at": f"2026-10-{i+1:02d}T00:00:00+00:00"}
+        for i in range(10)
+    ]
+    queued = choose_prompt([], nudges, today="2026-11-25", catalog=catalog)
+    assert queued["create"] is False
+    assert queued["waiting"] == 10
+    assert queued["prompt"]["prompt_id"] == "n0"
     custom = choose_prompt(
         stale,
         today="2026-11-25",
@@ -517,8 +546,11 @@ def test_a_custom_question_is_filed_and_a_stale_prompt_is_not_today():
     assert again["prompt"]["prompt_id"] == "prm_oct"
     draft_today = {**filed, "created_at": "2026-11-25T09:00:00+00:00", "status": "draft"}
     after_custom = choose_prompt([draft_today, stale[0]], today="2026-11-25", catalog=catalog)
-    assert after_custom["create"] is True
-    assert after_custom["prompt"]["question"] == "What was your first car?"
+    assert after_custom["create"] is False
+    assert after_custom["prompt"]["prompt_id"] == "prm_oct"
+    only_draft = choose_prompt([draft_today], today="2026-11-25", catalog=catalog)
+    assert only_draft["create"] is True
+    assert only_draft["prompt"]["question"] == "What was your first car?"
 
 
 def test_dry_run_purge_does_not_need_the_lock(tmp_path):
@@ -593,7 +625,8 @@ def test_voice_is_local_and_chatterbox_can_see_a_gpu(monkeypatch):
     monkeypatch.setenv("WHISPER_DEVICE", "cuda")
     assert whisper_runtime() == ("base", "cuda", "float16")
     api = (ROOT / "box" / "Dockerfile.api").read_text(encoding="utf-8")
-    assert "faster-whisper" in api
+    assert "faster-whisper==1.1.1" in api
+    assert "av==15.1.0" in api
     assert "nvidia-cublas-cu12" in api
     compose = (ROOT / "box" / "docker-compose.yml").read_text(encoding="utf-8")
     assert "/whisper:/var/lib/heirloom/whisper" in compose
@@ -609,3 +642,43 @@ def test_voice_is_local_and_chatterbox_can_see_a_gpu(monkeypatch):
     spec.loader.exec_module(module)
     assert module.pick_device(True) == "cuda"
     assert module.pick_device(False) == "cpu"
+
+
+def test_upgrade_skips_installed_apt_and_replaces_a_real_observer_dir(tmp_path):
+    install = ROOT / "box" / "install.sh"
+    text = install.read_text(encoding="utf-8")
+    assert "apt_install python3-opencv v4l-utils ffmpeg" in text
+    assert "link_observer_spool" in text
+    link = tmp_path / "heirloom-observer"
+    target = tmp_path / "observer"
+    link.mkdir()
+    (link / "stale.txt").write_text("old spool\n", encoding="utf-8")
+    script = f"""
+set -euo pipefail
+UPGRADE=1
+log() {{ printf '%s\\n' "$*"; }}
+eval "$(sed -n '/^apt_install()/,/^}}/p' '{install}')"
+eval "$(sed -n '/^link_observer_spool()/,/^}}/p' '{install}')"
+called=0
+dpkg() {{ return 0; }}
+apt-get() {{ echo apt-ran; exit 1; }}
+apt_install python3-opencv v4l-utils ffmpeg
+link_observer_spool '{link}' '{target}'
+test -L '{link}'
+test -f '{target}/stale.txt'
+"""
+    import subprocess
+    subprocess.run(["bash", "-c", script], check=True)
+    assert link.is_symlink()
+    assert (target / "stale.txt").read_text(encoding="utf-8") == "old spool\n"
+    empty = tmp_path / "empty-observer"
+    empty.mkdir()
+    empty_target = tmp_path / "empty-target"
+    script_empty = f"""
+set -euo pipefail
+eval "$(sed -n '/^link_observer_spool()/,/^}}/p' '{install}')"
+link_observer_spool '{empty}' '{empty_target}'
+test -L '{empty}'
+"""
+    subprocess.run(["bash", "-c", script_empty], check=True)
+    assert empty.is_symlink()
