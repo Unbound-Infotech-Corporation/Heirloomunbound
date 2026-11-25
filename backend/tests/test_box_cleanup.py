@@ -515,6 +515,10 @@ def test_a_custom_question_is_filed_and_a_stale_prompt_is_not_today():
     again = choose_prompt([answered_today, stale[0]], today="2026-11-25", catalog=catalog)
     assert again["create"] is False
     assert again["prompt"]["prompt_id"] == "prm_oct"
+    draft_today = {**filed, "created_at": "2026-11-25T09:00:00+00:00", "status": "draft"}
+    after_custom = choose_prompt([draft_today, stale[0]], today="2026-11-25", catalog=catalog)
+    assert after_custom["create"] is True
+    assert after_custom["prompt"]["question"] == "What was your first car?"
 
 
 def test_dry_run_purge_does_not_need_the_lock(tmp_path):

@@ -150,10 +150,11 @@ def choose_prompt(
         row for row in prompts or []
         if str(row.get("created_at") or "")[:10] == today
     ]
-    open_today = [row for row in today_rows if str(row.get("status") or "") != "answered"]
+    # A custom answer is filed as a draft. It is linked to its card and is not today's question.
+    open_today = [row for row in today_rows if str(row.get("status") or "") == "unanswered"]
     if open_today:
         return {"prompt": open_today[-1], "create": False, "persist": False, "waiting": len(waiting)}
-    if today_rows:
+    if any(str(row.get("status") or "") == "answered" for row in today_rows):
         # Today's question was already answered. Do not insert another one.
         if waiting:
             return {"prompt": waiting[0], "create": False, "persist": False, "waiting": len(waiting)}
