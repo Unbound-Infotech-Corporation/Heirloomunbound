@@ -46,6 +46,7 @@ services:
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/presence:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/presence
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy:ro
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/pause.json:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/pause.json
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/whisper:/var/lib/heirloom/whisper
     depends_on:
       - mongo
       - ollama

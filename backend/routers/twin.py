@@ -434,8 +434,24 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     }) + "\n\n"
                 from brain_council import complete_turn
 
-                outcome = await complete_turn(ollama_messages, message_text, audience=turn_audience)
-                full = outcome.text
+                from memory_cards import FIRST_PERSON, as_owner_voice, citations_that_ground
+
+                voiced = list(ollama_messages)
+                if voiced and voiced[0].get("role") == "system":
+                    voiced[0] = {**voiced[0], "content": voiced[0]["content"] + "\n\n" + FIRST_PERSON}
+                else:
+                    voiced.insert(0, {"role": "system", "content": FIRST_PERSON})
+                outcome = await complete_turn(voiced, message_text, audience=turn_audience)
+                full = as_owner_voice(outcome.text)
+                if not full:
+                    retry = list(voiced)
+                    retry.append({
+                        "role": "user",
+                        "content": "Answer in the first person from the archive already given. Do not call tools.",
+                    })
+                    outcome = await complete_turn(retry, message_text, audience=turn_audience)
+                    full = as_owner_voice(outcome.text) or "I don't remember that yet."
+                why_cards = citations_that_ground(full, why_cards)
                 if full:
                     yield "data: " + json.dumps({"text": full}) + "\n\n"
             except Exception as exc:  # noqa: BLE001

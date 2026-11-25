@@ -792,11 +792,19 @@ class ObserverStore:
     def purge_noise(self, *, apply: bool = False, now: Optional[datetime] = None) -> dict:
         """Count noise notes and captions. Delete them only when ``apply`` is true.
 
-        Accepted notes, suppressions, and the owner's state file stay.
+        A dry run only reads. It does not create ``.store.lock``, so a member
+        of the heirloom group can see the counts without root.
         """
         del now
-        with self._exclusive():
-            return self._purge_noise(apply=apply)
+        if not apply:
+            return self._purge_noise(apply=False)
+        try:
+            with self._exclusive():
+                return self._purge_noise(apply=True)
+        except PermissionError as exc:
+            raise PermissionError(
+                "Need root to delete observer notes. Re-run: sudo heirloom-box observer purge --apply"
+            ) from exc
 
     def _purge_noise(self, *, apply: bool) -> dict:
         notes = self.read_notes()

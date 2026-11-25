@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sys
 
-from caretaker import HostOps, gpu_lost, watchdog_decision
+from caretaker import HostOps, gpu_lost, should_restart_ollama
 
 
 def _record_observer_unit() -> None:
@@ -129,8 +129,9 @@ def main(argv: list[str] | None = None) -> int:
         repaired = ""
     if repaired:
         print("caretaker watchdog: observer mount was stale, recreated box-api-1")
-    decision = watchdog_decision(ps_text, log_text)
-    if decision != "restart_ollama":
+        print("caretaker watchdog: leaving ollama alone this cycle")
+        return 0
+    if not should_restart_ollama(ps_text, log_text, mount_repaired=False):
         print("caretaker watchdog: ollama still has the GPU")
         return 0
     if not gpu_lost(ps_text, log_text):

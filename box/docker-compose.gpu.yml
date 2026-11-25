@@ -8,7 +8,17 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+  api:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
   chatterbox:
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
     deploy:
       resources:
         reservations:

@@ -45,7 +45,8 @@ def assess_model_probe(probe: Optional[dict], *, now: Optional[datetime] = None,
     body = probe if isinstance(probe, dict) else {}
     reply = str(body.get("reply") or "").strip()
     checked = _parse_iso(str(body.get("checked_at") or ""))
-    age_ok = checked is not None and (moment - checked).total_seconds() <= fresh_s
+    age_s = int((moment - checked).total_seconds()) if checked is not None else None
+    age_ok = age_s is not None and age_s <= fresh_s
     ok = bool(body.get("ok")) and bool(reply) and age_ok
     reason = ""
     if not body.get("ok") or not reply:
@@ -57,6 +58,7 @@ def assess_model_probe(probe: Optional[dict], *, now: Optional[datetime] = None,
         "model": str(body.get("model") or ""),
         "reply": reply[:80],
         "checked_at": str(body.get("checked_at") or ""),
+        "age_s": age_s,
         "error": "" if ok else reason[:200],
     }
 

@@ -90,13 +90,38 @@ async def ollama_chat(
     return text
 
 
+_whisper_model = None
+_whisper_key = ""
+
+
+def whisper_runtime() -> tuple[str, str, str]:
+    """Model size, device, compute. CUDA when the process can see a GPU, else CPU int8."""
+    model = (os.environ.get("WHISPER_MODEL") or os.environ.get("OBSERVER_WHISPER_MODEL") or "base").strip() or "base"
+    device = "cpu"
+    compute = "int8"
+    try:
+        import ctranslate2
+
+        if ctranslate2.get_cuda_device_count() > 0:
+            device = "cuda"
+            compute = "float16"
+    except Exception:
+        device = "cpu"
+        compute = "int8"
+    forced = (os.environ.get("WHISPER_DEVICE") or "").strip().lower()
+    if forced in {"cpu", "cuda"}:
+        device = forced
+        compute = "float16" if forced == "cuda" else "int8"
+    return model, device, compute
+
+
 def transcribe_whisper_bytes(
     raw: bytes,
     *,
     filename: str = "audio.wav",
-    model_size: str = "base",
+    model_size: str = "",
 ) -> str:
-    """Transcribe WAV/PCM bytes with faster-whisper if installed."""
+    """Transcribe WAV/PCM bytes with faster-whisper if installed. Fully local."""
     if not raw:
         return ""
     try:
@@ -104,19 +129,33 @@ def transcribe_whisper_bytes(
     except ImportError as exc:
         raise RuntimeError("faster-whisper not installed on this host") from exc
 
-    device = "cuda"
-    compute = "float16"
+    global _whisper_model, _whisper_key
+    size, device, compute = whisper_runtime()
+    if model_size:
+        size = model_size
+    cache = (os.environ.get("WHISPER_CACHE") or "/var/lib/heirloom/whisper").strip() or "/var/lib/heirloom/whisper"
     try:
-        import torch  # noqa: F401
-
-        if not __import__("torch").cuda.is_available():
-            device = "cpu"
-            compute = "int8"
-    except Exception:
-        device = "cpu"
-        compute = "int8"
-
-    model = WhisperModel(model_size, device=device, compute_type=compute)
+        os.makedirs(cache, exist_ok=True)
+    except OSError:
+        cache = ""
+    key = f"{size}:{device}:{compute}:{cache}"
+    if _whisper_model is None or _whisper_key != key:
+        kwargs = {"device": device, "compute_type": compute}
+        if cache:
+            kwargs["download_root"] = cache
+        try:
+            _whisper_model = WhisperModel(size, **kwargs)
+        except Exception:
+            if device != "cpu":
+                fallback = {"device": "cpu", "compute_type": "int8"}
+                if cache:
+                    fallback["download_root"] = cache
+                _whisper_model = WhisperModel(size, **fallback)
+                device = "cpu"
+            else:
+                raise
+        _whisper_key = key
+    model = _whisper_model
     suffix = ".wav" if filename.lower().endswith(".wav") else ".bin"
     import tempfile
 

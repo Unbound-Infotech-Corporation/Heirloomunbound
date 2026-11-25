@@ -10,18 +10,24 @@ from box_health import assess_model_probe, health_payload, overall_status, probe
 from caretaker import observer_opt_actions, parse_systemctl_show
 from lab_mode import LabStore, activity_counts, publish_report, render_report, turns_on_day
 from memory_cards import (
+    FIRST_PERSON,
+    as_owner_voice,
     answer_grounded,
     approve_fields,
     card_from_model,
     choose_prompt,
+    citations_that_ground,
     draft_card,
     embed_mode,
     entry_from_card,
     new_card_doc,
     new_prompt_doc,
     select_cards,
+    spoken_reply,
+    stored_prompt_status,
     visible_cards,
     waiting_items,
+    why_from,
 )
 from observer_store import read_observer_opt_in
 from observer_capture import canonical_ram_dir
@@ -161,11 +167,13 @@ def test_health_payload_uses_the_probe_and_refuses_a_cloud_host(tmp_path, monkey
     )
     assert payload["status"] == "ok"
     assert payload["model"]["ok"] is True
+    assert payload["model"]["age_s"] == 0
     stale = assess_model_probe(
         {"ok": True, "reply": "pong", "checked_at": (now - timedelta(hours=2)).isoformat()},
         now=now,
     )
     assert stale["ok"] is False
+    assert stale["age_s"] >= 7000
     refused = probe_local_chat(base_url="https://api.openai.com/v1", model="gpt-4", now=now)
     assert refused["ok"] is False
     dead = health_payload(
@@ -274,7 +282,9 @@ def test_interview_becomes_an_approved_memory_and_grounds_the_answer():
         assert early["why"] == []
         assert "don't have an approved memory" in early["reply"]
         late = await answer_grounded("What did Dad teach you at the kitchen table?", [pending, approved], complete)
-        assert late["why"] == [{"card_id": "card_kept", "title": "The kitchen table"}]
+        assert late["why"][0]["card_id"] == "card_kept"
+        assert late["why"][0]["title"] == "The kitchen table"
+        assert "kitchen table" in late["why"][0]["story"]
         assert "1978" in late["reply"]
         entry = entry_from_card({**approved, "user_id": "owner"})
         assert entry["visibility"] == "owner"
@@ -330,6 +340,12 @@ class _Rows:
 
         return sum(1 for row in self.rows if _match_count(row, query))
 
+    def find(self, query, projection=None):
+        del projection
+        from lab_mode import _match_count
+
+        return [row for row in self.rows if _match_count(row, query)]
+
 
 class _DB:
     def __init__(self, tables):
@@ -381,3 +397,161 @@ def test_publish_report_uses_activity_counts(tmp_path, monkeypatch):
     assert "New memories: 2" in text
     assert "Memories: 5" in text
     assert "Unanswered prompts: 4" in text
+
+
+def test_report_waiting_matches_open_nudges_not_just_daily_prompts():
+    nudges = [
+        {"status": "open", "kind": "weekly_biographer", "action_prompt": f"Tell me about day {i}", "nudge_id": f"n{i}", "created_at": "2026-10-01T00:00:00+00:00"}
+        for i in range(8)
+    ]
+    nudges.append({"status": "open", "kind": "daily", "question": "What did you cook?", "nudge_id": "n8", "created_at": "2026-10-02T00:00:00+00:00"})
+    nudges.append({"status": "open", "kind": "reflection", "action_prompt": "A thought from the shop", "nudge_id": "n9", "created_at": "2026-10-03T00:00:00+00:00"})
+    nudges.append({"status": "open", "kind": "morning_brief", "action_prompt": "Good morning", "nudge_id": "brief", "created_at": "2026-10-04T00:00:00+00:00"})
+    nudges.append({"status": "open", "kind": "note", "action_prompt": "", "question": "", "nudge_id": "empty", "created_at": "2026-10-05T00:00:00+00:00"})
+    counts = activity_counts("2026-11-25", _DB({"daily_prompts": [], "nudges": nudges, "entries": []}))
+    assert counts["unanswered_prompts"] == 10
+
+
+def test_stopwords_do_not_cite_an_unrelated_card():
+    car = {
+        "status": "approved",
+        "card_id": "car",
+        "title": "First Car",
+        "story": "My first car was a Chevy.",
+        "people": [],
+    }
+    dog = {
+        "status": "approved",
+        "card_id": "dog",
+        "title": "Duke",
+        "story": "My dog was named Duke.",
+        "people": ["Duke"],
+    }
+    picked = select_cards([car], "What was my dog named?")
+    assert picked == []
+    picked = select_cards([car, dog], "What was my dog named?")
+    assert [card["card_id"] for card in picked] == ["dog"]
+    reply = "My dog was named Duke."
+    cited = citations_that_ground(reply, why_from([car, dog]))
+    assert [card["card_id"] for card in cited] == ["dog"]
+    assert citations_that_ground("I don't remember.", why_from([car, dog])) == []
+    assert spoken_reply('search_archive("first car")') == ""
+    assert as_owner_voice("Your first car was a Chevy.") == "My first car was a Chevy."
+    assert "first person" in FIRST_PERSON.lower()
+    twin = (ROOT / "backend" / "routers" / "twin.py").read_text(encoding="utf-8")
+    assert "citations_that_ground" in twin
+    assert "FIRST_PERSON" in twin
+
+
+def test_a_custom_question_is_filed_and_a_stale_prompt_is_not_today():
+    stale = [{
+        "prompt_id": "prm_oct",
+        "key": "old",
+        "question": "What were you doing on October 29?",
+        "status": "unanswered",
+        "created_at": "2026-10-29T00:00:00+00:00",
+    }]
+    catalog = [{"key": "car", "label": "car", "question": "What was your first car?"}]
+    today = choose_prompt(stale, today="2026-11-25", catalog=catalog)
+    assert today["create"] is True
+    assert today["prompt"]["question"] == "What was your first car?"
+    assert today["waiting"] == 1
+    custom = choose_prompt(
+        stale,
+        today="2026-11-25",
+        catalog=catalog,
+        chosen_key="dog",
+        chosen_question="What was my dog named?",
+    )
+    assert stored_prompt_status(custom) == "draft"
+    filed = new_prompt_doc("owner", custom["prompt"])
+    filed["status"] = stored_prompt_status(custom)
+    assert filed["prompt_id"]
+    assert filed["status"] == "draft"
+    assert waiting_items([filed]) == []
+
+
+def test_dry_run_purge_does_not_need_the_lock(tmp_path):
+    root = tmp_path / "observer"
+    root.mkdir()
+    (root / "notes.jsonl").write_text(
+        json.dumps({
+            "note_id": "n1",
+            "status": "pending",
+            "text": "noise",
+            "created_at": "2026-11-01T00:00:00+00:00",
+        }) + "\n",
+        encoding="utf-8",
+    )
+    lock = root / ".store.lock"
+    lock.write_text("")
+    lock.chmod(0o444)
+    root.chmod(0o555)
+    store = ObserverStore(root)
+    try:
+        plan = store.purge_noise(apply=False)
+        assert plan["applied"] is False
+        assert plan["pending_notes"] == 1
+        try:
+            store.purge_noise(apply=True)
+        except PermissionError as exc:
+            assert "sudo heirloom-box observer purge --apply" in str(exc)
+        else:
+            raise AssertionError("apply should need a writable lock")
+    finally:
+        root.chmod(0o755)
+        lock.chmod(0o644)
+
+
+def test_upgrade_preserves_env_and_does_not_touch_drivers(tmp_path):
+    install = (ROOT / "box" / "install.sh").read_text(encoding="utf-8")
+    box = (ROOT / "box" / "heirloom-box").read_text(encoding="utf-8")
+    assert "--upgrade" in install
+    assert "Upgrade does not install or change the NVIDIA driver" in install
+    assert "Upgrade keeps OLLAMA_TWIN_MODEL" in install
+    assert "Upgrade keeps the chatterbox compose profile" in install
+    assert "cmd_upgrade" in box
+    env = tmp_path / "box.env"
+    env.write_text("OLLAMA_TWIN_MODEL=qwen2.5:14b\nHEIRLOOM_LLM_PROVIDER=ollama\n", encoding="utf-8")
+    env.chmod(0o640)
+    script = f"""
+set -euo pipefail
+UPGRADE=1
+eval "$(sed -n '/^upsert_env()/,/^}}/p' '{ROOT / "box" / "install.sh"}')"
+upsert_env OLLAMA_TWIN_MODEL qwen2.5:32b '{env}'
+upsert_env WHISPER_MODEL base '{env}'
+"""
+    import subprocess
+    subprocess.run(["bash", "-c", script], check=True)
+    text = env.read_text(encoding="utf-8")
+    assert "OLLAMA_TWIN_MODEL=qwen2.5:14b" in text
+    assert "qwen2.5:32b" not in text
+    assert "WHISPER_MODEL=base" in text
+    assert oct(env.stat().st_mode & 0o777) == oct(0o640)
+
+
+def test_voice_is_local_and_chatterbox_can_see_a_gpu(monkeypatch):
+    from local_inference import whisper_runtime
+
+    monkeypatch.setenv("WHISPER_MODEL", "base")
+    monkeypatch.setenv("WHISPER_DEVICE", "cpu")
+    assert whisper_runtime() == ("base", "cpu", "int8")
+    monkeypatch.setenv("WHISPER_DEVICE", "cuda")
+    assert whisper_runtime() == ("base", "cuda", "float16")
+    api = (ROOT / "box" / "Dockerfile.api").read_text(encoding="utf-8")
+    assert "faster-whisper" in api
+    assert "nvidia-cublas-cu12" in api
+    compose = (ROOT / "box" / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "/whisper:/var/lib/heirloom/whisper" in compose
+    gpu = (ROOT / "box" / "docker-compose.gpu.yml").read_text(encoding="utf-8")
+    assert "api:" in gpu
+    chatter = (ROOT / "box" / "chatterbox" / "Dockerfile").read_text(encoding="utf-8")
+    assert "chatterbox-tts==" in chatter
+    assert "cu124" in chatter
+    import importlib.util
+    path = ROOT / "box" / "chatterbox" / "server.py"
+    spec = importlib.util.spec_from_file_location("heirloom_chatterbox_server", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.pick_device(True) == "cuda"
+    assert module.pick_device(False) == "cpu"

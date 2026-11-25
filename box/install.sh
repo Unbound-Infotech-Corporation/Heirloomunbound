@@ -25,6 +25,7 @@ WITH_OBSERVER=0
 WITH_OBSERVER_AUDIO=0
 WITH_PRESENCE=0
 UNATTENDED=0
+UPGRADE=0
 NVME_POWER_FIX=0
 BRAIN_URL=""
 BRAIN_MODEL="${HEIRLOOM_BRAIN_MODEL:-gpt-oss:120b}"
@@ -35,8 +36,11 @@ export DEBIAN_FRONTEND=noninteractive
 
 usage() {
   cat <<'EOF'
-Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--observer-audio] [--presence] [--nvme-power-fix] [--brain-url URL] [--odysseus-url URL]
+Usage: sudo bash box/install.sh [--upgrade] [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--observer-audio] [--presence] [--nvme-power-fix] [--brain-url URL] [--odysseus-url URL]
 
+  --upgrade           rebuild containers and units on an existing box. Keeps box.env values
+                      and permissions, the chat model, compose profiles, and the GPU overlay.
+                      Does not install or change the NVIDIA driver.
   --dry-run           print the plan and write the log; change nothing
   --unattended        answer package and license prompts automatically; exit 75 if a reboot is required before containers start
   --dev-tools         git, gh, Node.js LTS, Python 3.12, uv, Cursor CLI, Claude Code
@@ -133,6 +137,7 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dry-run) DRY_RUN=1; shift ;;
+      --upgrade) UPGRADE=1; shift ;;
       --unattended) UNATTENDED=1; shift ;;
       --dev-tools) DEV_TOOLS=1; shift ;;
       --tailscale) WITH_TAILSCALE=1; shift ;;
@@ -247,8 +252,16 @@ upsert_env() {
   local key="$1"
   local value="$2"
   local file="$3"
-  local tmp
+  local tmp mode="" group=""
+  if [[ -f "${file}" ]]; then
+    mode="$(stat -c '%a' "${file}" 2>/dev/null || true)"
+    group="$(stat -c '%G' "${file}" 2>/dev/null || true)"
+  fi
   tmp="$(mktemp)"
+  if [[ "${UPGRADE}" -eq 1 && -f "${file}" ]] && grep -q "^${key}=" "${file}"; then
+    rm -f "${tmp}"
+    return 0
+  fi
   if [[ -f "${file}" ]] && grep -q "^${key}=" "${file}"; then
     awk -v k="${key}" -v v="${value}" '{
       if (index($0, k "=") == 1) print k "=" v; else print $0
@@ -257,6 +270,12 @@ upsert_env() {
   else
     printf '%s=%s\n' "${key}" "${value}" >> "${file}"
     rm -f "${tmp}"
+  fi
+  if [[ -n "${mode}" ]]; then
+    chmod "${mode}" "${file}" || true
+  fi
+  if [[ -n "${group}" && "${group}" != "UNKNOWN" ]]; then
+    chgrp "${group}" "${file}" || true
   fi
 }
 
@@ -491,6 +510,7 @@ write_tree() {
   run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/ollama"
   run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/caddy"
   run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/caddy-config"
+  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/whisper"
   if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
     run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/observer"
   fi
@@ -568,6 +588,8 @@ write_env() {
   upsert_env HEIRLOOM_LLM_PROVIDER "ollama" "${env_file}"
   upsert_env OLLAMA_BASE_URL "http://ollama:11434" "${env_file}"
   upsert_env OLLAMA_TWIN_MODEL "${model}" "${env_file}"
+  upsert_env WHISPER_MODEL "base" "${env_file}"
+  upsert_env WHISPER_CACHE "/var/lib/heirloom/whisper" "${env_file}"
   if [[ -n "${BRAIN_URL}" ]]; then
     upsert_env HEIRLOOM_BRAIN_URL "${BRAIN_URL}" "${env_file}"
     upsert_env HEIRLOOM_BRAIN_MODEL "${BRAIN_MODEL}" "${env_file}"
@@ -1052,6 +1074,16 @@ main() {
     WITH_PRESENCE=1
     log "Presence marker /etc/heirloom/presence.enabled is present; keeping Presence on"
   fi
+  if [[ "${UPGRADE}" -eq 1 && -f /etc/heirloom/compose.args ]]; then
+    if grep -q 'chatterbox' /etc/heirloom/compose.args; then
+      WITH_CHATTERBOX=1
+      log "Upgrade keeps the chatterbox compose profile"
+    fi
+    if grep -q 'docker-compose.gpu.yml' /etc/heirloom/compose.args; then
+      USE_GPU=1
+      log "Upgrade keeps the GPU compose overlay"
+    fi
+  fi
   if [[ "${DRY_RUN}" -eq 0 && "${EUID}" -ne 0 ]]; then
     printf 'Re-run as root: sudo bash box/install.sh\n' >&2
     exit 1
@@ -1072,19 +1104,38 @@ main() {
   else
     log "VRAM MiB=${mib} default model=${model} (Apache-2.0 Qwen2.5)"
   fi
+  if [[ "${UPGRADE}" -eq 1 && -f "${DATA_ROOT}/box.env" ]]; then
+    local kept_model=""
+    kept_model="$(awk -F= '/^OLLAMA_TWIN_MODEL=/{val=substr($0, index($0, "=")+1)} END {print val}' "${DATA_ROOT}/box.env")"
+    kept_model="${kept_model//$'\r'/}"
+    if [[ -n "${kept_model}" ]]; then
+      model="${kept_model}"
+      log "Upgrade keeps OLLAMA_TWIN_MODEL=${model}"
+    fi
+  fi
   if gpu_present && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
     USE_GPU=1
   fi
-  install_base
-  install_nvidia
-  if [[ "${NEED_REBOOT}" -eq 0 ]] && gpu_present && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
-    USE_GPU=1
+  if [[ "${UPGRADE}" -eq 1 && "${WITH_OBSERVER}" -eq 0 && -f "${DATA_ROOT}/observer/owner-opt-in.json" ]] && grep -q '"enabled": true' "${DATA_ROOT}/observer/owner-opt-in.json"; then
+    WITH_OBSERVER=1
+    WITH_OBSERVER_AUDIO=1
+    log "Upgrade keeps Observer on"
   fi
-  install_tailscale
-  install_dev_tools
-  harden_ssh
-  configure_ufw
-  apply_nvme_power_fix
+  if [[ "${UPGRADE}" -eq 1 ]]; then
+    log "Upgrade does not install or change the NVIDIA driver"
+    log "Upgrade rebuilds containers and reinstalls units, scripts, and tmpfiles"
+  else
+    install_base
+    install_nvidia
+    if [[ "${NEED_REBOOT}" -eq 0 ]] && gpu_present && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+      USE_GPU=1
+    fi
+    install_tailscale
+    install_dev_tools
+    harden_ssh
+    configure_ufw
+    apply_nvme_power_fix
+  fi
   write_tree
   write_env "${model}" "${observer_model}" "${mib}" "${max_loaded}" "${vision_keep}"
   write_compose_args

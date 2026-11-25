@@ -23,11 +23,17 @@ def health() -> dict[str, str]:
     return {"status": "ok", "engine": "chatterbox", "license": "MIT"}
 
 
+def pick_device(cuda_available: bool) -> str:
+    """Use the GPU when the container can see one. Otherwise stay on CPU."""
+    return "cuda" if cuda_available else "cpu"
+
+
 def render_wav(text: str) -> bytes:
     """Local Chatterbox only. Missing weights raise; nothing is uploaded."""
+    import torch  # type: ignore
     from chatterbox.tts import ChatterboxTTS  # type: ignore
 
-    model = ChatterboxTTS.from_pretrained(device="cuda")
+    model = ChatterboxTTS.from_pretrained(device=pick_device(bool(torch.cuda.is_available())))
     wav = model.generate(text)
     import torchaudio  # type: ignore
 

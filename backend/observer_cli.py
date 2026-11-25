@@ -54,7 +54,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if command == "purge":
         apply = "--apply" in args[1:]
-        result = _store().purge_noise(apply=apply)
+        try:
+            result = _store().purge_noise(apply=apply)
+        except PermissionError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         print(f"pending notes: {result.get('pending_notes')}")
         print(f"accepted notes kept: {result.get('accepted_notes')}")
         print(f"captions: {result.get('observations')}")

@@ -35,8 +35,15 @@ story: the memory in their words. Do not add facts they did not say.
 """
 
 ANSWER_SYSTEM = (
-    "You are the owner's twin, speaking in the first person from approved memories only. "
-    "If those memories do not answer the question, say you don't remember. Do not invent a life."
+    "You are the owner, speaking in the first person. Say I, my, and me. "
+    "Never say 'your' about this life. Use only the approved memories. "
+    "If they do not answer the question, say you don't remember. Do not invent a life."
+)
+
+FIRST_PERSON = (
+    "You are the owner. Speak in the first person: I, my, me. "
+    "Never say 'your first car' or 'you' about this life. "
+    "Do not print tool calls. The archive is already in this prompt."
 )
 
 
@@ -57,8 +64,22 @@ def prompt_catalog() -> list[dict[str, str]]:
     return rows
 
 
+_STOP = frozenset({
+    "the", "a", "an", "of", "in", "on", "to", "for", "was", "is", "are",
+    "what", "where", "when", "who", "why", "how", "my", "me", "i", "did",
+    "do", "does", "that", "this", "at", "with", "and", "you", "your", "named",
+    "name", "about", "from", "have", "had", "been", "were", "his", "her",
+    "their", "our", "it", "its",
+})
+
+
 def _tokens(text: str) -> set[str]:
-    return {part for part in re.split(r"\W+", (text or "").lower()) if len(part) > 2}
+    """Content words only. 'was' must not cite an unrelated card."""
+    return {
+        part
+        for part in re.split(r"\W+", (text or "").lower())
+        if len(part) > 2 and part not in _STOP
+    }
 
 
 def waiting_items(prompts: list[dict], nudges: list[dict] | None = None) -> list[dict]:
@@ -98,7 +119,7 @@ def choose_prompt(
     chosen_key: str = "",
     chosen_question: str = "",
 ) -> dict[str, Any]:
-    """The next question. Does not add another while any are still unanswered."""
+    """The next question. A stale backlog stays counted; the page shows today's question."""
     book = catalog if catalog is not None else prompt_catalog()
     waiting = waiting_items(prompts, nudges)
     key = (chosen_key or "").strip()
@@ -125,11 +146,13 @@ def choose_prompt(
             "persist": not waiting,
             "waiting": len(waiting),
         }
-    if waiting:
-        return {"prompt": waiting[0], "create": False, "persist": False, "waiting": len(waiting)}
-    for row in prompts or []:
-        if str(row.get("created_at") or "")[:10] == today:
-            return {"prompt": row, "create": False, "persist": False, "waiting": 0}
+    fresh = [
+        row for row in prompts or []
+        if str(row.get("created_at") or "")[:10] == today and str(row.get("status") or "") != "answered"
+    ]
+    if fresh:
+        return {"prompt": fresh[-1], "create": False, "persist": False, "waiting": len(waiting)}
+    # A stale backlog stays counted, but the question on the page is today's.
     if not book:
         return {"prompt": None, "create": False, "persist": False, "waiting": 0}
     try:
@@ -147,7 +170,7 @@ def choose_prompt(
         },
         "create": True,
         "persist": True,
-        "waiting": 0,
+        "waiting": len(waiting),
     }
 
 
@@ -261,12 +284,89 @@ def select_cards(cards: list[dict], query: str, *, limit: int = 3) -> list[dict]
     return [card for _score, card in ranked[:limit]]
 
 
+_DECLINE = (
+    "don't remember",
+    "do not remember",
+    "don't have an approved memory",
+    "do not have an approved memory",
+    "nothing filed",
+)
+
+
+def reply_is_only_a_tool_call(text: str) -> bool:
+    raw = (text or "").strip().strip("`")
+    return bool(re.fullmatch(
+        r"(?is)(?:search_archive|list_recent_memories|set_reminder|run_skill)\s*\([^)]*\)",
+        raw,
+    ))
+
+
+def spoken_reply(text: str) -> str:
+    """Drop a reply that is only a tool call the local model printed as text."""
+    raw = (text or "").strip()
+    if reply_is_only_a_tool_call(raw):
+        return ""
+    kept = [line for line in raw.splitlines() if not reply_is_only_a_tool_call(line.strip())]
+    return "\n".join(kept).strip()
+
+
+def as_owner_voice(text: str) -> str:
+    """The twin is the owner. 'Your first car' is 'My first car'."""
+    raw = spoken_reply(text)
+    if not raw:
+        return ""
+
+    def _own(match: re.Match) -> str:
+        return "My" if match.group(0)[:1].isupper() else "my"
+
+    return re.sub(r"\b[Yy]our\b", _own, raw)
+
+
+def _declines(reply: str) -> bool:
+    folded = (reply or "").lower()
+    return any(phrase in folded for phrase in _DECLINE)
+
+
+def citations_that_ground(reply: str, cards: list[dict]) -> list[dict]:
+    """Keep a card only when the reply actually uses it."""
+    if _declines(reply):
+        return []
+    reply_tokens = _tokens(reply)
+    if not reply_tokens:
+        return []
+    kept: list[dict] = []
+    for card in cards or []:
+        hay = " ".join([
+            str(card.get("title") or ""),
+            str(card.get("story") or ""),
+            " ".join(card.get("people") or []),
+        ])
+        if _tokens(hay) & reply_tokens:
+            kept.append(card)
+    return kept
+
+
+def stored_prompt_status(choice: dict) -> Optional[str]:
+    """How to file a new prompt. Draft is linked to the card and is not 'waiting'."""
+    prompt = choice.get("prompt") or {}
+    if not isinstance(prompt, dict):
+        return None
+    if str(prompt.get("prompt_id") or "").strip():
+        return None
+    if not str(prompt.get("question") or "").strip():
+        return None
+    if choice.get("persist", True):
+        return "unanswered"
+    return "draft"
+
+
 def why_from(cards: list[dict]) -> list[dict[str, str]]:
     rows = []
     for card in cards:
         rows.append({
             "card_id": str(card.get("card_id") or ""),
             "title": str(card.get("title") or "A memory"),
+            "story": str(card.get("story") or ""),
         })
     return rows
 
@@ -310,12 +410,21 @@ async def answer_grounded(question: str, cards: list[dict], complete: Complete) 
         }
     block = grounding_block(used)
     try:
-        reply = (await complete(ANSWER_SYSTEM, f"{block}\n\nQuestion: {question}") or "").strip()
+        reply = as_owner_voice(await complete(ANSWER_SYSTEM, f"{block}\n\nQuestion: {question}") or "")
     except Exception:
         reply = ""
-    if not reply:
-        reply = str(used[0].get("story") or "")
-    return {"reply": reply, "why": why_from(used)}
+    if not reply or _declines(reply):
+        return {
+            "reply": "I don't have an approved memory about that.",
+            "why": [],
+        }
+    grounded = citations_that_ground(reply, used)
+    if not grounded:
+        return {
+            "reply": "I don't have an approved memory about that.",
+            "why": [],
+        }
+    return {"reply": reply, "why": why_from(grounded)}
 
 
 def new_prompt_doc(user_id: str, prompt: dict, *, now: Optional[datetime] = None) -> dict[str, Any]:

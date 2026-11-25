@@ -18,6 +18,7 @@ from memory_cards import (
     new_card_doc,
     new_prompt_doc,
     select_cards,
+    stored_prompt_status,
     visible_cards,
     why_from,
 )
@@ -87,7 +88,7 @@ async def next_prompt(user: dict = Depends(get_current_user), key: str = "", que
         doc = new_prompt_doc(user_id, prompt)
         await db.daily_prompts.insert_one(dict(doc))
         prompt = doc
-        choice["waiting"] = 1
+        choice["waiting"] = int(choice.get("waiting") or 0) + 1
     return {
         "prompt": prompt,
         "waiting": int(choice.get("waiting") or 0),
@@ -132,8 +133,10 @@ async def answer(body: AnswerReq, user: dict = Depends(get_current_user)):
             prompt = found
     if body.question:
         prompt["question"] = body.question
-    if not prompt.get("prompt_id") and choice.get("persist", True):
+    status = stored_prompt_status(choice) if not prompt.get("prompt_id") else None
+    if status and str(prompt.get("question") or "").strip():
         prompt = new_prompt_doc(user_id, prompt)
+        prompt["status"] = status
         await db.daily_prompts.insert_one(dict(prompt))
     try:
         draft = await draft_card(body.transcript, str(prompt.get("question") or ""), _local_complete)

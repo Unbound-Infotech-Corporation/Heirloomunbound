@@ -148,14 +148,26 @@ Then use the Tailscale name or address the same way. The installer does not log 
 
 ## Updating
 
-From the repo root on the box:
+From the repo root on a box that is already running:
 
 ```bash
 git pull
-sudo bash box/install.sh
+sudo heirloom-box upgrade
 ```
 
-Re-running is safe. It keeps the existing connector secret and rewrites the service env flags. Add `--dev-tools`, `--tailscale`, or `--with-chatterbox` again if you still want those. Observer stays off on a plain upgrade. The old `/etc/heirloom/observer.enabled` marker does not turn it back on. Opt in with `sudo heirloom-box observer on` (that writes `/etc/heirloom/observer.opt-in`, which later upgrades keep). Presence stays on after the first `--presence` install because `/etc/heirloom/presence.enabled` is still there. A dry-run never creates those files.
+The same thing is `sudo bash box/install.sh --upgrade`.
+
+This rebuilds the containers and reinstalls the units, scripts, and tmpfiles. It keeps `box.env` values and permissions, `OLLAMA_TWIN_MODEL`, the compose profiles (chatterbox included), and the GPU overlay. It leaves the NVIDIA driver alone.
+
+`sudo bash box/install.sh` without `--upgrade` is the first-install path. Use it for a new machine.
+
+Observer stays off unless `/etc/heirloom/observer.opt-in` is already there, or the live wish file says Observer is on. The old `/etc/heirloom/observer.enabled` marker does not turn it back on. Opt in with `sudo heirloom-box observer on`. Presence stays on after the first `--presence` install because `/etc/heirloom/presence.enabled` is still there.
+
+If the caretaker timer was paused, start it again after this upgrade:
+
+```bash
+sudo systemctl start heirloom-caretaker.timer
+```
 
 ## Lab signals
 

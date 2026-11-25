@@ -51,7 +51,11 @@ export function healthLine(health) {
   const status = health.status || "unknown";
   const provider = health.llm_provider || "emergent";
   const lab = health.lab_mode ? "lab on" : "lab off";
-  const base = `${status} · ${provider} · ${lab}`;
+  const modelCheck = health.model && typeof health.model === "object" ? health.model : null;
+  const age = modelCheck && Number.isFinite(Number(modelCheck.age_s))
+    ? ` · model checked ${Number(modelCheck.age_s)}s ago`
+    : "";
+  const base = `${status} · ${provider} · ${lab}${age}`;
   const brain = health.brain && typeof health.brain === "object" ? health.brain : null;
   if (!brain || !brain.answered) return base;
   const model = brain.model_in_use || brain.model || "";

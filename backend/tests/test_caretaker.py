@@ -16,6 +16,8 @@ from caretaker import (
     compose_recreate_api_argv,
     compose_restart_argv,
     observer_mount_is_stale,
+    should_restart_ollama,
+    stat_inode_argv,
     confirm_pending,
     generation_verified,
     gpu_lost,
@@ -277,7 +279,9 @@ def test_stale_observer_mount_recreates_the_api_container():
         return "recreated"
 
     ops = HostOps(runner=runner, compose_dir="/var/lib/heirloom/src/box")
+    assert stat_inode_argv("/run/heirloom-observer") == ["stat", "-L", "-c", "%i", "/run/heirloom-observer"]
     assert ops.repair_observer_mount() == "recreated"
+    assert any(part == "-L" for command in calls for part in command)
     assert any(part == "box-api-1" for command in calls for part in command)
     assert any("--force-recreate" in command for command in calls)
     calls.clear()
@@ -288,6 +292,34 @@ def test_stale_observer_mount_recreates_the_api_container():
 
     quiet = HostOps(runner=same, compose_dir="/var/lib/heirloom/src/box")
     assert quiet.repair_observer_mount() == ""
+    assert should_restart_ollama("100% CPU", "", mount_repaired=True) is False
+    assert should_restart_ollama("100% CPU", "", mount_repaired=False) is True
     assert not any("--force-recreate" in command for command in calls)
     install = (Path(__file__).resolve().parents[2] / "box" / "install.sh").read_text(encoding="utf-8")
     assert "install_caretaker" in install
+
+
+def test_a_repaired_mount_does_not_restart_ollama(monkeypatch):
+    import caretaker_watch
+
+    restarted = []
+
+    class Ops:
+        def ollama_ps(self):
+            return "100% CPU"
+
+        def service_logs(self, name):
+            del name
+            return "Failed to initialize NVML"
+
+        def repair_observer_mount(self):
+            return "recreated"
+
+        def restart(self, name):
+            restarted.append(name)
+
+    monkeypatch.setattr(caretaker_watch, "HostOps", lambda **kwargs: Ops())
+    monkeypatch.setattr(caretaker_watch, "_record_observer_unit", lambda: None)
+    monkeypatch.setattr(caretaker_watch, "_apply_observer_wish", lambda: None)
+    assert caretaker_watch.main([]) == 0
+    assert restarted == []

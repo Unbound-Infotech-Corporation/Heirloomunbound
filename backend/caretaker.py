@@ -148,12 +148,22 @@ def observer_inode(text: str) -> str:
 
 
 def observer_mount_is_stale(host_inode: str, container_inode: str) -> bool:
-    """True when the API container still has a deleted bind of the observer runtime dir."""
+    """True when the API container still has a deleted bind of the observer runtime dir.
+
+    Compare the directory both sides see after following a symlink. ``stat``
+    without ``-L`` reports the symlink inode on the host and the target inode
+    in the container, which is a mismatch even when the mount is current.
+    """
     host = observer_inode(host_inode) or (host_inode or "").strip()
     guest = observer_inode(container_inode) or (container_inode or "").strip()
     if not host.isdigit() or not guest.isdigit():
         return False
     return host != guest
+
+
+def stat_inode_argv(path: str) -> list[str]:
+    """Follow symlinks. ``/run/heirloom-observer`` is a link to the real spool."""
+    return ["stat", "-L", "-c", "%i", path]
 
 
 def compose_recreate_api_argv(directory: str) -> list[str]:
@@ -555,6 +565,16 @@ def watchdog_decision(ps_text: str, log_text: str) -> str:
     return "ok"
 
 
+def should_restart_ollama(ps_text: str, log_text: str, *, mount_repaired: bool) -> bool:
+    """Do not restart Ollama in the same pass that recreated the API container.
+
+    That recreate can make the following GPU read look like a loss.
+    """
+    if mount_repaired:
+        return False
+    return watchdog_decision(ps_text, log_text) == "restart_ollama"
+
+
 def append_log_line(path: str, row: dict[str, str]) -> None:
     from pathlib import Path
 
@@ -686,9 +706,9 @@ class HostOps(CaretakerOps):
 
     def observer_mount_stale(self) -> bool:
         for path in OBSERVER_MOUNT_PATHS:
-            host = _run(["stat", "-c", "%i", path], self._runner)
+            host = _run(stat_inode_argv(path), self._runner)
             guest = _run(
-                ["docker", "exec", API_CONTAINER, "stat", "-c", "%i", path],
+                ["docker", "exec", API_CONTAINER, *stat_inode_argv(path)],
                 self._runner,
             )
             if observer_mount_is_stale(host, guest):

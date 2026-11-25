@@ -136,7 +136,7 @@ export default function RecordMemory() {
       <h1 className="font-serif text-4xl font-light tracking-tight mb-3">Record a memory</h1>
       <p className="text-sm mb-8" style={{ color: "var(--text-secondary)" }}>
         Answer in your words. Nothing is used until you approve the card.
-        {waiting > 1 ? ` ${waiting} questions are waiting. This is the oldest.` : ""}
+        {waiting > 1 ? ` ${waiting} questions are still open. This one is for today.` : ""}
       </p>
 
       <section className="surface p-6 mb-6" data-testid="record-question">

@@ -417,6 +417,9 @@ def _match_count(row: Mapping[str, Any], query: Mapping[str, Any]) -> bool:
                 prefix = prefix[1:]
             if not str(value or "").startswith(prefix):
                 return False
+        elif isinstance(expected, Mapping) and "$nin" in expected:
+            if value in expected["$nin"]:
+                return False
         elif value != expected:
             return False
     return True
@@ -444,13 +447,37 @@ def activity_counts(day: str, db: Any = None) -> dict[str, int]:
     if memories_all == 0:
         memories_all = n("memory_cards", {"status": "approved"})
         memories_today = n("memory_cards", {"status": "approved", "approved_at": prefix})
+    unanswered = _unanswered_like_the_page(database)
+    if unanswered is None:
+        unanswered = n("daily_prompts", {"status": "unanswered"})
     return {
         "memories_today": memories_today,
         "memories_all": memories_all,
         "conversations_today": n("conversations", {"created_at": prefix}),
         "conversations_all": n("conversations", {}),
-        "unanswered_prompts": n("daily_prompts", {"status": "unanswered"}),
+        "unanswered_prompts": unanswered,
     }
+
+
+def _rows(database: Any, collection: str, query: Mapping[str, Any]) -> Optional[list]:
+    try:
+        finder = getattr(database[collection], "find", None)
+        if finder is None:
+            return None
+        return list(finder(query, {"_id": 0}))
+    except (OSError, TypeError, ValueError, AttributeError):
+        return None
+
+
+def _unanswered_like_the_page(database: Any) -> Optional[int]:
+    """Same pile the record page calls waiting: unanswered prompts plus open nudges."""
+    prompts = _rows(database, "daily_prompts", {"status": "unanswered"})
+    nudges = _rows(database, "nudges", {"status": "open"})
+    if prompts is None and nudges is None:
+        return None
+    from memory_cards import waiting_items
+
+    return len(waiting_items(prompts or [], nudges or []))
 
 
 def _activity_db() -> Any:

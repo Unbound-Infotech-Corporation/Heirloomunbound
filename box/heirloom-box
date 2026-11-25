@@ -8,11 +8,13 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: heirloom-box <status|backup|report|observer|presence|update-drivers|set-owner>
+Usage: heirloom-box <status|backup|report|upgrade|observer|presence|update-drivers|set-owner>
 
   status             services, GPU, disk, observer, presence, last backup, last report, /api/health
   backup             Mongo archive + vault tarball, 14 copies kept
   report             nightly local markdown under the data root's lab-reports
+  upgrade            rebuild containers and units. Keeps box.env, the chat model, compose
+                     profiles, and the GPU overlay. Does not touch the NVIDIA driver.
   set-owner EMAIL    set the owner email and password (password read from the prompt, not saved in the log)
   update-drivers     install or upgrade the CUDA-repo NVIDIA driver, CUDA toolkit, cuDNN, nvtop, and the container toolkit
                      add --dry-run to print the plan
@@ -402,6 +404,20 @@ cmd_set_owner() {
   password=""
 }
 
+cmd_upgrade() {
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "Re-run as root: sudo heirloom-box upgrade" >&2
+    exit 1
+  fi
+  local root
+  root="$(read_root)"
+  if [[ -z "${root}" || ! -f "${root}/box/install.sh" ]]; then
+    echo "Run this from a Twin Box that already has box/install.sh." >&2
+    exit 1
+  fi
+  exec bash "${root}/box/install.sh" --upgrade
+}
+
 cmd_report() {
   local root
   root="$(read_root)"
@@ -418,6 +434,7 @@ main() {
     status) cmd_status ;;
     backup) cmd_backup ;;
     report) cmd_report ;;
+    upgrade) cmd_upgrade ;;
     observer)
       shift
       cmd_observer "${1:-}"
