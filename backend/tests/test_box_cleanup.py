@@ -670,6 +670,9 @@ def test_owner_words_are_the_only_memory_and_ungrounded_questions_decline():
     assert asks_for_personal_memory("I'm going home") is False
     assert asks_for_personal_memory("take me home") is False
     assert asks_for_personal_memory("help me with this job") is False
+    assert asks_for_personal_memory("tell me about my first car") is True
+    assert asks_for_personal_memory("did I have a dog") is True
+    assert asks_for_personal_memory("My first car was a Chevy") is False
     said = owner_episode_text([
         {"role": "user", "content": "I had soup."},
         {"role": "assistant", "content": "My first car was a rusty old Ford Escort."},

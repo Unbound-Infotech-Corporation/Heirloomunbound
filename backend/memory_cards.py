@@ -269,17 +269,22 @@ _PERSONAL_MEMORY = re.compile(
 )
 
 
-def asks_for_personal_memory(text: str) -> bool:
-    """A question about the owner's own life, not a general chat turn.
+_ASK = re.compile(
+    r"(?i)^(?:what|who|where|when|which|how|did|do|does|was|were|is|are|can|could|would|tell me|remind me|describe)\b"
+)
 
-    Statements such as "I'm going home" and errands such as "help me with this job"
-    are not life-history questions.
+
+def asks_for_personal_memory(text: str) -> bool:
+    """A question or recall request about the owner's own life.
+
+    "Tell me about my first car" and "did I have a dog" count.
+    "I'm going home" and "help me with this job" do not.
     """
     raw = " ".join((text or "").split())
     if not raw:
         return False
-    question = raw.endswith("?") or bool(re.match(r"(?i)(?:what|who|where|when|which|how)\b", raw))
-    if not question:
+    asking = raw.endswith("?") or bool(_ASK.match(raw))
+    if not asking:
         return False
     return bool(_PERSONAL_MEMORY.search(raw))
 
