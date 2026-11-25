@@ -7,6 +7,7 @@ from assignments import effect_needs_approval
 from lab_mode import (
     LabStore,
     build_github_issue,
+    drop_selftest_turns,
     file_github_issue,
     github_issue_target,
     lab_allowed,
@@ -174,3 +175,22 @@ def test_github_issue_is_labeled_lab_report_when_configured(tmp_path):
     assert issue["labels"] == ["lab-report"]
     url = file_github_issue("hello", token="tok", repo="acme/heirloom", day="2026-10-12", opener=opener)
     assert url.endswith("/7")
+
+
+def test_selftest_turns_stay_out_of_the_report(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    monkeypatch.setenv("HEIRLOOM_LAB_MODE", "1")
+    store = LabStore(tmp_path)
+    today = datetime.now(timezone.utc).date().isoformat()
+    store.append({
+        "turn_id": "lab_real",
+        "ts": f"{today}T12:00:00+00:00",
+        "route": "twin",
+        "selftest": False,
+    })
+    record_chat_turn(route="twin", audience="owner", user_id="owner", selftest=True, store=store)
+    report = render_report(store.read_all(), day=today)
+    assert "Turns: 1" in report
+    assert drop_selftest_turns(store) == 1
+    assert [row["turn_id"] for row in store.read_all()] == ["lab_real"]

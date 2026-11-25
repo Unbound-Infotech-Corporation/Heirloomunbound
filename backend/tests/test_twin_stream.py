@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import os
 import sys
 import types
@@ -175,13 +176,20 @@ def test_streamed_twin_message_returns_text(monkeypatch):
         del args, kwargs
         return None
 
+    calls = []
+
     async def complete(*args, **kwargs):
-        del args, kwargs
-        return TurnOutcome(
-            text="My first car was a rusty old Ford Escort.",
-            meta={"model": "qwen2.5:14b"},
-            label="local",
-        )
+        calls.append(args)
+        text = str(args[1] if len(args) > 1 else args[0]).lower()
+        if "wedding" in text:
+            reply = "I remember we danced to At Last by Etta James."
+        elif "grow up" in text:
+            reply = "I grew up in Longview, Texas."
+        elif "job" in text:
+            reply = "My first job was at a local grocery store."
+        else:
+            reply = "My first car was a rusty old Ford Escort."
+        return TurnOutcome(text=reply, meta={"model": "qwen2.5:14b"}, label="local")
 
     import twin_runtime
     import twin_safety
@@ -190,6 +198,25 @@ def test_streamed_twin_message_returns_text(monkeypatch):
     monkeypatch.setattr(twin_runtime, "load_specialist_turn", no_specialist)
     monkeypatch.setattr(twin_safety, "intercept_crisis", no_crisis)
     monkeypatch.setattr(brain_council, "complete_turn", complete)
+
+    async def grounding(user_id, question, **kwargs):
+        del user_id, kwargs
+        if "dog" not in (question or "").lower():
+            return "", []
+        from memory_cards import grounding_block, why_from
+
+        card = {
+            "card_id": "duke",
+            "title": "Duke",
+            "story": "a black lab named Duke",
+            "people": ["Duke"],
+            "status": "approved",
+        }
+        return grounding_block([card]), why_from([card])
+
+    import routers.memory_loop as memory_loop
+
+    monkeypatch.setattr(memory_loop, "grounding_for_turn", grounding)
 
     async def quiet(*args, **kwargs):
         del args, kwargs
@@ -230,3 +257,29 @@ def test_streamed_twin_message_returns_text(monkeypatch):
     assert "don't have that memory yet" in denied
     assert "Ford" not in denied
     assert "event: error" not in denied
+    for question, invented in (
+        ("What song did we dance to at my wedding?", "Etta"),
+        ("Where did I grow up?", "Longview"),
+        ("What was my first job?", "grocery"),
+    ):
+        later = client.post(
+            "/api/twin/message",
+            json={"conversation_id": conversation_id, "message": question},
+        )
+        assert later.status_code == 200
+        body = later.text
+        assert "don't have that memory yet" in body
+        assert invented not in body
+        assert "event: error" not in body
+    assert len(calls) == 1
+    dog = client.post(
+        "/api/twin/message",
+        json={"conversation_id": conversation_id, "message": "What was my dog named?"},
+    )
+    assert dog.status_code == 200
+    assert "event: error" not in dog.text
+    assert len(calls) == 2
+    prompt = json.dumps(calls[1][0])
+    assert "Ford Escort" not in prompt
+    assert "Etta" not in prompt
+    assert "Do not add traits" in prompt

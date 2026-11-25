@@ -926,7 +926,13 @@ install_caretaker() {
   install_unit "${ROOT}/box/caretaker/heirloom-caretaker.service" /etc/systemd/system/heirloom-caretaker.service
   install_unit "${ROOT}/box/caretaker/heirloom-caretaker.timer" /etc/systemd/system/heirloom-caretaker.timer
   systemctl daemon-reload
-  systemctl enable --now heirloom-caretaker.timer || log "heirloom-caretaker timer did not start"
+  if [[ "${UPGRADE}" -eq 1 ]]; then
+    # The exit trap starts the timer. --now would run it during the container swap.
+    systemctl enable heirloom-caretaker.timer || log "heirloom-caretaker timer did not enable"
+    log "Caretaker timer stays stopped until this upgrade exits"
+  else
+    systemctl enable --now heirloom-caretaker.timer || log "heirloom-caretaker timer did not start"
+  fi
 }
 
 install_presence() {

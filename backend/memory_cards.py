@@ -41,6 +41,8 @@ story: the memory in their words. Do not add facts they did not say.
 ANSWER_SYSTEM = (
     "You are the owner, speaking in the first person. Say I, my, and me. "
     "Never say 'your' about this life. Use only the approved memories. "
+    "Stay close to the card's facts and wording. "
+    "Do not add traits, feelings, places, or events that are not written on the card. "
     "If they do not answer the question, say you don't remember. Do not invent a life."
 )
 
@@ -260,19 +262,24 @@ def embed_document(text: str) -> str:
 
 
 _LIFE = (
-    r"car|cars|dog|dad|father|mom|mother|childhood|grew up|named|"
-    r"drive|drove|driven|family|brother|sister|wife|husband|son|daughter|born"
+    r"car|cars|dog|dad|father|mom|mother|childhood|grew up|grow up|named|"
+    r"drive|drove|driven|family|brother|sister|wife|husband|son|daughter|born|"
+    r"wedding|hometown|job"
 )
 _PERSONAL_MEMORY = re.compile(
-    rf"(?i)\b(?:my|i)\b[\s\S]{{0,48}}\b(?:{_LIFE})\b"
-    rf"|\b(?:{_LIFE})\b[\s\S]{{0,48}}\b(?:my|i)\b"
+    rf"(?i)\b(?:my|i|we)\b[\s\S]{{0,64}}\b(?:{_LIFE})\b"
+    rf"|\b(?:{_LIFE})\b[\s\S]{{0,64}}\b(?:my|i|we)\b"
 )
 
 
 # A task keeps its verb after an optional "can you". A recall question does not.
 _TASK = re.compile(
     r"(?i)^(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
-    r"(?:remind me to|set a reminder|help me(?!\s+(?:remember|recall)))\b"
+    r"(?:remind me to|set a reminder|help me(?!\s+(?:remember|recall))|plan my)\b"
+)
+_HOWTO = re.compile(
+    r"(?i)^(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
+    r"how\s+(?:do|can|should|would|could)\b"
 )
 _RECALL = re.compile(
     r"(?i)^(?:please\s+)?"
@@ -291,12 +298,26 @@ def asks_for_personal_memory(text: str) -> bool:
     "Remind me to feed my dog" and "can you help me with my car?" do not.
     """
     raw = " ".join((text or "").split())
-    if not raw or _TASK.match(raw):
+    if not raw or _TASK.match(raw) or _HOWTO.match(raw):
         return False
     asking = raw.endswith("?") or bool(_RECALL.match(raw))
     if not asking:
         return False
     return bool(_PERSONAL_MEMORY.search(raw))
+
+
+def history_without_invented_claims(messages: list[dict]) -> list[dict]:
+    """Keep the owner's lines. An assistant line counts only with a card citation."""
+    kept: list[dict] = []
+    for message in messages or []:
+        role = message.get("role")
+        content = message.get("content")
+        if role not in {"user", "assistant"} or not content:
+            continue
+        if role == "assistant" and not message.get("why"):
+            continue
+        kept.append({"role": role, "content": content})
+    return kept
 
 
 def card_embed_text(card: dict) -> str:
@@ -555,7 +576,9 @@ def grounding_block(cards: list[dict]) -> str:
     if not cards:
         return ""
     lines = [
-        "APPROVED MEMORIES. Use only these. If they do not answer, say you don't remember.",
+        "APPROVED MEMORIES. Stay close to these facts and this wording. "
+        "Do not add traits, feelings, places, or events that are not written on the card. "
+        "If these cards do not answer the question, say you don't remember.",
     ]
     for card in cards:
         people = ", ".join(card.get("people") or []) or "none named"

@@ -680,6 +680,28 @@ def test_owner_words_are_the_only_memory_and_ungrounded_questions_decline():
     assert asks_for_personal_memory("My first car was a Chevy") is False
     assert asks_for_personal_memory("remind me to feed my dog") is False
     assert asks_for_personal_memory("can you help me with my car?") is False
+    assert asks_for_personal_memory("What song did we dance to at my wedding?") is True
+    assert asks_for_personal_memory("Where did I grow up?") is True
+    assert asks_for_personal_memory("What was my first job?") is True
+    assert asks_for_personal_memory("plan my week") is False
+    assert asks_for_personal_memory("How do I cook trout?") is False
+    assert asks_for_personal_memory("Write a birthday note") is False
+    from memory_cards import ANSWER_SYSTEM, grounding_block, history_without_invented_claims
+
+    kept = history_without_invented_claims([
+        {"role": "user", "content": "What song did we dance to at my wedding?"},
+        {"role": "assistant", "content": "We danced to At Last by Etta James."},
+        {"role": "assistant", "content": "Duke was a black lab.", "why": [{"card_id": "duke"}]},
+    ])
+    assert [row["content"] for row in kept] == [
+        "What song did we dance to at my wedding?",
+        "Duke was a black lab.",
+    ]
+    assert "Do not add traits" in ANSWER_SYSTEM
+    assert "wording" in ANSWER_SYSTEM
+    block = grounding_block([{"card_id": "duke", "title": "Duke", "story": "a black lab named Duke"}])
+    assert "Do not add traits" in block
+    assert "a black lab named Duke" in block
     said = owner_episode_text([
         {"role": "user", "content": "I had soup."},
         {"role": "assistant", "content": "My first car was a rusty old Ford Escort."},
@@ -884,3 +906,25 @@ exit 1
     )
     assert "stop heirloom-caretaker.timer" in paused.stdout
     assert "start heirloom-caretaker.timer" in paused.stdout
+    enabled = subprocess.run(
+        ["bash", "-c", f"""
+systemctl() {{ printf 'systemctl %s\\n' "$*"; }}
+install() {{ :; }}
+install_unit() {{ :; }}
+log() {{ :; }}
+DRY_RUN=0
+ROOT=/tmp
+eval "$(sed -n '/^install_caretaker()/,/^}}/p' '{install}')"
+UPGRADE=1
+install_caretaker
+UPGRADE=0
+install_caretaker
+"""],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    timer_lines = [line for line in enabled.stdout.splitlines() if "heirloom-caretaker.timer" in line]
+    assert timer_lines[0] == "systemctl enable heirloom-caretaker.timer"
+    assert "--now" not in timer_lines[0]
+    assert timer_lines[1] == "systemctl enable --now heirloom-caretaker.timer"

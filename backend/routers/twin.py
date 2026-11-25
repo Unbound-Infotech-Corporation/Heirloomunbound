@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, StreamDone, TextDelta, UserMessage
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -29,11 +29,21 @@ from twin_runtime import PC_ABILITY_IDS, build_assistant_system, build_twin_syst
 router = APIRouter(prefix="/twin", tags=["twin"])
 
 
-def _lab_sse(user: dict, *, route: str, started: float, error: str | None = None, model: str = "") -> str:
+def _lab_sse(
+    user: dict,
+    *,
+    route: str,
+    started: float,
+    error: str | None = None,
+    model: str = "",
+    selftest: bool = False,
+) -> str:
     """SSE frame for a local lab turn id. Empty when lab mode is off or the caller is an heir."""
     from routers.lab import note_chat_reply
 
-    turn_id = note_chat_reply(user, route=route, started=started, error=error, model=model)
+    turn_id = note_chat_reply(
+        user, route=route, started=started, error=error, model=model, selftest=selftest,
+    )
     if not turn_id:
         return ""
     return "event: lab\ndata: " + json.dumps({"lab_turn_id": turn_id}) + "\n\n"
@@ -164,7 +174,7 @@ async def _skills_blob(user_id: str) -> str:
 
 
 @router.post("/message")
-async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
+async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(get_current_user)):
     conv = await db.conversations.find_one(
         {"conversation_id": payload.conversation_id, "user_id": user["user_id"]}, {"_id": 0}
     )
@@ -199,6 +209,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             # PC specialists do not speak as the twin — Sit / Assist owns that.
             enabled_tools = tools_for_turn("assistant", enabled_ids)
             enabled_tools = filter_tools_for_specialist(enabled_tools, specialist)
+    selftest = request.headers.get("x-heirloom-selftest") == "1"
     started = time.perf_counter()
     if specialist and specialist_turn.get("role") == "assistant":
         lab_route = "assist"
@@ -273,7 +284,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 "url": result["url"],
                 "queued": result["queued"],
             }) + "\n\n"
-            lab_line = _lab_sse(user, route=lab_route, started=started)
+            lab_line = _lab_sse(user, route=lab_route, started=started, selftest=selftest)
             if lab_line:
                 yield lab_line
             yield "event: done\ndata: {}\n\n"
@@ -328,7 +339,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 "ok": result.get("ok", False),
                 "status": result.get("status", 0),
             }) + "\n\n"
-            lab_line = _lab_sse(user, route=lab_route, started=started)
+            lab_line = _lab_sse(user, route=lab_route, started=started, selftest=selftest)
             if lab_line:
                 yield lab_line
             yield "event: done\ndata: {}\n\n"
@@ -407,8 +418,15 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         watched_reply = attached.relied
 
     # Replay prior turns so the twin remembers what was just said.
+    # An uncited assistant line is not a memory. It cannot ground a new personal claim.
+    from memory_cards import asks_for_personal_memory, history_without_invented_claims
+
+    personal_ask = not specialist_id and asks_for_personal_memory(message_text)
+    prior_messages = conv.get("messages", [])
+    if personal_ask:
+        prior_messages = history_without_invented_claims(prior_messages)
     initial_messages = [{"role": "system", "content": system}]
-    for m in conv.get("messages", []):
+    for m in prior_messages:
         if m.get("role") in ("user", "assistant") and m.get("content"):
             initial_messages.append({"role": m["role"], "content": m["content"]})
 
@@ -442,16 +460,11 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     FIRST_PERSON,
                     NO_MEMORY_YET,
                     as_owner_voice,
-                    asks_for_personal_memory,
                     citations_that_ground,
                     spoken_reply,
                 )
 
-                if (
-                    not specialist_id
-                    and asks_for_personal_memory(message_text)
-                    and not why_cards
-                ):
+                if personal_ask and not why_cards:
                     full = NO_MEMORY_YET
                     cited = []
                     from brain_council import TurnOutcome
@@ -517,7 +530,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     await live_publish_turn(user["user_id"], "assistant", full, source="web")
                 except Exception:  # noqa: BLE001
                     pass
-            lab_line = _lab_sse(user, route=lab_route, started=started, error=error, model="ollama")
+            lab_line = _lab_sse(user, route=lab_route, started=started, error=error, model="ollama", selftest=selftest)
             if lab_line:
                 yield lab_line
             if error is None:
@@ -621,7 +634,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 yield "data: " + json.dumps({"text": full}) + "\n\n"
         except Exception as exc:  # noqa: BLE001
             yield "event: error\ndata: " + json.dumps({"error": str(exc)}) + "\n\n"
-            lab_line = _lab_sse(user, route=lab_route, started=started, error=str(exc))
+            lab_line = _lab_sse(user, route=lab_route, started=started, error=str(exc), selftest=selftest)
             if lab_line:
                 yield lab_line
             return
@@ -663,7 +676,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             await live_publish_turn(user["user_id"], "assistant", full, source="web")
         except Exception:  # noqa: BLE001
             pass
-        lab_line = _lab_sse(user, route=lab_route, started=started)
+        lab_line = _lab_sse(user, route=lab_route, started=started, selftest=selftest)
         if lab_line:
             yield lab_line
         if why_cards:

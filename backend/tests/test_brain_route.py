@@ -58,6 +58,9 @@ def test_vram_and_processor_mean_partial_gpu():
     assert ps_text_off_gpu("NAME ID SIZE PROCESSOR\nqwen abc 8GB 100% GPU\n") is False
     assert ps_text_off_gpu("qwen abc 8GB 60%/40% CPU/GPU") is True
     assert ps_text_off_gpu("qwen  100% CPU") is True
+    assert ps_text_off_gpu(
+        "qwen2.5:14b abc 9GB 100% GPU\nnomic-embed-text def 274MB 100% CPU\n"
+    ) is False
 
 
 def test_public_view_hides_the_token():

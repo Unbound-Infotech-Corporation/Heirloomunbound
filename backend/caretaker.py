@@ -78,12 +78,73 @@ def hard_refusal(text: str) -> Optional[str]:
     return None
 
 
-def gpu_lost(ps_text: str = "", log_text: str = "") -> bool:
-    """True when Ollama is on CPU or a container log says NVML failed to init."""
+_PROC = re.compile(r"(?i)100%\s+(CPU|GPU)")
+
+
+def ps_processors(ps_text: str) -> list[tuple[str, str]]:
+    """(model name, CPU|GPU) for each `ollama ps` row that names a processor."""
+    rows: list[tuple[str, str]] = []
+    for line in (ps_text or "").splitlines():
+        match = _PROC.search(line)
+        if not match:
+            continue
+        parts = line.split()
+        name = parts[0] if parts else ""
+        if not name or name.lower() == "name":
+            continue
+        rows.append((name, match.group(1).upper()))
+    return rows
+
+
+def _embed_model(name: str) -> bool:
+    folded = (name or "").lower()
+    return "embed" in folded or folded.startswith("nomic")
+
+
+def _chat_model(explicit: str = "") -> str:
+    import os
+
+    named = (explicit or os.environ.get("OLLAMA_TWIN_MODEL") or "qwen2.5:14b").strip()
+    return named or "qwen2.5:14b"
+
+
+def _matches_chat(name: str, model: str) -> bool:
+    left = (name or "").lower()
+    right = (model or "").lower()
+    if not left or left in {"100%", "name"}:
+        return False
+    if left == right or left.split(":")[0] == right.split(":")[0]:
+        return True
+    return len(left) >= 4 and right.startswith(left)
+
+
+def chat_processor(ps_text: str, chat_model: str = "") -> str:
+    """GPU or CPU for the configured chat model. Empty when that row is absent."""
+    model = _chat_model(chat_model)
+    for name, proc in ps_processors(ps_text):
+        if _matches_chat(name, model):
+            return proc
+    return ""
+
+
+def gpu_lost(ps_text: str = "", log_text: str = "", chat_model: str = "") -> bool:
+    """True when the chat model is on CPU, or a container log says NVML failed.
+
+    An embedding model on CPU does not count. Chatterbox also uses the GPU, so
+    nvidia-smi memory alone is not a lost-GPU signal.
+    """
     blob = f"{ps_text or ''}\n{log_text or ''}"
     if NVML_LOST in blob:
         return True
-    return CPU_ONLY in blob
+    rows = ps_processors(ps_text)
+    if not rows:
+        return CPU_ONLY in (ps_text or "")
+    proc = chat_processor(ps_text, chat_model)
+    if proc == "CPU":
+        return True
+    if proc == "GPU":
+        return False
+    return any(item_proc == "CPU" and not _embed_model(name) for name, item_proc in rows)
 
 
 def service_gpu_lost(service: str, *, ps_text: str = "", log_text: str = "") -> bool:

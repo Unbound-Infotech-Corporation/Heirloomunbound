@@ -74,13 +74,20 @@ class Api:
         self.base = base.rstrip("/")
         self.token = token
 
+    def _headers(self, content_type: str = "application/json") -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": content_type,
+            "X-Heirloom-Selftest": "1",
+        }
+
     def _json(self, method: str, path: str, body: dict | None = None, timeout: float = 60) -> tuple[int, Any]:
         data = None if body is None else json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
             self.base + path,
             data=data,
             method=method,
-            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
+            headers=self._headers(),
         )
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -125,7 +132,7 @@ class Api:
             self.base + "/api/twin/message",
             data=json.dumps({"conversation_id": conversation_id, "message": question}).encode("utf-8"),
             method="POST",
-            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
+            headers=self._headers(),
         )
         with urllib.request.urlopen(request, timeout=90) as response:
             body = response.read().decode("utf-8", errors="replace")
@@ -178,6 +185,12 @@ def cleanup(db: Any, user_id: str, card_id: str, prompt_id: str, conversation_id
         db.memory_episodes.delete_many({"user_id": user_id, "conversation_id": conversation_id})
     if token:
         db.user_sessions.delete_many({"session_token": token})
+    try:
+        from lab_mode import drop_selftest_turns
+
+        drop_selftest_turns()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _db() -> Any:

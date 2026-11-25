@@ -276,19 +276,23 @@ def loaded_models_off_gpu(payload: Any) -> bool:
 
 
 def ps_text_off_gpu(text: str) -> bool:
-    """True when `ollama ps` is not 100% GPU. Blank text is unknown, not lost."""
-    from caretaker import CPU_ONLY, gpu_lost
+    """True when the chat model is not on the GPU. Blank text is unknown, not lost."""
+    from caretaker import chat_processor, gpu_lost, ps_processors
 
     blob = text or ""
     if not blob.strip():
         return False
-    if gpu_lost(blob, ""):
+    proc = chat_processor(blob)
+    if proc == "GPU":
+        return False
+    if proc == "CPU" or gpu_lost(blob, ""):
         return True
-    if CPU_ONLY in blob:
-        return True
+    embed_names = {name.lower() for name, _proc in ps_processors(blob)}
     for line in blob.splitlines():
         lowered = line.lower().strip()
         if not lowered or lowered.startswith("name") or "processor" in lowered and "size" in lowered:
+            continue
+        if lowered.split() and lowered.split()[0] in embed_names and "embed" in lowered.split()[0]:
             continue
         if "100% gpu" in lowered:
             continue

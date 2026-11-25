@@ -99,6 +99,15 @@ def test_gpu_lost_from_cpu_or_nvml():
     assert gpu_lost("", f"init: {NVML_LOST}: unknown error") is True
     assert gpu_lost("qwen  100% GPU") is False
     assert gpu_lost("45% CPU") is False
+    mixed = "\n".join([
+        "NAME ID SIZE PROCESSOR UNTIL",
+        "qwen2.5:14b abc 9.0 GB 100% GPU 4 minutes from now",
+        "nomic-embed-text:latest def 274 MB 100% CPU 29 minutes from now",
+    ])
+    assert gpu_lost(mixed, "", chat_model="qwen2.5:14b") is False
+    swapped = mixed.replace("qwen2.5:14b abc 9.0 GB 100% GPU", "qwen2.5:14b abc 9.0 GB 100% CPU")
+    assert gpu_lost(swapped, "", chat_model="qwen2.5:14b") is True
+    assert gpu_lost("nomic-embed-text:latest def 274 MB 100% CPU 29 minutes from now") is False
     assert service_gpu_lost("chatterbox", log_text=NVML_LOST) is True
     assert service_gpu_lost("api", log_text="whisper ready") is False
     assert service_gpu_lost("api", ps_text=CPU_ONLY, log_text="") is False

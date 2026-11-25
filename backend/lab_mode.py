@@ -157,6 +157,7 @@ def record_chat_turn(
     audience: Optional[str] = "owner",
     heir_surface: bool = False,
     user_id: str = "",
+    selftest: bool = False,
     store: Optional[LabStore] = None,
     now: Optional[datetime] = None,
 ) -> Optional[str]:
@@ -183,6 +184,7 @@ def record_chat_turn(
         "error": (error or "")[:300] or None,
         "user_id": (user_id or "")[:80],
         "feedback": None,
+        "selftest": bool(selftest),
     }
     try:
         return target.append(record)
@@ -221,11 +223,27 @@ def summarize_turns(turns: list[Mapping[str, Any]]) -> dict[str, Any]:
     return summary
 
 
+def report_turns(turns: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Selftest rows stay out of the nightly report."""
+    return [row for row in turns if not row.get("selftest")]
+
+
+def drop_selftest_turns(store: Optional[LabStore] = None) -> int:
+    """Delete selftest rows from turns.jsonl. Real owner turns stay."""
+    target = store or default_store()
+    rows = target.read_all()
+    kept = [row for row in rows if not row.get("selftest")]
+    removed = len(rows) - len(kept)
+    if removed:
+        target._rewrite(kept)
+    return removed
+
+
 def turns_on_day(turns: list[Mapping[str, Any]], day: str) -> list[Mapping[str, Any]]:
     """Rows whose timestamp is that calendar day. Undated rows are not counted as today."""
     stamp = (day or "").strip()[:10]
     picked: list[Mapping[str, Any]] = []
-    for row in turns:
+    for row in report_turns(list(turns)):
         ts = str(row.get("ts") or "")[:10]
         if stamp and ts == stamp:
             picked.append(row)
@@ -253,9 +271,10 @@ def render_report(
     extras: Optional[Mapping[str, Any]] = None,
 ) -> str:
     """Local markdown. Today is that calendar day. All-time is labeled as all-time."""
-    today_rows = turns_on_day(list(turns), day)
+    visible = report_turns(list(turns))
+    today_rows = turns_on_day(visible, day)
     today = summarize_turns(today_rows)
-    everything = summarize_turns(list(turns))
+    everything = summarize_turns(visible)
     extra = dict(extras or {})
     lines = [
         f"# Heirloom lab report — {day}",
