@@ -171,7 +171,7 @@ def embed_model() -> str:
     return (os.environ.get("OLLAMA_EMBED_MODEL") or "nomic-embed-text").strip() or "nomic-embed-text"
 
 
-async def ollama_embed_many(texts: list[str], *, timeout: float = 8.0) -> list[list[float]] | None:
+async def ollama_embed_many(texts: list[str], *, timeout: float = 2.0) -> list[list[float]] | None:
     """Local embeddings from the box Ollama. None when the model is absent."""
     rows = [text for text in texts if (text or "").strip()]
     if not rows or len(rows) != len(texts):

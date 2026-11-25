@@ -266,6 +266,13 @@ def _cosine(left: list[float] | None, right: list[float] | None) -> float | None
     return dot / (left_norm * right_norm)
 
 
+def should_embed(cards: list[dict], keyword_hits: list[dict]) -> bool:
+    """Ask Ollama only when keywords missed and an approved card could be a paraphrase."""
+    if keyword_hits:
+        return False
+    return any(str(card.get("status") or "") == "approved" for card in cards or [])
+
+
 def blend_score(keyword: float, cosine: float | None) -> float:
     """Keywords stay in charge of exact words. A strong local embedding can recall a paraphrase.
 

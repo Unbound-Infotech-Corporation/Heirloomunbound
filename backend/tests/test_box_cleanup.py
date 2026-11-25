@@ -14,6 +14,7 @@ from memory_cards import (
     as_owner_voice,
     answer_grounded,
     blend_score,
+    should_embed,
     approve_fields,
     card_from_model,
     choose_prompt,
@@ -492,6 +493,9 @@ def test_stopwords_do_not_cite_an_unrelated_card():
     )
     assert [card["card_id"] for card in recalled] == ["lab"]
     assert blend_score(0.0, 0.4) == 0.0
+    assert should_embed([lab, car], []) is True
+    assert should_embed([lab], recalled) is False
+    assert should_embed([{"status": "pending", "card_id": "x"}], []) is False
     paraphrase = citations_that_ground("My dog was named Duke.", why_from([car, lab]))
     assert [card["card_id"] for card in paraphrase] == ["lab"]
     assert "first person" in FIRST_PERSON.lower()

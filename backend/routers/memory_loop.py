@@ -19,6 +19,7 @@ from memory_cards import (
     new_prompt_doc,
     card_embed_text,
     select_cards,
+    should_embed,
     stored_prompt_status,
     visible_cards,
     why_from,
@@ -215,21 +216,26 @@ async def grounding_for_turn(
     except Exception:
         return "", []
     allowed = visible_cards(cards, audience=audience, heir_surface=heir_surface)
+    keyword_hits = select_cards(allowed, question)
     query_vector = None
     vectors: dict[str, list[float]] = {}
-    try:
-        from local_inference import ollama_embed_many
+    if should_embed(allowed, keyword_hits):
+        try:
+            from local_inference import ollama_embed_many
 
-        approved = [card for card in allowed if str(card.get("status") or "") == "approved"]
-        embedded = await ollama_embed_many([question, *[card_embed_text(card) for card in approved]])
-        if embedded:
-            query_vector = embedded[0]
-            vectors = {
-                str(card.get("card_id") or ""): vector
-                for card, vector in zip(approved, embedded[1:])
-            }
-    except Exception:
-        query_vector = None
-        vectors = {}
-    used = select_cards(allowed, question, vectors=vectors, query_vector=query_vector)
+            approved = [card for card in allowed if str(card.get("status") or "") == "approved"]
+            embedded = await ollama_embed_many(
+                [question, *[card_embed_text(card) for card in approved]],
+                timeout=2.0,
+            )
+            if embedded:
+                query_vector = embedded[0]
+                vectors = {
+                    str(card.get("card_id") or ""): vector
+                    for card, vector in zip(approved, embedded[1:])
+                }
+        except Exception:
+            query_vector = None
+            vectors = {}
+    used = select_cards(allowed, question, vectors=vectors, query_vector=query_vector) if vectors else keyword_hits
     return grounding_block(used), why_from(used)
