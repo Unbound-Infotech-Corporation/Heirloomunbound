@@ -266,9 +266,13 @@ _LIFE = (
     r"drive|drove|driven|family|brother|sister|wife|husband|son|daughter|born|"
     r"wedding|hometown|job"
 )
+# "we" only counts beside a past-life word. "Can we drive" is a request.
+_PAST = r"childhood|grew up|grow up|born|wedding|hometown|first job|drove|driven"
 _PERSONAL_MEMORY = re.compile(
-    rf"(?i)\b(?:my|i|we)\b[\s\S]{{0,64}}\b(?:{_LIFE})\b"
-    rf"|\b(?:{_LIFE})\b[\s\S]{{0,64}}\b(?:my|i|we)\b"
+    rf"(?i)\b(?:my|our|i)\b[\s\S]{{0,64}}\b(?:{_LIFE})\b"
+    rf"|\b(?:{_LIFE})\b[\s\S]{{0,64}}\b(?:my|our|i)\b"
+    rf"|\bwe\b[\s\S]{{0,64}}\b(?:{_PAST})\b"
+    rf"|\b(?:{_PAST})\b[\s\S]{{0,64}}\bwe\b"
 )
 
 
@@ -281,6 +285,11 @@ _TASK = re.compile(
 _HOWTO = re.compile(
     r"(?i)^(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
     r"how\s+(?:do|can|should|would|could)\b"
+    r"(?!\s+(?:i|we)\s+(?:remember|recall)\b)"
+)
+_OBLIGATION = re.compile(
+    r"(?i)^(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
+    r"(?:remember|recall)\b.*\b(?:needs|need to|has to|have to|gotta|must|should)\b"
 )
 _RECALL = re.compile(
     r"(?i)^(?:please\s+)?"
@@ -299,10 +308,9 @@ def asks_for_personal_memory(text: str) -> bool:
     "Remind me to feed my dog" and "can you help me with my car?" do not.
     """
     raw = " ".join((text or "").split())
-    if not raw or _TASK.match(raw) or _HOWTO.match(raw):
+    if not raw or _TASK.match(raw) or _HOWTO.match(raw) or _OBLIGATION.match(raw):
         return False
-    asking = raw.endswith("?") or bool(_RECALL.match(raw))
-    if not asking:
+    if not _RECALL.match(raw):
         return False
     return bool(_PERSONAL_MEMORY.search(raw))
 
