@@ -260,19 +260,28 @@ def embed_document(text: str) -> str:
 
 
 _LIFE = (
-    r"car|cars|dog|dad|father|mom|mother|childhood|grew up|named|name|"
-    r"drive|drove|driven|family|brother|sister|wife|husband|son|daughter|"
-    r"born|school|house|home|job"
+    r"car|cars|dog|dad|father|mom|mother|childhood|grew up|named|"
+    r"drive|drove|driven|family|brother|sister|wife|husband|son|daughter|born"
 )
 _PERSONAL_MEMORY = re.compile(
-    rf"(?i)\b(?:my|i|me)\b[\s\S]{{0,48}}\b(?:{_LIFE})\b"
-    rf"|\b(?:{_LIFE})\b[\s\S]{{0,48}}\b(?:my|i|me)\b"
+    rf"(?i)\b(?:my|i)\b[\s\S]{{0,48}}\b(?:{_LIFE})\b"
+    rf"|\b(?:{_LIFE})\b[\s\S]{{0,48}}\b(?:my|i)\b"
 )
 
 
 def asks_for_personal_memory(text: str) -> bool:
-    """A question about the owner's own life, not a general chat turn."""
-    return bool(_PERSONAL_MEMORY.search(text or ""))
+    """A question about the owner's own life, not a general chat turn.
+
+    Statements such as "I'm going home" and errands such as "help me with this job"
+    are not life-history questions.
+    """
+    raw = " ".join((text or "").split())
+    if not raw:
+        return False
+    question = raw.endswith("?") or bool(re.match(r"(?i)(?:what|who|where|when|which|how)\b", raw))
+    if not question:
+        return False
+    return bool(_PERSONAL_MEMORY.search(raw))
 
 
 def card_embed_text(card: dict) -> str:
