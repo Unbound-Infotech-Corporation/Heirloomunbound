@@ -196,8 +196,9 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     from grief_guard import with_grief_aside
     from memorial_mode import memorial_from_user
     from observer_prompt import attach_observer_context
-    from twin_pack import TwinPack, compile_twin_prompt, miss_reply, stance_line
-    from twin_runtime import archive_passages, citation_line, _fence_from_user
+    from memory_cards import history_without_invented_claims
+    from twin_pack import TwinPack, compile_twin_prompt, stance_line
+    from twin_runtime import _fence_from_user
     from twin_safety import grief_for_turn, intercept_crisis, sessions_today_count
 
     crisis = await intercept_crisis(
@@ -236,70 +237,110 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
         settings=memorial,
     )
 
-    passages = await archive_passages(owner["user_id"], query_hint=text, audience="heir")
-    pack = TwinPack(
-        core={
-            "stance": stance_line("family"),
-            "portrait": "",
-            "values": "",
-            "fence": _fence_from_user(owner, None),
-        },
-        passages=passages,
-        facts=[],
-        citation_line=citation_line(passages),
-        grounded=True,
-        audience="heir",
-    )
-    attached = attach_observer_context(pack.citation_line, text, audience="heir")
-    if not passages and not attached.relied:
-        reply_text = with_grief_aside(miss_reply(True), grief, history=prior_messages)
-        session_id = await _persist_portal_turn(
-            owner["user_id"], heir, payload.session_id, text, reply_text
-        )
-        return {"reply": reply_text, "session_id": session_id, "citation_line": pack.citation_line}
+    # Grounded like the owner Twin: only rows this heir may see, then fact-checked.
+    from heir_grounding import heir_reply
+    from memory_cards import grounding_block
 
-    system = compile_twin_prompt(
-        pack,
-        owner.get("name", "the owner"),
-        memorial=memorial,
-        grief=grief,
-    )
+    rows = await heir_evidence_rows(owner["user_id"], heir, text)
+    attached = attach_observer_context("", text, audience="heir", heir_surface=True)
+    observer = None
     if attached.block:
-        system += "\n\n" + attached.block
-    system += (
-        f"\nYou are speaking with their heir {heir.get('name', 'an heir')} "
-        f"({heir.get('relationship', 'loved one')}). Be brief — 1-4 sentences unless asked for more. "
-        "Do NOT take any actions. Do NOT invoke skills."
-    )
-
+        observer = {"card_id": "observer", "title": "From what I've watched", "story": attached.block,
+                    "status": "approved", "people": [], "kind": "observer"}
     session_id = portal_conversation_id(heir["heir_id"], payload.session_id)
-    from llm_provider import complete_text, prefer_local, refuse_cloud
+    history = [
+        m for m in history_without_invented_claims(prior_messages[:-1])
+        if m.get("role") in ("user", "assistant") and m.get("content")
+    ]
+
+    async def draft(used: list[dict]) -> str:
+        pack = TwinPack(
+            core={
+                "stance": stance_line("family"),
+                "portrait": "",
+                "values": "",
+                "fence": _fence_from_user(owner, None),
+            },
+            passages=[],
+            facts=[],
+            citation_line="",
+            grounded=True,
+            audience="heir",
+        )
+        system = compile_twin_prompt(pack, owner.get("name", "the owner"), memorial=memorial, grief=grief)
+        block = grounding_block(used)
+        if block:
+            system += "\n\n" + block
+        system += (
+            f"\nYou are speaking with their heir {heir.get('name', 'an heir')} "
+            f"({heir.get('relationship', 'loved one')}). Be brief: 1-4 sentences. "
+            "Only state memories written above; never invent one. Do NOT take any actions. Do NOT invoke skills."
+        )
+        from llm_provider import complete_text, prefer_local, refuse_cloud
+
+        if prefer_local():
+            return await complete_text(system, text, history=history, session_id=session_id)
+        refuse_cloud("anthropic", "claude-sonnet-4-6", caller="heir_portal")
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=session_id,
+            system_message=system,
+        ).with_model("anthropic", "claude-sonnet-4-6")
+        reply = await chat.send_message(UserMessage(text=text))
+        return reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
 
     try:
-        if prefer_local():
-            history = [
-                m for m in prior_messages[:-1]
-                if m.get("role") in ("user", "assistant") and m.get("content")
-            ]
-            reply_text = await complete_text(system, text, history=history, session_id=session_id)
-        else:
-            refuse_cloud("anthropic", "claude-sonnet-4-6", caller="heir_portal")
-            chat = LlmChat(
-                api_key=EMERGENT_LLM_KEY,
-                session_id=session_id,
-                system_message=system,
-            ).with_model("anthropic", "claude-sonnet-4-6")
-            reply = await chat.send_message(UserMessage(text=text))
-            reply_text = reply if isinstance(reply, str) else getattr(reply, "content", str(reply))
-        reply_text = with_grief_aside(reply_text, grief, history=prior_messages)
+        turn = await heir_reply(text, owner=owner, heir=heir, rows=rows, draft=draft, observer=observer)
+        reply_text = with_grief_aside(turn["reply"], grief, history=prior_messages)
     except Exception:  # noqa: BLE001
         raise HTTPException(status_code=502, detail="Twin reply failed. Try again.") from None
 
     session_id = await _persist_portal_turn(
         owner["user_id"], heir, session_id, text, reply_text
     )
-    out = {"reply": reply_text, "session_id": session_id}
-    if attached.relied:
-        out["citation_line"] = attached.citation
+    out = {"reply": reply_text, "session_id": session_id, "grounded": turn["grounded"],
+           "citations": turn["cited"]}
+    if turn["cited"]:
+        out["citation_line"] = "From: " + "; ".join(c["title"] for c in turn["cited"][:3])
+    if observer and any(c["kind"] == "observer" for c in turn["cited"]):
         out["source_label"] = "from what I've watched"
     return out
+
+
+async def heir_evidence_rows(owner_id: str, heir: dict, question: str) -> list[dict]:
+    """Everything this heir may hear about, fenced in the queries.
+
+    Approved cards the heir may see; archive entries past the memory_guard fence;
+    letters already unlocked for this heir. Rows with ``heir_ids`` go only to those heirs.
+    """
+    import re as _re
+
+    from heir_grounding import entry_as_card, heir_cards, letter_as_card, per_heir_clause
+    from memory_guard import mongo_query
+    from routers.memory_loop import _cards
+
+    heir_id = heir["heir_id"]
+    rows = heir_cards(await _cards(owner_id, approved_only=True), heir_id)
+
+    projection = {"_id": 0, "entry_id": 1, "type": 1, "title": 1, "content": 1, "tags": 1, "heir_ids": 1}
+    fenced = mongo_query(owner_id, "heir", kind="entry", extra=per_heir_clause(heir_id))
+    recent = await db.entries.find(fenced, projection).sort("created_at", -1).limit(200).to_list(length=200)
+    tokens = [t for t in _re.split(r"\W+", question.lower()) if len(t) > 3][:8]
+    matched: list[dict] = []
+    if tokens:
+        ors = [{"content": {"$regex": _re.escape(t), "$options": "i"}} for t in tokens]
+        ors += [{"title": {"$regex": _re.escape(t), "$options": "i"}} for t in tokens]
+        query = mongo_query(owner_id, "heir", kind="entry", extra={"$and": [per_heir_clause(heir_id), {"$or": ors}]})
+        matched = await db.entries.find(query, projection).limit(100).to_list(length=100)
+    seen: set[str] = set()
+    for entry in matched + recent:
+        key = str(entry.get("entry_id") or "")
+        if key and key not in seen and str(entry.get("content") or "").strip():
+            seen.add(key)
+            rows.append(entry_as_card(entry))
+
+    now = _now()
+    family = await _family(owner_id)
+    letters = await db.sealed_letters.find({"user_id": owner_id}, {"_id": 0}).to_list(length=500)
+    rows += [letter_as_card(l) for l in letters if _letter_unlocked(l, heir, now, family)]
+    return rows

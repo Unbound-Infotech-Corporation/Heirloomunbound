@@ -653,7 +653,7 @@ async def remember_timezone(user: dict | None, requested: Optional[str]) -> Opti
     return zone
 
 
-HEIR_NO_MEMORY = "I don't have that memory."
+HEIR_NO_MEMORY = "I don't have that memory yet."
 
 
 class TwinGuard:
@@ -686,7 +686,9 @@ class TwinGuard:
             for m in (conversation or {}).get("messages") or []
             if m.get("role") == "user" and m.get("content")
         ]
-        self.owner_messages = prior + [text]
+        # Only the owner's own words are evidence about the owner's life. An heir or caller
+        # asking "you met her at a party, right?" must not turn that guess into a memory.
+        self.owner_messages = prior + [text] if self.owner else []
 
     @property
     def owner(self) -> bool:
