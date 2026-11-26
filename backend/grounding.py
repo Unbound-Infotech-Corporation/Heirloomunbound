@@ -595,3 +595,153 @@ def reminder_reply(what: str, due_iso: Optional[str], user: dict | None, *, requ
     except Exception:  # noqa: BLE001
         label = due_iso
     return f"Done. I saved a reminder to {what} for {label}. It's on your Reminders list."
+
+
+async def remember_timezone(user: dict | None, requested: Optional[str]) -> Optional[str]:
+    """Save the owner's last known IANA zone, so a later turn without one still uses it."""
+    from capture_text import _valid_zone
+
+    zone = _valid_zone(str(requested or ""))
+    if not zone or not isinstance(user, dict) or not user.get("user_id"):
+        return None
+    if user.get("last_timezone") != zone:
+        try:
+            from deps import db
+
+            await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"last_timezone": zone}})
+        except Exception:  # noqa: BLE001
+            pass
+        user["last_timezone"] = zone
+    return zone
+
+
+HEIR_NO_MEMORY = "I don't have that memory."
+
+
+class TwinGuard:
+    """The web chat's grounding, for twin turns that run through twin_runtime.
+
+    Desktop, Companion, and Assist live turns call short_circuit() first. It makes a
+    reminder or answers a life question from approved cards only. Any other reply
+    goes through check(), which removes life claims the cards and owner never made.
+    """
+
+    def __init__(
+        self,
+        user: dict,
+        text: str,
+        *,
+        conversation: dict | None = None,
+        audience: str = "owner",
+        timezone: Optional[str] = None,
+        ask: Optional[AskModel] = None,
+    ) -> None:
+        self.user = user or {}
+        self.text = text
+        self.audience = (audience or "owner").strip().lower() or "owner"
+        self.requested_tz = timezone
+        self.ask = ask
+        self.cards: list[dict] = []
+        self.meta: dict[str, Any] = {}
+        prior = [
+            str(m.get("content") or "")
+            for m in (conversation or {}).get("messages") or []
+            if m.get("role") == "user" and m.get("content")
+        ]
+        self.owner_messages = prior + [text]
+
+    @property
+    def owner(self) -> bool:
+        return self.audience == "owner"
+
+    def no_memory(self) -> str:
+        from memory_cards import NO_MEMORY_YET
+
+        return NO_MEMORY_YET if self.owner else HEIR_NO_MEMORY
+
+    def history(self, messages: list[dict]) -> list[dict]:
+        """Uncited twin lines are not memories. They never ground a new claim."""
+        from memory_cards import history_without_invented_claims
+
+        return history_without_invented_claims(messages)
+
+    async def _load_cards(self) -> None:
+        try:
+            from routers.memory_loop import grounding_for_turn
+
+            _block, self.cards = await grounding_for_turn(
+                str(self.user.get("user_id") or ""),
+                self.text,
+                audience=self.audience,
+                heir_surface=not self.owner,
+            )
+        except Exception:  # noqa: BLE001
+            self.cards = []
+
+    async def _reminder(self) -> Optional[dict[str, Any]]:
+        asked = reminder_request(self.text)
+        if not asked:
+            return None
+        from twin_tools import exec_set_reminder
+
+        due = resolve_reminder_due(self.text, asked["when"], self.user, requested_tz=self.requested_tz)
+        made = await exec_set_reminder(
+            str(self.user.get("user_id") or ""),
+            {"what": asked["what"], "when": due or ""},
+        )
+        ui = made.get("ui") or {}
+        created = bool(ui.get("created"))
+        reply = (
+            reminder_reply(asked["what"], due, self.user, requested_tz=self.requested_tz)
+            if created
+            else "I couldn't save that reminder. Add it on the Reminders page so it isn't lost."
+        )
+        return {
+            "reply": reply,
+            "backend": "reminder",
+            "action": {
+                "kind": "reminder",
+                "reminder_id": ui.get("reminder_id") or "",
+                "text": asked["what"],
+                "due_at": due,
+                "created": created,
+            },
+            "meta": {"grounding": {"path": "reminder"}},
+        }
+
+    async def short_circuit(self) -> Optional[dict[str, Any]]:
+        if self.owner:
+            await remember_timezone(self.user, self.requested_tz)
+            made = await self._reminder()
+            if made:
+                return made
+        await self._load_cards()
+        turn = await classify_turn(self.text, ask=self.ask)
+        self.meta = {"personal": turn.personal, "classifier": turn.source, "classifier_ms": turn.ms}
+        if not turn.personal:
+            return None
+        answered = await answer_personal(
+            self.text,
+            cards=self.cards,
+            owner_messages=self.owner_messages,
+            name=str(self.user.get("name") or ""),
+            ask=self.ask,
+        )
+        cited = answered.get("cited") or []
+        self.meta.update(answered.get("trace") or {})
+        reply = answered["reply"] if cited else self.no_memory()
+        return {
+            "reply": reply,
+            "backend": "memory" if cited else "no-memory",
+            "why": cited,
+            "meta": {"grounded": bool(cited), "grounding": self.meta},
+        }
+
+    async def check(self, raw: str) -> tuple[str, list[dict]]:
+        from memory_cards import citations_that_ground
+
+        draft = strip_false_promises(raw or "") or (raw or "")
+        verdict = await verify_reply(draft, cards=self.cards, owner_messages=self.owner_messages, ask=self.ask)
+        self.meta.update({"verify": verdict.source, "removed": len(verdict.removed), "verify_ms": verdict.ms})
+        final = verdict.text or self.no_memory()
+        return final, citations_that_ground(final, self.cards)

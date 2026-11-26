@@ -176,6 +176,9 @@ async def _skills_blob(user_id: str) -> str:
 
 @router.post("/message")
 async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(get_current_user)):
+    from grounding import remember_timezone
+
+    await remember_timezone(user, payload.timezone)
     conv = await db.conversations.find_one(
         {"conversation_id": payload.conversation_id, "user_id": user["user_id"]}, {"_id": 0}
     )

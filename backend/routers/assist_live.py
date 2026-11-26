@@ -5,6 +5,8 @@ Pause is the existing Observer switch.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -25,6 +27,7 @@ class SettingsReq(BaseModel):
 
 class PttReq(BaseModel):
     held: bool = True
+    timezone: Optional[str] = Field(default=None, max_length=64)  # the PC's IANA zone
 
 
 class MuteReq(BaseModel):
@@ -33,6 +36,7 @@ class MuteReq(BaseModel):
 
 class SayReq(BaseModel):
     text: str = Field(default="", max_length=2000)
+    timezone: Optional[str] = Field(default=None, max_length=64)  # the PC's IANA zone
 
 
 class ConfirmReq(BaseModel):
@@ -70,6 +74,9 @@ async def assist_live_settings(body: SettingsReq, user: dict = Depends(get_curre
 @router.post("/ptt")
 async def assist_live_ptt(body: PttReq, user: dict = Depends(get_current_user)):
     _owner(user)
+    from grounding import remember_timezone
+
+    await remember_timezone(user, body.timezone)
     if not observer_enabled():
         raise HTTPException(status_code=404, detail="Not found")
     from time import time
@@ -95,6 +102,9 @@ async def assist_live_mute(body: MuteReq, user: dict = Depends(get_current_user)
 async def assist_live_say(body: SayReq, user: dict = Depends(get_current_user)):
     """Typed line on Twin Live. Same turn as a spoken address. The mic stays up."""
     _owner(user)
+    from grounding import remember_timezone
+
+    await remember_timezone(user, body.timezone)
     if not observer_enabled():
         raise HTTPException(status_code=404, detail="Not found")
     from time import time

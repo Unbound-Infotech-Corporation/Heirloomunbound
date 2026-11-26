@@ -396,12 +396,16 @@ async def companion_voice(
     transcript: str = Form(""),
     stt_only: bool = Form(False),
     audience: str = Form("owner"),
+    tz: str = Form("", alias="timezone"),
     ctx: dict = Depends(get_device_user),
 ):
     """Companion uploads audio. Transcribe, then Twin — unless STT-only or heir."""
     from owner_pairing import is_owner_audience
 
     user = ctx["user"]
+    from grounding import remember_timezone
+
+    await remember_timezone(user, tz)
     spoken = (transcript or "").strip()
     stt_backend = "client" if spoken else "none"
     owner_sitting = is_owner_audience(audience)
@@ -493,6 +497,7 @@ async def companion_voice(
             persist=True,
             summarise=True,
             audience=audience,
+            timezone=tz or None,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

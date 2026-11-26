@@ -300,3 +300,125 @@ def test_invented_life_facts_inside_wishes_still_go():
     assert grounding.is_harmless("Happy birthday, Mary!", "OWNER SAID: note for my sister Mary")
     assert not grounding.is_harmless("Hope you remember our trip to the lake.", "")
     assert not grounding.is_harmless("Wishing you the joy Mom gave us every Christmas in Ohio.", "")
+
+
+class _FakeUsers:
+    def __init__(self):
+        self.sets = []
+
+    async def update_one(self, query, update):
+        self.sets.append((query, update))
+
+
+class _FakeDb:
+    def __init__(self):
+        self.users = _FakeUsers()
+
+
+def test_the_last_zone_a_turn_sent_is_saved_and_used_when_a_turn_sends_none(monkeypatch):
+    import deps
+
+    fake = _FakeDb()
+    monkeypatch.setattr(deps, "db", fake)
+    monkeypatch.delenv("HEIRLOOM_TIMEZONE", raising=False)
+    user = {"user_id": "u1"}
+    assert _run(grounding.remember_timezone(user, "Not/AZone")) is None
+    assert _run(grounding.remember_timezone(user, "")) is None
+    assert fake.users.sets == []
+    assert _run(grounding.remember_timezone(user, "America/Chicago")) == "America/Chicago"
+    assert fake.users.sets == [({"user_id": "u1"}, {"$set": {"last_timezone": "America/Chicago"}})]
+    _run(grounding.remember_timezone(user, "America/Chicago"))
+    assert len(fake.users.sets) == 1  # unchanged zone, no write
+    now = datetime(2026, 11, 25, 20, 0, tzinfo=timezone.utc)
+    due = grounding.resolve_reminder_due("Remind me to call mom tomorrow at 9am", "tomorrow at 9am", user, now)
+    assert due.startswith("2026-11-26T15:00")  # 9:00 AM CST
+    # A zone the owner saved on purpose still wins over the last one sent.
+    from capture_text import owner_timezone
+
+    assert owner_timezone({**user, "timezone": "Europe/London"}) == "Europe/London"
+    assert owner_timezone({"user_id": "u2"}) == "UTC"
+
+
+def _guard_fakes(monkeypatch, *, cards, saved=None):
+    import deps
+    import routers.memory_loop as memory_loop
+    import twin_tools
+
+    monkeypatch.setattr(deps, "db", _FakeDb())
+
+    async def fake_cards(user_id, question, *, audience="owner", heir_surface=False, archive_text=""):
+        if heir_surface:
+            return "", []
+        return "", list(cards)
+
+    monkeypatch.setattr(memory_loop, "grounding_for_turn", fake_cards)
+    made = saved if saved is not None else []
+
+    async def fake_reminder(user_id, args):
+        made.append(args)
+        return {"summary": "ok", "ui": {"created": True, "reminder_id": "r1"}}
+
+    monkeypatch.setattr(twin_tools, "exec_set_reminder", fake_reminder)
+    return made
+
+
+async def _personal_model(system, user, **kwargs):
+    if kwargs.get("json_mode") is False:
+        return "My first car was a blue 1978 Chevy Nova I bought for $800."
+    if "REPLY:" in user:
+        body = user.split("REPLY:", 1)[1].strip().splitlines()
+        rows = []
+        for n, line in enumerate([l for l in body if l.strip()], 1):
+            invented = "Ford" in line or "Mary" in line
+            rows.append({"n": n, "personal_claim": invented or "Nova" in line, "supported": not invented})
+        return json.dumps({"sentences": rows})
+    return json.dumps({"personal": True})
+
+
+def test_desktop_twin_turns_answer_life_questions_from_cards_only(monkeypatch):
+    _guard_fakes(monkeypatch, cards=[])
+    guard = grounding.TwinGuard({"user_id": "u1"}, "What was my first car?", ask=_personal_model)
+    early = _run(guard.short_circuit())
+    assert early["reply"] == NO_MEMORY_YET and early["why"] == []
+
+    _guard_fakes(monkeypatch, cards=[CAR])
+    guard = grounding.TwinGuard({"user_id": "u1"}, "What was my first car?", ask=_personal_model)
+    early = _run(guard.short_circuit())
+    assert "Chevy Nova" in early["reply"] and early["why"]
+
+    heir = grounding.TwinGuard({"user_id": "u1"}, "What was his first car?", audience="heir", ask=_personal_model)
+    assert _run(heir.short_circuit())["reply"] == grounding.HEIR_NO_MEMORY
+
+
+def test_desktop_twin_replies_lose_invented_claims(monkeypatch):
+    _guard_fakes(monkeypatch, cards=[])
+
+    async def chat_model(system, user, **kwargs):
+        if "REPLY:" not in user:
+            return json.dumps({"personal": False})
+        return await _personal_model(system, user, **kwargs)
+
+    guard = grounding.TwinGuard({"user_id": "u1"}, "Hello there", ask=chat_model)
+    assert _run(guard.short_circuit()) is None
+    text, why = _run(guard.check("Hello! I still miss my old Ford Escort. How are you today?"))
+    assert "Ford" not in text and "How are you today?" in text and why == []
+
+
+def test_desktop_reminder_without_a_zone_uses_the_zone_the_last_turn_sent(monkeypatch):
+    monkeypatch.delenv("HEIRLOOM_TIMEZONE", raising=False)
+    made = _guard_fakes(monkeypatch, cards=[])
+    user = {"user_id": "u1"}
+
+    async def chat_model(system, user_text, **kwargs):
+        return json.dumps({"personal": False})
+
+    first = grounding.TwinGuard(user, "Hi, how are you?", timezone="America/New_York", ask=chat_model)
+    assert _run(first.short_circuit()) is None
+    assert user["last_timezone"] == "America/New_York"
+    second = grounding.TwinGuard(user, "Remind me to call the dentist tomorrow at 9am", ask=chat_model)
+    early = _run(second.short_circuit())
+    assert early["action"]["kind"] == "reminder" and early["action"]["created"]
+    assert "9:00 AM" in early["reply"] and "EST" in early["reply"]
+    assert made and made[0]["what"] == "call the dentist"
+    due = datetime.fromisoformat(made[0]["when"])
+    assert due.utcoffset().total_seconds() == 0 or due.astimezone(timezone.utc).hour == 14

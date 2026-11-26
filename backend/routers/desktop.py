@@ -85,6 +85,7 @@ class ChatReq(BaseModel):
     twin_pack: Optional[dict] = None
     clone_id: Optional[str] = Field(None, max_length=40)
     assistant_id: Optional[str] = Field(None, max_length=40)  # alias for clone_id
+    timezone: Optional[str] = Field(None, max_length=64)  # the PC's IANA zone, for reminders
 
 
 async def _ensure_companion_conv(user_id: str, kind: str = "companion_twin") -> dict:
@@ -135,6 +136,9 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(resolve_desktop_user))
     from twin_runtime import ensure_conversation, run_twin_turn
 
     user = ctx["user"]
+    from grounding import remember_timezone
+
+    await remember_timezone(user, body.timezone)
     if user.get("account_status") == "refunded":
         raise HTTPException(status_code=403, detail="account_inactive")
 
@@ -177,6 +181,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(resolve_desktop_user))
                 persist=True,
                 summarise=True,
                 role=mode,
+                timezone=body.timezone,
                 twin_pack=body.twin_pack,
                 grounded=body.grounded,
                 persona_hint=body.persona,
