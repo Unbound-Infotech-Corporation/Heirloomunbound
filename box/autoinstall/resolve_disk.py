@@ -53,6 +53,14 @@ def normalize_serial(value: object) -> str:
     return str(value).strip()
 
 
+def unquote_config_value(value: object) -> str:
+    """Drop one pair of matching quotes and the whitespace around a config value."""
+    text = normalize_serial(value).strip("\r")
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        text = text[1:-1].strip().strip("\r")
+    return text
+
+
 def as_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
@@ -162,7 +170,7 @@ def match_specs(disk: Disk) -> list[dict[str, str]]:
 
 
 def decide(serial: str, disks: list[Disk], cdrom_names: set[str]) -> Decision:
-    serial = normalize_serial(serial)
+    serial = unquote_config_value(serial)
     if serial == "" or serial == PLACEHOLDER:
         return Decision(
             EXIT_EMPTY,
@@ -314,7 +322,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"HEIRLOOM_DISK_ABORT code={EXIT_CONFIG} {exc}", file=sys.stderr)
         return EXIT_CONFIG
 
-    decision = decide(args.serial, disks, parse_cdrom_names(args.cdrom))
+    serial = unquote_config_value(args.serial)
+    decision = decide(serial, disks, parse_cdrom_names(args.cdrom))
     if decision.code != EXIT_OK or decision.disk is None:
         print(f"HEIRLOOM_DISK_ABORT code={decision.code} {decision.message}", file=sys.stderr)
         return decision.code
@@ -322,7 +331,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.autoinstall:
         try:
             record = args.record or "/run/heirloom-autoinstall/storage-match.yaml"
-            write_match(args.autoinstall, record, normalize_serial(args.serial), decision.disk)
+            write_match(args.autoinstall, record, serial, decision.disk)
         except (OSError, ValueError) as exc:
             print(f"HEIRLOOM_DISK_ABORT code={EXIT_CONFIG} {exc}", file=sys.stderr)
             return EXIT_CONFIG

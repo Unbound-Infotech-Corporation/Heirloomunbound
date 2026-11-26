@@ -16,6 +16,20 @@ fi
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The ISO copies envfile.sh next to this script. The repo copy lives in box/lib.
+if ! declare -F heirloom_unquote >/dev/null 2>&1; then
+  envfile=""
+  if [[ -f "${SCRIPT_DIR}/../lib/envfile.sh" ]]; then
+    envfile="${SCRIPT_DIR}/../lib/envfile.sh"
+  elif [[ -f "${SCRIPT_DIR}/envfile.sh" ]]; then
+    envfile="${SCRIPT_DIR}/envfile.sh"
+  else
+    echo "envfile.sh is missing. Refusing to guess a disk serial." >&2
+    exit 15
+  fi
+  # shellcheck source=box/lib/envfile.sh
+  source "${envfile}"
+fi
 
 log() {
   printf '%s\n' "$*" | tee -a "${HEIRLOOM_RESOLVE_LOG:-/var/log/heirloom-resolve-disk.log}" >&2 || true
@@ -25,26 +39,30 @@ log() {
 }
 
 read_serial() {
+  # Quotes and surrounding whitespace are part of the config syntax, not the
+  # serial. The build already accepts TARGET_DISK_SERIAL="ABC". The copy on
+  # the stick used to keep those quotes, and the serial check then aborted.
+  local raw="" line trimmed file
   if [[ -n "${HEIRLOOM_TARGET_DISK_SERIAL:-}" ]]; then
-    printf '%s\n' "${HEIRLOOM_TARGET_DISK_SERIAL}"
-    return 0
+    raw="${HEIRLOOM_TARGET_DISK_SERIAL}"
+  else
+    for file in \
+      "${HEIRLOOM_AUTOINSTALL_ENV:-}" \
+      /cdrom/heirloom/config.env \
+      /etc/heirloom/autoinstall.env
+    do
+      [[ -n "${file}" && -r "${file}" ]] || continue
+      while IFS= read -r line || [[ -n "${line}" ]]; do
+        trimmed="$(heirloom_trim "${line}")"
+        [[ "${trimmed}" == "#"* || -z "${trimmed}" ]] && continue
+        if [[ "${trimmed}" == TARGET_DISK_SERIAL=* ]]; then
+          raw="${trimmed#TARGET_DISK_SERIAL=}"
+          break 2
+        fi
+      done < "${file}"
+    done
   fi
-  local file line
-  for file in \
-    "${HEIRLOOM_AUTOINSTALL_ENV:-}" \
-    /cdrom/heirloom/config.env \
-    /etc/heirloom/autoinstall.env
-  do
-    [[ -n "${file}" && -r "${file}" ]] || continue
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-      [[ "${line}" =~ ^[[:space:]]*# ]] && continue
-      if [[ "${line}" == TARGET_DISK_SERIAL=* ]]; then
-        printf '%s\n' "${line#TARGET_DISK_SERIAL=}"
-        return 0
-      fi
-    done < "${file}"
-  done
-  printf '\n'
+  heirloom_unquote "${raw}"
 }
 
 cdrom_names() {

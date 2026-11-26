@@ -268,6 +268,90 @@ expect_code "udev enrich" "${code}" 0
 grep -F 'serial: "ENRICHED_ID_SERIAL_01"' "${TMP}/work.yaml" >/dev/null
 grep -F 'path: "/dev/sda"' "${TMP}/work.yaml" >/dev/null
 
+run_guard_file() {
+  local envfile="$1"
+  local inventory="$2"
+  local yaml="$3"
+  local cdrom="${4:-}"
+  local log="${TMP}/resolve.log"
+  local record="${TMP}/storage-match.yaml"
+  rm -f "${record}" "${log}"
+  set +e
+  env -u HEIRLOOM_TARGET_DISK_SERIAL \
+    HEIRLOOM_DISK_INVENTORY="${inventory}" \
+    HEIRLOOM_CDROM_NAMES="${cdrom}" \
+    HEIRLOOM_AUTOINSTALL_YAML="${yaml}" \
+    HEIRLOOM_STORAGE_MATCH="${record}" \
+    HEIRLOOM_RESOLVE_LOG="${log}" \
+    HEIRLOOM_SYSFS_BLOCK="${TMP}/sysfs" \
+    HEIRLOOM_AUTOINSTALL_ENV="${envfile}" \
+    bash "${GUARD}" >"${TMP}/stdout" 2>"${TMP}/stderr"
+  local code=$?
+  set -e
+  printf '%s\n' "${code}"
+}
+
+# Quoted and padded serials are the same disk as the bare serial. The value
+# on the stick used to keep the quotes and abort before the match.
+printf 'TARGET_DISK_SERIAL="HEIRLOOMTESTDISK01"\n' > "${TMP}/quoted.env"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard_file "${TMP}/quoted.env" "${TMP}/ok.json" "${TMP}/work.yaml" "sr0")"
+expect_code "quoted serial" "${code}" 0
+grep -F 'path: "/dev/sda"' "${TMP}/work.yaml" >/dev/null
+
+printf "  TARGET_DISK_SERIAL='  HEIRLOOMTESTDISK01  '\r\n" > "${TMP}/padded.env"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard_file "${TMP}/padded.env" "${TMP}/ok.json" "${TMP}/work.yaml" "sr0")"
+expect_code "padded quoted serial" "${code}" 0
+grep -F 'path: "/dev/sda"' "${TMP}/work.yaml" >/dev/null
+
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard '"HEIRLOOMTESTDISK01"' "${TMP}/ok.json" "${TMP}/work.yaml" "sr0")"
+expect_code "quoted env serial" "${code}" 0
+grep -F 'path: "/dev/sda"' "${TMP}/work.yaml" >/dev/null
+
+printf 'TARGET_DISK_SERIAL=""\n' > "${TMP}/empty-quotes.env"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard_file "${TMP}/empty-quotes.env" "${TMP}/ok.json" "${TMP}/work.yaml")"
+expect_code "empty quotes" "${code}" 10
+assert_unchanged "${TMP}/work.yaml"
+
+printf 'TARGET_DISK_SERIAL="   "\n' > "${TMP}/blank-quotes.env"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard_file "${TMP}/blank-quotes.env" "${TMP}/ok.json" "${TMP}/work.yaml")"
+expect_code "blank quotes" "${code}" 10
+assert_unchanged "${TMP}/work.yaml"
+
+printf 'TARGET_DISK_SERIAL="HEIRLOOM-REFUSE-NO-DISK-MATCH"\n' > "${TMP}/placeholder-quotes.env"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard_file "${TMP}/placeholder-quotes.env" "${TMP}/ok.json" "${TMP}/work.yaml")"
+expect_code "quoted placeholder" "${code}" 10
+assert_unchanged "${TMP}/work.yaml"
+
+printf 'TARGET_DISK_SERIAL="NOMATCHSERIAL1"\n' > "${TMP}/nomatch-quotes.env"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard_file "${TMP}/nomatch-quotes.env" "${TMP}/ok.json" "${TMP}/work.yaml")"
+expect_code "quoted no match" "${code}" 11
+assert_unchanged "${TMP}/work.yaml"
+
+printf 'TARGET_DISK_SERIAL="SAME_SERIAL_01"\n' > "${TMP}/amb-quotes.env"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard_file "${TMP}/amb-quotes.env" "${TMP}/amb.json" "${TMP}/work.yaml")"
+expect_code "quoted ambiguous" "${code}" 12
+assert_unchanged "${TMP}/work.yaml"
+
+printf 'TARGET_DISK_SERIAL="USBONLYSERIAL1"\n' > "${TMP}/usb-quotes.env"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard_file "${TMP}/usb-quotes.env" "${TMP}/usb.json" "${TMP}/work.yaml")"
+expect_code "quoted usb" "${code}" 13
+assert_unchanged "${TMP}/work.yaml"
+
+printf 'TARGET_DISK_SERIAL="bad serial"\n' > "${TMP}/bad-quotes.env"
+cp "${TMP}/base.yaml" "${TMP}/work.yaml"
+code="$(run_guard_file "${TMP}/bad-quotes.env" "${TMP}/ok.json" "${TMP}/work.yaml")"
+expect_code "quoted bad characters" "${code}" 14
+assert_unchanged "${TMP}/work.yaml"
+
 # Missing autoinstall file.
 rm -f "${TMP}/missing.yaml"
 code="$(run_guard "HEIRLOOMTESTDISK01" "${TMP}/ok.json" "${TMP}/missing.yaml")"
