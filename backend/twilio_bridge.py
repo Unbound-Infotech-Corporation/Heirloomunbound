@@ -66,6 +66,12 @@ class TwilioConfig:
                 "public_url": self.public_url if state(self.public_url) == "set" else ""}
 
 
+def voice_wav_url() -> str:
+    """The box's local voice (Chatterbox) as the API sees it; /speak.wav returns the wav bytes."""
+    raw = (os.environ.get("HEIRLOOM_VOICE_URL") or os.environ.get("PRESENCE_SPEAK_URL")
+           or "http://127.0.0.1:8010/speak").strip().rstrip("/")
+    return raw if raw.endswith(".wav") else raw + ".wav"
+
 def config(env: Optional[Mapping[str, str]] = None) -> TwilioConfig:
     env = os.environ if env is None else env
     mode = (env.get("TWILIO_MODE") or "off").strip().lower()

@@ -51,11 +51,14 @@ class MongoPairStore:
 
 
 def tls_pin() -> str:
-    """SPKI SHA-256 (base64) of the box certificate, so the phone can pin it from the QR code."""
+    """SPKI SHA-256 (base64) of the box CA (or a fixed cert), so the phone can pin it from the QR code."""
     fixed = (os.environ.get("HEIRLOOM_TLS_SPKI_PIN") or "").strip()
     if fixed:
         return fixed
-    path = (os.environ.get("HEIRLOOM_TLS_CERT_FILE") or "").strip()
+    # Prefer the box's own CA root (Caddy's local authority): it is stable, while Caddy re-keys
+    # its short-lived leaf certificates. Android (OkHttp) and iOS (TrustKit) accept a pin anywhere
+    # in the verified chain, including the trust anchor.
+    path = (os.environ.get("HEIRLOOM_TLS_CERT_FILE") or os.environ.get("HEIRLOOM_CADDY_ROOT") or "").strip()
     if not path or not os.path.isfile(path):
         return ""
     try:
@@ -131,10 +134,10 @@ async def me(ctx: dict = Depends(get_device_user)):
     device, user = ctx["device"], ctx["user"]
     if device.get("kind") != "phone":
         raise HTTPException(status_code=403, detail="Not a phone token")
-    from presence_speak import speak_url
+    from twilio_bridge import voice_wav_url
 
     return {"device_id": device["device_id"], "name": device.get("name"), "owner": user.get("name") or "",
-            "voice": bool(speak_url()), "local_only": True}
+            "voice": bool(voice_wav_url()), "local_only": True}
 
 
 class SpeakReq(BaseModel):
@@ -142,10 +145,9 @@ class SpeakReq(BaseModel):
 
 
 def _speak_wav_url() -> str:
-    from presence_speak import speak_url
+    from twilio_bridge import voice_wav_url
 
-    url = speak_url().rstrip("/")
-    return url if url.endswith(".wav") else url + ".wav"
+    return voice_wav_url()
 
 
 @router.post("/speak")

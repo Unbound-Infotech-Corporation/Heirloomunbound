@@ -92,11 +92,7 @@ def _disclosure(user: dict, decision: policy.PolicyDecision) -> str:
 
 
 def _render(text: str) -> bytes:
-    from presence_speak import speak_url
-
-    url = speak_url().rstrip("/")
-    url = url if url.endswith(".wav") else url + ".wav"
-    req = urllib.request.Request(url, data=json.dumps({"text": text[:1200]}).encode(),
+    req = urllib.request.Request(tb.voice_wav_url(), data=json.dumps({"text": text[:1200]}).encode(),
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=120) as resp:
         wav = resp.read()

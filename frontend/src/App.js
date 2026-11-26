@@ -47,6 +47,7 @@ import LifeStory from "@/pages/LifeStory";
 import Reminders from "@/pages/Reminders";
 import FirstRunSetup from "@/pages/FirstRunSetup";
 import PhonePair from "@/pages/PhonePair";
+import MobileApp from "@/pages/MobileApp";
 import Onboarding from "@/pages/Onboarding";
 import Sources from "@/pages/Sources";
 import Settings from "@/pages/Settings";
@@ -82,6 +83,14 @@ function AppRouter() {
         element={
           <ProtectedRoute>
             <PhonePair />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/phone-app"
+        element={
+          <ProtectedRoute>
+            <MobileApp />
           </ProtectedRoute>
         }
       />

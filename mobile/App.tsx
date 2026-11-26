@@ -93,7 +93,7 @@ function Pair({ onPaired }: { onPaired: (s: Session) => void }) {
   return (
     <ScrollView contentContainerStyle={styles.pad}>
       <Text style={styles.title}>Pair with your Heirloom box</Text>
-      <Text style={styles.muted}>On the box, open Phone and tap “Pair a phone”. Scan the code it shows, or type the address and code.</Text>
+      <Text style={styles.muted}>In Heirloom on your computer, open Pair a phone (/phone-app) and tap “Show pairing code”. Scan the code it shows, or type the address and code.</Text>
       <Button label="Scan the QR code" onPress={async () => {
         const ok = permission?.granted || (await requestPermission()).granted;
         if (ok) { scanned.current = false; setScanning(true); }

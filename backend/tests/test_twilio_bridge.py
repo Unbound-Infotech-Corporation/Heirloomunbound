@@ -81,3 +81,11 @@ def test_audio_cache_ids_are_safe_and_old_clips_go(tmp_path):
 def test_sms_text_is_plain():
     assert tb.sms_text("**Yes**, Emma caught it.") == "Yes, Emma caught it."
     assert "make it up" in tb.sms_text("")
+
+
+def test_voice_url_prefers_the_api_view(monkeypatch):
+    monkeypatch.setenv("PRESENCE_SPEAK_URL", "http://127.0.0.1:8010/speak")
+    monkeypatch.delenv("HEIRLOOM_VOICE_URL", raising=False)
+    assert tb.voice_wav_url() == "http://127.0.0.1:8010/speak.wav"
+    monkeypatch.setenv("HEIRLOOM_VOICE_URL", "http://chatterbox:8010/speak/")
+    assert tb.voice_wav_url() == "http://chatterbox:8010/speak.wav"
