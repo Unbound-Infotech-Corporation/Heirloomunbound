@@ -45,6 +45,8 @@ try { Invoke-RestMethod "$ollama/api/version" -TimeoutSec 3 | Out-Null } catch {
 
 # Voice (optional): Chatterbox on 127.0.0.1:8010.
 $voicePy = Join-Path $InstallDir "voice\Scripts\python.exe"
+# Voice weights (~3 GB) stay in the data folder, not the user's global Hugging Face cache.
+if ($cfg["HF_HOME"]) { $env:HF_HOME = $cfg["HF_HOME"] }
 if ($cfg["HEIRLOOM_VOICE"] -eq "1" -and (Test-Path $voicePy) -and -not (Listening 8010)) {
   $p = Start-Process -PassThru -WindowStyle Hidden -WorkingDirectory (Join-Path $InstallDir "voice") -FilePath $voicePy `
     -ArgumentList "-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", "8010" `

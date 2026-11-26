@@ -158,6 +158,7 @@ def init(data: Path, web: Path, *, api_port: int = 8001, mongo_port: int = 27017
         "WHISPER_MODEL": "base",
         "WHISPER_DEVICE": picked["whisper_device"],
         "WHISPER_CACHE": str(data / "whisper"),
+        "HF_HOME": str(data / "hf"),
         "HEIRLOOM_VOICE": "1" if picked["voice"] else "0",
         "PRESENCE_SPEAK_URL": "http://127.0.0.1:8010/speak",
         "HEIRLOOM_AI_DISCLOSURE": "1",

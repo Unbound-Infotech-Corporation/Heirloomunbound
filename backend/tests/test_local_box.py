@@ -134,7 +134,7 @@ def test_env_keeps_every_folder_inside_the_data_folder(tmp_path):
         "model": "qwen3.5:4b", "tier": "small", "num_ctx": 8192, "whisper_device": "cpu", "voice": False})
     env = local_box.read_env(Path(info["env"]))
     for key, value in env.items():
-        if key.endswith(("_DIR", "_ROOT", "_FILE", "_CACHE")) and key != "HEIRLOOM_WEB_DIR":
+        if key.endswith(("_DIR", "_ROOT", "_FILE", "_CACHE", "_HOME")) and key != "HEIRLOOM_WEB_DIR":
             assert "/var/lib" not in value and value.startswith(str(tmp_path)), key
 
 
