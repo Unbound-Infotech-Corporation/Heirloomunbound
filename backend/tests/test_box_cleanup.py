@@ -937,3 +937,32 @@ install_caretaker
     assert timer_lines[0] == "systemctl enable heirloom-caretaker.timer"
     assert "--now" not in timer_lines[0]
     assert timer_lines[1] == "systemctl enable --now heirloom-caretaker.timer"
+
+
+def test_chatterbox_loads_once_and_warms_up_at_start():
+    import importlib.util
+
+    path = ROOT / "box" / "chatterbox" / "server.py"
+    spec = importlib.util.spec_from_file_location("heirloom_chatterbox_warm", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    loads = []
+
+    class Fake:
+        sr = 24000
+
+        def generate(self, text):
+            loads.append(("generate", text))
+            return text
+
+    def loader():
+        loads.append(("load", ""))
+        return Fake()
+
+    state = module.warm_up(loader=loader)
+    assert state["state"] == "warm"
+    assert module.health()["warm"] is True
+    assert module.get_model(loader) is module.get_model(loader)
+    assert [kind for kind, _ in loads].count("load") == 1
+    compose = (ROOT / "box" / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "/chatterbox:/root/.cache/huggingface" in compose
