@@ -19,13 +19,12 @@ DEMO_DIR = os.environ.get('DEMO_DIR', '/workspace/heirloom-demo/final')
 
 # Video slots: id -> filename keywords (first matching mp4 in DEMO_DIR wins)
 SLOTS = {
-    'interview': ['interview', 'life-story', 'lifestory', 'onboard'],
-    'recall': ['recall', 'cite', 'memory', 'ask'],
-    'honest': ['honest', 'decline', 'dont-know', 'unknown', 'grounding'],
-    'voice': ['voice', 'speak', 'talk'],
-    'phone': ['phone', 'mobile', 'qr'],
-    'install': ['install', 'setup'],
-    'skills': ['skill', 'assistant', 'remind', 'calendar'],
+    'interview': ['lifestory', 'life-story', 'interview', 'onboard'],
+    'phone': ['lookphone', 'phone', 'mobile', 'qr'],
+    'recall': ['twin', 'recall', 'cite', 'ask'],
+    'skills': ['skills', 'skill', 'assistant', 'remind', 'calendar'],
+    'heir': ['heir', 'family', 'portal'],
+    'look': ['look', 'tour', 'overview', 'install'],
 }
 
 def find_videos():

@@ -9,6 +9,7 @@ website/
   src/            page sources (+ partials/) with {{>include}}, {{video:slot|label}} and <!--PREVIEW--> blocks
   public/         built site (what gets deployed; committed so a preview works straight from GitHub)
   tools/build.py  src -> public, sitemap.xml, robots.txt, video wiring
+  tools/make_fonts.py   self-hosted woff2 subsets (lining figures)
   tools/make_images.py  sanitized responsive WebP screenshots + og-image.jpg from the Twin Box shots
 ```
 
