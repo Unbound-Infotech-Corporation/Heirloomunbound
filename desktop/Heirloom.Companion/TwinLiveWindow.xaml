@@ -3,63 +3,85 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Twin Live"
-    Width="360"
-    Height="520"
-    MinWidth="280"
-    MinHeight="240"
+    Width="380"
+    Height="560"
+    MinWidth="300"
+    MinHeight="320"
     ResizeMode="CanResize"
     WindowStartupLocation="CenterScreen"
     ShowInTaskbar="True"
-    Background="#F4F1EA">
-    <DockPanel Margin="12">
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <TextBlock x:Name="Status" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Text="Paused" />
-            <CheckBox x:Name="OnTop" Content="Always on top" HorizontalAlignment="Right" VerticalAlignment="Center" Checked="OnTopChanged" Unchecked="OnTopChanged" />
-        </DockPanel>
-        <TextBlock DockPanel.Dock="Top" Margin="0,0,0,8" Foreground="#5C564C" Text="Type or talk. The microphone keeps listening." />
-        <Border x:Name="PendingBox" DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="10" Background="White" CornerRadius="6" Visibility="Collapsed">
+    Background="{StaticResource HlBase}"
+    Foreground="{StaticResource HlText}"
+    FontFamily="{StaticResource HlSans}">
+    <DockPanel>
+        <!-- Header: who is live, whether the mic is listening, pin on top -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource HlSurface}" BorderBrush="{StaticResource HlBorder}" BorderThickness="0,0,0,1" Padding="14,12">
+            <DockPanel LastChildFill="False">
+                <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                    <TextBlock Text="Twin Live" FontFamily="{StaticResource HlSerif}" FontSize="19" Foreground="{StaticResource HlText}" />
+                    <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{StaticResource HlTextMuted}" Text="Type or talk. The microphone keeps listening." />
+                </StackPanel>
+                <CheckBox x:Name="OnTop" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,0,0" Content="Pin" ToolTip="Always on top"
+                          Style="{StaticResource HlPinToggle}" Checked="OnTopChanged" Unchecked="OnTopChanged" />
+                <Border x:Name="StatusPill" DockPanel.Dock="Right" VerticalAlignment="Center" CornerRadius="12" Padding="10,4"
+                        Background="#14FFFFFF" BorderBrush="{StaticResource HlBorder}" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="{StaticResource HlTextMuted}" VerticalAlignment="Center" />
+                        <TextBlock x:Name="Status" Margin="6,0,0,0" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"
+                                   Foreground="{StaticResource HlTextSecondary}" Text="Paused" />
+                    </StackPanel>
+                </Border>
+            </DockPanel>
+        </Border>
+
+        <!-- Composer -->
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource HlSurface}" BorderBrush="{StaticResource HlBorder}" BorderThickness="0,1,0,0" Padding="12,10">
+            <DockPanel LastChildFill="True">
+                <Button x:Name="Send" DockPanel.Dock="Right" Content="Send" MinWidth="72" Margin="8,0,0,0" VerticalAlignment="Bottom"
+                        Style="{StaticResource HlGoldButton}" Click="OnSend" />
+                <TextBox
+                    x:Name="Draft"
+                    Style="{StaticResource HlDraftBox}"
+                    AcceptsReturn="True"
+                    MinHeight="34"
+                    MaxHeight="96"
+                    TextWrapping="Wrap"
+                    VerticalScrollBarVisibility="Auto"
+                    PreviewKeyDown="OnDraftKey"
+                    ToolTip="Enter sends. Shift+Enter starts a new line." />
+            </DockPanel>
+        </Border>
+
+        <!-- Receipts: what the twin did, quietly -->
+        <Border DockPanel.Dock="Bottom" Padding="14,8,14,8" BorderBrush="{StaticResource HlBorder}" BorderThickness="0,1,0,0">
             <StackPanel>
-                <TextBlock x:Name="PendingLabel" TextWrapping="Wrap" />
-                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                    <Button x:Name="Yes" Content="Yes" MinWidth="72" Padding="12,4" Click="OnYes" />
-                    <Button x:Name="No" Content="No" MinWidth="72" Padding="12,4" Margin="8,0,0,0" Click="OnNo" />
+                <TextBlock Text="RECEIPTS" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource HlGold}" Margin="0,0,0,4" />
+                <ScrollViewer Height="64" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="Receipts">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2,0,0" FontSize="12" Foreground="{StaticResource HlTextSecondary}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+        </Border>
+
+        <!-- Needs a yes before it runs -->
+        <Border x:Name="PendingBox" DockPanel.Dock="Bottom" Margin="12,0,12,10" Padding="12" CornerRadius="10"
+                Background="{StaticResource HlGoldMuted}" BorderBrush="{StaticResource HlGold}" BorderThickness="1" Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock x:Name="PendingLabel" TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource HlText}" />
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <Button x:Name="Yes" Content="Yes" MinWidth="72" Style="{StaticResource HlGoldButton}" Click="OnYes" />
+                    <Button x:Name="No" Content="No" MinWidth="72" Margin="8,0,0,0" Style="{StaticResource HlGhostButton}" Click="OnNo" />
                 </StackPanel>
             </StackPanel>
         </Border>
-        <TextBlock DockPanel.Dock="Bottom" Margin="0,8,0,4" FontWeight="SemiBold" Text="Receipts" />
-        <ScrollViewer DockPanel.Dock="Bottom" Height="88" VerticalScrollBarVisibility="Auto">
-            <ItemsControl x:Name="Receipts">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="#3A342C" />
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </ScrollViewer>
-        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0" LastChildFill="True">
-            <Button x:Name="Send" DockPanel.Dock="Right" Content="Send" MinWidth="72" Margin="8,0,0,0" Padding="12,4" VerticalAlignment="Bottom" Click="OnSend" />
-            <TextBox
-                x:Name="Draft"
-                AcceptsReturn="True"
-                MinHeight="32"
-                MaxHeight="96"
-                Padding="6,4"
-                TextWrapping="Wrap"
-                VerticalScrollBarVisibility="Auto"
-                PreviewKeyDown="OnDraftKey"
-                ToolTip="Enter sends. Shift+Enter starts a new line." />
-        </DockPanel>
-        <ScrollViewer x:Name="TranscriptScroll" VerticalScrollBarVisibility="Auto">
-            <ItemsControl x:Name="Lines">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Margin="0,8,0,0">
-                            <TextBlock FontWeight="SemiBold" Text="{Binding Who}" />
-                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
-                        </StackPanel>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+
+        <ScrollViewer x:Name="TranscriptScroll" VerticalScrollBarVisibility="Auto" Padding="12,6,12,12">
+            <ItemsControl x:Name="Lines" ItemTemplate="{StaticResource HlBubble}" />
         </ScrollViewer>
     </DockPanel>
 </Window>
