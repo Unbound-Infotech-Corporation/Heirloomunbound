@@ -99,6 +99,28 @@ async def update_heir(heir_id: str, payload: HeirUpdate, user: dict = Depends(ge
     return _scrub(doc)
 
 
+class FamilyName(BaseModel):
+    person: str   # who the memories call them, e.g. "June"
+    called: str   # what this heir calls them, e.g. "Grandma"
+
+
+class FamilyNames(BaseModel):
+    names: list[FamilyName]
+
+
+@router.put("/{heir_id}/names")
+async def set_family_names(heir_id: str, payload: FamilyNames, user: dict = Depends(get_current_user)):
+    """How this heir names people ("Sam calls June Grandma"). The Twin uses these to understand a
+    question. They are names, never facts: no memory is created from them."""
+    from heir_grounding import clean_family_names
+
+    names = clean_family_names([n.model_dump() for n in payload.names])
+    res = await db.heirs.update_one({"heir_id": heir_id, "user_id": user["user_id"]}, {"$set": {"names": names}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Heir not found")
+    return {"heir_id": heir_id, "names": names}
+
+
 @router.delete("/{heir_id}")
 async def delete_heir(heir_id: str, user: dict = Depends(get_current_user)):
     res = await db.heirs.delete_one({"heir_id": heir_id, "user_id": user["user_id"]})

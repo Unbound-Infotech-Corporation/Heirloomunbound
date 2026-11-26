@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
+import card_sharing as sharing
 from deps import db, get_current_user
 from memory_cards import (
     answer_grounded,
@@ -41,6 +42,20 @@ class CardEdit(BaseModel):
     people: Optional[list[str] | str] = None
     story: Optional[str] = None
     approve: bool = False
+
+
+class CardShare(BaseModel):
+    # owner/private: only the owner's Twin. family/heir: heirs after release. heir_ids limits it to those heirs.
+    visibility: str = Field(..., pattern="^(owner|private|family|heir)$")
+    heir_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+class BulkShare(CardShare):
+    card_ids: list[str] = Field(..., min_length=1, max_length=200)
+
+
+class SharingDefault(BaseModel):
+    share_new_cards: bool
 
 
 class AskReq(BaseModel):
@@ -171,7 +186,9 @@ async def edit_card(card_id: str, body: CardEdit, user: dict = Depends(get_curre
         updated["updated_at"] = fields["updated_at"]
         await db.memory_cards.update_one({"card_id": card_id, "user_id": user_id}, {"$set": updated})
         return {"card": updated}
-    updated = approve_fields(card, body.model_dump())
+    from life_story import shares_new_cards
+
+    updated = approve_fields(card, body.model_dump(), share_new=await shares_new_cards(db, user_id))
     await db.memory_cards.update_one({"card_id": card_id, "user_id": user_id}, {"$set": updated})
     if str(card.get("status") or "") != "approved":
         entry = entry_from_card({**card, **updated})
@@ -187,6 +204,41 @@ async def edit_card(card_id: str, body: CardEdit, user: dict = Depends(get_curre
             {"$set": {"status": "acted"}},
         )
     return {"card": updated}
+
+
+@router.post("/cards/share")
+async def share_cards(body: BulkShare, user: dict = Depends(get_current_user)):
+    """Share or unshare several approved cards at once. Pending cards are skipped, never shared."""
+    try:
+        return await sharing.share_cards(db, user["user_id"], body.card_ids, body.visibility, body.heir_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/cards/{card_id}/share")
+async def share_card(card_id: str, body: CardShare, user: dict = Depends(get_current_user)):
+    """The owner decides which approved memories an heir's Twin may tell. Cards start owner-only."""
+    card = await db.memory_cards.find_one({"card_id": card_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="That memory card is not on this box")
+    if str(card.get("status") or "") != "approved":
+        raise HTTPException(status_code=400, detail="Approve the card before sharing it")
+    try:
+        done = await sharing.share_cards(db, user["user_id"], [card_id], body.visibility, body.heir_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"card": {**card, "visibility": done["visibility"], "heir_ids": done["heir_ids"]}}
+
+
+@router.get("/sharing")
+async def get_sharing(user: dict = Depends(get_current_user)):
+    return {"share_new_cards": await sharing.get_default(db, user["user_id"])}
+
+
+@router.put("/sharing")
+async def set_sharing(body: SharingDefault, user: dict = Depends(get_current_user)):
+    """Default for cards approved from now on. Cards already approved keep their sharing."""
+    return {"share_new_cards": await sharing.set_default(db, user["user_id"], body.share_new_cards)}
 
 
 @router.get("/cards/{card_id}")

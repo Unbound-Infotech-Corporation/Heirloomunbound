@@ -544,12 +544,21 @@ async def run_import(job: dict, passages: list[dict], *, source: str, complete: 
     await store.memory_imports.update_one({"import_id": job["import_id"]}, {"$set": {"status": status, "done": done, "updated_at": _stamp()}})
 
 
+async def shares_new_cards(store: Any, user_id: str) -> bool:
+    """The owner's default: new approved cards go to all heirs. Off unless they turned it on."""
+    users = getattr(store, "users", None)
+    if users is None:
+        return False
+    row = await users.find_one({"user_id": user_id}, {"_id": 0, "share_new_cards_with_heirs": 1})
+    return bool((row or {}).get("share_new_cards_with_heirs"))
+
+
 async def approve_card(store: Any, user_id: str, card_id: str, edits: Optional[dict] = None) -> Optional[dict]:
     """Approve one card and add it to the vault, exactly as the Record page does."""
     card = await store.memory_cards.find_one({"card_id": card_id, "user_id": user_id}, {"_id": 0})
     if not card:
         return None
-    updated = approve_fields(card, edits or {})
+    updated = approve_fields(card, edits or {}, share_new=await shares_new_cards(store, user_id))
     await store.memory_cards.update_one({"card_id": card_id, "user_id": user_id}, {"$set": updated})
     if str(card.get("status") or "") != "approved":
         await store.entries.insert_one(entry_from_card({**card, **updated}))

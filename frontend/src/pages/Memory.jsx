@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import HeirSharing from "../components/memory/HeirSharing";
 import HeldFactsList from "../components/memory/HeldFactsList";
 import HowWeWorkFields from "../components/memory/HowWeWorkFields";
 import SafeTopicsFields from "../components/memory/SafeTopicsFields";
@@ -144,6 +145,10 @@ export default function Memory() {
         loading={factsLoading}
         error={factsError}
       />
+
+      <div className="mb-10" data-testid="memory-sharing-section">
+        <HeirSharing />
+      </div>
 
       {prefsLoading ? (
         <div className="flex items-center gap-3 mb-6" data-testid="memory-prefs-loading">

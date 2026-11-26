@@ -269,7 +269,8 @@ def test_heir_portal_uses_pack_not_18k_dump():
     src = path.read_text(encoding="utf-8")
     assert "18000" not in src
     assert "compile_twin_prompt" in src
-    assert "archive_passages" in src
+    # Heir chat is grounded: evidence comes from heir_evidence_rows and every reply goes through heir_reply.
+    assert "heir_evidence_rows" in src and "heir_reply(" in src
 
 
 def test_chat_req_accepts_twin_pack():
