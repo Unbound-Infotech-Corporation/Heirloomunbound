@@ -590,6 +590,9 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
                             "verify": verdict.source,
                             "removed": len(verdict.removed),
                             "verify_ms": verdict.ms,
+                            # Owner-only lab detail: which lines the check took out, so a
+                            # wrongly removed greeting can be seen and fixed.
+                            "removed_text": [line[:200] for line in verdict.removed[:6]],
                         })
                         full = verdict.text or NO_MEMORY_YET
                         try:
