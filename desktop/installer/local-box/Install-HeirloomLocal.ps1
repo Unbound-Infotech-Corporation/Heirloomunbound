@@ -282,9 +282,13 @@ if (-not $Sandbox) {
 
 # ---------------------------------------------------------------- 10. start and check
 if (-not $NoStart) {
-  $startArgs = @{ InstallDir = $InstallDir }
-  if ($Sandbox) { $startArgs.NoBrowser = $true }
-  & (Join-Path $InstallDir "Start-Heirloom.ps1") @startArgs
+  # Its own hidden process: the long-running database/voice/API must not inherit this window's
+  # output handles, or anything capturing Setup's output would wait until Heirloom stops.
+  $startArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$(Join-Path $InstallDir 'Start-Heirloom.ps1')`"", "-InstallDir", "`"$InstallDir`"")
+  if ($Sandbox) { $startArgs += "-NoBrowser" }
+  # Not -Wait: on PowerShell 5.1 that also waits for the processes Start-Heirloom leaves running.
+  $starter = Start-Process -FilePath "powershell.exe" -ArgumentList $startArgs -WindowStyle Hidden -PassThru
+  $starter.WaitForExit()
   Push-Location (Join-Path $AppDir "backend")
   $check = (& $py -m local_box check --data $Data --chat --wait 90 | Out-String)
   $code = $LASTEXITCODE

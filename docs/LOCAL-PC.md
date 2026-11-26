@@ -44,14 +44,14 @@ C# copy of `backend/model_tiers.py`. `tests/test_local_box.py` fails if the two 
 | Web app | `/` and `/life-story` served by the API |
 | Owner login (`/api/auth/box-login`), cookie, `/api/auth/me` | pass |
 | `/api/desktop/chat` | grounded reply in 1.0 s |
-| Chatterbox `/speak.wav` | 4.1 s for one sentence |
+| Chatterbox `/speak.wav` | 4.1 s for one sentence when warm (~31 s if asked while it is still warming up, ~37 s after start) |
 | faster-whisper on that wav | heard it word for word, 2.5 s (CPU int8) |
-| Re-run installer | idempotent, ~15 s |
+| Re-run installer over a running install | stops its own processes, keeps ports, data and sign-in; ready in 19 s |
 | Listening sockets | 127.0.0.1 only (8010, 18101, 27181) |
 
 Found and fixed by the live run: `fcntl` import on Windows, `/var/lib/heirloom` defaults,
 `$PSScriptRoot` empty in PowerShell 5.1 parameter defaults, the BOM PowerShell adds to piped
-text (owner password now passes through the environment), `pkg_resources` for librosa
+text (owner password now passes through the environment), `Start-Process -Wait` waiting on the services it starts, `pkg_resources` for librosa
 (`setuptools<81`), Blackwell GPUs needing cu128 torch, and non-ASCII text in `.ps1` files.
 
 ## Not covered yet
