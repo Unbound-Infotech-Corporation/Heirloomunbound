@@ -67,6 +67,7 @@ export default function StudioWindow({
   onClose,
   children,
   status,
+  bare = false,
 }) {
   const [maximized, setMaximized] = useState(true);
   const [pos, setPos] = useState({ x: 24, y: 24 });
@@ -90,6 +91,15 @@ export default function StudioWindow({
       window.removeEventListener("pointerup", onUp);
     };
   }, []);
+
+  if (bare) {
+    // The app menubar already names the page; the document is just the canvas.
+    return (
+      <main className="studio-document" data-testid={testId || "studio-window"} aria-label={title}>
+        {children}
+      </main>
+    );
+  }
 
   const style = maximized
     ? { inset: 8 }

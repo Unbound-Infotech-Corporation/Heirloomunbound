@@ -38,6 +38,7 @@ import QuickCapture from "./QuickCapture";
 import SiteFooter from "./SiteFooter";
 import StudioWindow, { StudioMenuBar } from "./StudioWindow";
 import { getAppMenubarItems, getWindowMenus } from "./studio";
+import { groupNav, mergeMenus } from "../lib/studioChrome";
 import SetupCoach from "./studio/SetupCoach";
 import TourOverlay from "./TourOverlay";
 import { useAuth } from "../lib/auth";
@@ -48,33 +49,33 @@ import { observerEnabled } from "../lib/observer";
 import { presenceEnabled } from "../lib/presence";
 
 const navItems = [
-  { to: "/today", label: "Today", icon: Sunrise, tid: "nav-today" },
-  { to: "/record", label: "Record a memory", icon: BookmarkPlus, tid: "nav-record" },
-  { to: "/dashboard", label: "Archive", icon: Home, tid: "nav-dashboard" },
-  { to: "/reminders", label: "Reminders", icon: ListTodo, tid: "nav-reminders" },
-  { to: "/interviewer", label: "Interviewer", icon: MessageCircleHeart, tid: "nav-interviewer" },
-  { to: "/journal", label: "Voice journal", icon: Feather, tid: "nav-journal" },
-  { to: "/library", label: "Library", icon: BookOpen, tid: "nav-library" },
-  { to: "/photos", label: "Photos", icon: ImageIcon, tid: "nav-photos" },
-  { to: "/rooms", label: "Rooms", icon: Box, tid: "nav-rooms" },
-  { to: "/photo-story", label: "Photo → Story", icon: Camera, tid: "nav-photo-story" },
-  { to: "/sources", label: "Sources", icon: Database, tid: "nav-sources" },
-  { to: "/import", label: "Import", icon: Upload, tid: "nav-import" },
-  { to: "/owner", label: "Sit", icon: MessageCircle, tid: "nav-owner" },
-  { to: "/assignments", label: "Assignments", icon: ClipboardList, tid: "nav-assignments" },
-  { to: "/twin", label: "Talk to twin", icon: Sparkles, tid: "nav-twin" },
-  { to: "/memory", label: "Memory", icon: Brain, tid: "nav-memory" },
-  { to: "/would-say", label: "Would you say that?", icon: Brain, tid: "nav-would-say" },
-  { to: "/mixer", label: "Mixer", icon: Volume2, tid: "nav-mixer" },
-  { to: "/models", label: "Models", icon: Cpu, tid: "nav-models" },
-  { to: "/setup", label: "First-run setup", icon: SlidersHorizontal, tid: "nav-setup" },
-  { to: "/abilities", label: "Abilities", icon: ToggleRight, tid: "nav-abilities" },
-  { to: "/personality", label: "Your portrait", icon: UserIcon, tid: "nav-personality" },
-  { to: "/skills", label: "Skills", icon: Wrench, tid: "nav-skills" },
-  { to: "/companion", label: "Local PC", icon: MonitorSpeaker, tid: "nav-companion" },
-  { to: "/heirs", label: "Heirs", icon: Users, tid: "nav-heirs" },
-  { to: "/letters", label: "Sealed letters", icon: Mail, tid: "nav-letters" },
-  { to: "/settings", label: "Settings", icon: SettingsIcon, tid: "nav-settings" },
+  { to: "/today", label: "Today", icon: Sunrise, tid: "nav-today", group: "daily" },
+  { to: "/record", label: "Record a memory", icon: BookmarkPlus, tid: "nav-record", group: "daily" },
+  { to: "/dashboard", label: "Archive", icon: Home, tid: "nav-dashboard", group: "archive" },
+  { to: "/reminders", label: "Reminders", icon: ListTodo, tid: "nav-reminders", group: "daily" },
+  { to: "/interviewer", label: "Interviewer", icon: MessageCircleHeart, tid: "nav-interviewer", group: "archive" },
+  { to: "/journal", label: "Voice journal", icon: Feather, tid: "nav-journal", group: "archive" },
+  { to: "/library", label: "Library", icon: BookOpen, tid: "nav-library", group: "archive" },
+  { to: "/photos", label: "Photos", icon: ImageIcon, tid: "nav-photos", group: "archive" },
+  { to: "/rooms", label: "Rooms", icon: Box, tid: "nav-rooms", group: "archive" },
+  { to: "/photo-story", label: "Photo → Story", icon: Camera, tid: "nav-photo-story", group: "archive" },
+  { to: "/sources", label: "Sources", icon: Database, tid: "nav-sources", group: "archive" },
+  { to: "/import", label: "Import", icon: Upload, tid: "nav-import", group: "archive" },
+  { to: "/owner", label: "Sit", icon: MessageCircle, tid: "nav-owner", group: "twin" },
+  { to: "/assignments", label: "Assignments", icon: ClipboardList, tid: "nav-assignments", group: "twin" },
+  { to: "/twin", label: "Talk to twin", icon: Sparkles, tid: "nav-twin", group: "twin" },
+  { to: "/memory", label: "Memory", icon: Brain, tid: "nav-memory", group: "twin" },
+  { to: "/would-say", label: "Would you say that?", icon: Brain, tid: "nav-would-say", group: "twin" },
+  { to: "/mixer", label: "Mixer", icon: Volume2, tid: "nav-mixer", group: "studio" },
+  { to: "/models", label: "Models", icon: Cpu, tid: "nav-models", group: "studio" },
+  { to: "/setup", label: "First-run setup", icon: SlidersHorizontal, tid: "nav-setup", group: "studio" },
+  { to: "/abilities", label: "Abilities", icon: ToggleRight, tid: "nav-abilities", group: "studio" },
+  { to: "/personality", label: "Your portrait", icon: UserIcon, tid: "nav-personality", group: "twin" },
+  { to: "/skills", label: "Skills", icon: Wrench, tid: "nav-skills", group: "studio" },
+  { to: "/companion", label: "Local PC", icon: MonitorSpeaker, tid: "nav-companion", group: "studio" },
+  { to: "/heirs", label: "Heirs", icon: Users, tid: "nav-heirs", group: "twin" },
+  { to: "/letters", label: "Sealed letters", icon: Mail, tid: "nav-letters", group: "twin" },
+  { to: "/settings", label: "Settings", icon: SettingsIcon, tid: "nav-settings", group: "studio" },
 ];
 
 const WINDOW_TITLES = {
@@ -134,8 +135,12 @@ function SidebarContent({ user, logout, onNavigate, navigateRoot, items = navIte
         </div>
       </button>
 
-      <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
-        {items.map((item) => {
+      <nav className="flex-1 px-3 py-4 overflow-y-auto">
+        {groupNav(items).map((group) => (
+          <div key={group.key} className="mb-4">
+            <div className="overline px-4 mb-1.5" style={{ color: "var(--text-muted)" }}>{group.label}</div>
+            <div className="space-y-0.5">
+        {group.items.map((item) => {
           const Icon = item.icon;
           return (
             <NavLink
@@ -144,7 +149,7 @@ function SidebarContent({ user, logout, onNavigate, navigateRoot, items = navIte
               data-testid={item.tid}
               onClick={onNavigate}
               className={({ isActive }) =>
-                `group flex items-center gap-3 px-4 py-2.5 rounded-sm transition-colors duration-200 ${
+                `group flex items-center gap-3 px-4 py-2 rounded-sm transition-colors duration-200 ${
                   isActive ? "text-[var(--accent)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`
               }
@@ -159,6 +164,9 @@ function SidebarContent({ user, logout, onNavigate, navigateRoot, items = navIte
             </NavLink>
           );
         })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       <div className="px-5 py-5 border-t" style={{ borderColor: "var(--border-default)" }}>
@@ -307,36 +315,51 @@ export default function AppLayout() {
     [location.pathname, menuCtx]
   );
   const appMenus = useMemo(() => getAppMenubarItems(menuCtx), [menuCtx]);
+  // One layer of chrome: the page's own menus fold into the app menubar.
+  const barMenus = useMemo(() => mergeMenus(appMenus, menus), [appMenus, menus]);
+  const navGroups = groupNav(dockItems);
 
   return (
-    <div className="studio-shell" style={{ background: "#1e1e1e" }}>
-      <header className="studio-app-menubar" data-testid="studio-app-menubar">
+    <div className="studio-shell">
+      <header className="studio-app-menubar hidden lg:flex" data-testid="studio-app-menubar">
         <button type="button" className="studio-brand" onClick={() => navigate("/dashboard")} data-testid="studio-brand">
           Heirloom
         </button>
-        <StudioMenuBar menus={appMenus} inline />
-        <div className="ml-auto text-[11px] tracking-wide px-3" style={{ color: "#9a9a9a" }}>
+        <StudioMenuBar menus={barMenus} inline />
+        <div className="studio-crumb" data-testid="studio-crumb" aria-label="Current page">
+          <span aria-hidden="true">›</span> {title}
+        </div>
+        <div className="ml-auto text-[11px] tracking-wide px-3 truncate max-w-[240px]" style={{ color: "var(--text-muted)" }}>
           {user?.name || user?.email || "signed in"}
         </div>
       </header>
 
       <div className="studio-body">
-        <aside data-testid="app-sidebar" className="studio-dock hidden lg:flex">
-          {dockItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                data-testid={item.tid}
-                title={item.label}
-                className={({ isActive }) => `studio-dock-btn ${isActive ? "is-active" : ""}`}
-              >
-                <Icon className="h-4 w-4" />
-                <span className="sr-only">{item.label}</span>
-              </NavLink>
-            );
-          })}
+        <aside data-testid="app-sidebar" className="studio-dock hidden lg:flex" aria-label="Sections">
+          <nav className="studio-dock-inner">
+            {navGroups.map((group, gi) => (
+              <div className="studio-dock-group" key={group.key} data-testid={`dock-group-${group.key}`}>
+                <div className={`studio-dock-head ${gi > 0 ? "has-rule" : ""}`}>
+                  <span className="studio-dock-heading">{group.label}</span>
+                </div>
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      data-testid={item.tid}
+                      title={item.label}
+                      className={({ isActive }) => `studio-dock-btn ${isActive ? "is-active" : ""}`}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      <span className="studio-dock-label">{item.label}</span>
+                    </NavLink>
+                  );
+                })}
+              </div>
+            ))}
+          </nav>
         </aside>
 
         {drawerOpen && (
@@ -360,7 +383,7 @@ export default function AppLayout() {
         </aside>
 
         <div className="studio-canvas">
-          <div className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 py-3 border-b" style={{ background: "#2b2b2b", borderColor: "#111" }}>
+          <div className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 py-3 border-b" style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}>
             <button
               onClick={() => setDrawerOpen(true)}
               data-testid="mobile-menu-open"
@@ -373,9 +396,12 @@ export default function AppLayout() {
             <button onClick={() => navigate("/dashboard")} className="font-serif text-lg" data-testid="mobile-brand">
               Heirloom
             </button>
+            <span className="ml-auto text-xs truncate" style={{ color: "var(--text-muted)" }} data-testid="mobile-title">
+              {title}
+            </span>
           </div>
 
-          <StudioWindow title={title} menus={menus} testId="studio-document">
+          <StudioWindow title={title} bare testId="studio-document">
             {captureOpen && (
               <div className="px-4 pt-4">
                 <QuickCapture />
@@ -387,7 +413,7 @@ export default function AppLayout() {
         </div>
       </div>
 
-      <footer className="studio-statusbar" data-testid="studio-statusbar">
+      <footer className="studio-statusbar hidden lg:flex" data-testid="studio-statusbar">
         <span>Heirloom Studio</span>
         {boxHealth ? (
           <>
