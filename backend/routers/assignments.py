@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from assignment_store import MongoAssignmentStore
 from assignments import (
+    ApprovalFinal,
     AssignmentError,
     IllegalTransition,
     InMemoryConnector,
