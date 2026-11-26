@@ -19,6 +19,12 @@ def run(coro):
     return asyncio.run(coro)
 
 
+@pytest.fixture(autouse=True)
+def _no_embeddings(monkeypatch):
+    # Keyword recall only: a box with a live embedding model would otherwise match "adored Grandma" to June by meaning.
+    monkeypatch.setattr(mc, "should_embed", lambda *a, **k: False)
+
+
 def _match(doc, query):
     for key, want in (query or {}).items():
         have = doc.get(key)
