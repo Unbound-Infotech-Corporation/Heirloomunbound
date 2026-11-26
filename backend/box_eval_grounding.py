@@ -12,6 +12,7 @@ Local models only. Nothing is sent to Odysseus or the web.
 from __future__ import annotations
 
 import json
+import os
 import statistics
 import time
 import urllib.error
@@ -243,7 +244,8 @@ def run() -> int:
     started_iso = now.isoformat()
     issued = issue(now)
     db.user_sessions.insert_one(issued.document(user_id, now))
-    api = EvalApi("http://127.0.0.1:8001", issued.session_token)
+    # HEIRLOOM_EVAL_API points the eval at a side instance (model_bench_pipeline).
+    api = EvalApi(os.environ.get("HEIRLOOM_EVAL_API") or "http://127.0.0.1:8001", issued.session_token)
     card_ids: list[str] = []
     prompt_ids: list[str] = []
     conversations: list[str] = []

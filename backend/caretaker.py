@@ -796,12 +796,18 @@ class HostOps(CaretakerOps):
         import os
 
         model = (os.environ.get("OLLAMA_TWIN_MODEL") or "qwen2.5:14b").strip() or "qwen2.5:14b"
-        body = json.dumps({
+        from model_tiers import think_value
+
+        request: dict = {
             "model": model,
             "prompt": "Say ok.",
             "stream": False,
             "options": {"num_predict": 8},
-        })
+        }
+        think = think_value(model, "http://127.0.0.1:11434")
+        if think is not None:
+            request["think"] = think
+        body = json.dumps(request)
         return _run([
             "curl", "-fsS", "-m", "20",
             "http://127.0.0.1:11434/api/generate",

@@ -630,6 +630,11 @@ write_env() {
   upsert_env HEIRLOOM_LLM_PROVIDER "ollama" "${env_file}"
   upsert_env OLLAMA_BASE_URL "http://ollama:11434" "${env_file}"
   upsert_env OLLAMA_TWIN_MODEL "${model}" "${env_file}"
+  # The tier's context (docs/MODEL-TIERS.md). Ollama's own default can size a
+  # gemma4 context past the card. Written once; an upgrade keeps what is there.
+  if [[ "${UPGRADE}" -eq 0 ]] && ! grep -q '^OLLAMA_CONTEXT_LENGTH=' "${env_file}"; then
+    upsert_env OLLAMA_CONTEXT_LENGTH "$(heirloom_ctx_for_vram_mib "${vram:-0}")" "${env_file}"
+  fi
   upsert_env WHISPER_MODEL "base" "${env_file}"
   upsert_env WHISPER_CACHE "/var/lib/heirloom/whisper" "${env_file}"
   if [[ -n "${BRAIN_URL}" ]]; then
@@ -1178,7 +1183,7 @@ main() {
       log "Chat model ${solo} does not fit beside the vision model on this GPU; Observer uses ${model}"
     fi
   else
-    log "VRAM MiB=${mib} default model=${model} (Apache-2.0 Qwen2.5)"
+    log "VRAM MiB=${mib} tier model=${model} (Apache-2.0; tier table in backend/model_tiers.py, override with HEIRLOOM_MODEL_OVERRIDE)"
   fi
   if [[ "${UPGRADE}" -eq 1 && -f "${DATA_ROOT}/box.env" ]]; then
     local kept_model=""

@@ -8,7 +8,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: heirloom-box <status|backup|report|upgrade|selftest|eval-grounding|observer|presence|update-drivers|set-owner>
+Usage: heirloom-box <status|backup|report|upgrade|selftest|eval-grounding|model|bench-models|bench-pipeline|observer|presence|update-drivers|set-owner>
 
   status             services, GPU, disk, observer, presence, last backup, last report, /api/health
   backup             Mongo archive + vault tarball, 14 copies kept
@@ -17,6 +17,11 @@ Usage: heirloom-box <status|backup|report|upgrade|selftest|eval-grounding|observ
                      check hearing, then delete the test data. Prints PASS or FAIL.
   eval-grounding     ask 16 life questions no card answers (with the owner's cards, then one unrelated card),
                      check recall, normal chat, and reminders; PASS/FAIL; removes its own test rows
+  model              current chat model, this GPU's tier, and the model the tier table picks
+  model auto|TAG     (root) pull the tier pick (auto) or TAG, check it answers, then set OLLAMA_TWIN_MODEL
+                     in box.env and restart the API. Upgrades keep it. Local Ollama tags only.
+  bench-models TAG.. grounding, chat, tool-call, JSON, speed and VRAM scores per model (docs/MODEL-TIERS.md)
+  bench-pipeline TAG the full eval-grounding through a side API on :8002 with TAG; the live API keeps its model
   upgrade            rebuild containers and units. Keeps box.env, the chat model, compose
                      profiles, and the GPU overlay. Does not touch the NVIDIA driver.
   set-owner EMAIL    set the owner email and password (password read from the prompt, not saved in the log)
@@ -443,6 +448,82 @@ cmd_eval_grounding() {
   compose "${root}" exec -T api python -m box_eval_grounding
 }
 
+box_env_value() {
+  local key="$1" file
+  file="$(data_root)/box.env"
+  [[ -r "${file}" ]] || { printf '\n'; return 0; }
+  awk -F= -v k="${key}" '$1==k{val=substr($0, index($0, "=")+1)} END {print val}' "${file}" | tr -d '\r'
+}
+
+cmd_model() {
+  local root arg="${1:-}"
+  root="$(read_root)"
+  if [[ -z "${root}" ]]; then
+    echo "Run box/install.sh before heirloom-box model." >&2
+    exit 1
+  fi
+  local current pick
+  current="$(box_env_value OLLAMA_TWIN_MODEL)"
+  pick="$(python3 "${root}/backend/model_tiers.py" choose --json 2>/dev/null || true)"
+  if [[ -z "${arg}" ]]; then
+    printf 'current: %s\n' "${current:-unset}"
+    printf 'tier pick: %s\n' "${pick:-unavailable (python3 missing?)}"
+    return 0
+  fi
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "Re-run as root: sudo heirloom-box model ${arg}" >&2
+    exit 1
+  fi
+  local tag="${arg}"
+  if [[ "${arg}" == "auto" ]]; then
+    tag="$(HEIRLOOM_MODEL_OVERRIDE='' python3 "${root}/backend/model_tiers.py" choose)"
+  fi
+  if [[ ! "${tag}" =~ ^[A-Za-z0-9._/-]+(:[A-Za-z0-9._-]+)?$ ]] || [[ "${tag}" == *cloud* ]]; then
+    echo "Not a local Ollama tag: ${tag}" >&2
+    exit 1
+  fi
+  echo "Pulling ${tag} (the current model ${current:-unset} keeps answering until the switch)"
+  compose "${root}" exec -T ollama ollama pull "${tag}"
+  if ! compose "${root}" exec -T ollama ollama run "${tag}" --think=false "Reply with one word: ready" </dev/null >/dev/null 2>&1 \
+     && ! compose "${root}" exec -T ollama ollama run "${tag}" "Reply with one word: ready" </dev/null >/dev/null 2>&1; then
+    echo "${tag} did not answer. OLLAMA_TWIN_MODEL stays ${current:-unset}." >&2
+    exit 1
+  fi
+  local file
+  file="$(data_root)/box.env"
+  cp -a "${file}" "${file}.bak-model-$(date +%Y%m%d%H%M%S)"
+  if grep -q '^OLLAMA_TWIN_MODEL=' "${file}"; then
+    sed -i "s|^OLLAMA_TWIN_MODEL=.*|OLLAMA_TWIN_MODEL=${tag}|" "${file}"
+  else
+    printf 'OLLAMA_TWIN_MODEL=%s\n' "${tag}" >> "${file}"
+  fi
+  compose "${root}" up -d api
+  echo "OLLAMA_TWIN_MODEL=${tag} (was ${current:-unset}). Undo: sudo heirloom-box model ${current:-qwen2.5:14b}"
+}
+
+cmd_bench_models() {
+  local root
+  root="$(read_root)"
+  if [[ -z "${root}" || $# -eq 0 ]]; then
+    echo "Usage: heirloom-box bench-models TAG [TAG ...] [--ollama URL]" >&2
+    exit 1
+  fi
+  local out
+  out="$(data_root)/lab/model-bench-$(date +%Y%m%d-%H%M%S).jsonl"
+  compose "${root}" exec -T api python -m model_bench "$@" --out "${out}"
+  echo "Results: ${out}"
+}
+
+cmd_bench_pipeline() {
+  local root
+  root="$(read_root)"
+  if [[ -z "${root}" || $# -eq 0 ]]; then
+    echo "Usage: heirloom-box bench-pipeline TAG [--ollama URL]" >&2
+    exit 1
+  fi
+  compose "${root}" exec -T api python -m model_bench_pipeline "$@"
+}
+
 cmd_report() {
   local root
   root="$(read_root)"
@@ -462,6 +543,18 @@ main() {
     upgrade) cmd_upgrade ;;
     selftest) cmd_selftest ;;
     eval-grounding) cmd_eval_grounding ;;
+    model)
+      shift
+      cmd_model "${1:-}"
+      ;;
+    bench-models)
+      shift
+      cmd_bench_models "$@"
+      ;;
+    bench-pipeline)
+      shift
+      cmd_bench_pipeline "$@"
+      ;;
     observer)
       shift
       cmd_observer "${1:-}"
