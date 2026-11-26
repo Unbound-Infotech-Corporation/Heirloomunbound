@@ -1,14 +1,15 @@
 FROM python:3.12-slim-bookworm
 
 WORKDIR /app
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends gcc \
-  && rm -rf /var/lib/apt/lists/*
-
 COPY backend/requirements.txt /app/requirements.txt
 # emergentintegrations==0.2.0 is not on PyPI. The extra index is the Emergent package host.
-RUN pip install --no-cache-dir --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ -r /app/requirements.txt \
-  && pip install --no-cache-dir 'faster-whisper==1.1.1' 'av==15.1.0' 'nvidia-cublas-cu12' 'nvidia-cudnn-cu12>=9,<10'
+# gcc is only needed while wheels build, so it is installed and removed in the same layer.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends gcc \
+  && pip install --no-cache-dir --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ -r /app/requirements.txt \
+  && pip install --no-cache-dir 'faster-whisper==1.1.1' 'av==15.1.0' 'nvidia-cublas-cu12' 'nvidia-cudnn-cu12>=9,<10' \
+  && apt-get purge -y --auto-remove gcc \
+  && rm -rf /var/lib/apt/lists/*
 COPY backend/ /app/
 ENV WHISPER_MODEL=base \
     WHISPER_CACHE=/var/lib/heirloom/whisper \
