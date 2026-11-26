@@ -145,7 +145,7 @@ async def ask_box_model(
     """One call to the box's own Ollama. Not routed to Odysseus or any other host."""
     import httpx
 
-    from llm_provider import ollama_base_url, ollama_model, refuse_cloud
+    from llm_provider import box_keep_alive, ollama_base_url, ollama_model, refuse_cloud
 
     model = ollama_model(None)
     refuse_cloud("ollama", model, caller="grounding")
@@ -156,7 +156,7 @@ async def ask_box_model(
             {"role": "user", "content": user},
         ],
         "stream": False,
-        "keep_alive": os.environ.get("OLLAMA_KEEP_ALIVE") or "30m",
+        "keep_alive": box_keep_alive(),
         "options": {"temperature": temperature, "num_predict": num_predict},
     }
     if json_mode:

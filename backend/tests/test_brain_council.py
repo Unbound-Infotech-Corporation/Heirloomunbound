@@ -609,9 +609,12 @@ def test_remote_timeout_falls_back_to_the_box_model(monkeypatch):
 
     async def poster(url, body, timeout):
         seen.append((url, dict(body)))
-        assert body.get("keep_alive") == "30m"
         if "192.168.0.50" in url:
+            assert body.get("keep_alive") == "30m"  # never hold BIGDEAL's GPU
             raise TimeoutError("cold gpt-oss load")
+        from llm_provider import box_keep_alive
+
+        assert body.get("keep_alive") == box_keep_alive()  # the box keeps its own model loaded
         assert str(body["model"]).startswith("qwen")
         return _completion("from the box", body["model"])
 
