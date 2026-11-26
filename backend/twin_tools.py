@@ -425,28 +425,74 @@ def _sync_ddg_search(query: str, max_results: int) -> list[dict]:
         return list(d.text(query, max_results=max_results))
 
 
-async def exec_web_search(user_id: str, args: dict) -> dict:
-    query = (args.get("query") or "").strip()
+async def exec_web_search(user_id: str, args: dict, *, private_texts: list[str] | None = None) -> dict:
+    from web_privacy import scrub_query, search_backend, searxng_search
+
+    asked = (args.get("query") or "").strip()
     max_results = min(10, max(1, int(args.get("max_results") or 5)))
-    if not query:
+    if not asked:
         return {"summary": "No search query.", "ui": {"count": 0}}
+    scrubbed = scrub_query(asked, private_texts or [])
+    if scrubbed.refused:
+        return {
+            "summary": "That search would have sent private details off the box, so it was not run. "
+            "Ask with only the public part (for example the product or place name).",
+            "ui": {"count": 0, "refused": True},
+        }
+    query = scrubbed.query
+    backend = search_backend()
     try:
-        rows = await asyncio.to_thread(_sync_ddg_search, query, max_results)
+        if backend == "searxng":
+            rows = await asyncio.to_thread(searxng_search, query, max_results)
+        else:
+            rows = await asyncio.to_thread(_sync_ddg_search, query, max_results)
     except Exception as exc:  # noqa: BLE001
         return {"summary": f"Web search failed: {exc!s}", "ui": {"count": 0}}
     if not rows:
-        return {"summary": f"No web results for '{query}'.", "ui": {"count": 0}}
+        return {"summary": f"No web results for '{query}'.", "ui": {"count": 0, "query": query}}
     lines = [f"Top {len(rows)} web results for '{query}':"]
     for r in rows:
         title = _truncate(r.get("title") or "", 100)
         body = _truncate(r.get("body") or "", 200)
         href = r.get("href") or ""
         lines.append(f"- {title} — {body}\n  {href}")
-    return {"summary": "\n".join(lines), "ui": {"count": len(rows), "query": query}}
+    ui = {"count": len(rows), "query": query, "backend": backend}
+    if scrubbed.removed:
+        ui["removed_words"] = len(scrubbed.removed)
+    return {"summary": "\n".join(lines), "ui": ui}
+
+
+def _resolves_public(url: str) -> bool:
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    host = urlparse(url).hostname or ""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return False
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            return False
+    return True
 
 
 def _sync_fetch_readable(url: str) -> dict:
-    r = requests.get(url, timeout=15, headers={"User-Agent": "HeirloomTwin/0.3"})
+    from web_privacy import public_url
+
+    r = None
+    for _hop in range(4):
+        if not public_url(url) or not _resolves_public(url):
+            raise ValueError("only public web pages can be fetched")
+        r = requests.get(url, timeout=15, headers={"User-Agent": "HeirloomTwin/0.3"}, allow_redirects=False)
+        if r.is_redirect and r.headers.get("location"):
+            from urllib.parse import urljoin
+
+            url = urljoin(url, r.headers["location"])
+            continue
+        break
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
     # Kill scripts/styles/nav
@@ -464,6 +510,10 @@ async def exec_web_fetch(user_id: str, args: dict) -> dict:
     url = (args.get("url") or "").strip()
     if not url.lower().startswith(("http://", "https://")):
         return {"summary": "Invalid URL — must start with http(s)://", "ui": {"ok": False}}
+    from web_privacy import public_url
+
+    if not public_url(url):
+        return {"summary": "Only public web pages can be fetched (no LAN or box addresses).", "ui": {"ok": False, "url": url}}
     try:
         result = await asyncio.to_thread(_sync_fetch_readable, url)
     except Exception as exc:  # noqa: BLE001
@@ -845,6 +895,122 @@ COMPUTER_TOOL_SCHEMAS: list[dict] = [
 ]
 
 TOOL_SCHEMAS += COMPUTER_TOOL_SCHEMAS
+
+# Local-first skills (abilities: notes, files, calendar, email). Opt-in; owner only.
+SKILL_TOOL_SCHEMAS: list[dict] = [
+    {"type": "function", "function": {
+        "name": "list_reminders",
+        "description": "List the owner's open reminders.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "save_note",
+        "description": "Save a short note the owner dictates (errands, facts to keep handy). Not a life memory.",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "The note, in the owner's words"},
+            "title": {"type": "string", "description": "Optional short title"},
+        }, "required": ["text"]},
+    }},
+    {"type": "function", "function": {
+        "name": "search_notes",
+        "description": "Search the owner's saved notes.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "Words to look for; empty lists recent notes"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "search_files",
+        "description": "Search the text of files in folders the owner chose to index on this machine.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "Words that would appear in the file or its name"},
+        }, "required": ["query"]},
+    }},
+    {"type": "function", "function": {
+        "name": "calendar_upcoming",
+        "description": "Read the owner's upcoming calendar events (Google or Outlook, read-only).",
+        "parameters": {"type": "object", "properties": {
+            "days": {"type": "integer", "description": "How many days ahead (1-31)", "default": 7},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "calendar_draft_event",
+        "description": "Draft a calendar event for the owner to add. Does not write to their calendar.",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"},
+            "when": {"type": "string", "description": "Start time, ISO 8601 or words like 'Friday 3pm'"},
+            "minutes": {"type": "integer", "default": 60},
+            "location": {"type": "string"},
+        }, "required": ["title", "when"]},
+    }},
+    {"type": "function", "function": {
+        "name": "email_search",
+        "description": "Search the owner's mailbox (Gmail or Outlook, read-only). Returns senders, subjects, thread ids, and the newest match's text.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "Sender, subject words, or empty for the newest inbox mail"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "email_draft",
+        "description": "Save an email draft in the owner's Drafts folder. Never sends. To answer someone's email, put their name or the subject in reply_to and Heirloom finds the thread; never ask the owner for an id or address.",
+        "parameters": {"type": "object", "properties": {
+            "to": {"type": "string", "description": "Recipient address for a new email"},
+            "reply_to": {"type": "string", "description": "Sender name or subject words of the email being answered"},
+            "subject": {"type": "string"},
+            "body": {"type": "string"},
+            "thread_id": {"type": "string", "description": "Thread id from email_search, to draft a reply"},
+        }, "required": ["body"]},
+    }},
+]
+TOOL_SCHEMAS += SKILL_TOOL_SCHEMAS
+
+
+async def _exec_list_reminders(user_id: str, args: dict) -> dict:
+    from skill_notes import exec_list_reminders
+
+    return await exec_list_reminders(user_id, args)
+
+
+async def _exec_save_note(user_id: str, args: dict) -> dict:
+    from skill_notes import exec_save_note
+
+    return await exec_save_note(user_id, args)
+
+
+async def _exec_search_notes(user_id: str, args: dict) -> dict:
+    from skill_notes import exec_search_notes
+
+    return await exec_search_notes(user_id, args)
+
+
+async def _exec_search_files(user_id: str, args: dict) -> dict:
+    from file_index import exec_search_files
+
+    return await exec_search_files(user_id, args)
+
+
+async def _exec_calendar_upcoming(user_id: str, args: dict) -> dict:
+    from skill_accounts import exec_calendar_upcoming
+
+    return await exec_calendar_upcoming(user_id, args)
+
+
+async def _exec_calendar_draft_event(user_id: str, args: dict) -> dict:
+    from skill_accounts import exec_calendar_draft_event
+
+    return await exec_calendar_draft_event(user_id, args)
+
+
+async def _exec_email_search(user_id: str, args: dict) -> dict:
+    from skill_accounts import exec_email_search
+
+    return await exec_email_search(user_id, args)
+
+
+async def _exec_email_draft(user_id: str, args: dict) -> dict:
+    from skill_accounts import exec_email_draft
+
+    return await exec_email_draft(user_id, args)
+
 from assist_studio_tools import STUDIO_SCHEMAS, STUDIO_TOOL_NAMES, exec_studio_tool
 
 TOOL_SCHEMAS += STUDIO_SCHEMAS
@@ -870,6 +1036,14 @@ TOOL_EXECUTORS: dict[str, Callable[[str, dict], Coroutine[Any, Any, dict]]] = {
     "system_status": exec_system_status,
     "run_command": exec_run_command,
     "find_file": exec_find_file,
+    "list_reminders": _exec_list_reminders,
+    "save_note": _exec_save_note,
+    "search_notes": _exec_search_notes,
+    "search_files": _exec_search_files,
+    "calendar_upcoming": _exec_calendar_upcoming,
+    "calendar_draft_event": _exec_calendar_draft_event,
+    "email_search": _exec_email_search,
+    "email_draft": _exec_email_draft,
 }
 
 
@@ -888,6 +1062,17 @@ OWNER_ONLY_TOOLS = frozenset({
     "find_file",
     "see_screen",
     "run_command",
+    # Local-first skills: the owner's web searches, notes, files, calendar, and mail.
+    "web_search",
+    "web_fetch",
+    "list_reminders",
+    "save_note",
+    "search_notes",
+    "search_files",
+    "calendar_upcoming",
+    "calendar_draft_event",
+    "email_search",
+    "email_draft",
 })
 
 
@@ -918,6 +1103,11 @@ async def execute_tool(
     if name == "search_archive":
         try:
             return await exec_search_archive(user_id, args or {}, audience=audience or "owner")
+        except Exception as exc:  # noqa: BLE001
+            return {"summary": f"Tool '{name}' errored: {exc!s}", "ui": {"error": str(exc)[:200]}}
+    if name == "web_search":
+        try:
+            return await exec_web_search(user_id, args or {}, private_texts=list(private_texts or []))
         except Exception as exc:  # noqa: BLE001
             return {"summary": f"Tool '{name}' errored: {exc!s}", "ui": {"error": str(exc)[:200]}}
     fn = TOOL_EXECUTORS.get(name)

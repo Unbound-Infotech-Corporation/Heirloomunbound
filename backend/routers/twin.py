@@ -485,7 +485,15 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
     from grounding import classify_turn
     from memory_cards import history_without_invented_claims
 
-    if specialist_id:
+    # A turn that plainly asks for an enabled tool (weather, calendar, mail, files,
+    # notes, the web) goes to the local tool loop, not the life-question path.
+    from local_tools import candidate_names
+    from owner_pairing import is_owner_audience
+
+    tool_turn_names: list[str] = []
+    if not specialist_id and is_owner_audience(turn_audience):
+        tool_turn_names = candidate_names(message_text, enabled_tools)
+    if specialist_id or tool_turn_names:
         turn_class = None
         personal_ask = False
     else:
@@ -521,6 +529,8 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
             full = ""
             error = None
             cited: list[dict] = []
+            local_trace: list[dict] = []
+            tool_evidence: list[str] = []
             try:
                 if specialist_id:
                     yield "event: specialist\ndata: " + json.dumps({
@@ -571,7 +581,34 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
                         voiced[0] = {**voiced[0], "content": voiced[0]["content"] + "\n\n" + FIRST_PERSON}
                     else:
                         voiced.insert(0, {"role": "system", "content": FIRST_PERSON})
-                    outcome = await complete_turn(voiced, message_text, audience=turn_audience)
+                    if tool_turn_names:
+                        from assist_studio_tools import prompt_private_snippets
+                        from brain_council import TurnOutcome
+                        from local_tools import evidence_from, public_trace, run_tool_turn
+
+                        offered = [s for s in active_schemas if s["function"]["name"] in tool_turn_names]
+                        private = prompt_private_snippets(system)
+
+                        async def _run_local_tool(name: str, args: dict) -> dict:
+                            return await execute_tool(
+                                name, user["user_id"], args,
+                                audience=turn_audience, role="twin", private_texts=private,
+                            )
+
+                        tool_turn = await run_tool_turn(voiced, tools=offered, execute=_run_local_tool)
+                        for row in tool_turn.trace:
+                            yield "event: tool\ndata: " + json.dumps({
+                                "phase": "start", "id": row["id"], "name": row["name"], "args": row["args"],
+                            }) + "\n\n"
+                            yield "event: tool\ndata: " + json.dumps({
+                                "phase": "result", "id": row["id"], "name": row["name"], "ui": row["ui"],
+                            }) + "\n\n"
+                        local_trace = public_trace(tool_turn.trace)
+                        tool_evidence = evidence_from(tool_turn.trace)
+                        grounding_meta["tools"] = tool_turn.meta()
+                        outcome = TurnOutcome(text=tool_turn.text, meta={"local_tools": tool_turn.meta()}, label="tools")
+                    else:
+                        outcome = await complete_turn(voiced, message_text, audience=turn_audience)
                     speak = spoken_reply if specialist_id else as_owner_voice
                     full = speak(outcome.text)
                     if not full:
@@ -585,7 +622,9 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
                     full = strip_false_promises(full) or full
                     if not specialist_id:
                         # Every personal claim in a normal reply is checked too.
-                        verdict = await verify_reply(full, cards=why_cards, owner_messages=owner_messages)
+                        verdict = await verify_reply(
+                            full, cards=why_cards, owner_messages=owner_messages + tool_evidence
+                        )
                         grounding_meta.update({
                             "verify": verdict.source,
                             "removed": len(verdict.removed),
@@ -617,6 +656,8 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
                     assistant_turn["specialist_name"] = specialist_name
                 if cited:
                     assistant_turn["why"] = cited
+                if local_trace:
+                    assistant_turn["tool_trace"] = local_trace
                 if watched_reply:
                     from observer_prompt import WATCHED_SOURCE
 

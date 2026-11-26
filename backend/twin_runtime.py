@@ -1009,6 +1009,10 @@ async def run_twin_turn(
         from grounding import TwinGuard
 
         guard = TwinGuard(user, text, conversation=conversation, audience=audience_key, timezone=timezone)
+        if owner_sitting:
+            from local_tools import candidate_names
+
+            guard.tool_names = candidate_names(text, enabled_tools)
         early = await guard.short_circuit()
         if early is not None:
             reply = _aside(early["reply"])
@@ -1032,17 +1036,26 @@ async def run_twin_turn(
             )
         pack.history = guard.history(pack.history)
 
+    tool_evidence: list[str] = []
+
     async def _checked(raw: str) -> tuple[str, list[dict]]:
         if guard is None:
             return raw, []
-        return await guard.check(raw)
+        return await guard.check(raw, evidence=tool_evidence)
 
     if uses_ollama(resolve_llm_provider()):
         history = list(pack.history)
         history.append({"role": "user", "content": text})
         messages = [{"role": "system", "content": system}, *history]
+        local_names = list(getattr(guard, "tool_names", None) or []) if guard is not None else []
         try:
-            outcome = await _council_reply(messages, text, audience_key)
+            if local_names:
+                outcome = await _local_tool_reply(
+                    messages, user_id=user_id, names=local_names, enabled_tools=enabled_tools,
+                    audience=audience_key, role=role, system=system, trace=tool_trace, evidence=tool_evidence,
+                )
+            else:
+                outcome = await _council_reply(messages, text, audience_key)
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"Local twin (Ollama) failed: {exc!s}") from exc
         checked, why = await _checked(outcome.text)
@@ -1212,6 +1225,35 @@ async def _safe_summarise(user_id: str, conversation_id: str) -> None:
         await maybe_summarise_episode(user_id, conversation_id)
     except Exception:  # noqa: BLE001
         pass
+
+
+async def _local_tool_reply(
+    messages: list[dict],
+    *,
+    user_id: str,
+    names: list[str],
+    enabled_tools: set[str],
+    audience: str,
+    role: str,
+    system: str,
+    trace: list[dict],
+    evidence: list[str],
+):
+    """The local model with the matched tools. Fills ``trace`` and ``evidence`` in place."""
+    from assist_studio_tools import prompt_private_snippets
+    from brain_council import TurnOutcome
+    from local_tools import evidence_from, public_trace, run_tool_turn
+
+    offered = [s for s in TOOL_SCHEMAS if s["function"]["name"] in names and s["function"]["name"] in enabled_tools]
+    private = prompt_private_snippets(system)
+
+    async def _run(name: str, args: dict) -> dict:
+        return await execute_tool(name, user_id, args, audience=audience, role=role, private_texts=private)
+
+    turn = await run_tool_turn(messages, tools=offered, execute=_run)
+    trace.extend(public_trace(turn.trace))
+    evidence.extend(evidence_from(turn.trace))
+    return TurnOutcome(text=turn.text, meta={"local_tools": turn.meta()}, label="tools")
 
 
 async def _council_reply(messages: list[dict], question: str, audience: str, base_url: str | None = None):

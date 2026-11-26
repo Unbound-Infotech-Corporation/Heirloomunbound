@@ -61,6 +61,7 @@ from routers import (
     lab,
     letters,
     live,
+    local_skills,
     memory,
     memory_loop,
     music,
@@ -268,6 +269,7 @@ api_router.include_router(owner_style.router)
 api_router.include_router(assignments.router)
 api_router.include_router(approvals.router)
 api_router.include_router(connectors.router)
+api_router.include_router(local_skills.router)
 api_router.include_router(vr_setup.router)
 api_router.include_router(rooms.router)
 api_router.include_router(phone.router)

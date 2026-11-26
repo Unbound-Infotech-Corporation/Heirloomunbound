@@ -739,6 +739,10 @@ class TwinGuard:
             if made:
                 return made
         await self._load_cards()
+        if getattr(self, "tool_names", None):
+            # The owner asked for a tool (calendar, mail, weather...). Not a life question.
+            self.meta = {"personal": False, "classifier": "tools"}
+            return None
         turn = await classify_turn(self.text, ask=self.ask)
         self.meta = {"personal": turn.personal, "classifier": turn.source, "classifier_ms": turn.ms}
         if not turn.personal:
@@ -760,11 +764,14 @@ class TwinGuard:
             "meta": {"grounded": bool(cited), "grounding": self.meta},
         }
 
-    async def check(self, raw: str) -> tuple[str, list[dict]]:
+    async def check(self, raw: str, evidence: Optional[list[str]] = None) -> tuple[str, list[dict]]:
+        """``evidence`` is what a tool returned this turn; repeating it is not an invented claim."""
         from memory_cards import citations_that_ground
 
         draft = strip_false_promises(raw or "") or (raw or "")
-        verdict = await verify_reply(draft, cards=self.cards, owner_messages=self.owner_messages, ask=self.ask)
+        verdict = await verify_reply(
+            draft, cards=self.cards, owner_messages=self.owner_messages + list(evidence or []), ask=self.ask
+        )
         self.meta.update({"verify": verdict.source, "removed": len(verdict.removed), "verify_ms": verdict.ms})
         final = verdict.text or self.no_memory()
         return final, citations_that_ground(final, self.cards)
