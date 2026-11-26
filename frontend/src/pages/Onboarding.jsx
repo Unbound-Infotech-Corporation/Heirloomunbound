@@ -83,7 +83,7 @@ export default function Onboarding() {
     try {
       await api.post("/onboarding/complete", a);
       await refresh();
-      navigate("/today", { replace: true });
+      navigate("/life-story?welcome=1", { replace: true });
     } catch (e) {
       alert("Couldn't save: " + e.message);
     } finally {

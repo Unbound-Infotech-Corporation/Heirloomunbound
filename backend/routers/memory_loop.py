@@ -61,9 +61,13 @@ async def _nudges(user_id: str) -> list[dict]:
     return await cursor.to_list(length=50)
 
 
-async def _cards(user_id: str) -> list[dict]:
-    cursor = db.memory_cards.find({"user_id": user_id}, {"_id": 0})
-    return await cursor.to_list(length=200)
+async def _cards(user_id: str, *, approved_only: bool = False) -> list[dict]:
+    query = {"user_id": user_id}
+    if approved_only:
+        # Imports can leave hundreds of pending cards; they must not push approved ones out.
+        query["status"] = "approved"
+    cursor = db.memory_cards.find(query, {"_id": 0, "transcript": 0})
+    return await cursor.to_list(length=3000)
 
 
 async def _local_complete(system: str, user: str) -> str:
@@ -198,7 +202,7 @@ async def get_card(card_id: str, user: dict = Depends(get_current_user)):
 
 @router.post("/ask")
 async def ask(body: AskReq, user: dict = Depends(get_current_user)):
-    cards = await _cards(user["user_id"])
+    cards = await _cards(user["user_id"], approved_only=True)
     from grounding import verify_reply
 
     result = await answer_grounded(body.question, cards, _local_complete, verify=verify_reply)
@@ -215,7 +219,7 @@ async def grounding_for_turn(
 ) -> tuple[str, list[dict]]:
     """Approved cards for the twin prompt. Pending and owner-private cards stay out."""
     try:
-        cards = await _cards(user_id)
+        cards = await _cards(user_id, approved_only=True)
     except Exception:
         return "", []
     allowed = visible_cards(cards, audience=audience, heir_surface=heir_surface)
