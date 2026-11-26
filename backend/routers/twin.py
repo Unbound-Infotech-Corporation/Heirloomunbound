@@ -67,6 +67,7 @@ class TwinMsgReq(BaseModel):
     clone_id: Optional[str] = None
     assistant_id: Optional[str] = None  # alias for clone_id
     room_id: Optional[str] = None
+    timezone: Optional[str] = None  # browser zone, so "9am" on a reminder is the owner's clock
 
 
 @router.post("/start")
@@ -358,7 +359,9 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
         await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
         from twin_tools import exec_set_reminder
 
-        due_iso = resolve_reminder_due(message_text, asked_reminder["when"], user)
+        due_iso = resolve_reminder_due(
+            message_text, asked_reminder["when"], user, requested_tz=payload.timezone,
+        )
         made = await exec_set_reminder(
             user["user_id"],
             {"what": asked_reminder["what"], "when": due_iso or ""},
@@ -366,7 +369,7 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
         created = bool((made.get("ui") or {}).get("created"))
         reminder_id = (made.get("ui") or {}).get("reminder_id") or ""
         reply = (
-            reminder_reply(asked_reminder["what"], due_iso, user)
+            reminder_reply(asked_reminder["what"], due_iso, user, requested_tz=payload.timezone)
             if created
             else "I couldn't save that reminder. Add it on the Reminders page so it isn't lost."
         )

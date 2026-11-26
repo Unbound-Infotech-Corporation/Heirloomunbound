@@ -203,6 +203,9 @@ def test_reminder_due_is_the_owners_wall_clock():
     assert due is not None
     assert datetime.fromisoformat(due) == datetime(2026, 11, 26, 17, 0, tzinfo=timezone.utc)
     assert "PST" in grounding.reminder_reply("call the dentist", due, user)
+    sent = grounding.resolve_reminder_due("x", "tomorrow at 9am", {}, now, requested_tz="America/Los_Angeles")
+    assert sent == due
+    assert "PST" in grounding.reminder_reply("call the dentist", sent, {}, requested_tz="America/Los_Angeles")
 
 
 def test_ask_page_uses_the_claim_check():

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowRight, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Monitor, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
 import { api, streamSSE } from "../lib/api";
+import { browserTimeZone } from "../lib/captureTime";
 import FirstGiftInvite from "../components/FirstGiftInvite";
 import AssistantPicker from "../components/studio/AssistantPicker";
 import LabVote from "../components/studio/LabVote";
@@ -176,6 +177,7 @@ export default function Twin() {
         message: text,
         clone_id: selectedAssistant || undefined,
         room_id: roomId || undefined,
+        timezone: browserTimeZone() || undefined,
       },
       (chunk) => {
         full += chunk;

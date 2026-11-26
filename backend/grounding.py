@@ -501,12 +501,22 @@ def reminder_request(text: str) -> Optional[dict[str, str]]:
     return {"what": rest, "when": when}
 
 
-def resolve_reminder_due(text: str, when: str, user: dict | None, now: Optional[datetime] = None) -> Optional[str]:
-    """The owner's wall clock. 'tomorrow at 9am' is 9am where the owner lives."""
+def resolve_reminder_due(
+    text: str,
+    when: str,
+    user: dict | None,
+    now: Optional[datetime] = None,
+    *,
+    requested_tz: Optional[str] = None,
+) -> Optional[str]:
+    """The owner's wall clock. 'tomorrow at 9am' is 9am where the owner lives.
+
+    The zone is the one the browser sent, then the owner's saved zone, then HEIRLOOM_TIMEZONE, then UTC.
+    """
     from capture_text import owner_timezone, resolve_due_at
 
     moment = now or datetime.now(timezone.utc)
-    tz_name = owner_timezone(user)
+    tz_name = owner_timezone(user, requested_tz)
     raw_due = None
     if when:
         try:
@@ -531,7 +541,7 @@ def resolve_reminder_due(text: str, when: str, user: dict | None, now: Optional[
         return raw_due
 
 
-def reminder_reply(what: str, due_iso: Optional[str], user: dict | None) -> str:
+def reminder_reply(what: str, due_iso: Optional[str], user: dict | None, *, requested_tz: Optional[str] = None) -> str:
     if not due_iso:
         return f"Done. I saved a reminder to {what}. It has no time yet, so it's waiting on your Reminders list."
     try:
@@ -539,7 +549,7 @@ def reminder_reply(what: str, due_iso: Optional[str], user: dict | None) -> str:
 
         from capture_text import owner_timezone
 
-        zone = ZoneInfo(owner_timezone(user))
+        zone = ZoneInfo(owner_timezone(user, requested_tz))
         local = datetime.fromisoformat(due_iso).astimezone(zone)
         label = local.strftime("%a %b %d at %I:%M %p").replace(" 0", " ") + f" {local.tzname()}"
     except Exception:  # noqa: BLE001

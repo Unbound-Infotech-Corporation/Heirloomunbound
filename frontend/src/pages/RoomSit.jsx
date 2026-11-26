@@ -5,6 +5,7 @@ import RoomViewer3D from "../components/studio/RoomViewer3D";
 import VrModeControls from "../components/studio/VrModeControls";
 import AssistantPicker from "../components/studio/AssistantPicker";
 import { api, API_BASE, streamSSE } from "../lib/api";
+import { browserTimeZone } from "../lib/captureTime";
 import { speakerLabel } from "../lib/assistants";
 import { useAuth } from "../lib/auth";
 import { createGazeAccumulator, gazePayload, shouldSendGaze } from "../lib/vrGaze";
@@ -106,6 +107,7 @@ export default function RoomSit() {
           message: text,
           clone_id: selectedRef.current || undefined,
           room_id: roomId,
+          timezone: browserTimeZone() || undefined,
         },
         (chunk) => {
           full += chunk;

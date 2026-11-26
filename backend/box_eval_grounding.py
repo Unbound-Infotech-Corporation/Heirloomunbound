@@ -66,6 +66,8 @@ OVERBLOCK = [
     "I'm going home now.",
 ]
 REMINDER = "Remind me to water the tomato plants tomorrow at 9am"
+# Any fixed zone works. The check is that 9am lands on that zone's clock, not UTC.
+REMINDER_ZONE = "America/New_York"
 
 _DECLINE = (
     "don't have that memory",
@@ -108,10 +110,13 @@ class EvalApi(Api):
             raise RuntimeError(f"twin start {status}: {started}")
         return str(started.get("conversation_id") or "")
 
-    def say(self, conversation_id: str, question: str) -> dict[str, Any]:
+    def say(self, conversation_id: str, question: str, timezone_name: str = "") -> dict[str, Any]:
+        sent: dict[str, str] = {"conversation_id": conversation_id, "message": question}
+        if timezone_name:
+            sent["timezone"] = timezone_name
         request = urllib.request.Request(
             self.base + "/api/twin/message",
-            data=json.dumps({"conversation_id": conversation_id, "message": question}).encode("utf-8"),
+            data=json.dumps(sent).encode("utf-8"),
             method="POST",
             headers=self._headers(),
         )
@@ -309,13 +314,19 @@ def run() -> int:
         print("A reminder is created, not just promised:")
         conversation_id = api.start()
         conversations.append(conversation_id)
-        got = api.say(conversation_id, REMINDER)
+        got = api.say(conversation_id, REMINDER, timezone_name=REMINDER_ZONE)
         reminder_id = str((got["action"] or {}).get("reminder_id") or "")
         if reminder_id:
             reminder_ids.append(reminder_id)
         row = db.reminders.find_one({"user_id": user_id, "reminder_id": reminder_id}, {"_id": 0}) if reminder_id else None
-        ok = bool(row) and bool((row or {}).get("due_at"))
-        checks.append(("reminder: saved with a due time", ok))
+        ok = False
+        due = str((row or {}).get("due_at") or "")
+        if due:
+            from zoneinfo import ZoneInfo
+
+            local = datetime.fromisoformat(due).astimezone(ZoneInfo(REMINDER_ZONE))
+            ok = local.hour == 9 and local.minute == 0
+        checks.append((f"reminder: saved for 9:00 AM {REMINDER_ZONE}", ok))
         print(f"  {'ok ' if ok else 'BAD'} {got['seconds']:5.1f}s  due_at={(row or {}).get('due_at')} -> {_short(got['text'])}")
     except Exception as exc:  # noqa: BLE001
         checks.append((f"eval ran without an error ({exc})", False))
