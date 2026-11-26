@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlarmClock, ArrowRight, BookmarkPlus, Calendar, CheckCircle2, Circle, Clock, Feather, Flame, MessageCircle, Sparkles, X } from "lucide-react";
+import { AlarmClock, ArrowRight, BookmarkPlus, Calendar, CheckCircle2, Circle, Clock, Feather, Flame, Mail, MessageCircle, Sparkles, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import FirstGiftInvite from "../components/FirstGiftInvite";
+import FirstSteps from "../components/FirstSteps";
+import { greetingLine, isFreshArchive } from "../lib/greeting";
+import useMediaQuery, { WIDE } from "../lib/useMediaQuery";
 import { routineActionHref, shouldShowNudge } from "../lib/standingRoutines";
 
 const GREETINGS = ["Good morning", "Good afternoon", "Good evening"];
@@ -96,26 +99,65 @@ export default function Today() {
 
   const reflection = pickReflection();
   const total = (data.overdue?.length || 0) + (data.today?.length || 0);
+  const wide = useMediaQuery(WIDE);
+  const fresh = isFreshArchive(stats);
+
+  const reminders = widgets.reminders ? (
+    <section className={wide ? "mb-8" : "mb-12"} data-testid="today-reminders">
+      <div className="flex justify-between items-end mb-5">
+        <div>
+          <div className="overline mb-2">reminders</div>
+          <h2 className={`font-serif ${wide ? "text-xl" : "text-2xl"}`}>On your plate</h2>
+        </div>
+        <Link to="/reminders" data-testid="today-all-reminders" className="text-sm hover:text-[var(--accent)]" style={{ color: "var(--text-secondary)" }}>
+          see all →
+        </Link>
+      </div>
+
+      {total === 0 && (data.no_date?.length || 0) === 0 ? (
+        <div className={`surface ${wide ? "p-6" : "p-10"} text-center`} data-testid="today-empty">
+          <p className={`font-serif ${wide ? "text-lg" : "text-xl"}`} style={{ color: "var(--text-secondary)" }}>
+            Nothing on your plate. Use the capture bar to jot something down.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {data.overdue?.map((r) => (
+            <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="overdue" />
+          ))}
+          {data.today?.map((r) => (
+            <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="today" />
+          ))}
+          {data.no_date?.map((r) => (
+            <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="someday" />
+          ))}
+        </div>
+      )}
+    </section>
+  ) : null;
 
   return (
-    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-5xl" data-testid="today-root">
+    <div className="page-wide" data-testid="today-root">
+      <div className="page-main">
       <header className="mb-12">
         <div className="overline mb-3">today, {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</div>
         <h1
           className="font-serif text-4xl lg:text-5xl font-light tracking-tight"
           data-testid="today-greeting"
         >
-          {pickGreeting()}, {user?.name?.split(" ")[0] || "friend"}.
+          {greetingLine(pickGreeting(), user)}
         </h1>
       </header>
 
-      {/* Always-on stat strip */}
+      {/* Stat strip — a brand-new archive gets first steps instead of a row of zeros */}
+      {fresh ? <FirstSteps stats={stats} testId="today-first-steps" /> : (
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
         <StatPill icon={Flame} label="streak" value={`${stats?.streak_days ?? 0} ${stats?.streak_days === 1 ? "day" : "days"}`} tid="today-streak" />
         <StatPill icon={AlarmClock} label="open" value={stats?.reminders_open ?? 0} tid="today-open" />
         <StatPill icon={Clock} label="due today" value={total} tid="today-due" />
         <StatPill icon={Sparkles} label="captured" value={stats?.total_entries ?? 0} tid="today-entries" />
       </section>
+      )}
 
       <div className="mb-12" data-testid="today-first-gift">
         <FirstGiftInvite compact />
@@ -169,40 +211,8 @@ export default function Today() {
         </section>
       )}
 
-      {/* Reminders */}
-      {widgets.reminders && (
-        <section className="mb-12">
-          <div className="flex justify-between items-end mb-5">
-            <div>
-              <div className="overline mb-2">reminders</div>
-              <h2 className="font-serif text-2xl">On your plate</h2>
-            </div>
-            <Link to="/reminders" data-testid="today-all-reminders" className="text-sm hover:text-[var(--accent)]" style={{ color: "var(--text-secondary)" }}>
-              see all →
-            </Link>
-          </div>
-
-          {total === 0 && (data.no_date?.length || 0) === 0 ? (
-            <div className="surface p-10 text-center" data-testid="today-empty">
-              <p className="font-serif text-xl" style={{ color: "var(--text-secondary)" }}>
-                Nothing on your plate. Use the capture bar to jot something down.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {data.overdue?.map((r) => (
-                <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="overdue" />
-              ))}
-              {data.today?.map((r) => (
-                <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="today" />
-              ))}
-              {data.no_date?.map((r) => (
-                <ReminderRow key={r.reminder_id} r={r} onComplete={complete} variant="someday" />
-              ))}
-            </div>
-          )}
-        </section>
-      )}
+      {/* Reminders sit in the side panel on wide screens */}
+      {!wide && reminders}
 
       {/* On this day */}
       {widgets.on_this_day && onthisday?.entries?.length > 0 && (
@@ -294,9 +304,43 @@ export default function Today() {
           </div>
         </section>
       )}
+      </div>
+
+      {wide && (
+        <aside className="page-aside" data-testid="today-aside">
+          {reminders}
+          <section className="surface p-6" data-testid="today-quick">
+            <div className="overline mb-4">start something</div>
+            <div className="space-y-1">
+              {QUICK.map((q) => {
+                const Icon = q.icon;
+                return (
+                  <Link
+                    key={q.to}
+                    to={q.to}
+                    data-testid={`today-quick-${q.key}`}
+                    className="group flex items-center gap-3 px-3 py-2.5 -mx-3 rounded-sm transition-colors hover:bg-[var(--bg-elevated)]"
+                  >
+                    <Icon className="h-4 w-4 shrink-0" style={{ color: "var(--accent)" }} />
+                    <span className="flex-1 text-sm" style={{ color: "var(--text-primary)" }}>{q.label}</span>
+                    <ArrowRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "var(--text-muted)" }} />
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        </aside>
+      )}
     </div>
   );
 }
+
+const QUICK = [
+  { key: "record", to: "/record", label: "Record a memory", icon: BookmarkPlus },
+  { key: "twin", to: "/twin", label: "Talk with your twin", icon: MessageCircle },
+  { key: "journal", to: "/journal", label: "Voice journal", icon: Feather },
+  { key: "letter", to: "/letters", label: "Seal a letter for later", icon: Mail },
+];
 
 function TwinNudgeCard({ nudge, onDismiss, onAct, testId, legacyIds }) {
   const href = routineActionHref(nudge);
