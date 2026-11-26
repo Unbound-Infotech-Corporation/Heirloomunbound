@@ -57,7 +57,7 @@ jobs:
         run: |
           python -m pip install -r requirements-ci.txt
           New-Item -ItemType Directory -Force -Path ../test-results | Out-Null
-          python -m pytest tests/test_byo_secrets.py tests/test_setup_center.py tests/test_smart_home.py tests/test_writing_assistant.py tests/test_code_and_assist.py tests/test_backup_gpg.py tests/test_assist_receipt.py tests/test_owner_rail.py tests/test_brain_route.py tests/test_llm_provider.py tests/test_odysseus_client.py tests/test_report_fixes.py tests/test_letter_unlock.py tests/test_session_renew.py tests/test_buyer_runtime.py tests/test_stream_scope.py tests/test_whisper_decode.py tests/test_grounding.py tests/test_model_tiers.py tests/test_local_skills.py tests/test_life_story.py tests/test_local_box.py tests/test_tier_suite.py -q --junitxml=../test-results/backend-windows.xml
+          python -m pytest tests/test_byo_secrets.py tests/test_setup_center.py tests/test_smart_home.py tests/test_writing_assistant.py tests/test_code_and_assist.py tests/test_backup_gpg.py tests/test_assist_receipt.py tests/test_owner_rail.py tests/test_brain_route.py tests/test_llm_provider.py tests/test_odysseus_client.py tests/test_report_fixes.py tests/test_letter_unlock.py tests/test_session_renew.py tests/test_buyer_runtime.py tests/test_stream_scope.py tests/test_whisper_decode.py tests/test_grounding.py tests/test_model_tiers.py tests/test_local_skills.py tests/test_life_story.py tests/test_local_box.py tests/test_tier_suite.py tests/test_mobile_pairing.py tests/test_twilio_bridge.py -q --junitxml=../test-results/backend-windows.xml
 
       - name: Upload Windows logs
         if: always()
@@ -89,7 +89,7 @@ jobs:
         run: |
           python -m pip install -r requirements-ci.txt
           mkdir -p ../test-results
-          python -m pytest tests/test_byo_secrets.py tests/test_setup_center.py tests/test_smart_home.py tests/test_writing_assistant.py tests/test_code_and_assist.py tests/test_backup_gpg.py tests/test_assist_receipt.py tests/test_owner_rail.py tests/test_brain_route.py tests/test_llm_provider.py tests/test_odysseus_client.py tests/test_report_fixes.py tests/test_letter_unlock.py tests/test_session_renew.py tests/test_buyer_runtime.py tests/test_stream_scope.py tests/test_whisper_decode.py tests/test_grounding.py tests/test_model_tiers.py tests/test_local_skills.py tests/test_life_story.py tests/test_local_box.py tests/test_tier_suite.py -q --junitxml=../test-results/backend-linux.xml
+          python -m pytest tests/test_byo_secrets.py tests/test_setup_center.py tests/test_smart_home.py tests/test_writing_assistant.py tests/test_code_and_assist.py tests/test_backup_gpg.py tests/test_assist_receipt.py tests/test_owner_rail.py tests/test_brain_route.py tests/test_llm_provider.py tests/test_odysseus_client.py tests/test_report_fixes.py tests/test_letter_unlock.py tests/test_session_renew.py tests/test_buyer_runtime.py tests/test_stream_scope.py tests/test_whisper_decode.py tests/test_grounding.py tests/test_model_tiers.py tests/test_local_skills.py tests/test_life_story.py tests/test_local_box.py tests/test_tier_suite.py tests/test_mobile_pairing.py tests/test_twilio_bridge.py -q --junitxml=../test-results/backend-linux.xml
 
       - name: Upload Linux logs
         if: always()
@@ -98,3 +98,31 @@ jobs:
           name: linux-test-logs
           path: test-results/
           if-no-files-found: warn
+
+  mobile:
+    name: Phone app (Expo) tests and bundles
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests and typecheck
+        run: |
+          npm test -- --ci
+          npm run typecheck
+
+      - name: Android and iOS JS bundles
+        run: npx expo export --platform android --platform ios --output-dir bundle-check

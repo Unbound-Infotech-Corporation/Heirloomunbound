@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "Heirloom",
+    "slug": "heirloom-companion",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.unboundinfotech.heirloom.companion",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan the pairing code on your Heirloom box.",
+        "NSMicrophoneUsageDescription": "Talk to your Twin. Audio goes only to your own box."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.unboundinfotech.heirloom.companion",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the pairing code on your Heirloom box.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Talk to your Twin. Audio goes only to your own box."
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "networkInspector": false
+          }
+        }
+      ],
+      "./plugins/withBoxCa"
+    ],
+    "scheme": "heirloom"
+  }
+}

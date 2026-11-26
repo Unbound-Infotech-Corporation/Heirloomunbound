@@ -630,6 +630,10 @@ write_env() {
   upsert_env HEIRLOOM_PAUSE_FILE "${DATA_ROOT}/pause.json" "${env_file}"
   upsert_env HEIRLOOM_OWNER_PASSWORD_FILE "${DATA_ROOT}/owner/owner.pass" "${env_file}"
   upsert_env HEIRLOOM_CADDY_ROOT "${DATA_ROOT}/caddy/caddy/pki/authorities/local/root.crt" "${env_file}"
+  if [[ "${WITH_CHATTERBOX}" -eq 1 ]]; then
+    # The API container reaches the voice by its compose name (PRESENCE_SPEAK_URL is the host's view).
+    upsert_env HEIRLOOM_VOICE_URL "http://chatterbox:8010/speak" "${env_file}"
+  fi
   upsert_env HEIRLOOM_LLM_PROVIDER "ollama" "${env_file}"
   upsert_env OLLAMA_BASE_URL "http://ollama:11434" "${env_file}"
   upsert_env OLLAMA_TWIN_MODEL "${model}" "${env_file}"

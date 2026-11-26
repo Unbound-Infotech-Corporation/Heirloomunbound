@@ -62,6 +62,8 @@ from routers import (
     letters,
     live,
     life_story,
+    mobile,
+    twilio_line,
     local_skills,
     memory,
     memory_loop,
@@ -272,6 +274,8 @@ api_router.include_router(approvals.router)
 api_router.include_router(connectors.router)
 api_router.include_router(local_skills.router)
 api_router.include_router(life_story.router)
+api_router.include_router(mobile.router)
+api_router.include_router(twilio_line.router)
 api_router.include_router(vr_setup.router)
 api_router.include_router(rooms.router)
 api_router.include_router(phone.router)

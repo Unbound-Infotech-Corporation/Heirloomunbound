@@ -22,6 +22,9 @@ def client_chat_mode(mode: str | None, device_id: str | None) -> str:
     resolved = (mode or "twin").strip().lower() or "twin"
     if device_id == BOX_CLIENT_DEVICE and resolved in {"assistant", "owner"}:
         return "twin"
+    # A paired phone talks with the Twin; it never drives the PC (Assist) remotely.
+    if (device_id or "").startswith("phone_") and resolved in {"assistant", "owner"}:
+        return "twin"
     return resolved
 
 
