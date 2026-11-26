@@ -47,6 +47,9 @@ services:
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy:ro
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/pause.json:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/pause.json
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/whisper:/var/lib/heirloom/whisper
+      # Local skills: File Search reads documents copied here; the index lives in skills/.
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/files:/var/lib/heirloom/files:ro
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/skills:/var/lib/heirloom/skills
     depends_on:
       - mongo
       - ollama

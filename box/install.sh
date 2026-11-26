@@ -553,6 +553,9 @@ write_tree() {
   ensure_data_dir "${DATA_ROOT}/caddy"
   ensure_data_dir "${DATA_ROOT}/caddy-config"
   ensure_data_dir "${DATA_ROOT}/whisper"
+  # Local skills: documents the owner wants searchable, and the search index.
+  ensure_data_dir "${DATA_ROOT}/files"
+  ensure_data_dir "${DATA_ROOT}/skills"
   if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
     run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/observer"
   fi

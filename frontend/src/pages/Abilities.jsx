@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import {
+  Calendar,
   Check,
   Eye,
+  FolderSearch,
   Globe,
   Loader2,
+  Mail,
   Monitor,
   Music,
+  NotebookPen,
   ShieldCheck,
   Terminal,
   Wrench,
@@ -14,13 +18,27 @@ import {
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePageMeta } from "@/lib/usePageMeta";
+import SkillSetup from "@/components/SkillSetup";
 
-const ICONS = { globe: Globe, music: Music, wrench: Wrench, monitor: Monitor, eye: Eye, terminal: Terminal };
+const ICONS = {
+  globe: Globe,
+  music: Music,
+  wrench: Wrench,
+  monitor: Monitor,
+  eye: Eye,
+  terminal: Terminal,
+  notebook: NotebookPen,
+  "folder-search": FolderSearch,
+  calendar: Calendar,
+  mail: Mail,
+};
+const SETUP_ABILITIES = new Set(["calendar", "email", "files", "web"]);
 
 const CATEGORY_LABELS = {
   knowledge: "Knowledge",
   companion: "Companion",
   computer: "Your computer",
+  assistant: "Assistant",
 };
 
 export default function Abilities() {
@@ -170,6 +188,7 @@ export default function Abilities() {
                       </span>
                     ))}
                   </div>
+                  {ability.enabled && SETUP_ABILITIES.has(ability.id) && <SkillSetup abilityId={ability.id} />}
                 </div>
               );
             })}
