@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from deps import EMERGENT_LLM_KEY, db

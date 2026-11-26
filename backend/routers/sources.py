@@ -1,5 +1,4 @@
 """Cloud / local data sources — Gmail/Drive Takeout uploads + companion-driven local folder sync."""
-import hashlib
 import io
 import json
 import uuid

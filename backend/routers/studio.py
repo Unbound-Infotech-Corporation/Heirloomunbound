@@ -36,7 +36,6 @@ from studio_defaults import (
     clamp_compute,
     clamp_model_map,
     credential_for_backend,
-    default_model_map,
 )
 from studio_compute import (
     compute_target_device_id,
@@ -554,7 +553,6 @@ def _feature_readiness(
         ready = True
         detail = ""
 
-    cred = None
     cred_backend = chosen_backend if chosen_backend != "auto" else effective
     if cred_backend in BACKEND_CREDENTIALS:
         cred_meta = credential_for_backend(cred_backend)

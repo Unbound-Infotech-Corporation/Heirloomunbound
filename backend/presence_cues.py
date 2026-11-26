@@ -1,7 +1,6 @@
 """Short cues Observer can attach to a session. No frames, no embeddings."""
 from __future__ import annotations
 
-from typing import Optional
 
 
 def room_cue(present: list) -> str:

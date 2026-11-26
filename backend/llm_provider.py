@@ -28,6 +28,28 @@ BOX_CHAT_MODEL = "qwen2.5:14b"
 BOX_VISION_MODEL = "qwen2.5vl:7b"
 BRAIN_KEEP_ALIVE = "30m"
 
+
+def box_keep_alive() -> str:
+    """How long the box's own Ollama keeps the chat and embedding models loaded.
+
+    HEIRLOOM_BOX_KEEP_ALIVE wins. Otherwise 24h while the observer is off. After
+    a 30-minute idle the reload took 12s, and once Ollama read stale free VRAM
+    and split qwen2.5:14b onto the CPU: a 2.5-minute first turn, then a
+    watchdog restart. With the observer on, 30m so the vision model can swap in.
+    A LAN brain (BIGDEAL) keeps BRAIN_KEEP_ALIVE; this never holds its GPU.
+    """
+    raw = (os.environ.get("HEIRLOOM_BOX_KEEP_ALIVE") or "").strip()
+    if raw:
+        return raw
+    try:
+        from observer_store import observer_enabled
+
+        if observer_enabled():
+            return BRAIN_KEEP_ALIVE
+    except Exception:  # noqa: BLE001
+        pass
+    return "24h"
+
 # Names that mean "keep the current Emergent / Anthropic / OpenAI transport"
 # when the process is not a Twin Box.
 _CLOUD_NAMES = frozenset({"", "emergent", "anthropic", "openai", "cloud", "cloud_claude"})
@@ -398,6 +420,8 @@ async def complete_openai_chat(
         body["max_tokens"] = limit
         body["options"] = {"num_predict": limit}
     alive = BRAIN_KEEP_ALIVE if keep_alive is None else keep_alive
+    if alive == BRAIN_KEEP_ALIVE and box_mode() and chosen_url.rstrip("/") == ollama_base_url(None).rstrip("/"):
+        alive = box_keep_alive()
     if alive:
         body["keep_alive"] = alive
     from brain_route import remember_answer

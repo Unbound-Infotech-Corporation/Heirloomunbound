@@ -6,12 +6,10 @@ helpers power /companion/voice STT and cloud-side Ollama twin turns.
 """
 from __future__ import annotations
 
-import io
-import json
 import os
 import urllib.error
 import urllib.request
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -182,22 +180,39 @@ def embed_timeout() -> float:
 async def warm_embed_model() -> bool:
     """Load the embedding model and ask Ollama to keep it resident."""
     global _embed_warm
-    loaded = await ollama_embed_many(["search_query: ready"], timeout=25.0, keep_alive="30m")
+    loaded = await ollama_embed_many(["search_query: ready"], timeout=25.0)
     _embed_warm = bool(loaded)
     return _embed_warm
+
+
+async def warm_chat_model() -> bool:
+    """Load the box chat model at API start, so the first family turn is not a cold load."""
+    from llm_provider import box_keep_alive, ollama_base_url, ollama_model
+
+    body = {"model": ollama_model(None), "prompt": "", "keep_alive": box_keep_alive()}
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(f"{ollama_base_url(None)}/api/generate", json=body)
+        return response.status_code == 200
+    except Exception:  # noqa: BLE001
+        return False
 
 
 async def ollama_embed_many(
     texts: list[str],
     *,
     timeout: float | None = None,
-    keep_alive: str = "30m",
+    keep_alive: str | None = None,
 ) -> list[list[float]] | None:
     """Local embeddings from the box Ollama. None when the model is absent."""
     rows = [text for text in texts if (text or "").strip()]
     if not rows or len(rows) != len(texts):
         return None
     url = f"{ollama_base_url().rstrip('/')}/api/embed"
+    if keep_alive is None:
+        from llm_provider import box_keep_alive
+
+        keep_alive = box_keep_alive()
     body = {"model": embed_model(), "input": rows, "keep_alive": keep_alive}
     if timeout is None:
         timeout = embed_timeout()

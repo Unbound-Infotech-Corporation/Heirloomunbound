@@ -2,7 +2,6 @@
 import asyncio
 import logging
 import os
-import re
 
 # Sentry must initialise BEFORE FastAPI/app imports so it instruments correctly.
 # Quiet no-op if SENTRY_DSN isn't set — keeps dev/test environments clean.
@@ -26,11 +25,10 @@ if _SENTRY_DSN:
         attach_stacktrace=True,
     )
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI
 
 from box_health import health_payload
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse
 
 from deps import db  # noqa: F401  -- ensures Mongo client is initialised early
 from db_indexes import ensure_indexes
@@ -350,9 +348,10 @@ async def warm_box_embeddings():
     """Keep nomic-embed-text loaded on a Twin Box so the first recall is not a cold start."""
     if os.environ.get("HEIRLOOM_BOX") != "1":
         return
-    from local_inference import warm_embed_model
+    from local_inference import warm_chat_model, warm_embed_model
 
     asyncio.create_task(warm_embed_model())
+    asyncio.create_task(warm_chat_model())
 
 
 @app.on_event("shutdown")

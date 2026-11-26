@@ -11,7 +11,7 @@ Quest packaging, heir-enter-a-released-room.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
 CAPTURE_STATUSES = ("pending", "processing", "ready", "failed")
 SCENE_FORMAT = "gltf"

@@ -24,7 +24,7 @@ from typing import Any, Callable, Coroutine
 import requests
 from bs4 import BeautifulSoup
 
-from deps import EMERGENT_LLM_KEY, db
+from deps import db
 from owner_pairing import is_owner_audience
 
 # ---------------- Tool schemas ---------------- #

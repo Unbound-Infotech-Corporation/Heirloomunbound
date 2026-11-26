@@ -4,6 +4,8 @@ WORKDIR /src
 COPY frontend/ /src/
 ENV REACT_APP_BACKEND_URL=
 ENV CI=false
+# No source maps in the box image: 4.5 MB the browser never needs, and they expose the source.
+ENV GENERATE_SOURCEMAP=false
 RUN yarn install --frozen-lockfile && yarn build
 
 FROM caddy:2-alpine
