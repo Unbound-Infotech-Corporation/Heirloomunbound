@@ -491,7 +491,7 @@ internal sealed class TrayController : IDisposable
             _store.CaPem,
             token,
             "/api/assist/live/ptt",
-            "{\"held\":true}").ConfigureAwait(true);
+            AssistLiveBodies.Ptt(true)).ConfigureAwait(true);
     }
 
     private async Task SetMutedAsync(bool muted)
@@ -554,7 +554,7 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
-        var json = JsonSerializer.Serialize(new { text = words });
+        var json = AssistLiveBodies.Say(words);
         await BoxClient.PostAssistAsync(
             _store.BoxUrl,
             _store.Pin,
