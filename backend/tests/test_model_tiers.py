@@ -1,6 +1,7 @@
 """Hardware tiers: detection parsing, the pick per card, overrides, and thinking flags."""
 import asyncio
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -88,6 +89,7 @@ def test_cli_choose_json():
     assert picked["tier"] == "large"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="box/lib/models.sh is for the Linux box")
 def test_shell_table_matches_python():
     """box/lib/models.sh carries the same picks for a box without python3."""
     for tier in TIERS[:-1]:
@@ -194,6 +196,7 @@ def test_bench_score_is_the_weighted_sum():
     assert score({**grounded, "chat": perfect, "tools": perfect, "json": perfect})["quality"] == 100.0
 
 
+@pytest.mark.skipif(os.name == "nt", reason="box/lib/models.sh is for the Linux box")
 def test_shell_context_matches_python():
     for tier in TIERS[:-1]:
         script = f'source "{ROOT}/box/lib/models.sh"; heirloom_ctx_for_vram_mib {tier.min_vram_mib}'
