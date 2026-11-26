@@ -12,7 +12,7 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -151,13 +151,23 @@ def _speak_wav_url() -> str:
 @router.post("/speak")
 async def speak(body: SpeakReq, ctx: dict = Depends(get_device_user)):
     """The box's local voice reads a reply aloud; the phone just plays the wav."""
+    return await _speak(body.text, ctx)
+
+
+@router.get("/speak.wav")
+async def speak_get(text: str = Query(..., min_length=1, max_length=1200), ctx: dict = Depends(get_device_user)):
+    """Same as POST /speak, as a GET so the phone's audio player can stream it with its Bearer header."""
+    return await _speak(text, ctx)
+
+
+async def _speak(text: str, ctx: dict) -> Response:
     if ctx["device"].get("kind") != "phone":
         raise HTTPException(status_code=403, detail="Not a phone token")
     import asyncio
     import json
 
     def render() -> bytes:
-        req = urllib.request.Request(_speak_wav_url(), data=json.dumps({"text": body.text}).encode(),
+        req = urllib.request.Request(_speak_wav_url(), data=json.dumps({"text": text}).encode(),
                                      headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=120) as resp:
             return resp.read()
