@@ -251,3 +251,15 @@ def test_free_reply_cannot_add_a_new_topic_or_dangling_line():
     out = _run(hg.heir_reply("Hi Grandpa, it's Emma.", owner=OWNER, heir=HEIR, rows=[], draft=draft,
                              ask=fake_model("", personal=False)))
     assert out["reply"] == "Hi Emma, it's good to hear from you."
+
+
+def test_uncited_question_declines_and_odd_small_talk_turns_warm():
+    async def chatter(used):
+        return "Let's talk about that soon, okay?"
+
+    out = _run(hg.heir_reply("What will your next letter to me say?", owner=OWNER, heir=HEIR, rows=[],
+                             draft=chatter, ask=fake_model("", personal=False)))
+    assert out["reply"] == grounding.HEIR_NO_MEMORY
+    out = _run(hg.heir_reply("Hi Grandpa, it's Emma.", owner=OWNER, heir=HEIR, rows=[],
+                             draft=chatter, ask=fake_model("", personal=False)))
+    assert out["reply"] == "I'm glad you're here, Emma."

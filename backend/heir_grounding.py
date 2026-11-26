@@ -160,12 +160,18 @@ async def heir_reply(
     verdict = await verify_reply(raw, cards=used, owner_messages=said, ask=ask)
     meta.update({"verify": verdict.source, "removed": len(verdict.removed)})
     final = names_only_from_evidence(verdict.text, used, said)
-    if not final:
-        reply = HEIR_NO_MEMORY if _is_question(text) else here_line(heir)
-        return {"reply": reply, "cited": [], "grounded": False, "meta": meta}
     from memory_cards import citations_that_ground
 
-    return {"reply": final, "cited": citations(citations_that_ground(final, used)), "grounded": True, "meta": meta}
+    cited = citations(citations_that_ground(final, used)) if final else []
+    if not cited:
+        first = str(heir.get("name") or "").split(" ")[0]
+        if _is_question(text):
+            # A question with no memory behind the answer gets the honest decline, not chatter.
+            return {"reply": HEIR_NO_MEMORY, "cited": [], "grounded": False, "meta": meta}
+        if not final or (first and first.lower() not in final.lower()):
+            # Small talk that lost its greeting to the checker reads oddly; keep it simple and warm.
+            return {"reply": here_line(heir), "cited": [], "grounded": False, "meta": meta}
+    return {"reply": final, "cited": cited, "grounded": True, "meta": meta}
 
 
 def _is_question(text: str) -> bool:
