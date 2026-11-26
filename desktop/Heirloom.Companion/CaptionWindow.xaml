@@ -13,7 +13,16 @@
     Topmost="True"
     ResizeMode="NoResize"
     WindowStartupLocation="Manual">
-    <Border Margin="12" Padding="16,12" Background="#F0141414" CornerRadius="8">
-        <TextBlock x:Name="Caption" Foreground="White" FontSize="18" TextWrapping="Wrap" />
+    <Border Margin="14" CornerRadius="12" Background="#F2121110" BorderBrush="#5AD4A373" BorderThickness="1">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="22" ShadowDepth="4" Opacity="0.55" Color="#000000" />
+        </Border.Effect>
+        <DockPanel>
+            <Border DockPanel.Dock="Left" Width="3" Margin="0,12,0,12" CornerRadius="2" Background="{StaticResource HlGold}" />
+            <StackPanel Margin="14,10,18,12">
+                <TextBlock Text="YOUR TWIN" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource HlGold}" Margin="0,0,0,3" />
+                <TextBlock x:Name="Caption" Foreground="{StaticResource HlText}" FontFamily="{StaticResource HlSerif}" FontSize="20" LineHeight="27" TextWrapping="Wrap" />
+            </StackPanel>
+        </DockPanel>
     </Border>
 </Window>

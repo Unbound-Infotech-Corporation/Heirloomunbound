@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Heirloom.BoxCore;
 
 namespace Heirloom.Companion;
@@ -15,6 +16,7 @@ public partial class TwinLiveWindow : Window
     private TwinLiveFrame _frame = TwinLiveFrame.Empty;
     private string _pendingId = "";
     private bool _allowClose;
+    private bool _pulsing;
 
     public TwinLiveWindow(CompanionStore store)
     {
@@ -92,9 +94,32 @@ public partial class TwinLiveWindow : Window
     {
         var listening = _frame.Status == "Listening";
         Status.Text = listening ? "Listening" : "Paused";
-        Status.Foreground = listening
-            ? new SolidColorBrush(Color.FromRgb(30, 110, 60))
-            : new SolidColorBrush(Color.FromRgb(140, 90, 20));
+        var gold = Color.FromRgb(0xD4, 0xA3, 0x73);
+        Status.Foreground = new SolidColorBrush(listening ? gold : Color.FromRgb(0xA8, 0xA0, 0x96));
+        StatusDot.Fill = new SolidColorBrush(listening ? gold : Color.FromRgb(0x7A, 0x73, 0x6B));
+        StatusPill.BorderBrush = new SolidColorBrush(listening ? Color.FromArgb(0x88, 0xD4, 0xA3, 0x73) : Color.FromRgb(0x36, 0x32, 0x2E));
+        StatusPill.Background = new SolidColorBrush(listening ? Color.FromArgb(0x26, 0xD4, 0xA3, 0x73) : Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
+        if (listening == _pulsing)
+        {
+            return;
+        }
+
+        _pulsing = listening;
+        if (listening)
+        {
+            // A slow breath while the mic is open.
+            StatusDot.BeginAnimation(OpacityProperty, new DoubleAnimation(1.0, 0.3, TimeSpan.FromSeconds(0.9))
+            {
+                AutoReverse = true,
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+            });
+        }
+        else
+        {
+            StatusDot.BeginAnimation(OpacityProperty, null);
+            StatusDot.Opacity = 1.0;
+        }
     }
 
     private void OnTopChanged(object sender, RoutedEventArgs e)

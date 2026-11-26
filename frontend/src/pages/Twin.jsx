@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { ArrowRight, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Monitor, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
+import { ArrowRight, Brain, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Monitor, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
 import { api, streamSSE } from "../lib/api";
 import { browserTimeZone } from "../lib/captureTime";
 import FirstGiftInvite from "../components/FirstGiftInvite";
@@ -8,6 +8,7 @@ import AssistantPicker from "../components/studio/AssistantPicker";
 import LabVote from "../components/studio/LabVote";
 import { speakerLabel } from "../lib/assistants";
 import { watchedSourceLabel } from "../lib/observer";
+import useMediaQuery, { WIDE } from "../lib/useMediaQuery";
 
 const TOOL_META = {
   search_archive: { label: "searching your archive", icon: Search },
@@ -72,6 +73,8 @@ export default function Twin() {
   const [assistants, setAssistants] = useState([]);
   const [selectedAssistant, setSelectedAssistant] = useState(null);
   const [labOn, setLabOn] = useState(false);
+  const [held, setHeld] = useState(null);
+  const wide = useMediaQuery(WIDE);
   const [searchParams] = useSearchParams();
   const roomId = (searchParams.get("room") || "").trim();
 
@@ -79,6 +82,7 @@ export default function Twin() {
     api.get("/abilities").then(({ data }) => setAbilities(data.abilities || [])).catch(() => {});
     api.get("/clones").then(({ data }) => setAssistants(data.clones || [])).catch(() => {});
     api.get("/lab/status").then(() => setLabOn(true)).catch(() => setLabOn(false));
+    api.get("/dashboard").then(({ data }) => setHeld(data)).catch(() => {});
   }, []);
 
   const toggleAbility = async (ab) => {
@@ -274,9 +278,10 @@ export default function Twin() {
   };
 
   return (
-    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-4xl" data-testid="twin-root">
-      <header className="mb-10 flex justify-between items-end gap-6">
-        <div>
+    <div className="page-wide" data-testid="twin-root">
+      <div className="page-main">
+      <header className="mb-10 flex flex-col sm:flex-row sm:justify-between sm:items-end gap-5">
+        <div className="min-w-0">
           <div className="overline mb-3">your twin</div>
           <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">
             Sit a while. Ask anything.
@@ -284,22 +289,24 @@ export default function Twin() {
           <p className="mt-3 text-base max-w-xl" style={{ color: "var(--text-secondary)" }}>
             Your twin draws from everything you&apos;ve put into the archive. The more you&apos;ve added, the truer it sounds.
           </p>
-          <Link
-            to="/memory"
-            className="inline-block mt-3 text-xs hover:text-[var(--accent)]"
-            style={{ color: "var(--accent)" }}
-            data-testid="twin-link-memory"
-          >
-            Memory Studio — what I hold onto →
-          </Link>
-          <Link
-            to="/rooms"
-            className="inline-block mt-2 ml-4 text-xs hover:text-[var(--accent)]"
-            style={{ color: "var(--accent)" }}
-            data-testid="twin-link-rooms"
-          >
-            Rooms — sit in a place →
-          </Link>
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1">
+            <Link
+              to="/memory"
+              className="text-xs hover:text-[var(--accent-hover)]"
+              style={{ color: "var(--accent)" }}
+              data-testid="twin-link-memory"
+            >
+              Memory Studio — what I hold onto →
+            </Link>
+            <Link
+              to="/rooms"
+              className="text-xs hover:text-[var(--accent-hover)]"
+              style={{ color: "var(--accent)" }}
+              data-testid="twin-link-rooms"
+            >
+              Rooms — sit in a place →
+            </Link>
+          </div>
           {roomId ? (
             <Link
               to={`/rooms/${roomId}/sit`}
@@ -311,7 +318,7 @@ export default function Twin() {
             </Link>
           ) : null}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
         <button
           type="button"
           onClick={() => {
@@ -324,24 +331,25 @@ export default function Twin() {
             });
           }}
           data-testid="twin-new-conversation"
-          className="text-xs px-4 py-2 rounded-sm transition-colors hover:text-[var(--accent)]"
+          className="text-xs px-4 py-2 rounded-sm whitespace-nowrap transition-colors hover:text-[var(--accent)] hover:border-[var(--accent)]"
           style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
         >
-          new conversation
+          New conversation
         </button>
         <label
-          className="flex items-center gap-3 text-xs px-4 py-2 rounded-sm cursor-pointer"
-          style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+          className="flex items-center gap-2 text-xs px-4 py-2 rounded-sm cursor-pointer whitespace-nowrap"
+          style={{ border: `1px solid ${voiceOn ? "var(--accent)" : "var(--border-default)"}`, color: voiceOn ? "var(--accent)" : "var(--text-secondary)" }}
         >
           <input
             type="checkbox"
             checked={voiceOn}
             onChange={(e) => setVoiceOn(e.target.checked)}
             data-testid="twin-voice-toggle"
-            className="h-4 w-4"
+            className="h-3.5 w-3.5"
+            style={{ accentColor: "var(--accent)" }}
           />
           <Volume2 className="h-3.5 w-3.5" />
-          speak replies aloud
+          Speak replies
         </label>
         </div>
       </header>
@@ -350,7 +358,7 @@ export default function Twin() {
         <FirstGiftInvite compact />
       </div>
 
-      {abilities.length > 0 && (
+      {abilities.length > 0 && !wide && (
         <div className="flex items-center flex-wrap gap-2 mb-8" data-testid="twin-abilities-bar">
           <span className="text-xs mr-1" style={{ color: "var(--text-muted)" }}>abilities:</span>
           {abilities.map((ab) => (
@@ -551,7 +559,7 @@ export default function Twin() {
         )}
       </div>
 
-      <div className="surface p-4 sticky bottom-6">
+      <div className="twin-composer surface p-3 sm:p-4 sticky bottom-3 sm:bottom-6 z-10">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -561,8 +569,8 @@ export default function Twin() {
               send(input);
             }
           }}
-          rows={3}
-          placeholder="Ask anything. @Research or pick a clone. (⌘/Ctrl + Enter to send)"
+          rows={wide ? 3 : 2}
+          placeholder={wide ? "Ask anything. @Research or pick a clone. (⌘/Ctrl + Enter to send)" : "Ask anything…"}
           data-testid="twin-input"
           className="w-full bg-transparent border-none outline-none resize-none text-base leading-relaxed"
           style={{ color: "var(--text-primary)" }}
@@ -588,6 +596,63 @@ export default function Twin() {
           </button>
         </div>
       </div>
+      </div>
+
+      {wide && (
+        <aside className="page-aside space-y-6" data-testid="twin-aside">
+          <section className="surface p-6" data-testid="twin-holds">
+            <div className="overline mb-3 flex items-center gap-2">
+              <Brain className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} /> what I hold
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <div className="font-mono text-2xl" style={{ color: "var(--text-primary)" }}>{held?.total_entries ?? "—"}</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>memories filed</div>
+              </div>
+              <div>
+                <div className="font-mono text-2xl" style={{ color: "var(--text-primary)" }}>{held?.total_words != null ? Number(held.total_words).toLocaleString() : "—"}</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>words in your voice</div>
+              </div>
+            </div>
+            <p className="text-sm leading-relaxed mb-4" style={{ color: "var(--text-secondary)" }}>
+              {(held?.total_entries || 0) === 0
+                ? "Nothing filed yet, so I'll say when I don't know. Every memory you record makes me sound more like you."
+                : "I answer from these and say so when something isn't in them."}
+            </p>
+            <Link to="/record" className="inline-flex items-center gap-2 text-sm" style={{ color: "var(--accent)" }} data-testid="twin-aside-record">
+              Record a memory <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </section>
+          {abilities.length > 0 && (
+            <section className="surface p-6" data-testid="twin-abilities-panel">
+              <div className="overline mb-4">abilities</div>
+              <div className="flex flex-wrap gap-2">
+                {abilities.map((ab) => (
+                  <button
+                    key={ab.id}
+                    type="button"
+                    onClick={() => toggleAbility(ab)}
+                    data-testid={`twin-ability-chip-${ab.id}`}
+                    title={ab.tagline}
+                    aria-pressed={!!ab.enabled}
+                    className="text-xs px-3 py-1 rounded-full transition-colors"
+                    style={{
+                      border: `1px solid ${ab.enabled ? "var(--accent)" : "var(--border-default)"}`,
+                      background: ab.enabled ? "var(--accent-muted)" : "transparent",
+                      color: ab.enabled ? "var(--accent)" : "var(--text-muted)",
+                    }}
+                  >
+                    {ab.name}
+                  </button>
+                ))}
+              </div>
+              <Link to="/abilities" className="inline-block mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
+                Manage abilities →
+              </Link>
+            </section>
+          )}
+        </aside>
+      )}
     </div>
   );
 }

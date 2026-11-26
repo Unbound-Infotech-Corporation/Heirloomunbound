@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { ArrowRight, BookText, Feather, Mail, MessageCircleHeart, Sparkles } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import FirstSteps from "../components/FirstSteps";
+import { greetingLine, isFreshArchive } from "../lib/greeting";
 
 const QUICK_LINKS = [
   { to: "/interviewer", label: "Continue interview", desc: "Pick up where you left off", icon: MessageCircleHeart, tid: "quick-interview" },
@@ -22,8 +24,10 @@ export default function Dashboard() {
     api.get("/dashboard").then(({ data }) => setStats(data)).catch(() => setStats(null));
   }, []);
 
+  const fresh = isFreshArchive(stats);
+
   return (
-    <div className="px-4 sm:px-8 lg:px-16 py-12 lg:py-16 max-w-7xl" data-testid="dashboard-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 lg:py-16 max-w-7xl mx-auto" data-testid="dashboard-root">
       <header className="mb-14">
         <div className="overline mb-3">your archive</div>
         <h1
@@ -31,13 +35,17 @@ export default function Dashboard() {
           style={{ color: "var(--text-primary)" }}
           data-testid="dashboard-greeting"
         >
-          Hello, {user?.name?.split(" ")[0] || "friend"}.
+          {greetingLine("Hello", user)}
         </h1>
         <p className="mt-3 text-base max-w-xl" style={{ color: "var(--text-secondary)" }}>
-          A little more of you is here today than yesterday. Keep going.
+          {fresh
+            ? "This is where your stories, your voice, and the people you love will live. Start small."
+            : "A little more of you is here today than yesterday. Keep going."}
         </p>
       </header>
 
+      {fresh ? <FirstSteps stats={stats} testId="dashboard-first-steps" /> : (
+      <>
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-14">
         <Stat label="entries" value={stats?.total_entries ?? 0} testid="stat-entries" />
         <Stat label="words" value={stats?.total_words ?? 0} testid="stat-words" />
@@ -70,6 +78,8 @@ export default function Dashboard() {
           />
         </div>
       </section>
+      </>
+      )}
 
       <section className="grid lg:grid-cols-2 gap-4 mb-14">
         {QUICK_LINKS.map((q) => {

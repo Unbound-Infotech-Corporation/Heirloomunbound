@@ -1,0 +1,186 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Same tokens as the WinUI studio (desktop/Heirloom/Themes/Studio.xaml) and the web app. -->
+    <SolidColorBrush x:Key="HlBase" Color="#FF121110" />
+    <SolidColorBrush x:Key="HlSurface" Color="#FF1C1A18" />
+    <SolidColorBrush x:Key="HlElevated" Color="#FF262320" />
+    <SolidColorBrush x:Key="HlText" Color="#FFF2EFE9" />
+    <SolidColorBrush x:Key="HlTextSecondary" Color="#FFA8A096" />
+    <SolidColorBrush x:Key="HlTextMuted" Color="#FF7A736B" />
+    <SolidColorBrush x:Key="HlGold" Color="#FFD4A373" />
+    <SolidColorBrush x:Key="HlGoldHover" Color="#FFE5B98E" />
+    <SolidColorBrush x:Key="HlGoldPressed" Color="#FFC08D5C" />
+    <SolidColorBrush x:Key="HlGoldMuted" Color="#26D4A373" />
+    <SolidColorBrush x:Key="HlBorder" Color="#FF36322E" />
+    <SolidColorBrush x:Key="HlInk" Color="#FF121110" />
+    <SolidColorBrush x:Key="HlYouBubble" Color="#22D4A373" />
+    <SolidColorBrush x:Key="HlTwinBubble" Color="#FF262320" />
+    <FontFamily x:Key="HlSerif">Sitka Display, Georgia, serif</FontFamily>
+    <FontFamily x:Key="HlSans">Segoe UI Variable Text, Segoe UI, sans-serif</FontFamily>
+
+    <Style x:Key="HlGoldButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource HlInk}" />
+        <Setter Property="Background" Value="{StaticResource HlGold}" />
+        <Setter Property="FontFamily" Value="{StaticResource HlSans}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Padding" Value="16,7" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="16" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HlGoldHover}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HlGoldPressed}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HlGhostButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource HlTextSecondary}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{StaticResource HlBorder}" />
+        <Setter Property="FontFamily" Value="{StaticResource HlSans}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Padding" Value="16,7" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="16" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource HlGold}" />
+                            <Setter Property="Foreground" Value="{StaticResource HlGold}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HlDraftBox" TargetType="TextBox">
+        <Setter Property="Foreground" Value="{StaticResource HlText}" />
+        <Setter Property="CaretBrush" Value="{StaticResource HlGold}" />
+        <Setter Property="SelectionBrush" Value="{StaticResource HlGold}" />
+        <Setter Property="FontFamily" Value="{StaticResource HlSans}" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="Bd" Background="{StaticResource HlSurface}" BorderBrush="{StaticResource HlBorder}" BorderThickness="1" CornerRadius="18" Padding="12,7">
+                        <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource HlGold}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HlPinToggle" TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{StaticResource HlTextMuted}" />
+        <Setter Property="FontFamily" Value="{StaticResource HlSans}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border x:Name="Bd" Background="Transparent" BorderBrush="{StaticResource HlBorder}" BorderThickness="1" CornerRadius="12" Padding="10,3">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource HlGold}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HlGoldMuted}" />
+                            <Setter Property="Foreground" Value="{StaticResource HlGold}" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource HlText}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HlThumb" TargetType="Thumb">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Border CornerRadius="3" Background="#FF4A443E" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A thin, dark vertical scrollbar for the transcript and draft box. -->
+    <Style x:Key="HlScrollBar" TargetType="ScrollBar">
+        <Setter Property="Width" Value="6" />
+        <Setter Property="MinWidth" Value="6" />
+        <Setter Property="Margin" Value="4,2,0,2" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Track x:Name="PART_Track" IsDirectionReversed="True">
+                        <Track.Thumb>
+                            <Thumb Style="{StaticResource HlThumb}" />
+                        </Track.Thumb>
+                    </Track>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- One transcript line as a chat bubble: the twin on the left, you on the right. -->
+    <DataTemplate x:Key="HlBubble">
+        <Border x:Name="Bubble" Margin="0,6,48,0" Padding="12,8" CornerRadius="12,12,12,3" HorizontalAlignment="Left"
+                Background="{StaticResource HlTwinBubble}" BorderBrush="{StaticResource HlBorder}" BorderThickness="1">
+            <StackPanel>
+                <TextBlock x:Name="Who" Text="{Binding Who}" FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource HlGold}" Margin="0,0,0,2" />
+                <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="14" LineHeight="20" Foreground="{StaticResource HlText}" FontFamily="{StaticResource HlSans}" />
+            </StackPanel>
+        </Border>
+        <DataTemplate.Triggers>
+            <DataTrigger Binding="{Binding Who}" Value="You">
+                <Setter TargetName="Bubble" Property="HorizontalAlignment" Value="Right" />
+                <Setter TargetName="Bubble" Property="Margin" Value="48,6,0,0" />
+                <Setter TargetName="Bubble" Property="CornerRadius" Value="12,12,3,12" />
+                <Setter TargetName="Bubble" Property="Background" Value="{StaticResource HlYouBubble}" />
+                <Setter TargetName="Bubble" Property="BorderBrush" Value="#55D4A373" />
+                <Setter TargetName="Who" Property="Foreground" Value="{StaticResource HlTextSecondary}" />
+                <Setter TargetName="Who" Property="HorizontalAlignment" Value="Right" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Who}" Value="You · typed">
+                <Setter TargetName="Bubble" Property="HorizontalAlignment" Value="Right" />
+                <Setter TargetName="Bubble" Property="Margin" Value="48,6,0,0" />
+                <Setter TargetName="Bubble" Property="CornerRadius" Value="12,12,3,12" />
+                <Setter TargetName="Bubble" Property="Background" Value="{StaticResource HlYouBubble}" />
+                <Setter TargetName="Bubble" Property="BorderBrush" Value="#55D4A373" />
+                <Setter TargetName="Who" Property="Foreground" Value="{StaticResource HlTextSecondary}" />
+                <Setter TargetName="Who" Property="HorizontalAlignment" Value="Right" />
+            </DataTrigger>
+        </DataTemplate.Triggers>
+    </DataTemplate>
+</ResourceDictionary>

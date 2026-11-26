@@ -150,6 +150,7 @@ async def me(request: Request, user: dict = Depends(get_current_user)):
         "user_id": user["user_id"],
         "email": user["email"],
         "name": user.get("name", ""),
+        "preferred_name": user.get("preferred_name") or "",
         "picture": user.get("picture", ""),
         "safe_topics": user.get("safe_topics") or [],
         "tts_language": user.get("tts_language") or "auto",
