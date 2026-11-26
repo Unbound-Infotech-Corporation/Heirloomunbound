@@ -50,6 +50,9 @@ ClickFinish=Click Finish to close Setup.
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Shortcuts:"
 Name: "startwin"; Description: "Start Heirloom Unbound with Windows (this user)"; GroupDescription: "Dedicated PC:"; Flags: unchecked
+#ifexist "..\dist\local-box-app\backend\server.py"
+Name: "localbox"; Description: "Run Heirloom fully on this PC (no Twin Box needed): local AI, memory, hearing and voice"; GroupDescription: "Heirloom on this PC:"
+#endif
 
 [Files]
 Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb"
@@ -57,6 +60,10 @@ Source: "license.txt"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "privacy.txt"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "provision.bat"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "branding\dedicated.txt"; DestDir: "{localappdata}\Heirloom\branding"; Flags: ignoreversion
+#ifexist "..\dist\local-box-app\backend\server.py"
+Source: "local-box\*.ps1"; DestDir: "{app}\local-box\scripts"; Flags: ignoreversion; Tasks: localbox
+Source: "..\dist\local-box-app\*"; DestDir: "{app}\local-box\app"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: localbox
+#endif
 
 [Icons]
 Name: "{group}\Heirloom Unbound"; Filename: "{app}\{#MyAppExeName}"
@@ -65,6 +72,10 @@ Name: "{userstartup}\Heirloom Unbound"; Filename: "{app}\{#MyAppExeName}"; Tasks
 
 [Run]
 Filename: "{app}\installer\provision.bat"; Parameters: """{code:GetProfile}"" ""{code:GetVault}"" ""{code:GetConsent}"" ""{app}"""; StatusMsg: "Writing Heirloom Unbound install_profile and starting provision…"; Flags: runhidden waituntilterminated
+#ifexist "..\dist\local-box-app\backend\server.py"
+; Visible window: it shows progress, asks for the owner sign-in, and can take a while (model download).
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\local-box\scripts\Install-HeirloomLocal.ps1"" -AppSource ""{app}\local-box\app"""; StatusMsg: "Setting up Heirloom on this PC (local AI, memory, hearing, voice)…"; Flags: waituntilterminated; Tasks: localbox
+#endif
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Heirloom Unbound"; Flags: nowait postinstall skipifsilent skipifdoesntexist
 
 [Code]

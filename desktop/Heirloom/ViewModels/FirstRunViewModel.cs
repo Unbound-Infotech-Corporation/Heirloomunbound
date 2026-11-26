@@ -15,8 +15,9 @@ public partial class FirstRunViewModel : ObservableObject
     {
         _host = host;
         LibraryPath = host.Settings.Current.LibraryPath;
+        // Heirloom installed on this PC wins over the default Twin Box address.
         BoxUrl = string.IsNullOrWhiteSpace(host.Settings.Current.BoxUrl)
-            ? BoxLink.DefaultBoxUrl
+            ? LocalBox.FindUrl() ?? BoxLink.DefaultBoxUrl
             : host.Settings.Current.BoxUrl;
         ResetToChoose();
     }
@@ -273,10 +274,17 @@ public partial class FirstRunViewModel : ObservableObject
             return;
         }
 
-        if (!BoxPinned || string.IsNullOrWhiteSpace(_pendingPin))
+        var onThisPc = BoxLink.IsLoopbackHttp(BoxUrl);
+        if (!onThisPc && (!BoxPinned || string.IsNullOrWhiteSpace(_pendingPin)))
         {
             Fault = "Pin the box certificate before signing in.";
             return;
+        }
+
+        if (onThisPc)
+        {
+            _pendingPin = "";
+            _pendingPem = null;
         }
 
         IsBusy = true;

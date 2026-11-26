@@ -43,6 +43,20 @@ public static class BoxLink
         return Normalize(string.IsNullOrWhiteSpace(cloudUrl) ? "https://voice-clone-hub-20.emergent.host" : cloudUrl);
     }
 
+    /// <summary>
+    /// Heirloom installed on this same PC (Install-HeirloomLocal.ps1): plain http on loopback,
+    /// so there is no certificate to pin. Anything off this PC still needs the pinned https box.
+    /// </summary>
+    public static bool IsLoopbackHttp(string? url)
+    {
+        if (!Uri.TryCreate((url ?? "").Trim(), UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttp)
+        {
+            return false;
+        }
+
+        return uri.IsLoopback;
+    }
+
     public static string WebHome(string? boxUrl) => Normalize(string.IsNullOrWhiteSpace(boxUrl) ? DefaultBoxUrl : boxUrl) + "/";
 
     /// <summary>The one memory flow on the Twin Box. WinUI and Companion open this page.</summary>
