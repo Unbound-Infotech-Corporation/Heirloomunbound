@@ -56,7 +56,8 @@ def allowed_root(root: str) -> bool:
     resolved = Path(root).expanduser().resolve()
     text = str(resolved).replace("\\", "/").rstrip("/") or "/"
     low = text.lower()
-    if text in _BLOCKED_ROOTS or low.startswith(("/proc", "/sys", "/dev", "/etc", "/run", "/boot")):
+    posix = re.sub(r"^[a-z]:", "", low) or "/"  # "/etc" resolves to "C:/etc" on Windows
+    if text in _BLOCKED_ROOTS or posix in _BLOCKED_ROOTS or posix.startswith(("/proc", "/sys", "/dev", "/etc", "/run", "/boot")):
         return False
     heirloom = str(data_dir().resolve()).replace("\\", "/").rstrip("/").lower()
     if low == heirloom or (low.startswith(heirloom + "/") and not low.startswith(heirloom + "/files")):
