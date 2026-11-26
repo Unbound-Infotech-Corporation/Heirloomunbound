@@ -15,6 +15,7 @@ import json
 import os
 import statistics
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any
@@ -114,10 +115,22 @@ class EvalApi(Api):
             method="POST",
             headers=self._headers(),
         )
-        began = time.perf_counter()
-        with urllib.request.urlopen(request, timeout=180) as response:
-            body = response.read().decode("utf-8", errors="replace")
-        seconds = time.perf_counter() - began
+        body = ""
+        seconds = 0.0
+        for _attempt in range(40):
+            began = time.perf_counter()
+            try:
+                with urllib.request.urlopen(request, timeout=180) as response:
+                    body = response.read().decode("utf-8", errors="replace")
+                seconds = time.perf_counter() - began
+                break
+            except urllib.error.HTTPError as exc:
+                # Twin chat allows 20 turns a minute. Wait instead of failing the eval.
+                if exc.code != 429:
+                    raise
+                time.sleep(float(exc.headers.get("Retry-After") or 3) if exc.headers else 3)
+        else:
+            raise RuntimeError("twin chat stayed rate limited")
         text = ""
         why: list[dict] = []
         brain: dict = {}
