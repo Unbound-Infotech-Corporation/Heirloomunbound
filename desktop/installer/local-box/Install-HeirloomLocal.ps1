@@ -98,6 +98,18 @@ if ($InstallDir -match '^[A-Za-z]:\\Heirloom(\\|$)') { Fail "C:\Heirloom belongs
 foreach ($part in "backend", "web") {
   if (-not (Test-Path (Join-Path $AppSource $part))) { Fail "The installer payload is missing $part (looked in $AppSource)." }
 }
+# Re-run (update): stop this install's own processes first so files can be replaced,
+# and keep the ports it already uses unless new ones were asked for.
+$oldEnv = Join-Path $Data "heirloom.env"
+if (Test-Path (Join-Path $InstallDir "Stop-Heirloom.ps1")) {
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $InstallDir "Stop-Heirloom.ps1") -InstallDir $InstallDir | Out-Null
+}
+if (Test-Path $oldEnv) {
+  foreach ($line in Get-Content $oldEnv) {
+    if (-not $PSBoundParameters.ContainsKey("ApiPort") -and $line -match '^HEIRLOOM_API_PORT=(\d+)$') { $ApiPort = [int]$Matches[1] }
+    if (-not $PSBoundParameters.ContainsKey("MongoPort") -and $line -match '^HEIRLOOM_MONGO_PORT=(\d+)$') { $MongoPort = [int]$Matches[1] }
+  }
+}
 $AppDir = Join-Path $InstallDir "app"
 if ((Resolve-Path $AppSource).Path -ne (Join-Path $InstallDir "app")) {
   Say "Copying Heirloom..."

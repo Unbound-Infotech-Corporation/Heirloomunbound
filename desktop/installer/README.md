@@ -11,7 +11,7 @@ Output: `desktop/dist/HeirloomUnboundSetup.exe`
 2. License + privacy (local models stay on this PC)
 3. **Choose install size** — four cards
    - **Small** · 5–12 GB · Whisper + Piper + lite vault. Twin/TTS/avatar cloud Auto. No GPU.
-   - **Medium** · 40–70 GB · Small + Ollama llama3.1 + one voice-clone path.
+   - **Medium** · 40–70 GB · Small + Ollama with the model tier picked for this PC (see `docs/LOCAL-PC.md`) + one voice-clone path.
    - **Large** · 100–160 GB · Whisper large-v3, stronger twin + vision, Voicebox **and** Qwen3-TTS 1.7B, LatentSync.
    - **Dedicated PC** · 200 GB+ · Large plus machine role (consent, vault drive, start with Windows, optional power plan, warm engines).
 4. Install directory (+ vault drive when Dedicated)
@@ -59,3 +59,16 @@ py -3 -m heirloom.provision_cli --profile dedicated --vault D:\HeirloomVault --c
 ```
 
 Companion first-run wizard (`backend/companion_desktop/heirloom/ui/setup_wizard.py`) and WinUI Getting started use the same four sizes.
+
+## Heirloom on this PC (no Twin Box)
+
+When `desktop\dist\local-box-app` exists at compile time (the build bat stages it with
+`local-box\Stage-LocalBoxPayload.ps1`), Setup gets a checked task **Run Heirloom fully on this PC**.
+It runs `local-box\Install-HeirloomLocal.ps1` in a visible window after the files are copied:
+hardware check and model tier, Python (uv), the API, a portable MongoDB on loopback, Ollama
+(reused if running), the tier model + `nomic-embed-text`, faster-whisper, Chatterbox when the
+GPU has room, Start/Stop shortcuts, and the owner sign-in. Per user, no admin, no WSL, no reboot.
+The Twin Box stays an optional premium appliance. Details: `docs/LOCAL-PC.md`.
+
+Staging needs Node + yarn for the web build; without them the build still produces Setup.exe,
+just without that task.
