@@ -1,0 +1,63 @@
+<!-- title: Privacy and local-only AI · Heirloom Unbound -->
+<!-- desc: Exactly what Heirloom keeps on your own computer, the few optional features that use the internet, and how your family's memories stay yours. -->
+<!-- nav: privacy -->
+<!-- priority: 0.8 -->
+{{>head}}
+{{>header}}
+<section class="hero" aria-labelledby="p-h">
+  <div class="wrap">
+    <p class="eyebrow">Privacy &amp; local-only</p>
+    <h1 id="p-h">Everything that matters <em>stays in your house.</em></h1>
+    <p class="lead">Heirloom is built on one rule: the AI that knows your life runs on hardware you own. Here's exactly what that means, including the few optional things that do touch the internet.</p>
+  </div>
+</section>
+<section aria-labelledby="local-h">
+  <div class="wrap grid g2">
+    <div class="card">
+      <h2 id="local-h" style="font-size:2rem">Always on your machine</h2>
+      <ul class="ticks">
+        <li><b>The AI model.</b> Open-weight models run in Ollama on your PC or Twin Box. Heirloom refuses to switch to a cloud model.</li>
+        <li><b>Your memories.</b> Interview answers, memory cards, photos, letters and imports are stored in a database on your own disk.</li>
+        <li><b>Your voice.</b> Voice samples and the voice model stay local, and so does speech recognition (Whisper).</li>
+        <li><b>The honesty checks.</b> The step that decides whether a question is about your life, and removes claims your memories don't support, runs locally too.</li>
+        <li><b>Your family's access.</b> Heirs and paired phones connect to your Heirloom, not to our servers.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2 style="font-size:2rem">Online only if you turn it on</h2>
+      <ul class="ticks">
+        <li><b>Private web search.</b> Before a search leaves your computer, Heirloom strips private names and phrases from the query, or refuses it. Only the query is sent: no cookies, account or history.</li>
+        <li><b>Calendar and email.</b> If you connect Google or Outlook, Heirloom reads and drafts. It never sends an email or books anything for you.</li>
+        <li><b>The phone line.</b> If you set up the optional number, the phone carrier (Twilio) carries the call. Listening, thinking and speaking still happen at home, and recordings are deleted from Twilio afterwards. Every call starts by saying it's an AI.</li>
+        <li><b>Downloads.</b> The installer downloads the open models and components it needs, once.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+<section aria-labelledby="honest-h">
+  <div class="wrap split">
+    <div>
+      <p class="eyebrow">Honesty</p>
+      <h2 id="honest-h">A twin that would rather say "I don't know."</h2>
+      <p class="lead">For a legacy product, a made-up memory is worse than no answer. Questions about your life are answered only from memories you approved, with a note of where each answer came from. Anything unsupported is removed before you see it.</p>
+      <p class="muted">In our November 2026 test suites, the twin invented nothing across 36 life questions, and every model size declined all 21 questions about things it was never told.</p>
+    </div>
+    <div class="frame"><img src="assets/img/memory-1200.webp" srcset="assets/img/memory-720.webp 720w, assets/img/memory-1200.webp 1200w" sizes="(max-width:900px) 92vw, 540px" width="1440" height="900" loading="lazy" alt="Memory Studio, where each memory the twin holds can be reviewed."></div>
+  </div>
+</section>
+<section aria-labelledby="consent-h">
+  <div class="wrap grid g3">
+    <div class="card"><h2 id="consent-h" style="font-size:1.6rem">Voice consent</h2><p>Clone only your own voice, or the voice of a family member who has agreed. Heirloom is for preserving people, not imitating them.</p></div>
+    <div class="card"><h2 style="font-size:1.6rem">You're in control</h2><p>Read, edit or delete any memory. Assistant skills are off until you switch them on, one at a time.</p></div>
+    <div class="card"><h2 style="font-size:1.6rem">No lock-in</h2><p>Your archive lives on your disk. If we disappeared tomorrow, your Heirloom would keep running.</p></div>
+  </div>
+</section>
+<section id="site" aria-labelledby="site-h">
+  <div class="wrap" style="max-width:820px">
+    <h2 id="site-h" style="font-size:2rem">About this website</h2>
+    <p class="muted">This site sets no cookies. If you join the beta list, we keep your email address and the interest you picked, only to tell you about the Heirloom beta and launch, and you can ask us to delete it anytime. If we add visitor statistics, we'll use a cookieless service that doesn't track you across sites.</p>
+    <!--PREVIEW--><div class="ph"><b>Placeholder for C L:</b> add the support/privacy contact address, the company's legal address, and a full privacy policy reviewed by counsel before launch.</div><!--/PREVIEW-->
+  </div>
+</section>
+{{>join}}
+{{>footer}}
