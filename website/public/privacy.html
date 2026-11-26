@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy and local-only AI · Heirloom Unbound</title>
+<meta name="description" content="Exactly what Heirloom keeps on your own computer, the few optional features that use the internet, and how your family's memories stay yours.">
+<meta name="robots" content="noindex,nofollow">
+<link rel="canonical" href="https://heirloom.unboundinfotech.com/privacy.html">
+<meta name="theme-color" content="#121110">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Heirloom Unbound">
+<meta property="og:title" content="Privacy and local-only AI · Heirloom Unbound">
+<meta property="og:description" content="Exactly what Heirloom keeps on your own computer, the few optional features that use the internet, and how your family's memories stay yours.">
+<meta property="og:url" content="https://heirloom.unboundinfotech.com/privacy.html">
+<meta property="og:image" content="https://heirloom.unboundinfotech.com/assets/img/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Heirloom Unbound: your stories, in your voice, kept at home.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Privacy and local-only AI · Heirloom Unbound">
+<meta name="twitter:description" content="Exactly what Heirloom keeps on your own computer, the few optional features that use the internet, and how your family's memories stay yours.">
+<meta name="twitter:image" content="https://heirloom.unboundinfotech.com/assets/img/og-image.jpg">
+<link rel="preload" href="assets/fonts/cormorant-500.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/manrope-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/site.css">
+<script src="assets/js/config.js" defer></script>
+<script src="assets/js/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="banner" role="note">Preview build for C L's review. Not public, not indexed. Gold-dashed boxes are placeholders.</div>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Heirloom Unbound home"><svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="#D4A373" stroke-width="1.6"><path d="M16 3c4 4 8 6.5 8 12.5A8 8 0 0 1 8 15.5C8 9.5 12 7 16 3z"/><path d="M16 29v-9m0 0-3.5-3.5M16 20l3.5-3.5"/></svg><span>Heirloom</span></a>
+    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="nav">Menu</button>
+    <nav id="nav" class="nav" aria-label="Main">
+      <a href="index.html#features">Features</a>
+      <a href="index.html#how">How it works</a>
+      <a href="privacy.html" aria-current="page">Privacy</a>
+      <a href="index.html#hardware">Hardware</a>
+      <a href="pricing.html">Pricing</a>
+      <a href="faq.html">FAQ</a>
+      <a class="btn btn-gold" href="#join" data-track="nav_join">Join the beta</a>
+    </nav>
+  </div>
+</header>
+<main id="main">
+<section class="hero" aria-labelledby="p-h">
+  <div class="wrap">
+    <p class="eyebrow">Privacy &amp; local-only</p>
+    <h1 id="p-h">Everything that matters <em>stays in your house.</em></h1>
+    <p class="lead">Heirloom is built on one rule: the AI that knows your life runs on hardware you own. Here's exactly what that means, including the few optional things that do touch the internet.</p>
+  </div>
+</section>
+<section aria-labelledby="local-h">
+  <div class="wrap grid g2">
+    <div class="card">
+      <h2 id="local-h" style="font-size:2rem">Always on your machine</h2>
+      <ul class="ticks">
+        <li><b>The AI model.</b> Open-weight models run in Ollama on your PC or Twin Box. Heirloom refuses to switch to a cloud model.</li>
+        <li><b>Your memories.</b> Interview answers, memory cards, photos, letters and imports are stored in a database on your own disk.</li>
+        <li><b>Your voice.</b> Voice samples and the voice model stay local, and so does speech recognition (Whisper).</li>
+        <li><b>The honesty checks.</b> The step that decides whether a question is about your life, and removes claims your memories don't support, runs locally too.</li>
+        <li><b>Your family's access.</b> Heirs and paired phones connect to your Heirloom, not to our servers.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2 style="font-size:2rem">Online only if you turn it on</h2>
+      <ul class="ticks">
+        <li><b>Private web search.</b> Before a search leaves your computer, Heirloom strips private names and phrases from the query, or refuses it. Only the query is sent: no cookies, account or history.</li>
+        <li><b>Calendar and email.</b> If you connect Google or Outlook, Heirloom reads and drafts. It never sends an email or books anything for you.</li>
+        <li><b>The phone line.</b> If you set up the optional number, the phone carrier (Twilio) carries the call. Listening, thinking and speaking still happen at home, and recordings are deleted from Twilio afterwards. Every call starts by saying it's an AI.</li>
+        <li><b>Downloads.</b> The installer downloads the open models and components it needs, once.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+<section aria-labelledby="honest-h">
+  <div class="wrap split">
+    <div>
+      <p class="eyebrow">Honesty</p>
+      <h2 id="honest-h">A twin that would rather say "I don't know."</h2>
+      <p class="lead">For a legacy product, a made-up memory is worse than no answer. Questions about your life are answered only from memories you approved, with a note of where each answer came from. Anything unsupported is removed before you see it.</p>
+      <p class="muted">In our November 2026 test suites, the twin invented nothing across 36 life questions, and every model size declined all 21 questions about things it was never told.</p>
+    </div>
+    <div class="frame"><img src="assets/img/memory-1200.webp" srcset="assets/img/memory-720.webp 720w, assets/img/memory-1200.webp 1200w" sizes="(max-width:900px) 92vw, 540px" width="1440" height="900" loading="lazy" alt="Memory Studio, where each memory the twin holds can be reviewed."></div>
+  </div>
+</section>
+<section aria-labelledby="consent-h">
+  <div class="wrap grid g3">
+    <div class="card"><h2 id="consent-h" style="font-size:1.6rem">Voice consent</h2><p>Clone only your own voice, or the voice of a family member who has agreed. Heirloom is for preserving people, not imitating them.</p></div>
+    <div class="card"><h2 style="font-size:1.6rem">You're in control</h2><p>Read, edit or delete any memory. Assistant skills are off until you switch them on, one at a time.</p></div>
+    <div class="card"><h2 style="font-size:1.6rem">No lock-in</h2><p>Your archive lives on your disk. If we disappeared tomorrow, your Heirloom would keep running.</p></div>
+  </div>
+</section>
+<section id="site" aria-labelledby="site-h">
+  <div class="wrap" style="max-width:820px">
+    <h2 id="site-h" style="font-size:2rem">About this website</h2>
+    <p class="muted">This site sets no cookies. If you join the beta list, we keep your email address and the interest you picked, only to tell you about the Heirloom beta and launch, and you can ask us to delete it anytime. If we add visitor statistics, we'll use a cookieless service that doesn't track you across sites.</p>
+    <div class="ph"><b>Placeholder for C L:</b> add the support/privacy contact address, the company's legal address, and a full privacy policy reviewed by counsel before launch.</div>
+  </div>
+</section>
+<section class="join" id="join" aria-labelledby="join-h">
+  <div class="wrap">
+    <p class="eyebrow">Founding families</p>
+    <h2 id="join-h">Be one of the first families<br>to keep their stories <em>at home</em>.</h2>
+    <p class="lead" style="margin:0 auto">We're opening a small private beta first. Leave your email and we'll write once, when there's a spot for you. No newsletters, no sharing your address.</p>
+    <form class="form" data-waitlist novalidate>
+      <label class="sr" for="wl-email">Email address</label>
+      <input id="wl-email" type="email" name="email" autocomplete="email" placeholder="you@example.com" required>
+      <label class="sr" for="wl-int">I'm most interested in</label>
+      <select id="wl-int" name="interest">
+        <option value="">I'm most interested in…</option>
+        <option value="legacy">Preserving my own stories</option>
+        <option value="parent">Recording a parent or grandparent</option>
+        <option value="assistant">A private local AI assistant</option>
+        <option value="twinbox">The Twin Box appliance</option>
+        <option value="beta">Beta testing on my PC</option>
+      </select>
+      <button class="btn btn-gold" type="submit">Join the beta list</button>
+      <label class="check"><input type="checkbox" name="consent" required> <span>Email me about the Heirloom beta and launch. I can unsubscribe anytime. See the <a href="privacy.html#site">site privacy note</a>.</span></label>
+      <p class="status" role="status" aria-live="polite"></p>
+    </form>
+  </div>
+</section>
+</main>
+<footer>
+  <div class="wrap">
+    <div>
+      <a class="brand" href="index.html"><svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="#D4A373" stroke-width="1.6"><path d="M16 3c4 4 8 6.5 8 12.5A8 8 0 0 1 8 15.5C8 9.5 12 7 16 3z"/><path d="M16 29v-9m0 0-3.5-3.5M16 20l3.5-3.5"/></svg><span>Heirloom</span></a>
+      <p style="margin-top:14px">A fully local AI twin that keeps your stories, in your voice, on your own computer.</p>
+      <p class="small">© 2026 Unbound Infotech Corporation.</p>
+    </div>
+    <div><h2>Product</h2><ul><li><a href="index.html#features">Features</a></li><li><a href="index.html#hardware">Hardware</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="index.html#demos">Demos</a></li></ul></div>
+    <div><h2>Trust</h2><ul><li><a href="privacy.html">Privacy &amp; local-only</a></li><li><a href="faq.html">FAQ</a></li><li><a href="privacy.html#site">Site privacy</a></li></ul></div>
+    <div><h2>Company</h2><ul><li><a href="https://unboundinfotech.com" rel="noopener">Unbound Infotech</a></li><li><a href="#join">Join the beta</a></li></ul></div>
+  </div>
+</footer>
+</body>
+</html>
