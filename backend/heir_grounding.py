@@ -185,14 +185,32 @@ def names_only_from_evidence(text: str, used: list[dict], said: list[str]) -> st
 
     evidence = evidence_text(used, said)
     low_evidence = evidence.lower()
-    kept = []
+    kept, dropped_last = [], False
     for line in split_sentences(text or ""):
         kin = {w.lower() for w in _KIN.findall(line)}
-        if any(w not in low_evidence for w in kin):
-            continue  # "ask my sister" when no memory mentions a sister
-        if is_harmless(line, evidence) or not unseen_details(line, evidence):
+        words = {w.lower() for w in re.findall(r"[A-Za-z']{5,}", line)}
+        new_words = {w for w in words if w not in low_evidence and w not in _WARM}
+        ok = (not any(w not in low_evidence for w in kin)  # "ask my sister" when no memory mentions a sister
+              and not new_words                          # "the church picnic" that no memory mentions
+              and (is_harmless(line, evidence) or not unseen_details(line, evidence))
+              and not (dropped_last and _LEANS_BACK.match(line)))  # "They could share..." after a dropped line
+        if ok:
             kept.append(line)
+        dropped_last = not ok
     return " ".join(kept).strip()
+
+
+_LEANS_BACK = re.compile(r"^\s*(they|them|he|she|it|that|those|this|these|there)\b", re.IGNORECASE)
+# Small talk a free heir reply may use without a memory behind it; any other word must come from the evidence.
+_WARM = frozenset("""
+hello there great happy glad wonderful lovely really means thank thanks always forever proud
+today talking talked again right still every everything anything something someone nothing
+being would could should might maybe think thinking feeling feels heart loved loves lucky
+hear hearing visit visiting moment sweet dear honey darling about where which while whenever
+here's there's that's you're we're i've you've it's what's let's don't can't won't didn't
+grateful blessed missed missing mean meant world means asking share chat little favorite
+please sorry yourself myself together whatever care careful because doing going coming
+""".split())
 
 
 _KIN = re.compile(

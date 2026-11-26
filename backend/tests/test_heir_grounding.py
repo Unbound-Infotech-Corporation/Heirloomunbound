@@ -241,3 +241,13 @@ def test_letter_questions_count_as_memory_questions():
     for q in ("What did you want me to know about the pocket watch?", "What did your letter say?",
               "Why did you leave me the watch?"):
         assert hg.heir_asks_for_memory(q), q
+
+
+def test_free_reply_cannot_add_a_new_topic_or_dangling_line():
+    async def draft(used):
+        return ("Hi Emma, it's good to hear from you. How about we start with the church picnic? "
+                "They could share some wonderful stories with you.")
+
+    out = _run(hg.heir_reply("Hi Grandpa, it's Emma.", owner=OWNER, heir=HEIR, rows=[], draft=draft,
+                             ask=fake_model("", personal=False)))
+    assert out["reply"] == "Hi Emma, it's good to hear from you."
