@@ -441,6 +441,8 @@ def test_birthday_note_templates_keep_their_greetings():
         "Here\u2019s to another year of laughter and love!",
         "I\u2019m so grateful to have you in my life.",
         "May this year bring you new adventures.",
+        "You\u2019re a wonderful sister and I\u2019m so grateful to have you in my life.",
+        "With all my love, [Your Name] --- Feel free to tweak it to fit your style!",
     ):
         assert grounding.is_harmless(line, evidence), line
     for line in (
@@ -449,5 +451,6 @@ def test_birthday_note_templates_keep_their_greetings():
         "Happy birthday to my brother Tom!",
         "Love you, and remember our trip to Ohio?",
         "Happy birthday to my wife!",
+        "With all my love --- Say hi to Martha for me!",
     ):
         assert not grounding.is_harmless(line, evidence), line

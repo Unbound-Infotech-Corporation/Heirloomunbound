@@ -280,7 +280,8 @@ _HARMLESS = re.compile(
     r"(?:with (?:all )?(?:my )?|lots of |all my |sending (?:you )?)?love(?: you| ya)?\b|xo+|hugs|"
     r"i (?:love|adore|appreciate|miss) you|i'?m (?:so |incredibly |truly |really )?(?:grateful|lucky|blessed|thankful|proud)|"
     r"i feel (?:so |incredibly |truly |really )?(?:grateful|lucky|blessed|thankful)|"
-    r"you'?re (?:one of a kind|amazing|wonderful|the best|so special|awesome|incredible|loved)|"
+    r"you'?re (?:(?:a|an|such a|so|truly|simply) )?(?:one of a kind|amazing|wonderful|the best|special|awesome|incredible|loved|"
+    r"kind|beautiful|brilliant|inspiring|treasure|gift|light)|"
     r"(?:all the )?best\b|warmly|sincerely|take care|safe travels|see you|talk soon|bye|goodbye|good ?night|"
     r"enjoy\b|have (?:a|an|fun)\b|you(?:'ve| have) got this|proud of you|"
     r"thanks?\b|thank you|you're welcome|hi\b|hello|hey\b|good (?:morning|afternoon|evening)|"
@@ -311,13 +312,15 @@ def is_harmless(sentence: str, evidence: str) -> bool:
         # "my dear sister" is only an address when the owner named the sister.
         if words[0] not in {"my", "our"} or words[-1] not in folded:
             return False
-    words = re.findall(r"[A-Za-z][A-Za-z'\-]*", line)
-    for position, word in enumerate(words):
-        clean = word.strip("'").removesuffix("'s")
-        if position == 0 or not clean[:1].isupper() or clean.lower() in _COMMON_CAPS:
-            continue
-        if clean.lower() not in folded:
-            return False
+    # A capital after a break (". ", "--- ", ": ") starts a sentence, not a name.
+    for chunk in re.split(r"[.!?:;]+|-{2,}|\u2014", line):
+        words = re.findall(r"[A-Za-z][A-Za-z'\-]*", chunk)
+        for position, word in enumerate(words):
+            clean = word.strip("'").removesuffix("'s")
+            if position == 0 or not clean[:1].isupper() or clean.lower() in _COMMON_CAPS:
+                continue
+            if clean.lower() not in folded:
+                return False
     return not re.search(r"\d", line) or not unseen_details(line, evidence)
 
 _COMMON_CAPS = frozenset({
