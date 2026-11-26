@@ -68,6 +68,11 @@ async def ollama_chat(
         "options": {"temperature": 0.65, "num_predict": 512},
     }
     url = f"{(base_url or ollama_base_url()).rstrip('/')}/api/chat"
+    from model_tiers import think_value
+
+    think = think_value(str(body["model"]), (base_url or ollama_base_url()))
+    if think is not None:
+        body["think"] = think
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(url, json=body, headers=headers)
     if r.status_code >= 400:

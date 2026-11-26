@@ -37,6 +37,14 @@ def _compute() -> dict[str, str]:
     return found
 
 
+def _think_field(model: str, host: str) -> dict[str, Any]:
+    """Thinking off for a thinking tag, or its 8 tokens go to the trace and the probe reads empty."""
+    from model_tiers import think_value
+
+    think = think_value(model, host)
+    return {} if think is None else {"think": think}
+
+
 def assess_model_probe(probe: Optional[dict], *, now: Optional[datetime] = None, fresh_s: int = MODEL_FRESH_S) -> dict[str, Any]:
     """A tiny local reply counts only while the check itself is fresh."""
     moment = now or datetime.now(timezone.utc)
@@ -100,6 +108,7 @@ def probe_local_chat(
         "messages": [{"role": "user", "content": "Reply with the single word pong."}],
         "stream": False,
         "options": {"temperature": 0, "num_predict": 8},
+        **_think_field(name, host if opener is None else ""),
     }).encode("utf-8")
     request = urllib.request.Request(
         f"{host}/api/chat",

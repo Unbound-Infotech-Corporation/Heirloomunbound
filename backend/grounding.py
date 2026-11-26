@@ -161,6 +161,12 @@ async def ask_box_model(
     }
     if json_mode:
         body["format"] = "json"
+    from model_tiers import think_value
+
+    think = think_value(model, ollama_base_url(None))
+    if think is not None:
+        # A thinking model spends a 16-token budget on its trace and returns nothing.
+        body["think"] = think
     url = ollama_base_url(None) + "/api/chat"
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(url, json=body)

@@ -1,25 +1,59 @@
 #!/usr/bin/env bash
 # Default Ollama models for the Twin Box.
-# Qwen2.5 weights are Apache-2.0, so the lab machine can use them commercially.
+# Every default chat tag is Apache-2.0, so a buyer can use it commercially.
 # Llama 3.1 stays available by setting OLLAMA_TWIN_MODEL; it is not the default here.
 # Do not install XTTS-v2, F5-TTS weights, or LivePortrait bundled face models.
 
+# Chat model per GPU tier. backend/model_tiers.py is the source of truth (it also
+# reads AMD cards and HEIRLOOM_MODEL_OVERRIDE); this copy is for a box without
+# python3. tests/test_model_tiers.py keeps the two in step. Picks come from the
+# heirloom-box bench-models runs in docs/MODEL-TIERS.md.
 heirloom_model_for_vram_mib() {
   local mib="${1:-0}"
   if [[ ! "${mib}" =~ ^[0-9]+$ ]]; then
     mib=0
   fi
-  # MiB boundaries. A 4–7 GB card stays on 3B so context still fits.
-  if (( mib < 8192 )); then
-    printf '%s\n' "qwen2.5:3b"
-  elif (( mib < 12288 )); then
-    printf '%s\n' "qwen2.5:7b"
-  elif (( mib < 20480 )); then
-    printf '%s\n' "qwen2.5:14b"
-  elif (( mib < 40960 )); then
-    printf '%s\n' "qwen2.5:32b"
+  local here py
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  py="${HEIRLOOM_TIERS_PY:-${here}/../../backend/model_tiers.py}"
+  if command -v python3 >/dev/null 2>&1 && [[ -f "${py}" ]]; then
+    local picked=""
+    if (( mib > 0 )); then
+      picked="$(python3 "${py}" choose --vram-mib "${mib}" 2>/dev/null || true)"
+    else
+      picked="$(python3 "${py}" choose 2>/dev/null || true)"
+    fi
+    if [[ -n "${picked}" ]]; then
+      printf '%s\n' "${picked}"
+      return 0
+    fi
+  fi
+  # MiB floors, same as TIERS in backend/model_tiers.py (voice on the same GPU).
+  if (( mib >= 30720 )); then
+    printf '%s\n' "gemma4:26b"
+  elif (( mib >= 22528 )); then
+    printf '%s\n' "gemma4:12b"
+  elif (( mib >= 15360 )); then
+    printf '%s\n' "gemma4:12b"
+  elif (( mib >= 11264 )); then
+    printf '%s\n' "qwen3.5:4b"
+  elif (( mib >= 7168 )); then
+    printf '%s\n' "qwen3.5:4b"
   else
-    printf '%s\n' "qwen2.5:72b"
+    printf '%s\n' "gemma4:e4b"
+  fi
+}
+
+# Context per tier (OLLAMA_CONTEXT_LENGTH), same as num_ctx in TIERS.
+heirloom_ctx_for_vram_mib() {
+  local mib="${1:-0}"
+  if [[ ! "${mib}" =~ ^[0-9]+$ ]]; then
+    mib=0
+  fi
+  if (( mib >= 11264 )); then
+    printf '%s\n' 16384
+  else
+    printf '%s\n' 8192
   fi
 }
 

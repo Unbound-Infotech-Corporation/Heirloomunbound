@@ -120,18 +120,34 @@ def is_cloud_choice(model: str = "", provider: str = "") -> bool:
     return any(marker in model_name for marker in _CLOUD_MODEL_MARKERS)
 
 
-def bigdeal_sampling(model: str) -> dict[str, Any]:
-    """Request shape for the BIGDEAL brain. The box qwen tag is unchanged.
+def bigdeal_sampling(model: str, base_url: str = "") -> dict[str, Any]:
+    """Request shape per model family, for the box model and a LAN brain alike.
 
-    ``gpt-oss:120b`` thinks at ``low`` and stops at 2500 tokens. ``qwen3``
-    (the 32B stand-in when the 96GB card leaves) has thinking off.
+    ``gpt-oss`` thinks at ``low`` and stops at 2500 tokens. ``qwen3`` (and
+    qwen3.5/3.6/3.8) has thinking off. Any other tag that Ollama lists with
+    the ``thinking`` capability (gemma4, ...) also has thinking off: twin turns
+    are short, and a trace would eat the reply budget. A tag that cannot think
+    gets no ``think`` field, which Ollama would reject.
     """
     name = (model or "").strip().lower()
     if name.startswith("gpt-oss"):
         return {"think": "low", "num_predict": 2500}
     if name.startswith("qwen3"):
         return {"think": False, "num_predict": 2500}
+    from model_tiers import think_value
+
+    if think_value(name, base_url) is False:
+        return {"think": False}
     return {}
+
+
+def reasoning_effort(think: Any) -> str:
+    """The /v1 field for a native ``think`` value: False -> "none", "low" -> "low"."""
+    if think is False:
+        return "none"
+    if isinstance(think, str) and think.strip().lower() in {"low", "medium", "high"}:
+        return think.strip().lower()
+    return ""
 
 
 def refuse_cloud(provider: str, model: str, *, caller: str) -> None:
@@ -408,13 +424,18 @@ async def complete_openai_chat(
         "temperature": 0.65,
         "stream": False,
     }
-    sampling = bigdeal_sampling(model_name)
+    sampling = bigdeal_sampling(model_name, chosen_url if poster is None else "")
     if think is not None:
         sampling["think"] = think
     if num_predict is not None:
         sampling["num_predict"] = num_predict
     if "think" in sampling:
         body["think"] = sampling["think"]
+        # Ollama's /v1 endpoint ignores "think" (measured on 0.40.18: qwen3.5 still
+        # filled an 8-token budget with its trace). reasoning_effort is what it reads.
+        effort = reasoning_effort(sampling["think"])
+        if effort:
+            body["reasoning_effort"] = effort
     if sampling.get("num_predict"):
         limit = int(sampling["num_predict"])
         body["max_tokens"] = limit
