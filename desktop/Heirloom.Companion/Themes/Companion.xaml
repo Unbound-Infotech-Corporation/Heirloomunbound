@@ -125,6 +125,34 @@
         </Setter>
     </Style>
 
+    <Style x:Key="HlThumb" TargetType="Thumb">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Border CornerRadius="3" Background="#FF4A443E" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A thin, dark vertical scrollbar for the transcript and draft box. -->
+    <Style x:Key="HlScrollBar" TargetType="ScrollBar">
+        <Setter Property="Width" Value="6" />
+        <Setter Property="MinWidth" Value="6" />
+        <Setter Property="Margin" Value="4,2,0,2" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Track x:Name="PART_Track" IsDirectionReversed="True">
+                        <Track.Thumb>
+                            <Thumb Style="{StaticResource HlThumb}" />
+                        </Track.Thumb>
+                    </Track>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- One transcript line as a chat bubble: the twin on the left, you on the right. -->
     <DataTemplate x:Key="HlBubble">
         <Border x:Name="Bubble" Margin="0,6,48,0" Padding="12,8" CornerRadius="12,12,12,3" HorizontalAlignment="Left"

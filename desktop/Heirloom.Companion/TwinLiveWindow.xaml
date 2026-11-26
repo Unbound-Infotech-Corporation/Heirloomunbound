@@ -13,17 +13,24 @@
     Background="{StaticResource HlBase}"
     Foreground="{StaticResource HlText}"
     FontFamily="{StaticResource HlSans}">
+    <Window.Resources>
+        <Style TargetType="ScrollBar" BasedOn="{StaticResource HlScrollBar}" />
+    </Window.Resources>
     <DockPanel>
         <!-- Header: who is live, whether the mic is listening, pin on top -->
         <Border DockPanel.Dock="Top" Background="{StaticResource HlSurface}" BorderBrush="{StaticResource HlBorder}" BorderThickness="0,0,0,1" Padding="14,12">
-            <DockPanel LastChildFill="False">
-                <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,10,0">
                     <TextBlock Text="Twin Live" FontFamily="{StaticResource HlSerif}" FontSize="19" Foreground="{StaticResource HlText}" />
-                    <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{StaticResource HlTextMuted}" Text="Type or talk. The microphone keeps listening." />
+                    <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{StaticResource HlTextMuted}" TextTrimming="CharacterEllipsis"
+                               Text="Type or talk. The mic keeps listening." />
                 </StackPanel>
-                <CheckBox x:Name="OnTop" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,0,0" Content="Pin" ToolTip="Always on top"
-                          Style="{StaticResource HlPinToggle}" Checked="OnTopChanged" Unchecked="OnTopChanged" />
-                <Border x:Name="StatusPill" DockPanel.Dock="Right" VerticalAlignment="Center" CornerRadius="12" Padding="10,4"
+                <Border x:Name="StatusPill" Grid.Column="1" VerticalAlignment="Center" CornerRadius="12" Padding="10,4"
                         Background="#14FFFFFF" BorderBrush="{StaticResource HlBorder}" BorderThickness="1">
                     <StackPanel Orientation="Horizontal">
                         <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="{StaticResource HlTextMuted}" VerticalAlignment="Center" />
@@ -31,7 +38,9 @@
                                    Foreground="{StaticResource HlTextSecondary}" Text="Paused" />
                     </StackPanel>
                 </Border>
-            </DockPanel>
+                <CheckBox x:Name="OnTop" Grid.Column="2" VerticalAlignment="Center" Margin="8,0,0,0" Content="Pin" ToolTip="Always on top"
+                          Style="{StaticResource HlPinToggle}" Checked="OnTopChanged" Unchecked="OnTopChanged" />
+            </Grid>
         </Border>
 
         <!-- Composer -->
