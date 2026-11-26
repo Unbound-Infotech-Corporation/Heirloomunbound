@@ -315,11 +315,21 @@ class _FakeDb:
         self.users = _FakeUsers()
 
 
-def test_the_last_zone_a_turn_sent_is_saved_and_used_when_a_turn_sends_none(monkeypatch):
-    import deps
+def _fake_module(monkeypatch, name, **attrs):
+    """CI runs these without FastAPI or Mongo, so the lazy imports get stand-ins."""
+    import sys
+    import types
 
+    module = types.ModuleType(name)
+    for key, value in attrs.items():
+        setattr(module, key, value)
+    monkeypatch.setitem(sys.modules, name, module)
+    return module
+
+
+def test_the_last_zone_a_turn_sent_is_saved_and_used_when_a_turn_sends_none(monkeypatch):
     fake = _FakeDb()
-    monkeypatch.setattr(deps, "db", fake)
+    _fake_module(monkeypatch, "deps", db=fake)
     monkeypatch.delenv("HEIRLOOM_TIMEZONE", raising=False)
     user = {"user_id": "u1"}
     assert _run(grounding.remember_timezone(user, "Not/AZone")) is None
@@ -340,25 +350,21 @@ def test_the_last_zone_a_turn_sent_is_saved_and_used_when_a_turn_sends_none(monk
 
 
 def _guard_fakes(monkeypatch, *, cards, saved=None):
-    import deps
-    import routers.memory_loop as memory_loop
-    import twin_tools
-
-    monkeypatch.setattr(deps, "db", _FakeDb())
+    _fake_module(monkeypatch, "deps", db=_FakeDb())
 
     async def fake_cards(user_id, question, *, audience="owner", heir_surface=False, archive_text=""):
         if heir_surface:
             return "", []
         return "", list(cards)
 
-    monkeypatch.setattr(memory_loop, "grounding_for_turn", fake_cards)
+    _fake_module(monkeypatch, "routers.memory_loop", grounding_for_turn=fake_cards)
     made = saved if saved is not None else []
 
     async def fake_reminder(user_id, args):
         made.append(args)
         return {"summary": "ok", "ui": {"created": True, "reminder_id": "r1"}}
 
-    monkeypatch.setattr(twin_tools, "exec_set_reminder", fake_reminder)
+    _fake_module(monkeypatch, "twin_tools", exec_set_reminder=fake_reminder)
     return made
 
 
