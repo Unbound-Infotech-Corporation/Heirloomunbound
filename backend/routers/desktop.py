@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from box_desktop import client_chat_mode, resolve_desktop_user
@@ -122,7 +122,7 @@ async def get_conversation(ctx: dict = Depends(resolve_desktop_user), limit: int
 
 
 @router.post("/chat")
-async def desktop_chat(body: ChatReq, ctx: dict = Depends(resolve_desktop_user)):
+async def desktop_chat(body: ChatReq, request: Request, ctx: dict = Depends(resolve_desktop_user)):
     """Send a text message; persist + return a reply.
 
     mode=twin (default): grounded sitting — no PC control tools.
@@ -219,6 +219,8 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(resolve_desktop_user))
         out["brain_meta"] = brain_meta
     if result.action:
         out["action"] = result.action
+    if getattr(result, "why", None):
+        out["why"] = result.why
     if getattr(result, "source_label", ""):
         out["source_label"] = result.source_label
     if mode == "owner":
@@ -242,6 +244,7 @@ async def desktop_chat(body: ChatReq, ctx: dict = Depends(resolve_desktop_user))
         approval=getattr(result, "approval", None),
         audience=audience,
         model=getattr(result, "backend", "") or "",
+        selftest=request.headers.get("x-heirloom-selftest") == "1",
     )
     if turn_id:
         out["lab_turn_id"] = turn_id

@@ -68,6 +68,10 @@ OVERBLOCK = [
 REMINDER = "Remind me to water the tomato plants tomorrow at 9am"
 # Any fixed zone works. The check is that 9am lands on that zone's clock, not UTC.
 REMINDER_ZONE = "America/New_York"
+# Desktop sends this zone on one turn, then a reminder with no zone must use it.
+DESKTOP_ZONE = "America/Chicago"
+BIRTHDAY = "Help me write a short birthday note for my sister."
+DESKTOP_LIFE = "What was my mom's name?"
 
 _DECLINE = (
     "don't have that memory",
@@ -165,6 +169,30 @@ class EvalApi(Api):
             event = ""
         return {"text": text, "why": why, "brain": brain, "action": action, "error": error, "seconds": seconds}
 
+    def desktop(self, text: str, timezone_name: str = "") -> dict[str, Any]:
+        """One WinUI-style /desktop/chat twin turn."""
+        sent: dict[str, Any] = {"text": text, "mode": "twin", "audience": "owner"}
+        if timezone_name:
+            sent["timezone"] = timezone_name
+        status, payload = 429, {}
+        seconds = 0.0
+        for _attempt in range(40):
+            began = time.perf_counter()
+            status, payload = self._json("POST", "/api/desktop/chat", sent, timeout=180)
+            seconds = time.perf_counter() - began
+            if status != 429:
+                break
+            time.sleep(3)
+        if status >= 400:
+            return {"text": "", "why": [], "action": {}, "error": f"{status}: {payload}", "seconds": seconds}
+        return {
+            "text": str(payload.get("reply") or ""),
+            "why": list(payload.get("why") or []),
+            "action": dict(payload.get("action") or {}),
+            "error": "",
+            "seconds": seconds,
+        }
+
     def ask_page(self, question: str) -> dict:
         status, payload = self._json("POST", "/api/memory-loop/ask", {"question": question}, timeout=120)
         if status >= 400:
@@ -224,6 +252,14 @@ def run() -> int:
     checks: list[tuple[str, bool]] = []
     latencies: list[float] = []
     invented: dict[str, list[str]] = {}
+    # Desktop turns write to the shared companion conversation, the owner's style
+    # notes, and the saved zone. They are put back exactly as they were.
+    saved_zone = user.get("last_timezone")
+    companion_before = {
+        str(doc["conversation_id"]): doc
+        for doc in db.conversations.find({"user_id": user_id, "kind": "companion_twin"}, {"_id": 0})
+    }
+    style_before = db.owner_style.find_one({"user_id": user_id}, {"_id": 0})
 
     def life_round(name: str, real_ids: set[str]) -> None:
         bad: list[str] = []
@@ -328,9 +364,62 @@ def run() -> int:
             ok = local.hour == 9 and local.minute == 0
         checks.append((f"reminder: saved for 9:00 AM {REMINDER_ZONE}", ok))
         print(f"  {'ok ' if ok else 'BAD'} {got['seconds']:5.1f}s  due_at={(row or {}).get('due_at')} -> {_short(got['text'])}")
+
+        print("A birthday note keeps its greeting:")
+        conversation_id = api.start()
+        conversations.append(conversation_id)
+        got = api.say(conversation_id, BIRTHDAY)
+        latencies.append(got["seconds"])
+        ok = "birthday" in got["text"].lower() and helpful(got["text"]) and not got["error"]
+        checks.append(("birthday note keeps 'birthday'", ok))
+        print(f"  {'ok ' if ok else 'BAD'} {got['seconds']:5.1f}s  {_short(got['text'], 220)}")
+
+        print("Desktop twin chat (WinUI /desktop/chat) is grounded and keeps the last zone:")
+        got = api.desktop(DESKTOP_LIFE, timezone_name=DESKTOP_ZONE)
+        latencies.append(got["seconds"])
+        ok = declined(got["text"]) and not got["error"]
+        checks.append(("desktop: life question declined", ok))
+        print(f"  {'ok ' if ok else 'BAD'} {got['seconds']:5.1f}s  {DESKTOP_LIFE} -> {_short(got['text'] or got['error'])}")
+        stored = (db.users.find_one({"user_id": user_id}, {"_id": 0, "last_timezone": 1}) or {}).get("last_timezone")
+        checks.append((f"desktop: zone saved ({stored})", stored == DESKTOP_ZONE))
+        got = api.desktop(REMINDER)
+        latencies.append(got["seconds"])
+        reminder_id = str((got["action"] or {}).get("reminder_id") or "")
+        if reminder_id:
+            reminder_ids.append(reminder_id)
+        row = db.reminders.find_one({"user_id": user_id, "reminder_id": reminder_id}, {"_id": 0}) if reminder_id else None
+        ok = False
+        due = str((row or {}).get("due_at") or "")
+        if due:
+            from zoneinfo import ZoneInfo
+
+            local = datetime.fromisoformat(due).astimezone(ZoneInfo(DESKTOP_ZONE))
+            ok = local.hour == 9 and local.minute == 0
+        checks.append((f"desktop: reminder with no zone saved for 9:00 AM {DESKTOP_ZONE}", ok))
+        print(f"  {'ok ' if ok else 'BAD'} {got['seconds']:5.1f}s  due_at={due} -> {_short(got['text'] or got['error'])}")
     except Exception as exc:  # noqa: BLE001
         checks.append((f"eval ran without an error ({exc})", False))
     finally:
+        time.sleep(3)  # let style notes and summaries started by the turns finish
+        for doc in db.conversations.find({"user_id": user_id, "kind": "companion_twin"}, {"_id": 0}):
+            conversation_key = str(doc["conversation_id"])
+            if conversation_key in companion_before:
+                db.conversations.replace_one(
+                    {"user_id": user_id, "conversation_id": conversation_key}, companion_before[conversation_key],
+                )
+                db.memory_episodes.delete_many({
+                    "user_id": user_id, "conversation_id": conversation_key, "created_at": {"$gte": started_iso},
+                })
+            else:
+                conversations.append(conversation_key)
+        if style_before is None:
+            db.owner_style.delete_many({"user_id": user_id})
+        else:
+            db.owner_style.replace_one({"user_id": user_id}, style_before, upsert=True)
+        if saved_zone:
+            db.users.update_one({"user_id": user_id}, {"$set": {"last_timezone": saved_zone}})
+        else:
+            db.users.update_one({"user_id": user_id}, {"$unset": {"last_timezone": ""}})
         cleanup(db, user_id, card_ids, prompt_ids, conversations, reminder_ids, issued.session_token, started_iso)
         left = {
             "cards": db.memory_cards.count_documents({"user_id": user_id, "title": {"$regex": LABEL}}),
