@@ -428,3 +428,26 @@ def test_desktop_reminder_without_a_zone_uses_the_zone_the_last_turn_sent(monkey
     assert made and made[0]["what"] == "call the dentist"
     due = datetime.fromisoformat(made[0]["when"])
     assert due.utcoffset().total_seconds() == 0 or due.astimezone(timezone.utc).hour == 14
+
+
+def test_birthday_note_templates_keep_their_greetings():
+    evidence = "OWNER SAID: Help me write a short birthday note for my sister."
+    for line in (
+        "Dear [Sister's Name],",
+        "Happy Birthday, [Sister's Name]! 🎉 I hope your day is filled with joy.",
+        "Happy birthday to my dearest sister!",
+        "With all my love,",
+        "[Your Name]",
+        "Here\u2019s to another year of laughter and love!",
+        "I\u2019m so grateful to have you in my life.",
+        "May this year bring you new adventures.",
+    ):
+        assert grounding.is_harmless(line, evidence), line
+    for line in (
+        "Happy birthday to my sister, who taught me to fish!",
+        "Here's to the summer we spent at the lake house.",
+        "Happy birthday to my brother Tom!",
+        "Love you, and remember our trip to Ohio?",
+        "Happy birthday to my wife!",
+    ):
+        assert not grounding.is_harmless(line, evidence), line

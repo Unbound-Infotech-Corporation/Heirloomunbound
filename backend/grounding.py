@@ -273,30 +273,45 @@ def strip_false_promises(text: str, *, reminder_created: bool = False) -> str:
 
 # Lines that claim nothing about the owner's life: greetings, wishes, sign-offs, offers, thanks.
 _HARMLESS = re.compile(
-    r"(?i)^[\"'(\s]*(?:dear\b[^,!.]{0,30}[,!]?\s*)?(?:"
-    r"happy (?:birthday|anniversary|holidays|new year|mother's day|father's day|thanksgiving|retirement|graduation)|"
-    r"merry christmas|congrat\w*|wishing you|wish you|best wishes|warm(?:est)? wishes|i (?:hope|wish) (?:you|your)|hope (?:you|your)|"
-    r"(?:with |lots of |all my |sending (?:you )?)?love(?: you| ya)?\b|xo+|hugs|cheers|"
+    r"(?i)^[\"'(\s\-*]*(?:"
+    r"dear\b|happy (?:birthday|anniversary|holidays|new year|mother's day|father's day|thanksgiving|retirement|graduation)|"
+    r"merry christmas|congrat\w*|wishing you|wish you|best wishes|warm(?:est)? wishes|i (?:hope|wish) (?:you|your|this|it)|"
+    r"hope (?:you|your)|may (?:this|your|the|you|it)\b|here(?:'s| is)\b|cheers\b|every year\b|"
+    r"(?:with (?:all )?(?:my )?|lots of |all my |sending (?:you )?)?love(?: you| ya)?\b|xo+|hugs|"
+    r"i (?:love|adore|appreciate|miss) you|i'?m (?:so |incredibly |truly |really )?(?:grateful|lucky|blessed|thankful|proud)|"
+    r"i feel (?:so |incredibly |truly |really )?(?:grateful|lucky|blessed|thankful)|"
+    r"you'?re (?:one of a kind|amazing|wonderful|the best|so special|awesome|incredible|loved)|"
     r"(?:all the )?best\b|warmly|sincerely|take care|safe travels|see you|talk soon|bye|goodbye|good ?night|"
     r"enjoy\b|have (?:a|an|fun)\b|you(?:'ve| have) got this|proud of you|"
     r"thanks?\b|thank you|you're welcome|hi\b|hello|hey\b|good (?:morning|afternoon|evening)|"
-    r"sure\b|of course|absolutely|sounds good|here(?:'s| is)\b|let me know|anything else|how about you|what about you|"
+    r"sure\b|of course|absolutely|sounds good|let me know|anything else|how about you|what about you|feel free|"
     r"i'?m (?:glad|happy|sorry|here|doing (?:well|good|great|fine|okay|ok|alright)|hanging in)|i'?d (?:love|be happy|be glad) to"
     r")"
 )
+# Story words. A wish that tells a story is a claim, not a greeting.
+_STORY = re.compile(
+    r"(?i)\b(?:taught|grew up|married|met|moved|lived|worked|served|bought|drove|remember\w*|used to|back in|"
+    r"years ago|that time|when (?:we|i|you were)|summer|(?:our|that|the|my) (?:\w+ )?(?:trip|vacation)|camp\w*|our first|the day (?:we|you|i))\b"
+)
+_PLACEHOLDER = re.compile(r"\[[^\]\n]{1,40}\]")
 
 
 def is_harmless(sentence: str, evidence: str) -> bool:
-    """A greeting, wish, or sign-off with no life claim and no name the evidence lacks."""
+    """A greeting, wish, or sign-off with no life story and no name the evidence lacks."""
     line = " ".join((sentence or "").split())
-    if not line or len(line) > 160:
+    line = line.translate({0x2019: "'", 0x2018: "'", 0x201C: '"', 0x201D: '"'})
+    line = _PLACEHOLDER.sub("", line).strip()
+    if not re.search(r"[A-Za-z]", line):
+        return True  # only a placeholder like [Your Name], or a divider
+    if len(line) > 200 or not _HARMLESS.search(line) or _STORY.search(line):
         return False
-    if not _HARMLESS.search(line):
-        return False
-    if _STRONG_CLAIM.search(line):
-        return False
-    words = re.findall(r"[A-Za-z][A-Za-z'\-]*", line)
     folded = (evidence or "").lower()
+    for match in _STRONG_CLAIM.finditer(line):
+        words = match.group(0).lower().split()
+        # "my dear sister" is only an address when the owner named the sister.
+        if words[0] not in {"my", "our"} or words[-1] not in folded:
+            return False
+    words = re.findall(r"[A-Za-z][A-Za-z'\-]*", line)
     for position, word in enumerate(words):
         clean = word.strip("'").removesuffix("'s")
         if position == 0 or not clean[:1].isupper() or clean.lower() in _COMMON_CAPS:
@@ -304,7 +319,6 @@ def is_harmless(sentence: str, evidence: str) -> bool:
         if clean.lower() not in folded:
             return False
     return not re.search(r"\d", line) or not unseen_details(line, evidence)
-
 
 _COMMON_CAPS = frozenset({
     "i", "i'm", "i've", "i'd", "i'll", "mom", "dad", "mama", "papa", "grandpa", "grandma", "ma", "pa", "sis", "bro",
