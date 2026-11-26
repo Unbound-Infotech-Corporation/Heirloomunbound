@@ -42,14 +42,20 @@ ANSWER_SYSTEM = (
     "You are the owner, speaking in the first person. Say I, my, and me. "
     "Never say 'your' about this life. Use only the approved memories. "
     "Stay close to the card's facts and wording. "
-    "Do not add traits, feelings, places, or events that are not written on the card. "
+    "Do not add traits, feelings, places, names, dates, or events that are not written on the card. "
+    "Answer in one to three short sentences. No padding, no closing questions, no offers. "
     "If they do not answer the question, say you don't remember. Do not invent a life."
 )
 
 FIRST_PERSON = (
     "You are the owner. Speak in the first person: I, my, me. "
     "Never say 'your first car' or 'you' about this life. "
-    "Do not print tool calls. The archive is already in this prompt."
+    "Do not print tool calls. The archive is already in this prompt.\n"
+    "HARD RULE: You know nothing about this life except what is written in the approved memories and the owner's own "
+    "messages above. Never state a name, relative, place, date, job, pet, event, habit, taste, or feeling from this life "
+    "unless it is written there. If asked about something that is not written there, say: "
+    "\"I don't have that memory yet. Record it, and I'll keep it.\" "
+    "You cannot set reminders or do anything later from this chat, so never promise to."
 )
 
 
@@ -375,6 +381,19 @@ def blend_score(keyword: float, cosine: float | None, *, best_cosine: float | No
     return max(keyword, cosine)
 
 
+# Words that say nothing about which memory is meant. "first job" must not match "first car".
+_GENERIC = frozenset({
+    "first", "last", "favorite", "favourite", "remember", "recall", "tell", "ever", "used", "like",
+    "really", "thing", "things", "something", "time", "times", "back", "still", "also", "can", "could",
+    "would", "should", "will", "just", "more", "most", "much", "very", "some", "any", "all", "one",
+    "got", "get", "know", "think", "mine", "yours", "life", "day", "days", "please", "describe",
+})
+
+
+def _content_tokens(text: str) -> set[str]:
+    return {token for token in _tokens(text) if token not in _GENERIC}
+
+
 def _score_card(card: dict, query: str) -> float:
     hay = " ".join([
         str(card.get("title") or ""),
@@ -383,10 +402,10 @@ def _score_card(card: dict, query: str) -> float:
         str(card.get("story") or ""),
         str(card.get("question") or ""),
     ])
-    query_tokens = _tokens(query)
+    query_tokens = _content_tokens(query)
     if not query_tokens:
         return 0.0
-    hay_tokens = _tokens(hay)
+    hay_tokens = _content_tokens(hay)
     if not hay_tokens:
         return 0.0
     return len(query_tokens & hay_tokens) / len(query_tokens)
@@ -577,6 +596,8 @@ def why_from(cards: list[dict]) -> list[dict[str, str]]:
             "card_id": str(card.get("card_id") or ""),
             "title": str(card.get("title") or "A memory"),
             "story": str(card.get("story") or ""),
+            "era": str(card.get("era") or ""),
+            "people": [str(name) for name in (card.get("people") or [])][:8],
         })
     return rows
 
@@ -634,7 +655,14 @@ async def recall_cards(question: str, cards: list[dict]) -> list[dict]:
     return select_cards(cards, question, vectors=vectors, query_vector=embedded[0])
 
 
-async def answer_grounded(question: str, cards: list[dict], complete: Complete) -> dict[str, Any]:
+async def answer_grounded(
+    question: str,
+    cards: list[dict],
+    complete: Complete,
+    *,
+    verify: Optional[Callable[..., Awaitable[Any]]] = None,
+) -> dict[str, Any]:
+    """The Ask page. Relevant approved cards only, then every claim is checked when ``verify`` is given."""
     used = await recall_cards(question, cards)
     if not used:
         return {"reply": NO_MEMORY_YET, "why": []}
@@ -645,6 +673,15 @@ async def answer_grounded(question: str, cards: list[dict], complete: Complete) 
         reply = ""
     if not reply or _declines(reply):
         return {"reply": NO_MEMORY_YET, "why": []}
+    if verify is not None:
+        verdict = await verify(reply, cards=used, owner_messages=[question])
+        if getattr(verdict, "source", "") == "fail-closed":
+            story = " ".join(str(used[0].get("story") or "").split())
+            reply = f"Here's what I have written down: {story}" if story else ""
+        else:
+            reply = getattr(verdict, "text", "") or ""
+        if not reply or _declines(reply):
+            return {"reply": NO_MEMORY_YET, "why": []}
     grounded = citations_that_ground(reply, used)
     if not grounded:
         return {"reply": NO_MEMORY_YET, "why": []}

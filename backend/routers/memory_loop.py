@@ -199,7 +199,9 @@ async def get_card(card_id: str, user: dict = Depends(get_current_user)):
 @router.post("/ask")
 async def ask(body: AskReq, user: dict = Depends(get_current_user)):
     cards = await _cards(user["user_id"])
-    result = await answer_grounded(body.question, cards, _local_complete)
+    from grounding import verify_reply
+
+    result = await answer_grounded(body.question, cards, _local_complete, verify=verify_reply)
     return result
 
 

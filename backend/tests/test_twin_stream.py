@@ -146,21 +146,31 @@ def test_streamed_twin_message_returns_text(monkeypatch):
             row.setdefault("messages", []).extend(each)
 
     class Collection:
+        def __init__(self):
+            self.inserted = []
+
         def find(self, *args, **kwargs):
             del args, kwargs
             return Cursor()
+
+        async def insert_one(self, doc):
+            self.inserted.append(dict(doc))
 
     class Database:
         def __init__(self):
             self.conversations = Conversations()
             self.entries = Collection()
             self.skills = Collection()
+            self.reminders = Collection()
 
         def __getattr__(self, name):
             return Collection()
 
     fake = Database()
     monkeypatch.setattr(twin, "db", fake)
+    import twin_tools
+
+    monkeypatch.setattr(twin_tools, "db", fake)
     monkeypatch.setattr(twin.ab, "enabled_ability_ids", lambda user_id: _async([]))
 
     async def _async(value):
@@ -217,6 +227,31 @@ def test_streamed_twin_message_returns_text(monkeypatch):
     import routers.memory_loop as memory_loop
 
     monkeypatch.setattr(memory_loop, "grounding_for_turn", grounding)
+    import grounding as grounding_mod
+
+    asked = []
+
+    async def box_model(system, user_text, **kwargs):
+        del kwargs
+        asked.append((system, user_text))
+        if system == grounding_mod.CLASSIFY_SYSTEM:
+            folded = user_text.lower()
+            personal = any(word in folded for word in ("my ", "mom", "dad", "we "))
+            return json.dumps({"personal": personal})
+        if system == grounding_mod.VERIFY_SYSTEM:
+            evidence, reply = user_text.split("REPLY:", 1)
+            bad = []
+            for line in reply.strip().splitlines():
+                number, _, sentence = line.partition(". ")
+                words = [w.strip(".,!?").lower() for w in sentence.split() if len(w) > 4]
+                if words and not all(w in evidence.lower() for w in words):
+                    bad.append(int(number))
+            return json.dumps({"unsupported": bad})
+        assert "black lab named Duke" in user_text
+        assert "Ford" not in user_text and "Etta" not in user_text
+        return "My dog was a black lab named Duke."
+
+    monkeypatch.setattr(grounding_mod, "ask_box_model", box_model)
 
     async def quiet(*args, **kwargs):
         del args, kwargs
@@ -246,7 +281,8 @@ def test_streamed_twin_message_returns_text(monkeypatch):
     body = response.text
     assert "event: error" not in body
     assert "cannot access local variable" not in body
-    assert "Ford Escort" in body
+    # The draft invented a car on a greeting. The claim check removed it.
+    assert "Ford Escort" not in body
     assert "event: done" in body
     ungrounded = client.post(
         "/api/twin/message",
@@ -261,6 +297,8 @@ def test_streamed_twin_message_returns_text(monkeypatch):
         ("What song did we dance to at my wedding?", "Etta"),
         ("Where did I grow up?", "Longview"),
         ("What was my first job?", "grocery"),
+        ("What was my mom's name?", "Mary"),
+        ("What did Dad teach me?", "fish"),
     ):
         later = client.post(
             "/api/twin/message",
@@ -271,6 +309,7 @@ def test_streamed_twin_message_returns_text(monkeypatch):
         assert "don't have that memory yet" in body
         assert invented not in body
         assert "event: error" not in body
+    # Only the greeting reached the open chat model. Personal turns never do.
     assert len(calls) == 1
     dog = client.post(
         "/api/twin/message",
@@ -278,8 +317,21 @@ def test_streamed_twin_message_returns_text(monkeypatch):
     )
     assert dog.status_code == 200
     assert "event: error" not in dog.text
-    assert len(calls) == 2
-    prompt = json.dumps(calls[1][0])
-    assert "Ford Escort" not in prompt
-    assert "Etta" not in prompt
-    assert "Do not add traits" in prompt
+    assert "black lab named Duke" in dog.text
+    assert "event: why" in dog.text
+    assert len(calls) == 1
+    answer_prompts = [
+        text for system, text in asked
+        if system not in {grounding_mod.CLASSIFY_SYSTEM, grounding_mod.VERIFY_SYSTEM}
+    ]
+    assert len(answer_prompts) == 1
+    assert "Do not add traits" in answer_prompts[0]
+    remind = client.post(
+        "/api/twin/message",
+        json={"conversation_id": conversation_id, "message": "Remind me to call the dentist tomorrow at 9am"},
+    )
+    assert remind.status_code == 200
+    assert "event: action" in remind.text
+    assert "reminder" in remind.text
+    assert [row["text"] for row in fake.reminders.inserted] == ["call the dentist"]
+    assert fake.reminders.inserted[0]["due_at"]

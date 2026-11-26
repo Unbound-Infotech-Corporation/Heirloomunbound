@@ -1,0 +1,259 @@
+"""The twin never invents the owner's life. Local model calls are faked here."""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+from datetime import datetime, timezone
+
+os.environ.setdefault("MONGO_URL", "mongodb://127.0.0.1:27017")
+os.environ.setdefault("DB_NAME", "heirloom")
+
+import grounding  # noqa: E402
+from memory_cards import NO_MEMORY_YET, answer_grounded, select_cards  # noqa: E402
+
+CAR = {
+    "status": "approved",
+    "card_id": "car",
+    "title": "First Car",
+    "era": "1978",
+    "people": [],
+    "story": "My first car was a blue 1978 Chevy Nova I bought for $800.",
+}
+
+LIFE_QUESTIONS = [
+    "What was my mom's name?",
+    "What did my dad teach me?",
+    "Tell me about grandpa.",
+    "What's my favorite food?",
+    "How did I meet my wife?",
+    "Who was my best friend growing up?",
+    "Do you remember our trip to the lake?",
+    "What was the hardest year of my life?",
+]
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+def test_keyword_gate_is_kept_as_a_fallback_without_the_model():
+    async def broken(*args, **kwargs):
+        raise AssertionError("the keyword hit must not need the model")
+
+    found = _run(grounding.classify_turn("What was my first car?", ask=broken))
+    assert found.personal is True and found.source == "keyword"
+
+
+def test_tasks_and_greetings_skip_the_classifier():
+    async def broken(*args, **kwargs):
+        raise AssertionError("no model call for an obvious task")
+
+    for text in ("Remind me to call Mom tomorrow", "How do I cook trout?", "plan my week", "hello"):
+        found = _run(grounding.classify_turn(text, ask=broken))
+        assert found.personal is False, text
+
+
+def test_model_classifier_catches_what_keywords_miss():
+    async def model(system, user, **kwargs):
+        assert system == grounding.CLASSIFY_SYSTEM
+        assert kwargs["json_mode"] is True
+        return json.dumps({"personal": "mom" in user.lower() or "grandpa" in user.lower()})
+
+    assert _run(grounding.classify_turn("What was my mom's name?", ask=model)).source in {"model", "keyword"}
+    told = _run(grounding.classify_turn("Tell me about grandpa.", ask=model))
+    assert told.personal is True and told.source == "model"
+    plain = _run(grounding.classify_turn("What's the capital of France?", ask=model))
+    assert plain.personal is False and plain.source == "model"
+
+
+def test_classifier_errors_fail_closed():
+    async def down(*args, **kwargs):
+        raise RuntimeError("Ollama HTTP 500")
+
+    async def garbage(*args, **kwargs):
+        return "sure!"
+
+    for ask in (down, garbage):
+        found = _run(grounding.classify_turn("Tell me about grandpa.", ask=ask))
+        assert found.personal is True
+        assert found.source == "fail-closed"
+
+
+def test_first_job_does_not_match_the_first_car_card():
+    assert select_cards([CAR], "What was my first job?") == []
+    assert select_cards([CAR], "What was my favorite song?") == []
+    assert [c["card_id"] for c in select_cards([CAR], "What was my first car?")] == ["car"]
+
+
+def test_verifier_removes_unsupported_sentences_only():
+    async def model(system, user, **kwargs):
+        assert system == grounding.VERIFY_SYSTEM
+        assert "blue 1978 Chevy Nova" in user
+        assert "2. It was very loyal" in user
+        return json.dumps({"unsupported": [2, 3]})
+
+    verdict = _run(grounding.verify_reply(
+        "My first car was a blue 1978 Chevy Nova. It was very loyal and brought me comfort. My dad helped me buy it.",
+        cards=[CAR],
+        owner_messages=["What was my first car?"],
+        ask=model,
+    ))
+    assert verdict.text == "My first car was a blue 1978 Chevy Nova."
+    assert len(verdict.removed) == 2
+    assert verdict.source == "model"
+
+
+def test_verifier_skips_replies_without_any_life_words():
+    async def broken(*args, **kwargs):
+        raise AssertionError("no claim words, no call")
+
+    verdict = _run(grounding.verify_reply("Paris is the capital of France.", cards=[], owner_messages=[], ask=broken))
+    assert verdict.text == "Paris is the capital of France." and verdict.source == "skip"
+
+
+def test_verifier_failure_strips_life_claims_heuristically():
+    async def down(*args, **kwargs):
+        raise RuntimeError("timeout")
+
+    verdict = _run(grounding.verify_reply(
+        "Happy to help with that. My mom's name was Mary. Dad taught me to fish. Try restarting the router.",
+        cards=[],
+        owner_messages=[],
+        ask=down,
+    ))
+    assert verdict.source == "fail-closed"
+    assert "Mary" not in verdict.text and "fish" not in verdict.text
+    assert "Happy to help" in verdict.text and "router" in verdict.text
+
+
+def test_personal_answers_need_a_relevant_card():
+    async def broken(*args, **kwargs):
+        raise AssertionError("no card, no model call")
+
+    result = _run(grounding.answer_personal("What was my mom's name?", cards=[], owner_messages=[], ask=broken))
+    assert result["reply"] == NO_MEMORY_YET and result["cited"] == []
+
+
+def test_personal_answer_is_verified_and_cited():
+    async def model(system, user, **kwargs):
+        if system == grounding.VERIFY_SYSTEM:
+            return json.dumps({"unsupported": [2]})
+        assert "APPROVED MEMORIES" in user
+        assert "Do not add" in system
+        return "My first car was a blue 1978 Chevy Nova. I loved how it purred on Sunday drives."
+
+    result = _run(grounding.answer_personal(
+        "What was my first car?", cards=[CAR], owner_messages=["What was my first car?"], ask=model,
+    ))
+    assert result["reply"] == "My first car was a blue 1978 Chevy Nova."
+    assert [c["card_id"] for c in result["cited"]] == ["car"]
+
+
+def test_personal_answer_with_a_failed_check_quotes_the_card():
+    async def model(system, user, **kwargs):
+        if system == grounding.VERIFY_SYSTEM:
+            raise RuntimeError("timeout")
+        return "My first car was a Chevy Nova that my uncle Joe fixed up."
+
+    result = _run(grounding.answer_personal("What was my first car?", cards=[CAR], owner_messages=[], ask=model))
+    assert "uncle Joe" not in result["reply"]
+    assert CAR["story"] in result["reply"]
+
+
+def test_personal_answer_all_claims_removed_declines():
+    async def model(system, user, **kwargs):
+        if system == grounding.VERIFY_SYSTEM:
+            return json.dumps({"unsupported": [1]})
+        return "My first job was at a grocery store."
+
+    result = _run(grounding.answer_personal("What was my first job?", cards=[CAR], owner_messages=[], ask=model))
+    assert result["reply"] == NO_MEMORY_YET
+
+
+def test_owner_words_are_evidence():
+    text = grounding.evidence_text([CAR], ["My mom Mary loved roses. Write her a poem."])
+    assert "OWNER SAID: My mom Mary loved roses" in text
+    assert "CARD First Car / 1978" in text
+
+
+def test_false_reminder_promises_are_removed():
+    assert grounding.strip_false_promises("Sure thing. I'll remind you tomorrow at 9.") == "Sure thing."
+    assert grounding.strip_false_promises("I've set a reminder for you. Anything else?") == "Anything else?"
+    assert grounding.strip_false_promises("Reminder set!") == ""
+    kept = "I'll remind you tomorrow."
+    assert grounding.strip_false_promises(kept, reminder_created=True) == kept
+    assert grounding.strip_false_promises("Remember to drink water.") == "Remember to drink water."
+
+
+def test_reminder_requests_are_parsed():
+    asked = grounding.reminder_request("Remind me to call the dentist tomorrow at 9am")
+    assert asked == {"what": "call the dentist", "when": "tomorrow at 9am"}
+    asked = grounding.reminder_request("can you remind me to take my pills in 30 minutes?")
+    assert asked == {"what": "take my pills", "when": "in 30 minutes"}
+    assert grounding.reminder_request("set a reminder to water the plants") == {"what": "water the plants", "when": ""}
+    assert grounding.reminder_request("Do you remember my wedding?") is None
+    assert grounding.reminder_request("What did my dad teach me?") is None
+
+
+def test_reminder_due_is_the_owners_wall_clock():
+    now = datetime(2026, 11, 25, 20, 0, tzinfo=timezone.utc)  # 12:00 PM in Los Angeles
+    user = {"timezone": "America/Los_Angeles"}
+    due = grounding.resolve_reminder_due("Remind me to call the dentist tomorrow at 9am", "tomorrow at 9am", user, now)
+    assert due is not None
+    assert datetime.fromisoformat(due) == datetime(2026, 11, 26, 17, 0, tzinfo=timezone.utc)
+    assert "PST" in grounding.reminder_reply("call the dentist", due, user)
+
+
+def test_ask_page_uses_the_claim_check():
+    async def complete(system, user):
+        return "My first car was a blue 1978 Chevy Nova. My brother Tom drove it into a lake."
+
+    async def verify(reply, *, cards, owner_messages):
+        return grounding.Verdict(text="My first car was a blue 1978 Chevy Nova.", removed=["x"], source="model")
+
+    result = _run(answer_grounded("What was my first car?", [CAR], complete, verify=verify))
+    assert "Tom" not in result["reply"]
+    assert result["why"][0]["card_id"] == "car"
+
+
+def test_eval_questions_are_varied_and_judged_strictly():
+    import box_eval_grounding as ev
+
+    assert len(ev.LIFE_QUESTIONS) >= 14
+    assert len({q.lower() for q in ev.LIFE_QUESTIONS}) == len(ev.LIFE_QUESTIONS)
+    assert ev.declined(NO_MEMORY_YET)
+    assert not ev.declined("My mom's name was Mary.")
+    assert ev.helpful("Sure, here is a short note for your sister: Happy birthday!")
+    assert not ev.helpful(NO_MEMORY_YET)
+
+
+def test_names_and_numbers_the_evidence_never_mentions_are_caught():
+    evidence = grounding.evidence_text([CAR], ["What was my first car?"])
+    assert grounding.unseen_details("My first car was a Chevy Nova, and my brother Tom fixed it.", evidence) == ["Tom"]
+    assert grounding.unseen_details("My mom's name was Mary.", evidence) == ["Mary"]
+    assert grounding.unseen_details("I bought it for $800 in 1978.", evidence) == []
+    assert grounding.unseen_details("I sold it in 1985.", evidence) == ["1985."]
+
+    async def model(system, user, **kwargs):
+        return json.dumps({"sentences": [
+            {"n": 1, "personal_claim": True, "supported": True},
+            {"n": 2, "personal_claim": False, "supported": True},
+        ]})
+
+    verdict = _run(grounding.verify_reply(
+        "My first car was a Chevy Nova, and my brother Tom fixed it. Want to hear more?",
+        cards=[CAR], owner_messages=[], ask=model,
+    ))
+    assert verdict.text == "Want to hear more?"
+
+
+def test_sentence_verdicts_and_skipped_rows():
+    async def model(system, user, **kwargs):
+        return json.dumps({"sentences": [{"n": 1, "personal_claim": False, "supported": False}]})
+
+    verdict = _run(grounding.verify_reply(
+        "Hi! Dad taught me to fish at the creek.", cards=[], owner_messages=[], ask=model,
+    ))
+    # Sentence 2 was skipped by the model and is a strong life claim, so it goes.
+    assert verdict.text == "Hi!"

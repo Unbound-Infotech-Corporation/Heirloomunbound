@@ -350,6 +350,63 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
         )
 
+    # ---- Reminder short-circuit: the twin creates the reminder or does not promise one ----
+    from grounding import reminder_reply, reminder_request, resolve_reminder_due
+
+    asked_reminder = None if specialist_id else reminder_request(message_text)
+    if asked_reminder:
+        await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
+        from twin_tools import exec_set_reminder
+
+        due_iso = resolve_reminder_due(message_text, asked_reminder["when"], user)
+        made = await exec_set_reminder(
+            user["user_id"],
+            {"what": asked_reminder["what"], "when": due_iso or ""},
+        )
+        created = bool((made.get("ui") or {}).get("created"))
+        reminder_id = (made.get("ui") or {}).get("reminder_id") or ""
+        reply = (
+            reminder_reply(asked_reminder["what"], due_iso, user)
+            if created
+            else "I couldn't save that reminder. Add it on the Reminders page so it isn't lost."
+        )
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await db.conversations.update_one(
+            {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},
+            {
+                "$push": {"messages": {"$each": [
+                    {"role": "user", "content": payload.message, "ts": now_iso},
+                    {
+                        "role": "assistant",
+                        "content": reply,
+                        "ts": now_iso,
+                        "action": {"kind": "reminder", "reminder_id": reminder_id, "due_at": due_iso, "created": created},
+                    },
+                ]}},
+                "$set": {"updated_at": now_iso},
+            },
+        )
+
+        async def reminder_stream():
+            yield "data: " + json.dumps({"text": reply}) + "\n\n"
+            yield "event: action\ndata: " + json.dumps({
+                "kind": "reminder",
+                "reminder_id": reminder_id,
+                "text": asked_reminder["what"],
+                "due_at": due_iso,
+                "created": created,
+            }) + "\n\n"
+            lab_line = _lab_sse(user, route=lab_route, started=started, selftest=selftest)
+            if lab_line:
+                yield lab_line
+            yield "event: done\ndata: {}\n\n"
+
+        return StreamingResponse(
+            reminder_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
+
     await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
     turn_audience = (user.get("audience") or "owner").strip().lower() or "owner"
     if user.get("heir_surface"):
@@ -419,12 +476,23 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
 
     # Replay prior turns so the twin remembers what was just said.
     # An uncited assistant line is not a memory. It cannot ground a new personal claim.
-    from memory_cards import asks_for_personal_memory, history_without_invented_claims
+    from grounding import classify_turn
+    from memory_cards import history_without_invented_claims
 
-    personal_ask = not specialist_id and asks_for_personal_memory(message_text)
+    if specialist_id:
+        turn_class = None
+        personal_ask = False
+    else:
+        turn_class = await classify_turn(message_text)
+        personal_ask = turn_class.personal
     prior_messages = conv.get("messages", [])
-    if personal_ask:
-        prior_messages = history_without_invented_claims(prior_messages)
+    # An uncited twin line is never evidence, on any turn.
+    prior_messages = history_without_invented_claims(prior_messages)
+    owner_messages = [
+        str(m.get("content") or "")
+        for m in conv.get("messages", [])
+        if m.get("role") == "user" and m.get("content")
+    ] + [message_text]
     initial_messages = [{"role": "system", "content": system}]
     for m in prior_messages:
         if m.get("role") in ("user", "assistant") and m.get("content"):
@@ -464,12 +532,33 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
                     spoken_reply,
                 )
 
-                if personal_ask and not why_cards:
-                    full = NO_MEMORY_YET
-                    cited = []
+                from grounding import answer_personal, strip_false_promises, verify_reply
+
+                grounding_meta: dict = {}
+                if turn_class is not None:
+                    grounding_meta = {
+                        "personal": turn_class.personal,
+                        "classifier": turn_class.source,
+                        "classifier_ms": turn_class.ms,
+                    }
+                if personal_ask:
+                    # Personal turns are written from the relevant approved cards only.
+                    answered = await answer_personal(
+                        message_text,
+                        cards=why_cards,
+                        owner_messages=owner_messages,
+                        name=user.get("name") or "",
+                    )
+                    full = answered["reply"]
+                    cited = answered["cited"]
                     from brain_council import TurnOutcome
 
-                    outcome = TurnOutcome(text=full, meta={"grounded": False}, label="no-memory")
+                    grounding_meta.update(answered.get("trace") or {})
+                    outcome = TurnOutcome(
+                        text=full,
+                        meta={"grounded": bool(cited), "grounding": grounding_meta},
+                        label="memory" if cited else "no-memory",
+                    )
                 else:
                     voiced = list(ollama_messages)
                     if voiced and voiced[0].get("role") == "system":
@@ -487,6 +576,20 @@ async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(ge
                         })
                         outcome = await complete_turn(retry, message_text, audience=turn_audience)
                         full = speak(outcome.text) or "I don't remember that yet."
+                    full = strip_false_promises(full) or full
+                    if not specialist_id:
+                        # Every personal claim in a normal reply is checked too.
+                        verdict = await verify_reply(full, cards=why_cards, owner_messages=owner_messages)
+                        grounding_meta.update({
+                            "verify": verdict.source,
+                            "removed": len(verdict.removed),
+                            "verify_ms": verdict.ms,
+                        })
+                        full = verdict.text or NO_MEMORY_YET
+                        try:
+                            outcome.meta["grounding"] = grounding_meta
+                        except Exception:  # noqa: BLE001
+                            pass
                     # Do not assign why_cards here. That name is closed over from message(),
                     # and an assignment would make the read on this line an unbound local.
                     cited = citations_that_ground(full, why_cards)
