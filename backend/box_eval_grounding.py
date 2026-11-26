@@ -365,14 +365,17 @@ def run() -> int:
         checks.append((f"reminder: saved for 9:00 AM {REMINDER_ZONE}", ok))
         print(f"  {'ok ' if ok else 'BAD'} {got['seconds']:5.1f}s  due_at={(row or {}).get('due_at')} -> {_short(got['text'])}")
 
-        print("A birthday note keeps its greeting:")
-        conversation_id = api.start()
-        conversations.append(conversation_id)
-        got = api.say(conversation_id, BIRTHDAY)
-        latencies.append(got["seconds"])
-        ok = "birthday" in got["text"].lower() and helpful(got["text"]) and not got["error"]
-        checks.append(("birthday note keeps 'birthday'", ok))
-        print(f"  {'ok ' if ok else 'BAD'} {got['seconds']:5.1f}s  {_short(got['text'], 220)}")
+        print("A birthday note keeps its greeting (3 tries):")
+        kept = 0
+        for _try in range(3):
+            conversation_id = api.start()
+            conversations.append(conversation_id)
+            got = api.say(conversation_id, BIRTHDAY)
+            latencies.append(got["seconds"])
+            ok = "birthday" in got["text"].lower() and helpful(got["text"]) and not got["error"]
+            kept += 1 if ok else 0
+            print(f"  {'ok ' if ok else 'BAD'} {got['seconds']:5.1f}s  {_short(got['text'], 220)}")
+        checks.append((f"birthday note keeps 'birthday' {kept} of 3", kept == 3))
 
         print("Desktop twin chat (WinUI /desktop/chat) is grounded and keeps the last zone:")
         got = api.desktop(DESKTOP_LIFE, timezone_name=DESKTOP_ZONE)
