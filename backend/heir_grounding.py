@@ -141,6 +141,9 @@ async def heir_reply(
     else:
         turn = await classify_turn(text, ask=_heir_ask(ask))
         personal, source = turn.personal, turn.source
+        if personal and source == "model" and not _is_question(text):
+            # "I miss you so much." is not a request for a memory; the free reply is still checked.
+            personal, source = False, "model-statement"
     meta: dict[str, Any] = {"personal": personal, "classifier": source, "evidence": len(used)}
 
     if personal:
@@ -155,12 +158,34 @@ async def heir_reply(
     raw = strip_false_promises(await draft(used) or "")
     verdict = await verify_reply(raw, cards=used, owner_messages=said, ask=ask)
     meta.update({"verify": verdict.source, "removed": len(verdict.removed)})
-    final = verdict.text.strip()
+    final = names_only_from_evidence(verdict.text, used, said)
     if not final:
-        return {"reply": HEIR_NO_MEMORY, "cited": [], "grounded": False, "meta": meta}
+        reply = HEIR_NO_MEMORY if _is_question(text) else here_line(heir)
+        return {"reply": reply, "cited": [], "grounded": False, "meta": meta}
     from memory_cards import citations_that_ground
 
     return {"reply": final, "cited": citations(citations_that_ground(final, used)), "grounded": True, "meta": meta}
+
+
+def _is_question(text: str) -> bool:
+    raw = " ".join((text or "").split()).lower()
+    return raw.endswith("?") or bool(re.match(r"^(who|what|when|where|why|how|did|do|does|was|were|is|are|can|could|tell me|remember)\b", raw))
+
+
+def here_line(heir: dict) -> str:
+    name = str(heir.get("name") or "").strip()
+    return f"I'm glad you're here, {name}." if name else "I'm glad you're here."
+
+
+def names_only_from_evidence(text: str, used: list[dict], said: list[str]) -> str:
+    """Drop any sentence that names a person, place or number the evidence never mentions
+    (an invented "Aunt Sarah"), even when the checker model let it through."""
+    from grounding import evidence_text, is_harmless, split_sentences, unseen_details
+
+    evidence = evidence_text(used, said)
+    kept = [line for line in split_sentences(text or "")
+            if is_harmless(line, evidence) or not unseen_details(line, evidence)]
+    return " ".join(kept).strip()
 
 
 def _heir_ask(ask: Optional[AskModel]) -> AskModel:

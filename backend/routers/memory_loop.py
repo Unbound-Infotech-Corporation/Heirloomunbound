@@ -43,6 +43,12 @@ class CardEdit(BaseModel):
     approve: bool = False
 
 
+class CardShare(BaseModel):
+    # owner/private: only the owner's Twin. family/heir: heirs after release. heir_ids limits it to those heirs.
+    visibility: str = Field(..., pattern="^(owner|private|family|heir)$")
+    heir_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
 class AskReq(BaseModel):
     question: str = Field(..., min_length=1, max_length=500)
 
@@ -187,6 +193,26 @@ async def edit_card(card_id: str, body: CardEdit, user: dict = Depends(get_curre
             {"$set": {"status": "acted"}},
         )
     return {"card": updated}
+
+
+@router.post("/cards/{card_id}/share")
+async def share_card(card_id: str, body: CardShare, user: dict = Depends(get_current_user)):
+    """The owner decides which approved memories an heir's Twin may tell. Cards start owner-only."""
+    user_id = user["user_id"]
+    card = await db.memory_cards.find_one({"card_id": card_id, "user_id": user_id}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="That memory card is not on this box")
+    if str(card.get("status") or "") != "approved":
+        raise HTTPException(status_code=400, detail="Approve the card before sharing it")
+    ids = [str(x).strip()[:60] for x in body.heir_ids if str(x).strip()]
+    if ids:
+        known = await db.heirs.count_documents({"user_id": user_id, "heir_id": {"$in": ids}})
+        if known != len(set(ids)):
+            raise HTTPException(status_code=400, detail="Unknown heir")
+    update = {"visibility": body.visibility, "heir_ids": ids,
+              "updated_at": datetime.now(timezone.utc).isoformat()}
+    await db.memory_cards.update_one({"card_id": card_id, "user_id": user_id}, {"$set": update})
+    return {"card": {**card, **update}}
 
 
 @router.get("/cards/{card_id}")

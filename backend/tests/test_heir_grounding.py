@@ -148,6 +148,8 @@ def test_greeting_is_kept_and_invented_aside_removed():
 
 def test_free_reply_with_only_inventions_declines():
     out = _turn("I miss you.", [], "We always loved fishing at Pike Lake together.", personal=False)
+    assert out["reply"] == "I'm glad you're here, Emma." and out["cited"] == []
+    out = _turn("What do you think of fishing?", [], "We always loved fishing at Pike Lake together.", personal=False)
     assert out["reply"] == grounding.HEIR_NO_MEMORY
 
 
@@ -194,3 +196,42 @@ def test_portal_chat_uses_the_fenced_grounded_path():
     rows = src.split("async def heir_evidence_rows", 1)[1]
     assert 'mongo_query(owner_id, "heir"' in rows and "per_heir_clause(heir_id)" in rows
     assert "_letter_unlocked(" in rows and "heir_cards(" in rows
+
+
+def test_invented_relative_in_a_free_reply_is_dropped():
+    async def lenient(system, user, **kw):  # a checker that lets everything through
+        if kw.get("json_mode") is False:
+            return ""
+        if "REPLY:" in user:
+            n = len([l for l in user.split("REPLY:", 1)[1].strip().splitlines() if l.strip()])
+            return json.dumps({"sentences": [{"n": i, "personal_claim": False, "supported": True} for i in range(1, n + 1)]})
+        return json.dumps({"personal": False})
+
+    async def draft(used):
+        return "Thank you, Emma. Maybe start with Aunt Sarah for those details."
+
+    out = _run(hg.heir_reply("Thank you for everything.", owner=OWNER, heir=HEIR, rows=[], draft=draft, ask=lenient))
+    assert out["reply"] == "Thank you, Emma."
+
+
+def test_a_feeling_is_not_refused():
+    async def draft(used):
+        return "Hi Emma, I'm right here."
+
+    out = _run(hg.heir_reply("I miss you so much.", owner=OWNER, heir=HEIR, rows=[], draft=draft,
+                             ask=fake_model("", personal=True)))
+    assert out["reply"] != grounding.HEIR_NO_MEMORY and "Emma" in out["reply"]
+
+    async def nothing(used):
+        return "We fished at Pike Lake every summer."
+
+    out = _run(hg.heir_reply("I miss you so much.", owner=OWNER, heir=HEIR, rows=[], draft=nothing,
+                             ask=fake_model("", personal=True)))
+    assert out["reply"] == "I'm glad you're here, Emma."
+
+
+def test_owner_can_share_a_card_with_heirs():
+    src = (Path(__file__).resolve().parents[1] / "routers" / "memory_loop.py").read_text()
+    share = src.split("async def share_card", 1)[1].split("@router", 1)[0]
+    assert "user: dict = Depends(get_current_user)" in src.split("async def share_card", 1)[1].split("\n", 1)[0]
+    assert '"approved"' in share and "Unknown heir" in share and '"heir_ids": ids' in share
