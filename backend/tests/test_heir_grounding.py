@@ -230,11 +230,12 @@ def test_a_feeling_is_not_refused():
     assert out["reply"] == "I'm glad you're here, Emma."
 
 
-def test_owner_can_share_a_card_with_heirs():
+def test_share_routes_exist_and_are_owner_authenticated():
     src = (Path(__file__).resolve().parents[1] / "routers" / "memory_loop.py").read_text()
-    share = src.split("async def share_card", 1)[1].split("@router", 1)[0]
-    assert "user: dict = Depends(get_current_user)" in src.split("async def share_card", 1)[1].split("\n", 1)[0]
-    assert '"approved"' in share and "Unknown heir" in share and '"heir_ids": ids' in share
+    for route in ('"/cards/share"', '"/cards/{card_id}/share"', '"/sharing"'):
+        assert route in src, route
+    for fn in ("async def share_card(", "async def share_cards(", "async def set_sharing("):
+        assert "Depends(get_current_user)" in src.split(fn, 1)[1].split("\n", 1)[0], fn
 
 
 def test_letter_questions_count_as_memory_questions():

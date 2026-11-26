@@ -749,7 +749,8 @@ def new_card_doc(user_id: str, draft: dict, *, prompt_id: str = "", now: Optiona
     }
 
 
-def approve_fields(card: dict, edits: dict | None = None, *, now: Optional[datetime] = None) -> dict[str, Any]:
+def approve_fields(card: dict, edits: dict | None = None, *, now: Optional[datetime] = None,
+                   share_new: bool = False) -> dict[str, Any]:
     moment = _now(now)
     updated = dict(card)
     for key in ("title", "era", "story", "question"):
@@ -760,8 +761,16 @@ def approve_fields(card: dict, edits: dict | None = None, *, now: Optional[datet
         if isinstance(people, str):
             people = [part.strip() for part in people.split(",") if part.strip()]
         updated["people"] = [str(name)[:80] for name in (people or [])][:8]
+    if str(card.get("status") or "") == "approved":
+        # Editing or re-approving a memory never changes who can hear it.
+        updated["visibility"] = card.get("visibility") or "owner"
+        updated["heir_ids"] = list(card.get("heir_ids") or [])
+    elif share_new:
+        # The owner's "share new approved cards with all heirs" setting (off by default).
+        updated["visibility"], updated["heir_ids"] = "family", []
+    else:
+        updated["visibility"], updated["heir_ids"] = "owner", []
     updated["status"] = "approved"
-    updated["visibility"] = "owner"
     updated["approved_at"] = moment.isoformat()
     updated["updated_at"] = moment.isoformat()
     return updated

@@ -238,7 +238,7 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
     )
 
     # Grounded like the owner Twin: only rows this heir may see, then fact-checked.
-    from heir_grounding import heir_reply
+    from heir_grounding import alias_lines, heir_reply
     from memory_cards import grounding_block
 
     rows = await heir_evidence_rows(owner["user_id"], heir, text)
@@ -276,6 +276,9 @@ async def portal_twin_chat(token: str, payload: HeirChatReq):
             f"({heir.get('relationship', 'loved one')}). Be brief: 1-4 sentences. "
             "Only state memories written above; never invent one. Do NOT take any actions. Do NOT invoke skills."
         )
+        known = alias_lines(heir)
+        if known:
+            system += "\nNames the family uses (to understand the question, not memories): " + " ".join(known)
         from llm_provider import complete_text, prefer_local, refuse_cloud
 
         if prefer_local():

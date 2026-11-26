@@ -29,7 +29,7 @@ _HEIR_RECALL = re.compile(
     r"\b(how|when|where|why) (did|were|was) you\b"
     r"|\bdid you (ever|have|meet|grow|go|live|work|serve|marry|play|keep|own|build|teach|learn)\b"
     r"|\b(what|who|which) (was|were|is) your\b"
-    r"|\btell me (about|more about) (your|you and|when you|the time|how you)\b"
+    r"|\btell me (about|more about) (your|you and|when you|the time|the day|the night|the first time|how you)\b"
     r"|\bdo you remember\b|\bremember when\b"
     r"|\bwhat did you (do|call|name|love|like|teach|tell|say|drive|study|want|write|mean|leave|hope)\b"
     r"|\byour letter\b|\byou wrote\b|\byou left me\b|\bwant(ed)? me to (know|have|keep)\b"
@@ -94,6 +94,35 @@ def letter_as_card(letter: dict) -> dict:
     }
 
 
+def clean_family_names(raw: list[dict]) -> list[dict[str, str]]:
+    out, seen = [], set()
+    for item in raw or []:
+        person = " ".join(str((item or {}).get("person") or "").split())[:60]
+        called = " ".join(str((item or {}).get("called") or "").split())[:40]
+        key = (person.lower(), called.lower())
+        if person and called and key not in seen and person.lower() != called.lower():
+            seen.add(key)
+            out.append({"person": person, "called": called})
+    return out[:20]
+
+
+def alias_lines(heir: dict) -> list[str]:
+    """Known names for this heir, e.g. 'Sam calls June "Grandma".' A way to understand the question;
+    it says nothing about what happened, so it never supports a story."""
+    name = str(heir.get("name") or "this heir").strip()
+    return [f'{name} calls {n["person"]} "{n["called"]}".' for n in clean_family_names(heir.get("names") or [])]
+
+
+def expand_aliases(text: str, heir: dict) -> str:
+    """'the day you met Grandma' -> 'the day you met Grandma (June)'. Only the owner's own list is used."""
+    out = text or ""
+    for n in clean_family_names(heir.get("names") or []):
+        if n["person"].lower() in out.lower():
+            continue
+        out = re.sub(rf"\b{re.escape(n['called'])}\b", f"{n['called']} ({n['person']})", out, count=1, flags=re.IGNORECASE)
+    return out
+
+
 def heir_context_line(heir: dict, owner: dict) -> str:
     """What the twin may say about who it is talking to. Comes from the heir record, not the chat."""
     name = str(heir.get("name") or "").strip()
@@ -131,11 +160,12 @@ async def heir_reply(
 ) -> dict[str, Any]:
     """One heir turn. ``rows`` are already fenced for this heir. ``draft`` writes a free reply
     (greetings, comfort) from the selected rows; it is fact-checked before anyone sees it."""
-    used = await select_evidence(text, rows)
+    asked = expand_aliases(text, heir)
+    used = await select_evidence(asked, rows)
     if observer:
         used = used + [observer]
     context = heir_context_line(heir, owner)
-    said = [context] if context else []
+    said = ([context] if context else []) + alias_lines(heir)
 
     if heir_asks_for_memory(text):
         personal, source = True, "heir-keyword"
@@ -148,7 +178,7 @@ async def heir_reply(
     meta: dict[str, Any] = {"personal": personal, "classifier": source, "evidence": len(used)}
 
     if personal:
-        answered = await answer_personal(text, cards=used, owner_messages=said,
+        answered = await answer_personal(asked, cards=used, owner_messages=said,
                                          name=str(owner.get("name") or ""), ask=ask)
         meta.update(answered.get("trace") or {})
         cited = answered.get("cited") or []

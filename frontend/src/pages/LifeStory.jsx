@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import HeirSharing from "../components/memory/HeirSharing";
 import { api } from "../lib/api";
 
 const btn = { border: "1px solid var(--border-default)", color: "var(--text-primary)" };
@@ -336,6 +337,7 @@ function Review({ tick, setBusy, setError }) {
   const [counts, setCounts] = useState({});
   const [picked, setPicked] = useState({});
   const [open, setOpen] = useState(null);
+  const [version, setVersion] = useState(0);
 
   const load = useCallback(async () => {
     const { data } = await api.get("/life-story/cards", { params: { status: "pending" } });
@@ -346,13 +348,18 @@ function Review({ tick, setBusy, setError }) {
   useEffect(() => { load().catch(() => {}); }, [load, tick]);
 
   const ids = Object.keys(picked).filter((k) => picked[k]);
-  const act = async (path, list, label) => {
+  const act = async (path, list, label, shareAll = false) => {
     if (!list.length) return;
     setBusy(label);
     setError("");
     try {
-      await api.post(`/life-story/cards/${path}`, { card_ids: list });
+      const { data } = await api.post(`/life-story/cards/${path}`, { card_ids: list });
+      if (shareAll && path === "approve" && (data?.approved || []).length) {
+        // Approve and share in one go: only the cards that were actually approved.
+        await api.post("/memory-loop/cards/share", { card_ids: data.approved, visibility: "family", heir_ids: [] });
+      }
       setPicked({});
+      setVersion((v) => v + 1);
       await load();
     } catch (err) {
       setError(err.response?.data?.detail || "That did not save.");
@@ -377,6 +384,9 @@ function Review({ tick, setBusy, setError }) {
         <div className="flex flex-wrap gap-3 mb-4">
           <button type="button" className="px-4 py-2 text-sm rounded-sm disabled:opacity-50" style={primary} disabled={!ids.length} onClick={() => act("approve", ids, "Approving…")} data-testid="review-approve">
             Approve {ids.length || ""} selected
+          </button>
+          <button type="button" className="px-4 py-2 text-sm rounded-sm disabled:opacity-50" style={{ border: "1px solid var(--accent)", color: "var(--accent)" }} disabled={!ids.length} onClick={() => act("approve", ids, "Approving and sharing…", true)} data-testid="review-approve-share">
+            Approve and share with all heirs
           </button>
           <button type="button" className="px-4 py-2 text-sm rounded-sm disabled:opacity-50" style={btn} disabled={!ids.length} onClick={() => act("discard", ids, "Removing…")} data-testid="review-discard">
             Discard selected
@@ -411,6 +421,9 @@ function Review({ tick, setBusy, setError }) {
             ) : null}
           </div>
         ))}
+      </div>
+      <div className="mt-10" data-testid="review-sharing">
+        <HeirSharing version={version} showNames={false} />
       </div>
     </section>
   );

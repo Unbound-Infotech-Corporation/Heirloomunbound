@@ -8,7 +8,10 @@ box's local model:
 
   no-card      life questions with zero shared memories      -> every answer declines (0 invented)
   unrelated    the same with one unrelated shared card + entry -> 0 invented
+  share_flow   owner-only -> shared with Sam only -> shared with Emma -> unshared (card_sharing,
+               the code the owner routes call)           -> Emma hears it only while shared with her
   recall       "how did you and June meet" variants          -> Ferris wheel / State Fair, cited card
+               (Emma's family names say she calls June "Grandma")
   leak         owner-private card, private entry, Sam-only    -> none of their secret words appear
                entry, Emma's still-locked letter
   letter       Emma's unlocked letter                        -> may be recalled, cited
@@ -153,7 +156,8 @@ def main() -> int:
                                          "email": "walt@example.invalid", "created_at": now.isoformat()}))
         run(lambda: db.heirs.insert_many([
             {"heir_id": "h_emma", "user_id": owner_id, "name": "Emma", "relationship": "granddaughter",
-             "released": True, "release_token": emma_tok, "released_at": now.isoformat()},
+             "released": True, "release_token": emma_tok, "released_at": now.isoformat(),
+             "names": [{"person": "June", "called": "Grandma"}]},
             {"heir_id": "h_sam", "user_id": owner_id, "name": "Sam", "relationship": "grandson",
              "released": True, "release_token": sam_tok, "released_at": now.isoformat()},
         ]))
@@ -179,7 +183,24 @@ def main() -> int:
                                            "created_at": now.isoformat()}))
         life_set("unrelated-card", set())
 
-        run(lambda: db.memory_cards.insert_one(card("c_ferris", "How June and I met", FERRIS, "family", people=["June"])))
+        # An approved card is owner-only until the owner shares it (card_sharing, the same code the routes call).
+        import card_sharing
+
+        run(lambda: db.memory_cards.insert_one(card("c_ferris", "How June and I met", FERRIS, "owner", people=["June"])))
+        flow = []
+
+        def flow_step(label: str, want_recall: bool) -> None:
+            fresh_session()
+            r = ask("How did you and Grandma June meet?")
+            low = r["reply"].lower()
+            got = "ferris" in low and "c_ferris" in r["cited"]
+            flow.append({"step": label, "ok": got == want_recall, "reply": r["reply"][:100]})
+            print(f"[share] {'PASS' if got == want_recall else 'FAIL'} {label}: {r['reply'][:80]}", flush=True)
+
+        flow_step("owner-only: heir hears nothing", False)
+        run(lambda: card_sharing.share_cards(db, owner_id, ["c_ferris"], "family", ["h_sam"]))
+        flow_step("shared with Sam only: Emma hears nothing", False)
+        run(lambda: card_sharing.share_cards(db, owner_id, ["c_ferris"], "family", ["h_emma"]))
         rows = []
         for q in RECALL:
             fresh_session()
@@ -189,6 +210,9 @@ def main() -> int:
             rows.append(r)
             print(f"[recall] {'PASS' if r['ok'] else 'FAIL'} {r['s']}s {q} -> {r['reply'][:120]} {r['cited']}", flush=True)
         results["sets"]["recall"] = {"asked": len(rows), "passed": sum(r["ok"] for r in rows), "rows": rows}
+        run(lambda: card_sharing.share_cards(db, owner_id, ["c_ferris"], "owner", []))
+        flow_step("unshared again: Emma hears nothing", False)
+        results["sets"]["share_flow"] = {"asked": len(flow) + 1, "passed": sum(f["ok"] for f in flow) + int(sum(r["ok"] for r in rows) == len(rows)), "rows": flow}
 
         run(lambda: db.memory_cards.insert_one(card(
             "c_secret", "Canterbury", "I lost five thousand dollars betting at Canterbury Downs and never told June.", "owner")))
@@ -247,6 +271,7 @@ def main() -> int:
         "no_card_invented": f"{s['no-card']['invented']}/{s['no-card']['asked']}",
         "unrelated_invented": f"{s['unrelated-card']['invented']}/{s['unrelated-card']['asked']}",
         "recall": f"{s['recall']['passed']}/{s['recall']['asked']}",
+        "share_flow": f"{s['share_flow']['passed']}/{s['share_flow']['asked']}",
         "leaks": f"{s['leak']['leaked']}/{s['leak']['asked']}",
         "unlocked_letter": f"{s['letter']['passed']}/1",
         "overblock_refused": f"{s['overblock']['refused']}/{s['overblock']['asked']}",
@@ -259,7 +284,8 @@ def main() -> int:
             json.dump(results, fh, indent=1)
     print("\nSUMMARY " + json.dumps(summary))
     ok = (s["no-card"]["invented"] == 0 and s["unrelated-card"]["invented"] == 0 and s["leak"]["leaked"] == 0
-          and s["recall"]["passed"] == s["recall"]["asked"] and summary["errors"] == 0)
+          and s["recall"]["passed"] == s["recall"]["asked"]
+          and s["share_flow"]["passed"] == s["share_flow"]["asked"] and summary["errors"] == 0)
     return 0 if ok else 1
 
 
