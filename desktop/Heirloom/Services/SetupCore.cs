@@ -35,7 +35,10 @@ public static class SetupCopy
 {
     public const string WhisperUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
     public const string OllamaSetupUrl = "https://ollama.com/download/OllamaSetup.exe";
-    public const string TwinMindName = "llama3.1";
+    /// <summary>The talking mind for this PC's GPU tier (docs/MODEL-TIERS.md), detected once.</summary>
+    public static string TwinMindName => _twinMind.Value;
+
+    private static readonly Lazy<string> _twinMind = new(() => Heirloom.BoxCore.ModelTiers.Choose(Heirloom.BoxCore.ModelTiers.Detect()).Model);
 
     public const long HearingBytes = 250L * 1024 * 1024;
     public const long MindBytes = 8L * 1024 * 1024 * 1024;
@@ -141,6 +144,10 @@ public static class SetupCopy
         line = line.Replace("Whisper", "hearing", StringComparison.OrdinalIgnoreCase);
         line = line.Replace("Ollama", "the talking mind helper", StringComparison.OrdinalIgnoreCase);
         line = line.Replace("llama3.1", "the talking mind", StringComparison.OrdinalIgnoreCase);
+        foreach (var tag in Heirloom.BoxCore.ModelTiers.AllModels)
+        {
+            line = line.Replace(tag, "the talking mind", StringComparison.OrdinalIgnoreCase);
+        }
         line = line.Replace("llava", "picture understanding", StringComparison.OrdinalIgnoreCase);
         line = line.Replace("Provision finished", "Finished", StringComparison.OrdinalIgnoreCase);
         line = line.Replace("Installing ", "Preparing ", StringComparison.OrdinalIgnoreCase);

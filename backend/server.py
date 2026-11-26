@@ -365,3 +365,9 @@ async def shutdown_db_client():
         task.cancel()
     from deps import client
     client.close()
+
+
+# Windows local box: no Caddy, so the API serves the web app (HEIRLOOM_WEB_DIR). Registered last.
+from local_web import attach_web  # noqa: E402
+
+attach_web(app)

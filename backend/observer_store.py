@@ -1,7 +1,6 @@
 """Local observer files. Notes and short clips only. Never a raw stream."""
 from __future__ import annotations
 
-import fcntl
 import json
 import logging
 import os
@@ -10,6 +9,12 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+try:  # Linux box / container
+    import fcntl
+except ImportError:  # Heirloom on a Windows PC (local box)
+    fcntl = None
+    import msvcrt
 from typing import Any, Optional
 
 from observer_learn import (
@@ -190,6 +195,15 @@ def disk_cap_bytes(raw: Optional[str] = None) -> int:
     return max(0, value)
 
 
+
+def _lock(handle, take: bool) -> None:
+    """Exclusive file lock: flock on Linux, a one-byte msvcrt lock on Windows."""
+    if fcntl is not None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX if take else fcntl.LOCK_UN)
+        return
+    handle.seek(0)
+    msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK if take else msvcrt.LK_UNLCK, 1)
+
 class ObserverStore:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
@@ -213,10 +227,10 @@ class ObserverStore:
         handle = (self.root / ".store.lock").open("a+")
         self._held = True
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            _lock(handle, True)
             yield
         finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            _lock(handle, False)
             handle.close()
             self._held = False
 

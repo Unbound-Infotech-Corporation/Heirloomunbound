@@ -33,6 +33,12 @@ if exist "%DESKTOP%\Heirloom\Heirloom.csproj" (
 )
 
 :find_iscc
+echo [2/3] Staging Heirloom-on-this-PC payload (API, web app, voice)…
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0local-box\Stage-LocalBoxPayload.ps1"
+if errorlevel 1 (
+  echo Staging failed. Setup.exe will be built without the "Run Heirloom on this PC" option.
+)
+
 if not exist "%DIST%\Heirloom.exe" (
   echo Missing %DIST%\Heirloom.exe
   echo Publish the WinUI app first, or copy a ready folder there.
