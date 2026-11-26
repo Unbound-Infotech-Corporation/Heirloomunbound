@@ -3,9 +3,11 @@
 # Safe to run twice: anything already running is left alone.
 [CmdletBinding()]
 param(
-  [string]$InstallDir = $PSScriptRoot,
+  [string]$InstallDir = "",
   [switch]$NoBrowser
 )
+# $PSScriptRoot is empty inside param() defaults on Windows PowerShell 5.1.
+if (-not $InstallDir) { $InstallDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 $ErrorActionPreference = "Stop"
 $Data = Join-Path $InstallDir "data"
 $envFile = Join-Path $Data "heirloom.env"

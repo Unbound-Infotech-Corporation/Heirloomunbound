@@ -65,7 +65,7 @@ function Fail([string]$msg) {
 
 function Download([string]$url, [string]$dest, [string]$label) {
   if (Test-Path $dest) { Say "$label already downloaded."; return }
-  Say "Downloading $label…"
+  Say "Downloading $label..."
   $part = "$dest.part"
   & curl.exe -L --fail --retry 3 -C - -o $part $url
   if ($LASTEXITCODE -ne 0) { Fail "Could not download $label from $url" }
@@ -92,7 +92,7 @@ function Run-Py([string[]]$argv) {
 # ---------------------------------------------------------------- 0. folders and payload
 New-Item -ItemType Directory -Force -Path $InstallDir, $Data, $Tools, $Logs | Out-Null
 $LogFile = Join-Path $Logs ("install-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
-Say "Heirloom Unbound on this PC → $InstallDir"
+Say "Heirloom Unbound on this PC -> $InstallDir"
 if ($InstallDir -match '^[A-Za-z]:\\Heirloom(\\|$)') { Fail "C:\Heirloom belongs to the Heirloom desktop app. Pick another folder." }
 
 foreach ($part in "backend", "web") {
@@ -100,10 +100,13 @@ foreach ($part in "backend", "web") {
 }
 $AppDir = Join-Path $InstallDir "app"
 if ((Resolve-Path $AppSource).Path -ne (Join-Path $InstallDir "app")) {
-  Say "Copying Heirloom…"
+  Say "Copying Heirloom..."
   New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
   & robocopy.exe (Join-Path $AppSource "backend") (Join-Path $AppDir "backend") /MIR /NFL /NDL /NJH /NJS /NP /XD __pycache__ tests | Out-Null
   & robocopy.exe (Join-Path $AppSource "web") (Join-Path $AppDir "web") /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+  if (Test-Path (Join-Path $AppSource "voice")) {
+    & robocopy.exe (Join-Path $AppSource "voice") (Join-Path $AppDir "voice") /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+  }
 }
 Copy-Item -Force (Join-Path $here "*.ps1") $InstallDir
 
@@ -123,7 +126,7 @@ if (-not $uv) {
 $env:UV_PYTHON_INSTALL_DIR = Join-Path $Tools "python"
 $env:UV_CACHE_DIR = Join-Path $Tools "uv-cache"
 if (-not (Test-Path (Join-Path $Venv "Scripts\python.exe"))) {
-  Say "Setting up Python 3.12…"
+  Say "Setting up Python 3.12..."
   & $uv python install 3.12 | Out-Null
   & $uv venv --python 3.12 $Venv
   if ($LASTEXITCODE -ne 0) { Fail "Python could not be set up." }
@@ -131,19 +134,19 @@ if (-not (Test-Path (Join-Path $Venv "Scripts\python.exe"))) {
 $py = Join-Path $Venv "Scripts\python.exe"
 
 # ---------------------------------------------------------------- 3. hardware check and tier
-Say "Checking this PC's hardware…"
+Say "Checking this PC's hardware..."
 $planArgs = @("-m", "local_box", "plan", "--data", $Data, "--voice", $Voice)
 if ($Model) { $planArgs += @("--model", $Model) }
 $planJson = (Run-Py $planArgs | Out-String)
 if ($LASTEXITCODE -ne 0) { Fail "The hardware check did not run." }
 $plan = $planJson | ConvertFrom-Json
 $hw = $plan.hardware
-Say ("GPU: {0} ({1} MB)  RAM: {2} MB  → tier {3}: {4}" -f ($(if ($hw.gpu) { $hw.gpu } else { "none" })), $hw.vram_mib, $hw.ram_mib, $plan.tier, $plan.model)
+Say ("GPU: {0} ({1} MB)  RAM: {2} MB  -> tier {3}: {4}" -f ($(if ($hw.gpu) { $hw.gpu } else { "none" })), $hw.vram_mib, $hw.ram_mib, $plan.tier, $plan.model)
 Say ("Disk: {0} GB free, about {1} GB needed." -f $plan.free_gb, $plan.need_gb)
 if (-not $plan.disk_ok) { Fail ("Not enough free disk space on this drive. Free up {0} GB or choose another folder." -f [math]::Ceiling($plan.need_gb - $plan.free_gb)) }
 
 # ---------------------------------------------------------------- 4. the Heirloom API
-Say "Installing the Heirloom service (a few minutes the first time)…"
+Say "Installing the Heirloom service (a few minutes the first time)..."
 $req = Join-Path $AppDir "backend\requirements.txt"
 & $uv pip install --python $py --quiet --extra-index-url $PyIndexExtra -r $req
 if ($LASTEXITCODE -ne 0) { Fail "The Heirloom service packages did not install." }
@@ -157,7 +160,7 @@ $mongod = Join-Path $Tools "mongodb\bin\mongod.exe"
 if (-not (Test-Path $mongod)) {
   $zip = Join-Path $Tools "mongodb.zip"
   Download $MongoZipUrl $zip "the database (MongoDB $MongoVersion, about 750 MB)"
-  Say "Unpacking the database…"
+  Say "Unpacking the database..."
   $tmp = Join-Path $Tools "mongodb-unpack"
   Expand-Archive -Force $zip $tmp
   $inner = Get-ChildItem $tmp -Directory | Select-Object -First 1
@@ -174,7 +177,7 @@ if (-not (Ollama-Up)) {
   if (-not (Test-Path $ollamaExe)) {
     $setup = Join-Path $Tools "OllamaSetup.exe"
     Download $OllamaSetupUrl $setup "the local AI runner (Ollama)"
-    Say "Installing Ollama for this user…"
+    Say "Installing Ollama for this user..."
     Start-Process -Wait -FilePath $setup -ArgumentList "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"
   }
   if (Test-Path $ollamaExe) {
@@ -189,7 +192,7 @@ $have = @((Invoke-RestMethod "$OllamaUrl/api/tags").models | ForEach-Object { $_
 foreach ($tag in @($plan.model, "nomic-embed-text")) {
   if ($have -contains $tag -or $have -contains "$tag`:latest") { Say "$tag is already here."; continue }
   if ($SkipModelPull) { Say "Skipping the $tag download (-SkipModelPull)."; continue }
-  Say "Downloading $tag (the biggest step)…"
+  Say "Downloading $tag (the biggest step)..."
   & (Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe") pull $tag
   if ($LASTEXITCODE -ne 0) {
     $body = @{ model = $tag; stream = $false } | ConvertTo-Json
@@ -201,11 +204,20 @@ foreach ($tag in @($plan.model, "nomic-embed-text")) {
 if ($plan.voice) {
   $voiceVenv = Join-Path $InstallDir "voice"
   if (-not (Test-Path (Join-Path $voiceVenv "Scripts\python.exe"))) {
-    Say "Installing the voice (Chatterbox, MIT; about 5 GB)…"
+    Say "Installing the voice (Chatterbox, MIT; about 5 GB)..."
     & $uv venv --python 3.11 $voiceVenv
     $vpy = Join-Path $voiceVenv "Scripts\python.exe"
-    & $uv pip install --python $vpy --quiet "torch==2.6.0" "torchaudio==2.6.0" --index-url https://download.pytorch.org/whl/cu124
-    & $uv pip install --python $vpy --quiet "chatterbox-tts==0.1.1" fastapi "uvicorn[standard]" --extra-index-url https://download.pytorch.org/whl/cu124
+    # RTX 50xx (Blackwell, compute 12.x) needs CUDA 12.8 wheels; older cards use the box's pinned torch 2.6 / cu124.
+    $cc = 0.0
+    try { $cc = [double](((& nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>$null) | Select-Object -First 1).Trim()) } catch { $cc = 0.0 }
+    $torchVer = "2.6.0"; $cuda = "cu124"
+    if ($cc -ge 12.0) { $torchVer = "2.7.1"; $cuda = "cu128" }
+    $torchIndex = "https://download.pytorch.org/whl/$cuda"
+    $overrides = Join-Path $voiceVenv "overrides.txt"
+    Set-Content -Path $overrides -Value @("torch==$torchVer", "torchaudio==$torchVer") -Encoding ASCII
+    & $uv pip install --python $vpy --quiet "torch==$torchVer" "torchaudio==$torchVer" --index-url $torchIndex
+    # setuptools<81 keeps pkg_resources, which librosa 0.10 still imports.
+    & $uv pip install --python $vpy --quiet --override $overrides "chatterbox-tts==0.1.1" "setuptools<81" fastapi "uvicorn[standard]" --extra-index-url $torchIndex
     if ($LASTEXITCODE -ne 0) { Say "The voice did not install. Heirloom still works by text; run Setup again to retry." }
   }
   $voiceSrc = Join-Path $AppDir "voice\server.py"
@@ -220,7 +232,7 @@ $initArgs = @("-m", "local_box", "init", "--data", $Data, "--web", (Join-Path $A
 Run-Py $initArgs | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail "Settings could not be written." }
 Say "Settings written to $Data\heirloom.env (local models only)."
-Say "Hearing: fetching the speech model…"
+Say "Hearing: fetching the speech model..."
 Run-Py @("-c", "import os,local_box;local_box.load_env(__import__('pathlib').Path(r'$Data'));from faster_whisper import WhisperModel;WhisperModel('base',device='cpu',compute_type='int8',download_root=os.environ['WHISPER_CACHE'])") | Out-Null
 
 $ownerFile = Join-Path $Data "owner\owner.pass"

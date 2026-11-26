@@ -119,3 +119,20 @@ def test_installer_scripts_never_touch_the_desktop_app_folder_or_cloud_keys():
     for cloud in ("EMERGENT_LLM_KEY", "OPENAI_API_KEY", "api.openai.com", "anthropic"):
         assert cloud not in text
     assert "--bind_ip\", \"127.0.0.1\"" in text and "host\", \"127.0.0.1\"" in text
+
+
+def test_installer_scripts_are_plain_ascii():
+    """Windows PowerShell 5.1 reads a .ps1 without a BOM as ANSI: keep them ASCII so strangers see clean text."""
+    for script in sorted((REPO / "desktop" / "installer" / "local-box").glob("*.ps1")):
+        script.read_bytes().decode("ascii")
+
+
+def test_env_keeps_every_folder_inside_the_data_folder(tmp_path):
+    import local_box
+
+    info = local_box.init(tmp_path / "data", tmp_path / "web", chosen={
+        "model": "qwen3.5:4b", "tier": "small", "num_ctx": 8192, "whisper_device": "cpu", "voice": False})
+    env = local_box.read_env(Path(info["env"]))
+    for key, value in env.items():
+        if key.endswith(("_DIR", "_ROOT", "_FILE", "_CACHE")) and key != "HEIRLOOM_WEB_DIR":
+            assert "/var/lib" not in value and value.startswith(str(tmp_path)), key

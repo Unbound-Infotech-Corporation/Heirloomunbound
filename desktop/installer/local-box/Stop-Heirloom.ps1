@@ -1,7 +1,9 @@
 #Requires -Version 5.1
 # Stop what Start-Heirloom started (API, voice, database). Ollama is left running: other apps may use it.
 [CmdletBinding()]
-param([string]$InstallDir = $PSScriptRoot)
+param([string]$InstallDir = "")
+# $PSScriptRoot is empty inside param() defaults on Windows PowerShell 5.1.
+if (-not $InstallDir) { $InstallDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 $Pids = Join-Path $InstallDir "data\pids"
 foreach ($name in "api", "voice", "mongod") {
   $file = Join-Path $Pids "$name.pid"

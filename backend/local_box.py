@@ -144,6 +144,11 @@ def init(data: Path, web: Path, *, api_port: int = 8001, mongo_port: int = 27017
         "HEIRLOOM_DATA_DIR": str(data),
         "HEIRLOOM_PAUSE_FILE": str(data / "pause.json"),
         "HEIRLOOM_OWNER_PASSWORD_FILE": str(data / "owner" / "owner.pass"),
+        # Linux defaults live under /var/lib/heirloom; on a PC everything stays in this data folder.
+        "HEIRLOOM_OBSERVER_DIR": str(data / "observer"),
+        "HEIRLOOM_PRESENCE_DIR": str(data / "presence"),
+        "HEIRLOOM_LAB_DIR": str(data / "lab"),
+        "HEIRLOOM_LAB_REPORT_DIR": str(data / "lab-reports"),
         "HEIRLOOM_WEB_DIR": str(web),
         "HEIRLOOM_LLM_PROVIDER": "ollama",
         "OLLAMA_BASE_URL": ollama.rstrip("/"),

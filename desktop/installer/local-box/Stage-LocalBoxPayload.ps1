@@ -4,11 +4,12 @@
 # Run by Build-HeirloomUnbound-Setup.bat before Inno Setup compiles.
 [CmdletBinding()]
 param(
-  [string]$Repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path,
+  [string]$Repo = "",
   [string]$Out = "",
   [string]$PrebuiltWeb = ""
 )
 $ErrorActionPreference = "Stop"
+if (-not $Repo) { $Repo = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..\..\..")).Path }
 if (-not $Out) { $Out = Join-Path $Repo "desktop\dist\local-box-app" }
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 
