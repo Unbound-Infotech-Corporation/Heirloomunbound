@@ -6,7 +6,7 @@ after it has Python. Everything is per-user: no admin, no WSL, no reboot.
   python -m local_box plan  --data DIR [--model TAG]
   python -m local_box init  --data DIR --web DIR [--api-port 8001] [--mongo-port 27017]
                             [--ollama http://127.0.0.1:11434] [--model TAG] [--voice auto|on|off]
-  python -m local_box set-owner --data DIR --email you@example.com   (password on stdin)
+  python -m local_box set-owner --data DIR --email you@example.com   (asks; or stdin; or --password-env)
   python -m local_box serve --data DIR
   python -m local_box check --data DIR [--chat]
 
@@ -299,13 +299,17 @@ def main(argv: list[str]) -> int:
         return 0
     if command == "set-owner":
         email = _arg(args, "--email")
-        if sys.stdin.isatty():
+        from_env = os.environ.pop("HEIRLOOM_SETUP_PASSWORD", "") if "--password-env" in args else ""
+        if from_env:
+            password = from_env
+        elif sys.stdin.isatty():
             password = getpass.getpass("Choose an owner password (8 or more characters): ")
             if getpass.getpass("Type it again: ") != password:
                 print("The two passwords did not match.", file=sys.stderr)
                 return 1
         else:
-            password = sys.stdin.readline().rstrip("\r\n")
+            # Windows PowerShell 5.1 puts a BOM in front of text piped to a program.
+            password = sys.stdin.readline().rstrip("\r\n").lstrip("\ufeff")
         try:
             set_owner(data, email, password)
         except ValueError as exc:

@@ -136,3 +136,22 @@ def test_env_keeps_every_folder_inside_the_data_folder(tmp_path):
     for key, value in env.items():
         if key.endswith(("_DIR", "_ROOT", "_FILE", "_CACHE")) and key != "HEIRLOOM_WEB_DIR":
             assert "/var/lib" not in value and value.startswith(str(tmp_path)), key
+
+
+def test_set_owner_from_stdin_drops_the_powershell_bom(tmp_path, monkeypatch):
+    import io
+    import local_box
+    from box_owner import verify_owner_password
+
+    data = tmp_path / "data"
+    local_box.init(data, tmp_path / "web", chosen={
+        "model": "qwen3.5:4b", "tier": "small", "num_ctx": 8192, "whisper_device": "cpu", "voice": False})
+    monkeypatch.setattr("sys.stdin", io.StringIO("\ufeffcorrect horse battery\r\n"))
+    assert local_box.main(["set-owner", "--data", str(data), "--email", "Owner@Example.com"]) == 0
+    owner = data / "owner" / "owner.pass"
+    assert verify_owner_password("owner@example.com", "correct horse battery", owner)
+
+    monkeypatch.setenv("HEIRLOOM_SETUP_PASSWORD", "another good password")
+    assert local_box.main(["set-owner", "--data", str(data), "--email", "owner@example.com", "--password-env"]) == 0
+    assert verify_owner_password("owner@example.com", "another good password", owner)
+    assert "HEIRLOOM_SETUP_PASSWORD" not in os.environ

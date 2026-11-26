@@ -238,8 +238,9 @@ Run-Py @("-c", "import os,local_box;local_box.load_env(__import__('pathlib').Pat
 $ownerFile = Join-Path $Data "owner\owner.pass"
 if (-not (Test-Path $ownerFile) -or -not (Select-String -Path $ownerFile -Pattern '^hash=' -Quiet)) {
   if ($OwnerEmail -and $env:HEIRLOOM_SETUP_PASSWORD) {
-    $env:HEIRLOOM_SETUP_PASSWORD | & $py (Join-Path $AppDir "backend\local_box.py") set-owner --data $Data --email $OwnerEmail
-    Remove-Item Env:\HEIRLOOM_SETUP_PASSWORD
+    # Passed through the environment, never on a command line or a pipe (a pipe adds a BOM on PowerShell 5.1).
+    & $py (Join-Path $AppDir "backend\local_box.py") set-owner --data $Data --email $OwnerEmail --password-env
+    Remove-Item Env:\HEIRLOOM_SETUP_PASSWORD -ErrorAction SilentlyContinue
   } elseif (-not $Sandbox) {
     Say "Choose the owner sign-in. Only you will use it."
     if (-not $OwnerEmail) { $OwnerEmail = Read-Host "Your email" }
