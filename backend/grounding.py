@@ -271,6 +271,41 @@ def strip_false_promises(text: str, *, reminder_created: bool = False) -> str:
     return " ".join(kept).strip()
 
 
+# Lines that claim nothing about the owner's life: greetings, wishes, sign-offs, offers, thanks.
+_HARMLESS = re.compile(
+    r"(?i)^[\"'(\s]*(?:dear\b[^,!.]{0,30}[,!]?\s*)?(?:"
+    r"happy (?:birthday|anniversary|holidays|new year|mother's day|father's day|thanksgiving|retirement|graduation)|"
+    r"merry christmas|congrat\w*|wishing you|wish you|best wishes|warm(?:est)? wishes|i (?:hope|wish) (?:you|your)|hope (?:you|your)|"
+    r"(?:with |lots of |all my |sending (?:you )?)?love(?: you| ya)?\b|xo+|hugs|cheers|"
+    r"(?:all the )?best\b|warmly|sincerely|take care|safe travels|see you|talk soon|bye|goodbye|good ?night|"
+    r"enjoy\b|have (?:a|an|fun)\b|you(?:'ve| have) got this|proud of you|"
+    r"thanks?\b|thank you|you're welcome|hi\b|hello|hey\b|good (?:morning|afternoon|evening)|"
+    r"sure\b|of course|absolutely|sounds good|here(?:'s| is)\b|let me know|anything else|how about you|what about you|"
+    r"i'?m (?:glad|happy|sorry|here|doing (?:well|good|great|fine|okay|ok|alright)|hanging in)|i'?d (?:love|be happy|be glad) to"
+    r")"
+)
+
+
+def is_harmless(sentence: str, evidence: str) -> bool:
+    """A greeting, wish, or sign-off with no life claim and no name the evidence lacks."""
+    line = " ".join((sentence or "").split())
+    if not line or len(line) > 160:
+        return False
+    if not _HARMLESS.search(line):
+        return False
+    if _STRONG_CLAIM.search(line):
+        return False
+    words = re.findall(r"[A-Za-z][A-Za-z'\-]*", line)
+    folded = (evidence or "").lower()
+    for position, word in enumerate(words):
+        clean = word.strip("'").removesuffix("'s")
+        if position == 0 or not clean[:1].isupper() or clean.lower() in _COMMON_CAPS:
+            continue
+        if clean.lower() not in folded:
+            return False
+    return not re.search(r"\d", line) or not unseen_details(line, evidence)
+
+
 _COMMON_CAPS = frozenset({
     "i", "i'm", "i've", "i'd", "i'll", "mom", "dad", "mama", "papa", "grandpa", "grandma", "ma", "pa", "sis", "bro",
     "ok", "okay", "yes", "no", "sure", "hi", "hello", "hey", "thanks", "happy", "love", "dear",
@@ -418,6 +453,11 @@ async def verify_reply(
             claimed = index in _claims_from(parsed) or bool(_STRONG_CLAIM.search(line))
             if claimed and unseen_details(line, evidence):
                 bad.add(index)
+        # A greeting or wish is never a life claim, even when the model flags it.
+        bad = {
+            index for index in bad
+            if 1 <= index <= len(sentences) and not is_harmless(sentences[index - 1], evidence)
+        }
         kept = [line for index, line in enumerate(sentences, 1) if index not in bad]
         removed = [line for index, line in enumerate(sentences, 1) if index in bad]
         ms = int((time.perf_counter() - started) * 1000)

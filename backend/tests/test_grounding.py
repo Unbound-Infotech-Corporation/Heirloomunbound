@@ -260,3 +260,43 @@ def test_sentence_verdicts_and_skipped_rows():
     ))
     # Sentence 2 was skipped by the model and is a strong life claim, so it goes.
     assert verdict.text == "Hi!"
+
+
+def test_greetings_and_wishes_are_kept_even_when_the_model_flags_them():
+    async def flags_everything(system, user, **kwargs):
+        count = len([line for line in user.split("REPLY:", 1)[1].strip().splitlines() if line.strip()])
+        return json.dumps({"sentences": [
+            {"n": n, "personal_claim": True, "supported": False} for n in range(1, count + 1)
+        ]})
+
+    owner = ["Help me write a short birthday note for my sister."]
+    verdict = _run(grounding.verify_reply(
+        "Happy birthday, sis! I hope your day is full of joy. Love you lots. Take care!",
+        cards=[], owner_messages=owner, ask=flags_everything,
+    ))
+    assert verdict.text == "Happy birthday, sis! I hope your day is full of joy. Love you lots. Take care!"
+    for line in ("Hi! I'm doing well, thanks for asking.", "Good morning!", "Congratulations on the new job!", "Have a great trip."):
+        assert grounding.is_harmless(line, ""), line
+
+
+def test_invented_life_facts_inside_wishes_still_go():
+    async def flags_everything(system, user, **kwargs):
+        count = len([line for line in user.split("REPLY:", 1)[1].strip().splitlines() if line.strip()])
+        return json.dumps({"sentences": [
+            {"n": n, "personal_claim": True, "supported": False} for n in range(1, count + 1)
+        ]})
+
+    owner = ["Help me write a short birthday note for my sister."]
+    verdict = _run(grounding.verify_reply(
+        "Happy birthday, Mary! Remember our trip to Chicago when we got lost? "
+        "I hope your day is as fun as the summer Dad taught us to fish. Love you lots.",
+        cards=[], owner_messages=owner, ask=flags_everything,
+    ))
+    assert "Mary" not in verdict.text
+    assert "Chicago" not in verdict.text
+    assert "fish" not in verdict.text
+    assert verdict.text == "Love you lots."
+    assert not grounding.is_harmless("Happy birthday, Mary!", "OWNER SAID: note for my sister")
+    assert grounding.is_harmless("Happy birthday, Mary!", "OWNER SAID: note for my sister Mary")
+    assert not grounding.is_harmless("Hope you remember our trip to the lake.", "")
+    assert not grounding.is_harmless("Wishing you the joy Mom gave us every Christmas in Ohio.", "")
