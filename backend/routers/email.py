@@ -6,7 +6,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
-from deps import db, get_current_user
+from deps import get_current_user
 from email_service import send_magic_link_email
 
 router = APIRouter(prefix="/email", tags=["email"])

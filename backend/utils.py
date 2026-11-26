@@ -9,12 +9,10 @@ import os
 import re
 import socket
 import time
-from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
-from deps import db
 
 # ---------------------------------------------------------------------------
 # Regex escape — prevents ReDoS + accidental operator injection

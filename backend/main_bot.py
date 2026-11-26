@@ -26,7 +26,6 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional, Protocol, Sequence
 
 from assistants import (
-    PC_ABILITY_IDS,
     chat_role_for_specialist,
     clone_abilities,
     match_assistant,

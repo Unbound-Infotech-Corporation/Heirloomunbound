@@ -256,9 +256,8 @@ async def poll(ctx: dict = Depends(get_device_user)):
         )
     from memorial_mode import clamp_memorial
     from studio_defaults import clamp_audio, clamp_compute, clamp_model_map
-    from studio_compute import resolve_compute_device, user_compute
+    from studio_compute import resolve_compute_device
 
-    compute = user_compute(user)
     resolved = await resolve_compute_device(db, user)
     resolved_id = resolved.get("device_id") if resolved else None
     is_compute_target = bool(resolved_id and resolved_id == device_id)

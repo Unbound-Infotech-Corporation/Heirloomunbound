@@ -18,7 +18,7 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from deps import db, get_current_user
+from deps import get_current_user
 
 router = APIRouter(prefix="/user-keys", tags=["user-keys"])
 

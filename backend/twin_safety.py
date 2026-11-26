@@ -23,7 +23,6 @@ from grief_guard import (
     grief_prompt_block,
     session_minutes,
     user_turn_count,
-    with_grief_aside,
 )
 from memorial_mode import memorial_from_user
 

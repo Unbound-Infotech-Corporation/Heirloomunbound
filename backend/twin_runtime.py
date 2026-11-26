@@ -621,10 +621,6 @@ async def build_brain_pack(
         get_active_persona(user_id, user),
     )
     memory_blob = format_memory_pack_for_prompt(memory_pack)
-    merged_safe = list({
-        *(user.get("safe_topics") or []),
-        *((persona or {}).get("extra_safe_topics") or []),
-    })
     brand = {
         "brand_name": user.get("brand_name") or "",
         "brand_tagline": user.get("brand_tagline") or "",
