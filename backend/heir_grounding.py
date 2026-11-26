@@ -31,7 +31,8 @@ _HEIR_RECALL = re.compile(
     r"|\b(what|who|which) (was|were|is) your\b"
     r"|\btell me (about|more about) (your|you and|when you|the time|how you)\b"
     r"|\bdo you remember\b|\bremember when\b"
-    r"|\bwhat did you (do|call|name|love|like|teach|tell|say|drive|study)\b"
+    r"|\bwhat did you (do|call|name|love|like|teach|tell|say|drive|study|want|write|mean|leave|hope)\b"
+    r"|\byour letter\b|\byou wrote\b|\byou left me\b|\bwant(ed)? me to (know|have|keep)\b"
     r"|\bhow old were you\b|\bwhat happened (when|to|with)\b"
     r"|\b(your|grandma'?s?|grandpa'?s?|grandmother'?s?|grandfather'?s?) (wedding|childhood|first|parents|mom|mother|dad|father|job|house|dog|car|war|army|navy)\b",
     re.IGNORECASE,
@@ -183,9 +184,22 @@ def names_only_from_evidence(text: str, used: list[dict], said: list[str]) -> st
     from grounding import evidence_text, is_harmless, split_sentences, unseen_details
 
     evidence = evidence_text(used, said)
-    kept = [line for line in split_sentences(text or "")
-            if is_harmless(line, evidence) or not unseen_details(line, evidence)]
+    low_evidence = evidence.lower()
+    kept = []
+    for line in split_sentences(text or ""):
+        kin = {w.lower() for w in _KIN.findall(line)}
+        if any(w not in low_evidence for w in kin):
+            continue  # "ask my sister" when no memory mentions a sister
+        if is_harmless(line, evidence) or not unseen_details(line, evidence):
+            kept.append(line)
     return " ".join(kept).strip()
+
+
+_KIN = re.compile(
+    r"\b(sisters?|brothers?|aunts?|uncles?|cousins?|nieces?|nephews?|mother|mom|father|dad|sons?|daughters?|"
+    r"wife|husband|grandma|grandpa|grandmother|grandfather|parents|siblings|relatives|family members?)\b",
+    re.IGNORECASE,
+)
 
 
 def _heir_ask(ask: Optional[AskModel]) -> AskModel:

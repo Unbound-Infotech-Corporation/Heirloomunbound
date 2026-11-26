@@ -208,7 +208,7 @@ def test_invented_relative_in_a_free_reply_is_dropped():
         return json.dumps({"personal": False})
 
     async def draft(used):
-        return "Thank you, Emma. Maybe start with Aunt Sarah for those details."
+        return "Thank you, Emma. Maybe start with Aunt Sarah for those details. You could ask my sister too."
 
     out = _run(hg.heir_reply("Thank you for everything.", owner=OWNER, heir=HEIR, rows=[], draft=draft, ask=lenient))
     assert out["reply"] == "Thank you, Emma."
@@ -235,3 +235,9 @@ def test_owner_can_share_a_card_with_heirs():
     share = src.split("async def share_card", 1)[1].split("@router", 1)[0]
     assert "user: dict = Depends(get_current_user)" in src.split("async def share_card", 1)[1].split("\n", 1)[0]
     assert '"approved"' in share and "Unknown heir" in share and '"heir_ids": ids' in share
+
+
+def test_letter_questions_count_as_memory_questions():
+    for q in ("What did you want me to know about the pocket watch?", "What did your letter say?",
+              "Why did you leave me the watch?"):
+        assert hg.heir_asks_for_memory(q), q
