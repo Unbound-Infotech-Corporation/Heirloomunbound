@@ -240,16 +240,31 @@ async def classify_turn(text: str, *, ask: Optional[AskModel] = None) -> TurnCla
         return TurnClass(True, "fail-closed", ms=ms, error=str(exc)[:200])
 
 
+_ABBREV_END = re.compile(
+    r"(?:\b(?:St|Mt|Ft|Mr|Mrs|Ms|Dr|Jr|Sr|Rev|Gen|Col|Capt|Lt|Sgt|Prof|Ave|Blvd|Rd|No|vs|etc|approx|Co|Inc|Bros)\.|\b[A-Z]\.)$"
+)
+
+
 def split_sentences(text: str) -> list[str]:
     rows: list[str] = []
     for block in re.split(r"\n+", (text or "").strip()):
         block = block.strip()
         if not block:
             continue
+        held = ""
         for part in re.split(r"(?<=[.!?])[\"')\]]?\s+(?=[\"'(\[]?[A-Z0-9])", block):
             part = part.strip()
-            if part:
-                rows.append(part)
+            if not part:
+                continue
+            part = f"{held} {part}" if held else part
+            # "a nurse at St. Mary's" is one sentence; checking "Mary's." alone drops the claim's subject.
+            if _ABBREV_END.search(part):
+                held = part
+                continue
+            held = ""
+            rows.append(part)
+        if held:
+            rows.append(held)
     return rows
 
 

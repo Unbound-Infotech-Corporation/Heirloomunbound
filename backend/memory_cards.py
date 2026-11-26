@@ -5,8 +5,10 @@ Owner-private cards stay on the box; this module does not call Odysseus.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+from collections import OrderedDict
 import re
 import uuid
 from datetime import datetime, timezone
@@ -634,6 +636,22 @@ async def draft_card(transcript: str, question: str, complete: Complete) -> dict
     return card_from_model(words, question, model_text)
 
 
+_VECTORS: "OrderedDict[str, list[float]]" = OrderedDict()
+_VECTOR_CAP = 4000
+
+
+def _vector_key(doc: str) -> str:
+    return hashlib.sha1(f"{EMBED_MODEL}\n{doc}".encode("utf-8")).hexdigest()
+
+
+def _remember_vector(doc: str, vector: list[float]) -> None:
+    key = _vector_key(doc)
+    _VECTORS[key] = vector
+    _VECTORS.move_to_end(key)
+    while len(_VECTORS) > _VECTOR_CAP:
+        _VECTORS.popitem(last=False)
+
+
 async def recall_cards(question: str, cards: list[dict]) -> list[dict]:
     """Keyword hits, then local embeddings when the keyword match is incomplete."""
     keyword_hits = select_cards(cards, question)
@@ -644,14 +662,22 @@ async def recall_cards(question: str, cards: list[dict]) -> list[dict]:
     except Exception:
         return keyword_hits
     approved = [card for card in cards or [] if str(card.get("status") or "") == "approved"]
-    texts = [embed_query(question), *[embed_document(card_embed_text(card)) for card in approved]]
-    embedded = await ollama_embed_many(texts, timeout=embed_timeout())
+    docs = [embed_document(card_embed_text(card)) for card in approved]
+    vectors: dict[str, list[float]] = {}
+    missing: list[int] = []
+    for i, (card, doc) in enumerate(zip(approved, docs)):
+        cached = _VECTORS.get(_vector_key(doc))
+        if cached is not None:
+            vectors[str(card.get("card_id") or "")] = cached
+        else:
+            missing.append(i)
+    # A life-story interview makes a hundred cards; only new or edited ones are embedded again.
+    embedded = await ollama_embed_many([embed_query(question), *[docs[i] for i in missing]], timeout=embed_timeout())
     if not embedded:
         return keyword_hits
-    vectors = {
-        str(card.get("card_id") or ""): vector
-        for card, vector in zip(approved, embedded[1:])
-    }
+    for i, vector in zip(missing, embedded[1:]):
+        _remember_vector(docs[i], vector)
+        vectors[str(approved[i].get("card_id") or "")] = vector
     return select_cards(cards, question, vectors=vectors, query_vector=embedded[0])
 
 
