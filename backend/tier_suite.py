@@ -357,7 +357,10 @@ def main(argv: list[str]) -> int:
         env["OLLAMA_BASE_URL"] = args.ollama
     env.setdefault("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     env["PYTHONIOENCODING"] = "utf-8"
-    jobs = plan(args.tiers, args.models, args.fallbacks)
+    tiers = args.tiers
+    if tiers == "auto" and env.get("HEIRLOOM_MODEL_TIER") in {t.name for t in model_tiers.TIERS}:
+        tiers = env["HEIRLOOM_MODEL_TIER"]  # the tier this local box was installed with
+    jobs = plan(tiers, args.models, args.fallbacks)
     if args.plan:
         for job in jobs:
             print(f"{job.model:22} ctx {job.num_ctx:6}  tiers {', '.join(job.tiers)}")

@@ -36,7 +36,7 @@ def test_cloud_models_are_refused():
 def test_auto_uses_this_machines_tier(monkeypatch):
     monkeypatch.setattr(model_tiers, "detect_hardware",
                         lambda: model_tiers.Hardware(vendor="nvidia", gpu="RTX 3060", vram_mib=12288, ram_mib=32768))
-    monkeypatch.delenv("HEIRLOOM_TWIN_MODEL", raising=False)
+    monkeypatch.delenv("HEIRLOOM_MODEL_OVERRIDE", raising=False)
     monkeypatch.delenv("OLLAMA_TWIN_MODEL", raising=False)
     jobs = ts.plan("auto")
     assert len(jobs) == 1 and jobs[0].model == model_tiers.choose().model
@@ -141,3 +141,17 @@ def test_commands_use_the_tier_context_and_this_python():
     cmd = ts.command("core", job, "http://o", Path("x.jsonl"))
     assert cmd[0] == sys.executable and cmd[cmd.index("--ctx") + 1] == "8192"
     assert "--out" not in ts.command("pipeline", job, "http://o", Path("x"))
+
+
+def test_auto_on_a_local_box_uses_the_installed_tier(tmp_path, capsys):
+    (tmp_path / "heirloom.env").write_text("HEIRLOOM_MODEL_TIER=compact\nOLLAMA_BASE_URL=http://127.0.0.1:1\n", encoding="utf-8")
+    assert ts.main(["--tier", "auto", "--data", str(tmp_path), "--plan"]) == 0
+    out = capsys.readouterr().out
+    assert "qwen3.5:4b" in out and "ctx   8192" in out and "compact" in out
+
+
+def test_selftest_script_never_bundles_private_files():
+    script = (Path(__file__).resolve().parents[2] / "desktop" / "installer" / "local-box" / "Heirloom-Selftest.ps1").read_text()
+    copied = [line for line in script.splitlines() if "Copy-Item" in line]
+    assert copied and not any(word in " ".join(copied) for word in ("heirloom.env", "vault", "api.", "mongo", "owner"))
+    assert "--tier\", \"auto\"" in script and "pipeline" not in script.split("$suites =")[1].split("\n")[0]
