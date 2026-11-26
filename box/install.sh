@@ -25,6 +25,7 @@ WITH_OBSERVER=0
 WITH_OBSERVER_AUDIO=0
 WITH_PRESENCE=0
 UNATTENDED=0
+UPGRADE=0
 NVME_POWER_FIX=0
 BRAIN_URL=""
 BRAIN_MODEL="${HEIRLOOM_BRAIN_MODEL:-gpt-oss:120b}"
@@ -35,8 +36,11 @@ export DEBIAN_FRONTEND=noninteractive
 
 usage() {
   cat <<'EOF'
-Usage: sudo bash box/install.sh [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--observer-audio] [--presence] [--nvme-power-fix] [--brain-url URL] [--odysseus-url URL]
+Usage: sudo bash box/install.sh [--upgrade] [--dry-run] [--unattended] [--dev-tools] [--tailscale] [--with-chatterbox] [--observer] [--observer-audio] [--presence] [--nvme-power-fix] [--brain-url URL] [--odysseus-url URL]
 
+  --upgrade           rebuild containers and units on an existing box. Keeps box.env values
+                      and permissions, the chat model, compose profiles, and the GPU overlay.
+                      Does not install or change the NVIDIA driver.
   --dry-run           print the plan and write the log; change nothing
   --unattended        answer package and license prompts automatically; exit 75 if a reboot is required before containers start
   --dev-tools         git, gh, Node.js LTS, Python 3.12, uv, Cursor CLI, Claude Code
@@ -114,6 +118,39 @@ run() {
   "$@"
 }
 
+# Upgrade must not call apt-get when the packages are already installed.
+# apt-get install configures every pending package, including a half-installed
+# kernel whose NVIDIA DKMS build fails and stops the rest of the upgrade.
+apt_install() {
+  local missing=()
+  local pkg
+  for pkg in "$@"; do
+    if ! dpkg -s "${pkg}" >/dev/null 2>&1; then
+      missing+=("${pkg}")
+    fi
+  done
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    log "packages already installed: $*"
+    return 0
+  fi
+  if [[ "${UPGRADE}" -eq 1 ]]; then
+    log "Upgrade apt-get install: ${missing[*]}"
+    if ! apt-get install -y "${missing[@]}"; then
+      log "Upgrade warning: apt-get install failed (${missing[*]}). Continuing with containers and units."
+    fi
+    return 0
+  fi
+  run apt-get install -y "${missing[@]}"
+}
+
+pause_caretaker_for_upgrade() {
+  if [[ "${UPGRADE}" -eq 1 && "${DRY_RUN}" -eq 0 ]]; then
+    systemctl stop heirloom-caretaker.timer || true
+    trap 'systemctl start heirloom-caretaker.timer || true' EXIT
+    log "Upgrade paused heirloom-caretaker.timer until this script exits"
+  fi
+}
+
 prepare_log() {
   local dir
   dir="$(dirname "${LOG_PATH}")"
@@ -133,6 +170,7 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dry-run) DRY_RUN=1; shift ;;
+      --upgrade) UPGRADE=1; shift ;;
       --unattended) UNATTENDED=1; shift ;;
       --dev-tools) DEV_TOOLS=1; shift ;;
       --tailscale) WITH_TAILSCALE=1; shift ;;
@@ -247,8 +285,16 @@ upsert_env() {
   local key="$1"
   local value="$2"
   local file="$3"
-  local tmp
+  local tmp mode="" group=""
+  if [[ -f "${file}" ]]; then
+    mode="$(stat -c '%a' "${file}" 2>/dev/null || true)"
+    group="$(stat -c '%G' "${file}" 2>/dev/null || true)"
+  fi
   tmp="$(mktemp)"
+  if [[ "${UPGRADE}" -eq 1 && -f "${file}" ]] && grep -q "^${key}=" "${file}"; then
+    rm -f "${tmp}"
+    return 0
+  fi
   if [[ -f "${file}" ]] && grep -q "^${key}=" "${file}"; then
     awk -v k="${key}" -v v="${value}" '{
       if (index($0, k "=") == 1) print k "=" v; else print $0
@@ -257,6 +303,12 @@ upsert_env() {
   else
     printf '%s=%s\n' "${key}" "${value}" >> "${file}"
     rm -f "${tmp}"
+  fi
+  if [[ -n "${mode}" ]]; then
+    chmod "${mode}" "${file}" || true
+  fi
+  if [[ -n "${group}" && "${group}" != "UNKNOWN" ]]; then
+    chgrp "${group}" "${file}" || true
   fi
 }
 
@@ -479,18 +531,28 @@ ensure_owner_group() {
   fi
 }
 
+ensure_data_dir() {
+  local path="$1"
+  if [[ -d "${path}" ]]; then
+    log "keeping owner and mode of ${path}"
+    return 0
+  fi
+  run install -d -m 2750 -o root -g heirloom "${path}"
+}
+
 write_tree() {
   log "Preparing ${DATA_ROOT} and /etc/heirloom"
   ensure_owner_group
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/vault"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/lab"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/lab-reports"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/backups"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/mongo"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/ollama"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/caddy"
-  run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/caddy-config"
+  ensure_data_dir "${DATA_ROOT}"
+  ensure_data_dir "${DATA_ROOT}/vault"
+  ensure_data_dir "${DATA_ROOT}/lab"
+  ensure_data_dir "${DATA_ROOT}/lab-reports"
+  ensure_data_dir "${DATA_ROOT}/backups"
+  ensure_data_dir "${DATA_ROOT}/mongo"
+  ensure_data_dir "${DATA_ROOT}/ollama"
+  ensure_data_dir "${DATA_ROOT}/caddy"
+  ensure_data_dir "${DATA_ROOT}/caddy-config"
+  ensure_data_dir "${DATA_ROOT}/whisper"
   if [[ "${WITH_OBSERVER}" -eq 1 ]]; then
     run install -d -m 2750 -o root -g heirloom "${DATA_ROOT}/observer"
   fi
@@ -568,6 +630,8 @@ write_env() {
   upsert_env HEIRLOOM_LLM_PROVIDER "ollama" "${env_file}"
   upsert_env OLLAMA_BASE_URL "http://ollama:11434" "${env_file}"
   upsert_env OLLAMA_TWIN_MODEL "${model}" "${env_file}"
+  upsert_env WHISPER_MODEL "base" "${env_file}"
+  upsert_env WHISPER_CACHE "/var/lib/heirloom/whisper" "${env_file}"
   if [[ -n "${BRAIN_URL}" ]]; then
     upsert_env HEIRLOOM_BRAIN_URL "${BRAIN_URL}" "${env_file}"
     upsert_env HEIRLOOM_BRAIN_MODEL "${BRAIN_MODEL}" "${env_file}"
@@ -618,6 +682,8 @@ write_env() {
     fi
     upsert_env OBSERVER_WHISPER_MODEL "${whisper_model}" "${env_file}"
     upsert_env OBSERVER_WHISPER_DEVICE "${whisper_device}" "${env_file}"
+  else
+    upsert_env HEIRLOOM_OBSERVER "0" "${env_file}"
   fi
   if [[ "${WITH_PRESENCE}" -eq 1 ]]; then
     local speak="0"
@@ -718,20 +784,60 @@ EOF
   chmod 644 "${cron_file}"
 }
 
+link_observer_spool() {
+  local link="$1"
+  local target="$2"
+  mkdir -p "${target}/audio/system" "${target}/audio/mic" "${target}/screen"
+  if [[ -L "${link}" ]]; then
+    ln -sfn "${target}" "${link}"
+    return 0
+  fi
+  if [[ -d "${link}" ]]; then
+    # A real directory left by an older install. ln -sfn would put the symlink inside it.
+    if [[ -n "$(ls -A "${link}" 2>/dev/null || true)" ]]; then
+      cp -a "${link}/." "${target}/" || true
+    fi
+    rm -rf "${link}"
+  elif [[ -e "${link}" ]]; then
+    rm -rf "${link}"
+  fi
+  ln -sfn "${target}" "${link}"
+}
+
+ensure_observer_runtime() {
+  link_observer_spool /run/heirloom-observer /run/heirloom/observer
+}
+
 install_observer() {
   if [[ "${WITH_OBSERVER}" -eq 0 ]]; then
-    log "Observer not requested. Product builds leave it off."
+    log "Observer is off. Turn it on later with: heirloom-box observer on"
+    if [[ "${DRY_RUN}" -eq 1 ]]; then
+      log "would install the corrected heirloom-observer.service and systemctl disable --now it"
+      return 0
+    fi
+    install_unit "${ROOT}/box/observer/heirloom-observer.service" /etc/systemd/system/heirloom-observer.service
+    install -d -m 0755 /etc/tmpfiles.d
+    install -m 0644 "${ROOT}/box/observer/heirloom-observer.tmpfiles" /etc/tmpfiles.d/heirloom-observer.conf
+    ensure_observer_runtime
+    if command -v systemd-tmpfiles >/dev/null 2>&1; then
+      systemd-tmpfiles --create /etc/tmpfiles.d/heirloom-observer.conf || true
+    fi
+    mkdir -p "${DATA_ROOT}/observer"
+    printf '%s\n' '{"enabled": false}' > "${DATA_ROOT}/observer/owner-opt-in.json"
+    systemctl daemon-reload || true
+    systemctl disable --now heirloom-observer.service || true
+    systemctl reset-failed heirloom-observer.service || true
     return 0
   fi
   log "Observer requested. Installing ffmpeg, v4l-utils, tesseract-ocr, alsa-utils, the systemd unit, and the udev rule."
   log "Observer audio: faster-whisper in ${DATA_ROOT}/observer/venv. Transcripts only; PCM stays in /run."
-  run apt-get install -y ffmpeg v4l-utils tesseract-ocr alsa-utils python3-venv
+  apt_install ffmpeg v4l-utils tesseract-ocr alsa-utils python3-venv
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would install /usr/local/bin/heirloom-observer, heirloom-observer.service, and 99-heirloom-observer.rules"
     log "would write /etc/tmpfiles.d/heirloom-observer.conf for /run/heirloom/observer/audio and /run/heirloom/observer/screen"
     log "would create ${DATA_ROOT}/observer/venv and pip install faster-whisper nvidia-cublas-cu12 nvidia-cudnn-cu12"
     log "would write heirloom-observer.service.d/cuda-libs.conf with LD_LIBRARY_PATH for those wheels"
-    log "would touch /etc/heirloom/observer.enabled and systemctl restart heirloom-observer.service after box.env is written"
+    log "would write /etc/heirloom/observer.opt-in and systemctl restart heirloom-observer.service after box.env is written"
     return 0
   fi
   install -m 0755 "${ROOT}/box/observer/heirloom-observer" /usr/local/bin/heirloom-observer
@@ -740,19 +846,15 @@ install_observer() {
   install -m 0644 "${ROOT}/box/observer/99-heirloom-observer.rules" /etc/udev/rules.d/99-heirloom-observer.rules
   install -d -m 0755 /etc/tmpfiles.d
   install -m 0644 "${ROOT}/box/observer/heirloom-observer.tmpfiles" /etc/tmpfiles.d/heirloom-observer.conf
+  ensure_observer_runtime
   if command -v systemd-tmpfiles >/dev/null 2>&1; then
     systemd-tmpfiles --create /etc/tmpfiles.d/heirloom-observer.conf || true
-  else
-    install -d -m 0755 /run/heirloom/observer/audio/system /run/heirloom/observer/audio/mic /run/heirloom/observer/screen
-  if [[ -d /run/heirloom-observer && ! -L /run/heirloom-observer ]]; then
-    cp -a /run/heirloom-observer/. /run/heirloom/observer/ || true
-    rm -rf /run/heirloom-observer
-  fi
-  ln -sfn /run/heirloom/observer /run/heirloom-observer
   fi
   install -d -m 0755 /etc/heirloom
-  touch /etc/heirloom/observer.enabled
-  chmod 644 /etc/heirloom/observer.enabled
+  touch /etc/heirloom/observer.opt-in
+  chmod 644 /etc/heirloom/observer.opt-in
+  mkdir -p "${DATA_ROOT}/observer"
+  printf '%s\n' '{"enabled": true}' > "${DATA_ROOT}/observer/owner-opt-in.json"
   install_observer_audio_venv
   write_observer_library_dropin
   systemctl daemon-reload
@@ -824,7 +926,13 @@ install_caretaker() {
   install_unit "${ROOT}/box/caretaker/heirloom-caretaker.service" /etc/systemd/system/heirloom-caretaker.service
   install_unit "${ROOT}/box/caretaker/heirloom-caretaker.timer" /etc/systemd/system/heirloom-caretaker.timer
   systemctl daemon-reload
-  systemctl enable --now heirloom-caretaker.timer || log "heirloom-caretaker timer did not start"
+  if [[ "${UPGRADE}" -eq 1 ]]; then
+    # The exit trap starts the timer. --now would run it during the container swap.
+    systemctl enable heirloom-caretaker.timer || log "heirloom-caretaker timer did not enable"
+    log "Caretaker timer stays stopped until this upgrade exits"
+  else
+    systemctl enable --now heirloom-caretaker.timer || log "heirloom-caretaker timer did not start"
+  fi
 }
 
 install_presence() {
@@ -835,7 +943,7 @@ install_presence() {
   log "Presence requested. Installing python3-opencv, v4l-utils, ffmpeg, the systemd unit, and the udev rule."
   log "Face models: YuNet (MIT) and SFace (Apache-2.0) from the OpenCV Zoo. InsightFace pretrained models are not installed."
   log "GPU budget is 512 MiB free. Presence stays on CPU when Ollama leaves less than that."
-  run apt-get install -y python3-opencv v4l-utils ffmpeg
+  apt_install python3-opencv v4l-utils ffmpeg
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     log "would download YuNet (MIT) https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
     log "would download SFace (Apache-2.0) https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
@@ -918,7 +1026,7 @@ start_stack() {
   fi
   log "Starting containers from ${ROOT}"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    log "would docker compose up -d and ollama pull ${model}"
+    log "would docker compose up -d and ollama pull ${model} and nomic-embed-text"
     if [[ "${WITH_OBSERVER}" -eq 1 && -n "${observer_model}" ]]; then
       log "would ollama pull ${observer_model}"
     elif [[ "${WITH_OBSERVER}" -eq 1 ]]; then
@@ -928,6 +1036,14 @@ start_stack() {
   fi
   docker compose "${args[@]}" up -d --build
   docker compose "${args[@]}" exec -T ollama ollama pull "${model}"
+  if ! docker compose "${args[@]}" exec -T ollama ollama pull nomic-embed-text; then
+    log "nomic-embed-text did not pull. Memory search stays on keywords until that model is present."
+  else
+    curl -fsS --max-time 40 http://127.0.0.1:11434/api/embed \
+      -H 'Content-Type: application/json' \
+      -d '{"model":"nomic-embed-text","input":"search_query: ready","keep_alive":"30m"}' \
+      >/dev/null || log "nomic-embed-text pulled, but the warm-up call did not finish"
+  fi
   if [[ "${WITH_OBSERVER}" -eq 1 && -n "${observer_model}" ]]; then
     docker compose "${args[@]}" exec -T ollama ollama pull "${observer_model}"
   elif [[ "${WITH_OBSERVER}" -eq 1 ]]; then
@@ -1018,19 +1134,36 @@ main() {
     LAN_IP="127.0.0.1"
   fi
   prepare_log
-  if [[ "${WITH_OBSERVER}" -eq 0 && -f /etc/heirloom/observer.enabled ]]; then
+  if [[ "${WITH_OBSERVER}" -eq 0 && -f /etc/heirloom/observer.opt-in ]]; then
     WITH_OBSERVER=1
     WITH_OBSERVER_AUDIO=1
-    log "Observer marker /etc/heirloom/observer.enabled is present; keeping Observer on"
+    log "Observer opt-in is set; keeping Observer on"
+  elif [[ "${UPGRADE}" -eq 1 && "${WITH_OBSERVER}" -eq 0 && -f "${DATA_ROOT}/observer/owner-opt-in.json" ]] && grep -q '"enabled": true' "${DATA_ROOT}/observer/owner-opt-in.json"; then
+    WITH_OBSERVER=1
+    WITH_OBSERVER_AUDIO=1
+    log "Upgrade keeps Observer on"
+  elif [[ "${WITH_OBSERVER}" -eq 0 && -f /etc/heirloom/observer.enabled ]]; then
+    log "Old /etc/heirloom/observer.enabled is ignored. Observer stays off until: heirloom-box observer on"
   fi
   if [[ "${WITH_PRESENCE}" -eq 0 && -f /etc/heirloom/presence.enabled ]]; then
     WITH_PRESENCE=1
     log "Presence marker /etc/heirloom/presence.enabled is present; keeping Presence on"
   fi
+  if [[ "${UPGRADE}" -eq 1 && -f /etc/heirloom/compose.args ]]; then
+    if grep -q 'chatterbox' /etc/heirloom/compose.args; then
+      WITH_CHATTERBOX=1
+      log "Upgrade keeps the chatterbox compose profile"
+    fi
+    if grep -q 'docker-compose.gpu.yml' /etc/heirloom/compose.args; then
+      USE_GPU=1
+      log "Upgrade keeps the GPU compose overlay"
+    fi
+  fi
   if [[ "${DRY_RUN}" -eq 0 && "${EUID}" -ne 0 ]]; then
     printf 'Re-run as root: sudo bash box/install.sh\n' >&2
     exit 1
   fi
+  pause_caretaker_for_upgrade
   log "Heirloom Twin Box installer root=${ROOT} data=${DATA_ROOT} lan=${LAN_IP} dry_run=${DRY_RUN} unattended=${UNATTENDED} dev_tools=${DEV_TOOLS} tailscale=${WITH_TAILSCALE} chatterbox=${WITH_CHATTERBOX} observer=${WITH_OBSERVER} observer_audio=${WITH_OBSERVER_AUDIO} presence=${WITH_PRESENCE} nvme_power_fix=${NVME_POWER_FIX} brain_url=${BRAIN_URL:-off} odysseus_url=${ODYSSEUS_URL:-off}"
   apply_unattended
   require_ubuntu
@@ -1047,21 +1180,53 @@ main() {
   else
     log "VRAM MiB=${mib} default model=${model} (Apache-2.0 Qwen2.5)"
   fi
+  if [[ "${UPGRADE}" -eq 1 && -f "${DATA_ROOT}/box.env" ]]; then
+    local kept_model=""
+    kept_model="$(awk -F= '/^OLLAMA_TWIN_MODEL=/{val=substr($0, index($0, "=")+1)} END {print val}' "${DATA_ROOT}/box.env")"
+    kept_model="${kept_model//$'\r'/}"
+    if [[ -n "${kept_model}" ]]; then
+      model="${kept_model}"
+      log "Upgrade keeps OLLAMA_TWIN_MODEL=${model}"
+    fi
+  fi
   if gpu_present && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
     USE_GPU=1
   fi
-  install_base
-  install_nvidia
-  if [[ "${NEED_REBOOT}" -eq 0 ]] && gpu_present && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
-    USE_GPU=1
+  if [[ "${UPGRADE}" -eq 1 ]]; then
+    log "Upgrade does not install or change the NVIDIA driver"
+    log "Upgrade rebuilds containers and reinstalls units, scripts, and tmpfiles"
+  else
+    install_base
+    install_nvidia
+    if [[ "${NEED_REBOOT}" -eq 0 ]] && gpu_present && command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+      USE_GPU=1
+    fi
+    install_tailscale
+    install_dev_tools
+    harden_ssh
+    configure_ufw
+    apply_nvme_power_fix
   fi
-  install_tailscale
-  install_dev_tools
-  harden_ssh
-  configure_ufw
-  apply_nvme_power_fix
   write_tree
   write_env "${model}" "${observer_model}" "${mib}" "${max_loaded}" "${vision_keep}"
+  if [[ "${UPGRADE}" -eq 1 && "${WITH_OBSERVER}" -eq 1 && -f "${DATA_ROOT}/box.env" ]]; then
+    local saved_upgrade="${UPGRADE}"
+    UPGRADE=0
+    upsert_env HEIRLOOM_OBSERVER "1" "${DATA_ROOT}/box.env"
+    UPGRADE="${saved_upgrade}"
+  fi
+  if [[ "${UPGRADE}" -eq 1 && -f "${DATA_ROOT}/box.env" ]]; then
+    local loaded=""
+    loaded="$(awk -F= '/^OLLAMA_MAX_LOADED_MODELS=/{val=substr($0, index($0, "=")+1)} END {print val}' "${DATA_ROOT}/box.env")"
+    loaded="${loaded//$'\r'/}"
+    if [[ -z "${loaded}" || "${loaded}" -lt 3 ]]; then
+    local saved_loaded="${UPGRADE}"
+    UPGRADE=0
+    upsert_env OLLAMA_MAX_LOADED_MODELS "3" "${DATA_ROOT}/box.env"
+    UPGRADE="${saved_loaded}"
+      log "Upgrade sets OLLAMA_MAX_LOADED_MODELS=3 so the chat model and nomic-embed-text can both stay loaded"
+    fi
+  fi
   write_compose_args
   write_cron
   install_observer

@@ -159,7 +159,7 @@ export default function Today() {
             {reflection}
           </p>
           <Link
-            to={`/interviewer?topic=${encodeURIComponent(reflection)}&key=daily`}
+            to={`/record?topic=${encodeURIComponent(reflection)}&key=daily`}
             data-testid="today-reflect-button"
             className="inline-flex items-center gap-2 text-sm hover:text-[var(--accent)] transition-colors"
             style={{ color: "var(--text-secondary)" }}
@@ -283,7 +283,7 @@ export default function Today() {
             {stats.suggested_topics.slice(0, 4).map((t) => (
               <Link
                 key={t.key}
-                to={`/interviewer?topic=${encodeURIComponent(t.question)}&key=${t.key}`}
+                to={`/record?topic=${encodeURIComponent(t.question)}&key=${t.key}`}
                 data-testid={`today-suggest-${t.key}`}
                 className="surface p-6 hover:border-[var(--accent)] transition-colors"
               >

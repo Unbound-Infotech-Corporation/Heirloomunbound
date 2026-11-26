@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, StreamDone, TextDelta, UserMessage
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -29,11 +29,21 @@ from twin_runtime import PC_ABILITY_IDS, build_assistant_system, build_twin_syst
 router = APIRouter(prefix="/twin", tags=["twin"])
 
 
-def _lab_sse(user: dict, *, route: str, started: float, error: str | None = None, model: str = "") -> str:
+def _lab_sse(
+    user: dict,
+    *,
+    route: str,
+    started: float,
+    error: str | None = None,
+    model: str = "",
+    selftest: bool = False,
+) -> str:
     """SSE frame for a local lab turn id. Empty when lab mode is off or the caller is an heir."""
     from routers.lab import note_chat_reply
 
-    turn_id = note_chat_reply(user, route=route, started=started, error=error, model=model)
+    turn_id = note_chat_reply(
+        user, route=route, started=started, error=error, model=model, selftest=selftest,
+    )
     if not turn_id:
         return ""
     return "event: lab\ndata: " + json.dumps({"lab_turn_id": turn_id}) + "\n\n"
@@ -57,6 +67,7 @@ class TwinMsgReq(BaseModel):
     clone_id: Optional[str] = None
     assistant_id: Optional[str] = None  # alias for clone_id
     room_id: Optional[str] = None
+    timezone: Optional[str] = None  # browser zone, so "9am" on a reminder is the owner's clock
 
 
 @router.post("/start")
@@ -146,7 +157,9 @@ async def _archive_blob(
         return ""
     chunks = []
     for e in list(docs.values()):
-        chunks.append(f"[{e['type'].upper()}] {e['title']}\n{e['content']}\n")
+        card_id = str(e.get("card_id") or "")
+        marker = f" card={card_id}" if card_id else ""
+        chunks.append(f"[{e['type'].upper()}{marker}] {e['title']}\n{e['content']}\n")
     return "\n".join(chunks)
 
 
@@ -162,7 +175,10 @@ async def _skills_blob(user_id: str) -> str:
 
 
 @router.post("/message")
-async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
+async def message(payload: TwinMsgReq, request: Request, user: dict = Depends(get_current_user)):
+    from grounding import remember_timezone
+
+    await remember_timezone(user, payload.timezone)
     conv = await db.conversations.find_one(
         {"conversation_id": payload.conversation_id, "user_id": user["user_id"]}, {"_id": 0}
     )
@@ -197,6 +213,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             # PC specialists do not speak as the twin — Sit / Assist owns that.
             enabled_tools = tools_for_turn("assistant", enabled_ids)
             enabled_tools = filter_tools_for_specialist(enabled_tools, specialist)
+    selftest = request.headers.get("x-heirloom-selftest") == "1"
     started = time.perf_counter()
     if specialist and specialist_turn.get("role") == "assistant":
         lab_route = "assist"
@@ -271,7 +288,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 "url": result["url"],
                 "queued": result["queued"],
             }) + "\n\n"
-            lab_line = _lab_sse(user, route=lab_route, started=started)
+            lab_line = _lab_sse(user, route=lab_route, started=started, selftest=selftest)
             if lab_line:
                 yield lab_line
             yield "event: done\ndata: {}\n\n"
@@ -326,7 +343,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 "ok": result.get("ok", False),
                 "status": result.get("status", 0),
             }) + "\n\n"
-            lab_line = _lab_sse(user, route=lab_route, started=started)
+            lab_line = _lab_sse(user, route=lab_route, started=started, selftest=selftest)
             if lab_line:
                 yield lab_line
             yield "event: done\ndata: {}\n\n"
@@ -337,11 +354,85 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
         )
 
+    # ---- Reminder short-circuit: the twin creates the reminder or does not promise one ----
+    from grounding import reminder_reply, reminder_request, resolve_reminder_due
+
+    asked_reminder = None if specialist_id else reminder_request(message_text)
+    if asked_reminder:
+        await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
+        from twin_tools import exec_set_reminder
+
+        due_iso = resolve_reminder_due(
+            message_text, asked_reminder["when"], user, requested_tz=payload.timezone,
+        )
+        made = await exec_set_reminder(
+            user["user_id"],
+            {"what": asked_reminder["what"], "when": due_iso or ""},
+        )
+        created = bool((made.get("ui") or {}).get("created"))
+        reminder_id = (made.get("ui") or {}).get("reminder_id") or ""
+        reply = (
+            reminder_reply(asked_reminder["what"], due_iso, user, requested_tz=payload.timezone)
+            if created
+            else "I couldn't save that reminder. Add it on the Reminders page so it isn't lost."
+        )
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await db.conversations.update_one(
+            {"conversation_id": payload.conversation_id, "user_id": user["user_id"]},
+            {
+                "$push": {"messages": {"$each": [
+                    {"role": "user", "content": payload.message, "ts": now_iso},
+                    {
+                        "role": "assistant",
+                        "content": reply,
+                        "ts": now_iso,
+                        "action": {"kind": "reminder", "reminder_id": reminder_id, "due_at": due_iso, "created": created},
+                    },
+                ]}},
+                "$set": {"updated_at": now_iso},
+            },
+        )
+
+        async def reminder_stream():
+            yield "data: " + json.dumps({"text": reply}) + "\n\n"
+            yield "event: action\ndata: " + json.dumps({
+                "kind": "reminder",
+                "reminder_id": reminder_id,
+                "text": asked_reminder["what"],
+                "due_at": due_iso,
+                "created": created,
+            }) + "\n\n"
+            lab_line = _lab_sse(user, route=lab_route, started=started, selftest=selftest)
+            if lab_line:
+                yield lab_line
+            yield "event: done\ndata: {}\n\n"
+
+        return StreamingResponse(
+            reminder_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
+
     await rate_limit(user["user_id"], "twin", max_calls=20, per_seconds=60)
     turn_audience = (user.get("audience") or "owner").strip().lower() or "owner"
     if user.get("heir_surface"):
         turn_audience = "heir"
     archive = await _archive_blob(user["user_id"], query_hint=payload.message, audience=turn_audience)
+    why_cards: list[dict] = []
+    try:
+        from routers.memory_loop import grounding_for_turn
+
+        card_block, why_cards = await grounding_for_turn(
+            user["user_id"],
+            payload.message,
+            audience=turn_audience,
+            heir_surface=bool(user.get("heir_surface")),
+            archive_text=archive,
+        )
+        if card_block:
+            archive = (archive + "\n\n" + card_block).strip()
+    except Exception:
+        why_cards = []
     skills = await _skills_blob(user["user_id"])
     memory_pack = await build_memory_pack(user["user_id"], query_hint=payload.message, audience=turn_audience)
     memory_blob = format_memory_pack_for_prompt(memory_pack)
@@ -390,8 +481,26 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         watched_reply = attached.relied
 
     # Replay prior turns so the twin remembers what was just said.
+    # An uncited assistant line is not a memory. It cannot ground a new personal claim.
+    from grounding import classify_turn
+    from memory_cards import history_without_invented_claims
+
+    if specialist_id:
+        turn_class = None
+        personal_ask = False
+    else:
+        turn_class = await classify_turn(message_text)
+        personal_ask = turn_class.personal
+    prior_messages = conv.get("messages", [])
+    # An uncited twin line is never evidence, on any turn.
+    prior_messages = history_without_invented_claims(prior_messages)
+    owner_messages = [
+        str(m.get("content") or "")
+        for m in conv.get("messages", [])
+        if m.get("role") == "user" and m.get("content")
+    ] + [message_text]
     initial_messages = [{"role": "system", "content": system}]
-    for m in conv.get("messages", []):
+    for m in prior_messages:
         if m.get("role") in ("user", "assistant") and m.get("content"):
             initial_messages.append({"role": m["role"], "content": m["content"]})
 
@@ -411,6 +520,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
         async def gen_local():
             full = ""
             error = None
+            cited: list[dict] = []
             try:
                 if specialist_id:
                     yield "event: specialist\ndata: " + json.dumps({
@@ -420,8 +530,75 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     }) + "\n\n"
                 from brain_council import complete_turn
 
-                outcome = await complete_turn(ollama_messages, message_text, audience=turn_audience)
-                full = outcome.text
+                from memory_cards import (
+                    FIRST_PERSON,
+                    NO_MEMORY_YET,
+                    as_owner_voice,
+                    citations_that_ground,
+                    spoken_reply,
+                )
+
+                from grounding import answer_personal, strip_false_promises, verify_reply
+
+                grounding_meta: dict = {}
+                if turn_class is not None:
+                    grounding_meta = {
+                        "personal": turn_class.personal,
+                        "classifier": turn_class.source,
+                        "classifier_ms": turn_class.ms,
+                    }
+                if personal_ask:
+                    # Personal turns are written from the relevant approved cards only.
+                    answered = await answer_personal(
+                        message_text,
+                        cards=why_cards,
+                        owner_messages=owner_messages,
+                        name=user.get("name") or "",
+                    )
+                    full = answered["reply"]
+                    cited = answered["cited"]
+                    from brain_council import TurnOutcome
+
+                    grounding_meta.update(answered.get("trace") or {})
+                    outcome = TurnOutcome(
+                        text=full,
+                        meta={"grounded": bool(cited), "grounding": grounding_meta},
+                        label="memory" if cited else "no-memory",
+                    )
+                else:
+                    voiced = list(ollama_messages)
+                    if voiced and voiced[0].get("role") == "system":
+                        voiced[0] = {**voiced[0], "content": voiced[0]["content"] + "\n\n" + FIRST_PERSON}
+                    else:
+                        voiced.insert(0, {"role": "system", "content": FIRST_PERSON})
+                    outcome = await complete_turn(voiced, message_text, audience=turn_audience)
+                    speak = spoken_reply if specialist_id else as_owner_voice
+                    full = speak(outcome.text)
+                    if not full:
+                        retry = list(voiced)
+                        retry.append({
+                            "role": "user",
+                            "content": "Answer in the first person from the archive already given. Do not call tools.",
+                        })
+                        outcome = await complete_turn(retry, message_text, audience=turn_audience)
+                        full = speak(outcome.text) or "I don't remember that yet."
+                    full = strip_false_promises(full) or full
+                    if not specialist_id:
+                        # Every personal claim in a normal reply is checked too.
+                        verdict = await verify_reply(full, cards=why_cards, owner_messages=owner_messages)
+                        grounding_meta.update({
+                            "verify": verdict.source,
+                            "removed": len(verdict.removed),
+                            "verify_ms": verdict.ms,
+                        })
+                        full = verdict.text or NO_MEMORY_YET
+                        try:
+                            outcome.meta["grounding"] = grounding_meta
+                        except Exception:  # noqa: BLE001
+                            pass
+                    # Do not assign why_cards here. That name is closed over from message(),
+                    # and an assignment would make the read on this line an unbound local.
+                    cited = citations_that_ground(full, why_cards)
                 if full:
                     yield "data: " + json.dumps({"text": full}) + "\n\n"
             except Exception as exc:  # noqa: BLE001
@@ -438,6 +615,8 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     assistant_turn["clone_id"] = specialist_id
                 if specialist_name:
                     assistant_turn["specialist_name"] = specialist_name
+                if cited:
+                    assistant_turn["why"] = cited
                 if watched_reply:
                     from observer_prompt import WATCHED_SOURCE
 
@@ -460,10 +639,15 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                     await live_publish_turn(user["user_id"], "assistant", full, source="web")
                 except Exception:  # noqa: BLE001
                     pass
-            lab_line = _lab_sse(user, route=lab_route, started=started, error=error, model="ollama")
+            lab_line = _lab_sse(user, route=lab_route, started=started, error=error, model="ollama", selftest=selftest)
             if lab_line:
                 yield lab_line
             if error is None:
+                if cited:
+                    yield "event: why\ndata: " + json.dumps({
+                        "label": "Why did I say that?",
+                        "why": cited,
+                    }) + "\n\n"
                 source_line = _source_sse(watched_reply)
                 if source_line:
                     yield source_line
@@ -559,7 +743,7 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
                 yield "data: " + json.dumps({"text": full}) + "\n\n"
         except Exception as exc:  # noqa: BLE001
             yield "event: error\ndata: " + json.dumps({"error": str(exc)}) + "\n\n"
-            lab_line = _lab_sse(user, route=lab_route, started=started, error=str(exc))
+            lab_line = _lab_sse(user, route=lab_route, started=started, error=str(exc), selftest=selftest)
             if lab_line:
                 yield lab_line
             return
@@ -576,6 +760,8 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             assistant_turn["clone_id"] = specialist_id
         if specialist_name:
             assistant_turn["specialist_name"] = specialist_name
+        if why_cards:
+            assistant_turn["why"] = why_cards
         if watched_reply:
             from observer_prompt import WATCHED_SOURCE
 
@@ -599,9 +785,14 @@ async def message(payload: TwinMsgReq, user: dict = Depends(get_current_user)):
             await live_publish_turn(user["user_id"], "assistant", full, source="web")
         except Exception:  # noqa: BLE001
             pass
-        lab_line = _lab_sse(user, route=lab_route, started=started)
+        lab_line = _lab_sse(user, route=lab_route, started=started, selftest=selftest)
         if lab_line:
             yield lab_line
+        if why_cards:
+            yield "event: why\ndata: " + json.dumps({
+                "label": "Why did I say that?",
+                "why": why_cards,
+            }) + "\n\n"
         source_line = _source_sse(watched_reply)
         if source_line:
             yield source_line

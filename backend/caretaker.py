@@ -78,12 +78,73 @@ def hard_refusal(text: str) -> Optional[str]:
     return None
 
 
-def gpu_lost(ps_text: str = "", log_text: str = "") -> bool:
-    """True when Ollama is on CPU or a container log says NVML failed to init."""
+_PROC = re.compile(r"(?i)100%\s+(CPU|GPU)")
+
+
+def ps_processors(ps_text: str) -> list[tuple[str, str]]:
+    """(model name, CPU|GPU) for each `ollama ps` row that names a processor."""
+    rows: list[tuple[str, str]] = []
+    for line in (ps_text or "").splitlines():
+        match = _PROC.search(line)
+        if not match:
+            continue
+        parts = line.split()
+        name = parts[0] if parts else ""
+        if not name or name.lower() == "name":
+            continue
+        rows.append((name, match.group(1).upper()))
+    return rows
+
+
+def _embed_model(name: str) -> bool:
+    folded = (name or "").lower()
+    return "embed" in folded or folded.startswith("nomic")
+
+
+def _chat_model(explicit: str = "") -> str:
+    import os
+
+    named = (explicit or os.environ.get("OLLAMA_TWIN_MODEL") or "qwen2.5:14b").strip()
+    return named or "qwen2.5:14b"
+
+
+def _matches_chat(name: str, model: str) -> bool:
+    left = (name or "").lower()
+    right = (model or "").lower()
+    if not left or left in {"100%", "name"}:
+        return False
+    if left == right or left.split(":")[0] == right.split(":")[0]:
+        return True
+    return len(left) >= 4 and right.startswith(left)
+
+
+def chat_processor(ps_text: str, chat_model: str = "") -> str:
+    """GPU or CPU for the configured chat model. Empty when that row is absent."""
+    model = _chat_model(chat_model)
+    for name, proc in ps_processors(ps_text):
+        if _matches_chat(name, model):
+            return proc
+    return ""
+
+
+def gpu_lost(ps_text: str = "", log_text: str = "", chat_model: str = "") -> bool:
+    """True when the chat model is on CPU, or a container log says NVML failed.
+
+    An embedding model on CPU does not count. Chatterbox also uses the GPU, so
+    nvidia-smi memory alone is not a lost-GPU signal.
+    """
     blob = f"{ps_text or ''}\n{log_text or ''}"
     if NVML_LOST in blob:
         return True
-    return CPU_ONLY in blob
+    rows = ps_processors(ps_text)
+    if not rows:
+        return CPU_ONLY in (ps_text or "")
+    proc = chat_processor(ps_text, chat_model)
+    if proc == "CPU":
+        return True
+    if proc == "GPU":
+        return False
+    return any(item_proc == "CPU" and not _embed_model(name) for name, item_proc in rows)
 
 
 def service_gpu_lost(service: str, *, ps_text: str = "", log_text: str = "") -> bool:
@@ -148,12 +209,22 @@ def observer_inode(text: str) -> str:
 
 
 def observer_mount_is_stale(host_inode: str, container_inode: str) -> bool:
-    """True when the API container still has a deleted bind of the observer runtime dir."""
+    """True when the API container still has a deleted bind of the observer runtime dir.
+
+    Compare the directory both sides see after following a symlink. ``stat``
+    without ``-L`` reports the symlink inode on the host and the target inode
+    in the container, which is a mismatch even when the mount is current.
+    """
     host = observer_inode(host_inode) or (host_inode or "").strip()
     guest = observer_inode(container_inode) or (container_inode or "").strip()
     if not host.isdigit() or not guest.isdigit():
         return False
     return host != guest
+
+
+def stat_inode_argv(path: str) -> list[str]:
+    """Follow symlinks. ``/run/heirloom-observer`` is a link to the real spool."""
+    return ["stat", "-L", "-c", "%i", path]
 
 
 def compose_recreate_api_argv(directory: str) -> list[str]:
@@ -218,6 +289,36 @@ def timeout_report(errors: list[str], *, lost: bool, reachable: bool) -> dict[st
             "The GPU still looks attached, so this is a model or timeout error, not a lost GPU."
         )
     return {"timed_out": True, "cause": cause, "samples": hits[:3]}
+
+
+def parse_systemctl_show(text: str) -> dict[str, Any]:
+    """``systemctl show`` key=value lines. Missing keys stay empty."""
+    fields: dict[str, str] = {}
+    for line in (text or "").splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        fields[key.strip()] = value.strip()
+    try:
+        restarts = int(fields.get("NRestarts") or 0)
+    except ValueError:
+        restarts = 0
+    return {
+        "n_restarts": restarts,
+        "active": fields.get("ActiveState") or "",
+        "sub": fields.get("SubState") or "",
+        "result": fields.get("Result") or "",
+        "checked_at": _now(),
+    }
+
+
+def observer_opt_actions(*, wished: Optional[bool], etc_present: bool, env_on: bool) -> list[str]:
+    """What the host should do so the unit matches the owner's opt-in."""
+    if wished is True and not (etc_present and env_on):
+        return ["enable"]
+    if wished is False and (etc_present or env_on):
+        return ["disable"]
+    return []
 
 
 def health_view(
@@ -525,6 +626,16 @@ def watchdog_decision(ps_text: str, log_text: str) -> str:
     return "ok"
 
 
+def should_restart_ollama(ps_text: str, log_text: str, *, mount_repaired: bool) -> bool:
+    """Do not restart Ollama in the same pass that recreated the API container.
+
+    That recreate can make the following GPU read look like a loss.
+    """
+    if mount_repaired:
+        return False
+    return watchdog_decision(ps_text, log_text) == "restart_ollama"
+
+
 def append_log_line(path: str, row: dict[str, str]) -> None:
     from pathlib import Path
 
@@ -656,9 +767,9 @@ class HostOps(CaretakerOps):
 
     def observer_mount_stale(self) -> bool:
         for path in OBSERVER_MOUNT_PATHS:
-            host = _run(["stat", "-c", "%i", path], self._runner)
+            host = _run(stat_inode_argv(path), self._runner)
             guest = _run(
-                ["docker", "exec", API_CONTAINER, "stat", "-c", "%i", path],
+                ["docker", "exec", API_CONTAINER, *stat_inode_argv(path)],
                 self._runner,
             )
             if observer_mount_is_stale(host, guest):

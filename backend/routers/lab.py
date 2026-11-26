@@ -94,6 +94,7 @@ def note_chat_reply(
     error: Optional[str] = None,
     audience: Optional[str] = None,
     model: str = "",
+    selftest: bool = False,
 ) -> Optional[str]:
     """One local row for a Twin, Clone, or Assist reply. Never raises."""
     try:
@@ -114,6 +115,7 @@ def note_chat_reply(
             audience=audience if audience is not None else (user.get("audience") or "owner"),
             heir_surface=bool(user.get("heir_surface")),
             user_id=str(user.get("user_id") or ""),
+            selftest=selftest,
         )
     except Exception:  # noqa: BLE001
         return None

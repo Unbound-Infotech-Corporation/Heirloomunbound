@@ -46,6 +46,7 @@ services:
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/presence:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/presence
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/caddy:ro
       - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/pause.json:${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/pause.json
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/whisper:/var/lib/heirloom/whisper
     depends_on:
       - mongo
       - ollama
@@ -78,6 +79,9 @@ services:
       context: ..
       dockerfile: box/chatterbox/Dockerfile
     restart: unless-stopped
+    volumes:
+      # Weights survive a container rebuild, so a restart only loads them (no download).
+      - ${HEIRLOOM_DATA_ROOT:-/var/lib/heirloom}/chatterbox:/root/.cache/huggingface
     ports:
       - "127.0.0.1:8010:8010"
     networks:

@@ -7,6 +7,7 @@ from assignments import effect_needs_approval
 from lab_mode import (
     LabStore,
     build_github_issue,
+    drop_selftest_turns,
     file_github_issue,
     github_issue_target,
     lab_allowed,
@@ -83,8 +84,13 @@ def test_telemetry_is_local_and_omits_message_text(tmp_path, monkeypatch):
 
 def test_report_is_markdown_without_transcripts(tmp_path):
     store = LabStore(tmp_path / "lab")
+    from datetime import datetime, timedelta, timezone
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
     store.append({
         "turn_id": "lab_a",
+        "ts": f"{today}T03:00:00+00:00",
         "route": "assist",
         "latency_ms": 10,
         "model": "qwen2.5:3b",
@@ -97,17 +103,27 @@ def test_report_is_markdown_without_transcripts(tmp_path):
     })
     store.append({
         "turn_id": "lab_b",
+        "ts": f"{yesterday}T03:00:00+00:00",
         "route": "clone",
         "error": "timeout",
         "approvals_declined": 2,
         "feedback": None,
     })
-    text = render_report(store.read_all(), day="2026-10-12")
-    assert "2026-10-12" in text
+    text = render_report(
+        store.read_all(),
+        day=today,
+        extras={"memories_today": 1, "memories_all": 4, "conversations_today": 1, "conversations_all": 3},
+    )
+    assert today in text
+    assert "## Today" in text
+    assert "## All-time" in text
+    assert "Turns: 1" in text
     assert "Turns: 2" in text
+    assert "New memories: 1" in text
+    assert "Memories: 4" in text
     assert "assist: 1" in text
     assert "did the job" in text
-    assert "timeout" in text
+    assert "timeout" not in text.split("## All-time", 1)[0]
     path = publish_report(store, tmp_path / "reports")["path"]
     assert path.endswith(".md")
     assert "did the job" in open(path, encoding="utf-8").read()
@@ -159,3 +175,22 @@ def test_github_issue_is_labeled_lab_report_when_configured(tmp_path):
     assert issue["labels"] == ["lab-report"]
     url = file_github_issue("hello", token="tok", repo="acme/heirloom", day="2026-10-12", opener=opener)
     assert url.endswith("/7")
+
+
+def test_selftest_turns_stay_out_of_the_report(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    monkeypatch.setenv("HEIRLOOM_LAB_MODE", "1")
+    store = LabStore(tmp_path)
+    today = datetime.now(timezone.utc).date().isoformat()
+    store.append({
+        "turn_id": "lab_real",
+        "ts": f"{today}T12:00:00+00:00",
+        "route": "twin",
+        "selftest": False,
+    })
+    record_chat_turn(route="twin", audience="owner", user_id="owner", selftest=True, store=store)
+    report = render_report(store.read_all(), day=today)
+    assert "Turns: 1" in report
+    assert drop_selftest_turns(store) == 1
+    assert [row["turn_id"] for row in store.read_all()] == ["lab_real"]

@@ -111,6 +111,7 @@
                 </MenuBarItem>
                 <MenuBarItem Title="Twin">
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="twin" Text="Sitting" />
+                    <MenuFlyoutItem Click="OnRecordMemory" Text="Record a memory" />
                     <MenuFlyoutItem Command="{x:Bind ViewModel.Twin.NewConversationCommand}" Text="New conversation" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="personality" Text="Portrait…" />
                     <MenuFlyoutItem Click="OnMenuOpen" Tag="abilities" Text="Abilities…" />

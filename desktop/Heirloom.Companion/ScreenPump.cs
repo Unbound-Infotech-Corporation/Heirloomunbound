@@ -47,11 +47,11 @@ internal sealed class ScreenPump : IDisposable
     {
         var snapshot = Current();
         var fps = ScreenStream.SendFps(snapshot.ObserverFps, snapshot.ObserverSignal);
-        if (ScreenStream.MaySend(snapshot.ObserverPaused, _store.Screen, snapshot.Reachable, snapshot.ObserverMode))
+        if (ScreenStream.MaySend(snapshot.ObserverPaused, _store.Screen, snapshot.Reachable, snapshot.ObserverMode, snapshot.ObserverEnabled))
         {
             var jpeg = PrimaryScreen.CaptureJpeg(ScreenStream.TargetWidth, ScreenStream.JpegQuality);
             snapshot = Current();
-            if (jpeg.Length > 0 && ScreenStream.MaySend(snapshot.ObserverPaused, _store.Screen, snapshot.Reachable, snapshot.ObserverMode))
+            if (jpeg.Length > 0 && ScreenStream.MaySend(snapshot.ObserverPaused, _store.Screen, snapshot.Reachable, snapshot.ObserverMode, snapshot.ObserverEnabled))
             {
                 var token = _store.Session();
                 if (!string.IsNullOrWhiteSpace(token))

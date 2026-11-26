@@ -8,19 +8,28 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: heirloom-box <status|backup|report|observer|presence|update-drivers|set-owner>
+Usage: heirloom-box <status|backup|report|upgrade|selftest|eval-grounding|observer|presence|update-drivers|set-owner>
 
   status             services, GPU, disk, observer, presence, last backup, last report, /api/health
   backup             Mongo archive + vault tarball, 14 copies kept
   report             nightly local markdown under the data root's lab-reports
+  selftest           record a labeled test memory, ask it two ways, decline an unknown one,
+                     check hearing, then delete the test data. Prints PASS or FAIL.
+  eval-grounding     ask 16 life questions no card answers (with the owner's cards, then one unrelated card),
+                     check recall, normal chat, and reminders; PASS/FAIL; removes its own test rows
+  upgrade            rebuild containers and units. Keeps box.env, the chat model, compose
+                     profiles, and the GPU overlay. Does not touch the NVIDIA driver.
   set-owner EMAIL    set the owner email and password (password read from the prompt, not saved in the log)
   update-drivers     install or upgrade the CUDA-repo NVIDIA driver, CUDA toolkit, cuDNN, nvtop, and the container toolkit
                      add --dry-run to print the plan
   observer status    capture device, signal, fps, model, pause, notes today, disk used
+  observer on        opt in: enable the unit and set HEIRLOOM_OBSERVER=1 (root)
+  observer off       opt out: disable the unit and set HEIRLOOM_OBSERVER=0 (root)
   observer pause     stop understanding until resume (also pauses Presence)
   observer resume    clear a manual, web, or hotkey pause
   observer digest    write today's learned-notes markdown
   observer compact   back up notes.jsonl, then dedupe heard notes and drop old pending notes
+  observer purge     count noise notes and captions (add --apply to delete them)
   presence status    cameras, fps, people enrolled, who is here, pause
   presence pause     stop recognition until resume (also pauses Observer)
   presence resume    clear the shared pause
@@ -229,17 +238,66 @@ cmd_observer() {
   local root
   root="$(read_root)"
   case "${action}" in
-    status|pause|resume|digest|compact) ;;
+    status|pause|resume|digest|compact|on|off|purge) ;;
     *)
       usage >&2
       exit 2
       ;;
   esac
+  if [[ "${action}" == "on" || "${action}" == "off" ]]; then
+    observer_toggle "${action}"
+    return 0
+  fi
   if [[ -z "${root}" || ! -f "${root}/backend/observer_cli.py" ]]; then
     echo "Run box/install.sh before heirloom-box observer." >&2
     exit 1
   fi
+  if [[ "${action}" == "purge" ]]; then
+    run_box_python "${root}" observer_cli purge "${2:-}"
+    return 0
+  fi
   run_box_python "${root}" observer_cli "${action}"
+}
+
+observer_toggle() {
+  local action="$1"
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "Re-run as root: sudo heirloom-box observer ${action}" >&2
+    exit 1
+  fi
+  local data env_file
+  data="$(data_root)"
+  env_file="${data}/box.env"
+  mkdir -p /etc/heirloom "${data}/observer"
+  if [[ "${action}" == "on" ]]; then
+    touch /etc/heirloom/observer.opt-in
+    chmod 644 /etc/heirloom/observer.opt-in
+    printf '%s\n' '{"enabled": true}' > "${data}/observer/owner-opt-in.json"
+    if [[ -f "${env_file}" ]]; then
+      if grep -q '^HEIRLOOM_OBSERVER=' "${env_file}"; then
+        sed -i 's/^HEIRLOOM_OBSERVER=.*/HEIRLOOM_OBSERVER=1/' "${env_file}"
+      else
+        printf '%s\n' 'HEIRLOOM_OBSERVER=1' >> "${env_file}"
+      fi
+    fi
+    systemctl daemon-reload || true
+    systemctl reset-failed heirloom-observer.service || true
+    systemctl enable --now heirloom-observer.service
+    echo "Observer is on. It will offer a few candidate cards a day. Nothing is saved until you accept it."
+    return 0
+  fi
+  rm -f /etc/heirloom/observer.opt-in
+  printf '%s\n' '{"enabled": false}' > "${data}/observer/owner-opt-in.json"
+  if [[ -f "${env_file}" ]]; then
+    if grep -q '^HEIRLOOM_OBSERVER=' "${env_file}"; then
+      sed -i 's/^HEIRLOOM_OBSERVER=.*/HEIRLOOM_OBSERVER=0/' "${env_file}"
+    else
+      printf '%s\n' 'HEIRLOOM_OBSERVER=0' >> "${env_file}"
+    fi
+  fi
+  systemctl disable --now heirloom-observer.service || true
+  systemctl reset-failed heirloom-observer.service || true
+  echo "Observer is off."
 }
 
 cmd_backup() {
@@ -350,6 +408,41 @@ cmd_set_owner() {
   password=""
 }
 
+cmd_upgrade() {
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "Re-run as root: sudo heirloom-box upgrade" >&2
+    exit 1
+  fi
+  local root
+  root="$(read_root)"
+  if [[ -z "${root}" || ! -f "${root}/box/install.sh" ]]; then
+    echo "Run this from a Twin Box that already has box/install.sh." >&2
+    echo "The first time, from the repo root: sudo bash box/install.sh --upgrade" >&2
+    exit 1
+  fi
+  exec bash "${root}/box/install.sh" --upgrade
+}
+
+cmd_selftest() {
+  local root
+  root="$(read_root)"
+  if [[ -z "${root}" ]]; then
+    echo "Run box/install.sh before heirloom-box selftest." >&2
+    exit 1
+  fi
+  compose "${root}" exec -T api python -m box_selftest
+}
+
+cmd_eval_grounding() {
+  local root
+  root="$(read_root)"
+  if [[ -z "${root}" ]]; then
+    echo "Run box/install.sh before heirloom-box eval-grounding." >&2
+    exit 1
+  fi
+  compose "${root}" exec -T api python -m box_eval_grounding
+}
+
 cmd_report() {
   local root
   root="$(read_root)"
@@ -366,6 +459,9 @@ main() {
     status) cmd_status ;;
     backup) cmd_backup ;;
     report) cmd_report ;;
+    upgrade) cmd_upgrade ;;
+    selftest) cmd_selftest ;;
+    eval-grounding) cmd_eval_grounding ;;
     observer)
       shift
       cmd_observer "${1:-}"

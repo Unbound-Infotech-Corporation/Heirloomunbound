@@ -157,6 +157,7 @@ def record_chat_turn(
     audience: Optional[str] = "owner",
     heir_surface: bool = False,
     user_id: str = "",
+    selftest: bool = False,
     store: Optional[LabStore] = None,
     now: Optional[datetime] = None,
 ) -> Optional[str]:
@@ -183,6 +184,7 @@ def record_chat_turn(
         "error": (error or "")[:300] or None,
         "user_id": (user_id or "")[:80],
         "feedback": None,
+        "selftest": bool(selftest),
     }
     try:
         return target.append(record)
@@ -221,40 +223,89 @@ def summarize_turns(turns: list[Mapping[str, Any]]) -> dict[str, Any]:
     return summary
 
 
+def report_turns(turns: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Selftest rows stay out of the nightly report."""
+    return [row for row in turns if not row.get("selftest")]
+
+
+def drop_selftest_turns(store: Optional[LabStore] = None) -> int:
+    """Delete selftest rows from turns.jsonl. Real owner turns stay."""
+    target = store or default_store()
+    rows = target.read_all()
+    kept = [row for row in rows if not row.get("selftest")]
+    removed = len(rows) - len(kept)
+    if removed:
+        target._rewrite(kept)
+    return removed
+
+
+def turns_on_day(turns: list[Mapping[str, Any]], day: str) -> list[Mapping[str, Any]]:
+    """Rows whose timestamp is that calendar day. Undated rows are not counted as today."""
+    stamp = (day or "").strip()[:10]
+    picked: list[Mapping[str, Any]] = []
+    for row in report_turns(list(turns)):
+        ts = str(row.get("ts") or "")[:10]
+        if stamp and ts == stamp:
+            picked.append(row)
+    return picked
+
+
+def _count_lines(summary: dict[str, Any], *, failed: int) -> list[str]:
+    return [
+        f"- Turns: {summary['turns']}",
+        f"- Useful: {summary['up']}",
+        f"- Not useful: {summary['down']}",
+        f"- Failed replies: {failed}",
+        (
+            "- Approvals created / approved / declined: "
+            f"{summary['approvals_created']} / {summary['approvals_approved']} / {summary['approvals_declined']}"
+        ),
+    ]
+
+
 def render_report(
     turns: list[Mapping[str, Any]],
     *,
     day: str,
     observer_markdown: str = "",
+    extras: Optional[Mapping[str, Any]] = None,
 ) -> str:
-    """Local markdown. No transcripts."""
-    summary = summarize_turns(turns)
+    """Local markdown. Today is that calendar day. All-time is labeled as all-time."""
+    visible = report_turns(list(turns))
+    today_rows = turns_on_day(visible, day)
+    today = summarize_turns(today_rows)
+    everything = summarize_turns(visible)
+    extra = dict(extras or {})
     lines = [
         f"# Heirloom lab report — {day}",
         "",
         "Local only. This file stays on the box.",
         "",
-        "## Counts",
-        f"- Turns: {summary['turns']}",
-        f"- Useful: {summary['up']}",
-        f"- Not useful: {summary['down']}",
-        f"- Errors: {summary['errors']}",
-        (
-            "- Approvals created / approved / declined: "
-            f"{summary['approvals_created']} / {summary['approvals_approved']} / {summary['approvals_declined']}"
-        ),
+        "## Today",
+        *_count_lines(today, failed=today["errors"]),
+        f"- New memories: {int(extra.get('memories_today') or 0)}",
+        f"- Conversations: {int(extra.get('conversations_today') or 0)}",
+        f"- Observer cards: {int(extra.get('observer_cards_today') or 0)}",
+        f"- Unanswered prompts: {int(extra.get('unanswered_prompts') or 0)}",
         "",
-        "## By route",
+        "## All-time",
+        "These totals are everything on the box, not what happened today.",
+        *_count_lines(everything, failed=everything["errors"]),
+        f"- Memories: {int(extra.get('memories_all') or 0)}",
+        f"- Conversations: {int(extra.get('conversations_all') or 0)}",
+        f"- Observer cards: {int(extra.get('observer_cards_all') or 0)}",
+        "",
+        "## By route (today)",
     ]
-    routes = summary["by_route"]
+    routes = today["by_route"]
     if not routes:
         lines.append("- (none)")
     else:
         for name in sorted(routes):
             lines.append(f"- {name}: {routes[name]}")
-    lines.extend(["", "## Errors"])
+    lines.extend(["", "## Errors (today)"])
     errors = 0
-    for row in turns:
+    for row in today_rows:
         err = str(row.get("error") or "").strip()
         if not err:
             continue
@@ -262,9 +313,9 @@ def render_report(
         lines.append(f"- {row.get('route') or 'unknown'}: {err}")
     if errors == 0:
         lines.append("- (none)")
-    lines.extend(["", "## Notes"])
+    lines.extend(["", "## Notes (today)"])
     notes = 0
-    for row in turns:
+    for row in today_rows:
         feedback = row.get("feedback") if isinstance(row.get("feedback"), Mapping) else None
         if not feedback:
             continue
@@ -276,9 +327,9 @@ def render_report(
         lines.append(f"- {vote} ({row.get('route') or 'unknown'}): {note}")
     if notes == 0:
         lines.append("- (none)")
-    extra = (observer_markdown or "").strip()
-    if extra:
-        lines.extend(["", extra])
+    digest = (observer_markdown or "").strip()
+    if digest:
+        lines.extend(["", digest])
     lines.append("")
     return "\n".join(lines)
 
@@ -290,13 +341,14 @@ def write_report(
     day: Optional[str] = None,
     keep: int = 30,
     observer_markdown: str = "",
+    extras: Optional[Mapping[str, Any]] = None,
 ) -> Path:
     folder = Path(dest)
     folder.mkdir(parents=True, exist_ok=True)
     stamp = day or _day()
     path = folder / f"lab-report-{stamp}.md"
     path.write_text(
-        render_report(turns, day=stamp, observer_markdown=observer_markdown),
+        render_report(turns, day=stamp, observer_markdown=observer_markdown, extras=extras),
         encoding="utf-8",
     )
     _rotate(folder, keep=keep)
@@ -375,6 +427,93 @@ def file_github_issue(
     return str(html or "")
 
 
+def _match_count(row: Mapping[str, Any], query: Mapping[str, Any]) -> bool:
+    for key, expected in query.items():
+        value = row.get(key)
+        if isinstance(expected, Mapping) and "$regex" in expected:
+            prefix = str(expected["$regex"])
+            if prefix.startswith("^"):
+                prefix = prefix[1:]
+            if not str(value or "").startswith(prefix):
+                return False
+        elif isinstance(expected, Mapping) and "$nin" in expected:
+            if value in expected["$nin"]:
+                return False
+        elif value != expected:
+            return False
+    return True
+
+
+def activity_counts(day: str, db: Any = None) -> dict[str, int]:
+    """Vault memories, conversations, and unanswered prompts for one day.
+
+    Approved memory cards are also vault entries, so entries are the count.
+    Cards fill in only when the entry write did not happen.
+    """
+    database = db if db is not None else _activity_db()
+    if database is None:
+        return {}
+
+    def n(collection: str, query: Mapping[str, Any]) -> int:
+        try:
+            return int(database[collection].count_documents(query))
+        except (OSError, TypeError, ValueError, AttributeError):
+            return 0
+
+    prefix = {"$regex": f"^{day}"}
+    memories_today = n("entries", {"type": "memory", "created_at": prefix})
+    memories_all = n("entries", {"type": "memory"})
+    if memories_all == 0:
+        memories_all = n("memory_cards", {"status": "approved"})
+        memories_today = n("memory_cards", {"status": "approved", "approved_at": prefix})
+    unanswered = _unanswered_like_the_page(database)
+    if unanswered is None:
+        unanswered = n("daily_prompts", {"status": "unanswered"})
+    return {
+        "memories_today": memories_today,
+        "memories_all": memories_all,
+        "conversations_today": n("conversations", {"created_at": prefix}),
+        "conversations_all": n("conversations", {}),
+        "unanswered_prompts": unanswered,
+    }
+
+
+def _rows(database: Any, collection: str, query: Mapping[str, Any]) -> Optional[list]:
+    try:
+        finder = getattr(database[collection], "find", None)
+        if finder is None:
+            return None
+        return list(finder(query, {"_id": 0}))
+    except (OSError, TypeError, ValueError, AttributeError):
+        return None
+
+
+def _unanswered_like_the_page(database: Any) -> Optional[int]:
+    """Same pile the record page calls waiting: unanswered prompts plus open nudges."""
+    prompts = _rows(database, "daily_prompts", {"status": "unanswered"})
+    nudges = _rows(database, "nudges", {"status": "open"})
+    if prompts is None and nudges is None:
+        return None
+    from memory_cards import waiting_items
+
+    return len(waiting_items(prompts or [], nudges or []))
+
+
+def _activity_db() -> Any:
+    url = (os.environ.get("MONGO_URL") or "").strip()
+    if not url:
+        return None
+    try:
+        from pymongo import MongoClient
+
+        client = MongoClient(url, serverSelectionTimeoutMS=400)
+        client.admin.command("ping")
+    except Exception:
+        return None
+    name = (os.environ.get("DB_NAME") or "heirloom").strip() or "heirloom"
+    return client[name]
+
+
 def publish_report(
     store: LabStore,
     dest: Path,
@@ -383,6 +522,7 @@ def publish_report(
     token: Optional[str] = None,
     repo: Optional[str] = None,
     opener: Any = None,
+    extras: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, Any]:
     """Write today's markdown. File a GitHub issue only when token and repo are set."""
     stamp = _day(now)
@@ -393,7 +533,25 @@ def publish_report(
         digest = nightly_digest_markdown()
     except OSError:
         digest = ""
-    path = write_report(store.read_all(), dest, day=stamp, observer_markdown=digest)
+    counts = dict(extras or {})
+    try:
+        for key, value in activity_counts(stamp).items():
+            counts.setdefault(key, value)
+    except OSError:
+        pass
+    try:
+        from observer_store import ObserverStore, observer_dir
+
+        notes = ObserverStore(observer_dir()).read_notes()
+        counts.setdefault("observer_cards_all", len(notes))
+        counts.setdefault(
+            "observer_cards_today",
+            sum(1 for note in notes if str(note.get("created_at") or "")[:10] == stamp),
+        )
+    except OSError:
+        counts.setdefault("observer_cards_all", 0)
+        counts.setdefault("observer_cards_today", 0)
+    path = write_report(store.read_all(), dest, day=stamp, observer_markdown=digest, extras=counts)
     result: dict[str, Any] = {
         "path": str(path),
         "day": stamp,

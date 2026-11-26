@@ -64,6 +64,7 @@ from routers import (
     letters,
     live,
     memory,
+    memory_loop,
     music,
     nudges,
     oauth,
@@ -274,6 +275,7 @@ api_router.include_router(rooms.router)
 api_router.include_router(phone.router)
 api_router.include_router(nudges.router)
 api_router.include_router(memory.router)
+api_router.include_router(memory_loop.router)
 api_router.include_router(brain.router)
 api_router.include_router(would_say.router)
 api_router.include_router(music.router)
@@ -341,6 +343,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def warm_box_embeddings():
+    """Keep nomic-embed-text loaded on a Twin Box so the first recall is not a cold start."""
+    if os.environ.get("HEIRLOOM_BOX") != "1":
+        return
+    from local_inference import warm_embed_model
+
+    asyncio.create_task(warm_embed_model())
 
 
 @app.on_event("shutdown")

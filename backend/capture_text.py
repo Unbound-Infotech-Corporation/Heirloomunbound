@@ -129,7 +129,7 @@ def _valid_zone(name: str) -> str | None:
 
 
 def owner_timezone(user: dict | None, requested: str | None = None) -> str:
-    """The owner's IANA zone. UTC when nothing valid is stored or sent."""
+    """The owner's IANA zone: sent, saved, phone, last sent, box env, then UTC."""
     candidates: list[object] = [requested]
     if isinstance(user, dict):
         candidates.append(user.get("timezone"))
@@ -137,6 +137,8 @@ def owner_timezone(user: dict | None, requested: str | None = None) -> str:
             block = user.get(key)
             if isinstance(block, dict):
                 candidates.append(block.get("timezone"))
+        # The zone the owner's last chat turn sent. Better than the box's UTC clock.
+        candidates.append(user.get("last_timezone"))
     candidates.append(os.environ.get("HEIRLOOM_TIMEZONE"))
     for raw in candidates:
         zone = _valid_zone(str(raw or ""))

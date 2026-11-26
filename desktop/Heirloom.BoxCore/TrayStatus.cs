@@ -27,7 +27,8 @@ public sealed record BoxSnapshot(
     bool CertificateFailed = false,
     double ObserverFps = 0,
     string ObserverSignal = "",
-    string ObserverMode = "");
+    string ObserverMode = "",
+    bool ObserverEnabled = false);
 
 public static class TrayStatus
 {
@@ -43,9 +44,38 @@ public static class TrayStatus
             return BoxLamp.Amber;
         }
 
+        if (health.Value.TryGetProperty("status", out var top) && top.ValueKind == JsonValueKind.String)
+        {
+            var name = top.GetString() ?? "";
+            if (string.Equals(name, "failing", StringComparison.OrdinalIgnoreCase))
+            {
+                return BoxLamp.Red;
+            }
+
+            if (string.Equals(name, "degraded", StringComparison.OrdinalIgnoreCase))
+            {
+                return BoxLamp.Amber;
+            }
+        }
+
         var paused = Flag(observer, "paused");
         var signal = Text(observer, "signal");
         var fps = Number(observer, "fps");
+        if (string.Equals(signal, "failing", StringComparison.OrdinalIgnoreCase))
+        {
+            return BoxLamp.Red;
+        }
+
+        if (string.Equals(signal, "stale", StringComparison.OrdinalIgnoreCase))
+        {
+            return BoxLamp.Amber;
+        }
+
+        if (observer.TryGetProperty("fresh", out var fresh) && fresh.ValueKind == JsonValueKind.False)
+        {
+            return BoxLamp.Amber;
+        }
+
         var live = string.Equals(signal, "signal", StringComparison.OrdinalIgnoreCase)
             || string.Equals(signal, "ok", StringComparison.OrdinalIgnoreCase);
         if (!paused && live && fps > 0)
@@ -87,6 +117,7 @@ public static class TrayStatus
 
         var host = string.IsNullOrWhiteSpace(address) ? BoxLink.DefaultBoxUrl : address.Trim();
         var paused = false;
+        var observerEnabled = false;
         var systemAudio = AudioStreamView.Off;
         var micAudio = AudioStreamView.Off;
         var observerFps = 0.0;
@@ -101,6 +132,7 @@ public static class TrayStatus
                 observerFps = Number(observerNode, "fps");
                 observerSignal = Text(observerNode, "signal");
                 observerMode = Text(observerNode, "mode");
+                observerEnabled = Flag(observerNode, "enabled");
             }
             systemAudio = AudioLine(body, "system");
             micAudio = AudioLine(body, "mic");
@@ -138,7 +170,8 @@ public static class TrayStatus
             certificateFailed,
             observerFps,
             observerSignal,
-            observerMode);
+            observerMode,
+            observerEnabled);
     }
 
     public static bool CompanionShouldSend(AudioStreamView stream)

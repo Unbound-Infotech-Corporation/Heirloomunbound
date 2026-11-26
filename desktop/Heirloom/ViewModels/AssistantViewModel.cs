@@ -184,6 +184,7 @@ public partial class AssistantViewModel : ObservableObject
                 ["stt_only"] = "true",
                 ["save_to_archive"] = "false",
                 ["audience"] = _host.CanEdit ? "owner" : "heir",
+                ["timezone"] = Heirloom.BoxCore.LocalZone.Iana() ?? string.Empty,
             };
             var cloud = await _host.Api.PostMultipartAsync("/companion/voice", "ptt.wav", wav, fields: fields, cancellationToken: stt.Token).ConfigureAwait(true);
             if (cloud is { } json)
@@ -902,7 +903,7 @@ Confirm is required for buying, paying, deleting, or typing a password.
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(25));
         var audience = _host.CanEdit ? "owner" : "heir";
-        var cloud = await _host.Api.PostAsync("/desktop/chat", new { text = payload, mode = "assistant", audience }, timeout.Token).ConfigureAwait(true);
+        var cloud = await _host.Api.PostAsync("/desktop/chat", new { text = payload, mode = "assistant", audience, timezone = Heirloom.BoxCore.LocalZone.Iana() }, timeout.Token).ConfigureAwait(true);
         string? reply = null;
         if (cloud is { } json)
         {

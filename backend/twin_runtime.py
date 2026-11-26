@@ -353,6 +353,7 @@ class TwinTurnResult:
     grief: Optional[GriefSignal] = None
     brain: str = ""
     brain_meta: dict = field(default_factory=dict)
+    why: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -785,6 +786,7 @@ async def run_twin_turn(
     assistant_id: str | None = None,
     extra_system: str | None = None,
     local_only: bool = False,
+    timezone: str | None = None,
 ) -> TwinTurnResult:
     """One full twin turn with tools. Non-streaming — for desktop + companion voice.
 
@@ -1002,6 +1004,42 @@ async def run_twin_turn(
     tool_trace: list[dict] = []
     from llm_provider import resolve_llm_provider, uses_ollama
 
+    # Local twin turns get the same grounding as web chat: reminders are made, not
+    # promised; life questions are answered from approved cards only; every other
+    # reply has its life claims checked against the cards and the owner's words.
+    guard = None
+    if (role or "twin").strip().lower() == "twin" and not specialist_id and not phone:
+        from grounding import TwinGuard
+
+        guard = TwinGuard(user, text, conversation=conversation, audience=audience_key, timezone=timezone)
+        early = await guard.short_circuit()
+        if early is not None:
+            reply = _aside(early["reply"])
+            ts = _now_iso()
+            receipt = _receipt_for_role(role, None, reply=reply)
+            if persist:
+                await _persist_pair(
+                    user_id, conversation_id, text, reply, ts,
+                    source=source, action=early.get("action"), receipt=receipt,
+                    audience=audience_key, brain_meta=early.get("meta"), why=early.get("why"),
+                )
+            return TwinTurnResult(
+                reply=reply,
+                action=early.get("action"),
+                conversation_id=conversation_id,
+                ts=ts,
+                backend=early.get("backend") or "grounded",
+                receipt=receipt,
+                brain_meta=early.get("meta") or {},
+                why=early.get("why") or [],
+            )
+        pack.history = guard.history(pack.history)
+
+    async def _checked(raw: str) -> tuple[str, list[dict]]:
+        if guard is None:
+            return raw, []
+        return await guard.check(raw)
+
     if uses_ollama(resolve_llm_provider()):
         history = list(pack.history)
         history.append({"role": "user", "content": text})
@@ -1010,7 +1048,8 @@ async def run_twin_turn(
             outcome = await _council_reply(messages, text, audience_key)
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"Local twin (Ollama) failed: {exc!s}") from exc
-        reply = _aside(outcome.text)
+        checked, why = await _checked(outcome.text)
+        reply = _aside(checked)
         backend_used = "ollama"
         ts = _now_iso()
         receipt = _receipt_for_role(role, tool_trace, reply=reply)
@@ -1019,7 +1058,7 @@ async def run_twin_turn(
                 user_id, conversation_id, text, reply, ts,
                 source=source, tool_trace=tool_trace, receipt=receipt,
                 audience=audience_key,
-                brain_meta=outcome.public(),
+                brain_meta=outcome.public(), why=why,
             )
             if summarise:
                 try:
@@ -1036,6 +1075,7 @@ async def run_twin_turn(
             source_label=source_label,
             brain=outcome.label or _answered_brain(),
             brain_meta=outcome.public(),
+            why=why,
         )
 
     if backend_used == "ollama":
@@ -1058,7 +1098,8 @@ async def run_twin_turn(
                 outcome = await _council_reply(messages, text, audience_key, base_url=ollama_url)
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError(f"Local twin (Ollama) failed: {exc!s}") from exc
-            reply = _aside(outcome.text)
+            checked, why = await _checked(outcome.text)
+            reply = _aside(checked)
             ts = _now_iso()
             receipt = _receipt_for_role(role, tool_trace, reply=reply)
             if persist:
@@ -1066,7 +1107,7 @@ async def run_twin_turn(
                     user_id, conversation_id, text, reply, ts,
                     source=source, tool_trace=tool_trace, receipt=receipt,
                     audience=audience_key,
-                    brain_meta=outcome.public(),
+                    brain_meta=outcome.public(), why=why,
                 )
                 if summarise:
                     try:
@@ -1083,6 +1124,7 @@ async def run_twin_turn(
                 source_label=source_label,
                 brain=outcome.label or _answered_brain(),
                 brain_meta=outcome.public(),
+                why=why,
             )
 
     if local_only:
@@ -1224,6 +1266,7 @@ async def _persist_pair(
     approval: Optional[dict] = None,
     audience: Optional[str] = None,
     brain_meta: Optional[dict] = None,
+    why: Optional[list[dict]] = None,
 ) -> None:
     user_turn: dict[str, Any] = {
         "role": "user", "content": user_text, "ts": ts, "source": source,
@@ -1266,6 +1309,8 @@ async def _persist_pair(
         assistant_turn["approval"] = approval
     if brain_meta:
         assistant_turn["brain_meta"] = brain_meta
+    if why:
+        assistant_turn["why"] = why
     await db.conversations.update_one(
         {"conversation_id": conversation_id, "user_id": user_id},
         {

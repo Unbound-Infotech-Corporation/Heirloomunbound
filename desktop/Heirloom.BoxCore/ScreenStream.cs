@@ -9,9 +9,9 @@ public static class ScreenStream
     public const double DefaultFps = 2;
     public const long JpegQuality = 60;
 
-    public static bool MaySend(bool observerPaused, bool enabled, bool reachable, string mode = "")
+    public static bool MaySend(bool observerPaused, bool enabled, bool reachable, string mode = "", bool observerEnabled = true)
     {
-        if (!enabled || !reachable || observerPaused)
+        if (!observerEnabled || !enabled || !reachable || observerPaused)
         {
             return false;
         }

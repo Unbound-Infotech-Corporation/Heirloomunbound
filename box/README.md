@@ -86,7 +86,7 @@ What a real run installs:
 - `unattended-upgrades`.
 - `ufw`: deny incoming, allow OpenSSH, `80/tcp`, and `443/tcp`.
 - Nightly cron: `03:00` `heirloom-box backup` (Mongo archive + vault tarball, 14 copies), `03:15` `heirloom-box report` (markdown under `/var/lib/heirloom/lab-reports`, 30 files).
-- With `--observer` or `--observer-audio`: `ffmpeg`, `v4l-utils`, Tesseract, `alsa-utils`, a venv with faster-whisper plus `nvidia-cublas-cu12` and `nvidia-cudnn-cu12`, `heirloom-observer.service` (restarted after `box.env` is written), a udev rule for UVC replug, `HEIRLOOM_OBSERVER=1`, `OBSERVER_AUDIO=1`, and a `03:20` digest. The marker `/etc/heirloom/observer.enabled` keeps Observer on when you later run the installer without the flag. Wiring, the two audio streams, privacy rules, and the vision-model table are in [OBSERVER.md](OBSERVER.md).
+- With `--observer` or `--observer-audio`: `ffmpeg`, `v4l-utils`, Tesseract, `alsa-utils`, a venv with faster-whisper plus `nvidia-cublas-cu12` and `nvidia-cudnn-cu12`, `heirloom-observer.service` (restarted after `box.env` is written), a udev rule for UVC replug, `HEIRLOOM_OBSERVER=1`, `OBSERVER_AUDIO=1`, and a `03:20` digest. The opt-in file `/etc/heirloom/observer.opt-in` keeps Observer on when you later run the installer without the flag. A plain upgrade turns Observer off and ignores the old `/etc/heirloom/observer.enabled` marker. Wiring, the two audio streams, privacy rules, and the vision-model table are in [OBSERVER.md](OBSERVER.md).
 - Screen can come from the Windows companion instead of the EVGA HDMI box. `OBSERVER_SOURCE` in `box.env` is `auto`, `network`, or `capture` (the installer writes `auto`). `auto` uses a companion JPEG when one arrived in the last few seconds (`OBSERVER_NETWORK_FRESH_S`, default 3) and otherwise opens `/dev/video0`. The JPEG is posted to the box on the home LAN with the same sign-in and certificate pin as the microphone. `GET /api/health` reports `observer.source` and `observer.signal` (`ok` when the network picture is fresh). The frame still goes through the privacy filter, `qwen2.5vl:7b` when that is the vision tag, and the same retention cap. The companion sends the primary display at `OBSERVER_SAMPLE_FPS` (default 2), scaled to about 1920 wide, while the source is `auto` or `network`. Screen is on until you turn it off. Pause sends nothing. `capture` keeps the HDMI card.
 - With `--presence`: `python3-opencv`, `v4l-utils`, `ffmpeg`, YuNet (MIT) and SFace (Apache-2.0), `heirloom-presence.service`, and a udev rule. The marker `/etc/heirloom/presence.enabled` keeps Presence on later. Cameras, consent, and the GPU budget are in [PRESENCE.md](PRESENCE.md). `--with-chatterbox` turns on spoken greetings. Unknown-face thumbnails stay off.
 - With `--brain-url http://192.168.x.x:11434`: the primary Ollama on the LAN (BIGDEAL, `gpt-oss:120b`, thinking low) is tried first. The box model stays the fallback. `qwen3:32b` with thinking off is the alternate when the 96GB card leaves. Windows setup is in [BIGDEAL-OLLAMA.md](BIGDEAL-OLLAMA.md).
@@ -148,14 +148,26 @@ Then use the Tailscale name or address the same way. The installer does not log 
 
 ## Updating
 
-From the repo root on the box:
+From the repo root on a box that is already running:
 
 ```bash
 git pull
-sudo bash box/install.sh
+sudo bash box/install.sh --upgrade
 ```
 
-Re-running is safe. It keeps the existing connector secret and rewrites the service env flags. Add `--dev-tools`, `--tailscale`, or `--with-chatterbox` again if you still want those. Observer stays on after the first `--observer` install because `/etc/heirloom/observer.enabled` is still there. Presence stays on after the first `--presence` install because `/etc/heirloom/presence.enabled` is still there. A dry-run never creates those files.
+Once that has installed the new `heirloom-box`, later upgrades are `sudo heirloom-box upgrade`.
+
+This rebuilds the containers and reinstalls the units, scripts, and tmpfiles. It keeps `box.env` values and permissions, `OLLAMA_TWIN_MODEL`, the compose profiles (chatterbox included), and the GPU overlay. It leaves the NVIDIA driver alone.
+
+`sudo bash box/install.sh` without `--upgrade` is the first-install path. Use it for a new machine.
+
+Observer stays off unless `/etc/heirloom/observer.opt-in` is already there, or the live wish file says Observer is on. The old `/etc/heirloom/observer.enabled` marker does not turn it back on. Opt in with `sudo heirloom-box observer on`. Presence stays on after the first `--presence` install because `/etc/heirloom/presence.enabled` is still there.
+
+If the caretaker timer was paused, start it again after this upgrade:
+
+```bash
+sudo systemctl start heirloom-caretaker.timer
+```
 
 ## Lab signals
 
@@ -173,10 +185,14 @@ heirloom-box status
 heirloom-box backup
 heirloom-box report
 heirloom-box observer status
+heirloom-box observer on
+heirloom-box observer off
 heirloom-box observer pause
 heirloom-box observer resume
 heirloom-box observer digest
 heirloom-box observer compact
+heirloom-box observer purge
+heirloom-box observer purge --apply
 heirloom-box presence status
 heirloom-box presence pause
 heirloom-box presence resume

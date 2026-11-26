@@ -550,6 +550,7 @@ public partial class TwinViewModel : ObservableObject
                 ["stt_only"] = "true",
                 ["save_to_archive"] = "false",
                 ["audience"] = CanEdit ? "owner" : "heir",
+                ["timezone"] = Heirloom.BoxCore.LocalZone.Iana() ?? string.Empty,
             };
             var cloud = await _host.Api.PostMultipartAsync("/companion/voice", "ptt.wav", wav, fields: fields, cancellationToken: stt.Token).ConfigureAwait(true);
             if (cloud is { } json)
@@ -1188,7 +1189,7 @@ public partial class TwinViewModel : ObservableObject
         cloudTimeout.CancelAfter(ChatWait.BoxReply);
         return await _host.Api.PostAsync(
             "/desktop/chat",
-            new { text, mode = "twin", grounded, persona = Persona, audience, twin_pack = pack.ToWire() },
+            new { text, mode = "twin", grounded, persona = Persona, audience, twin_pack = pack.ToWire(), timezone = Heirloom.BoxCore.LocalZone.Iana() },
             cloudTimeout.Token).ConfigureAwait(true);
     }
 

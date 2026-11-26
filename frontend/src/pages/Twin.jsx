@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowRight, BookOpen, Clipboard, Cloud, Cpu, Eye, Globe, Keyboard, Link as LinkIcon, Loader2, Monitor, Power, Save, Search, Search as SearchIcon, Sparkles, Terminal, Timer, Video, Volume2, Zap } from "lucide-react";
 import { api, streamSSE } from "../lib/api";
+import { browserTimeZone } from "../lib/captureTime";
 import FirstGiftInvite from "../components/FirstGiftInvite";
 import AssistantPicker from "../components/studio/AssistantPicker";
 import LabVote from "../components/studio/LabVote";
@@ -168,6 +169,7 @@ export default function Twin() {
     let specialistName = "";
     let labTurnId = "";
     let sourceLabel = "";
+    let whyCards = [];
     await streamSSE(
       "/twin/message",
       {
@@ -175,6 +177,7 @@ export default function Twin() {
         message: text,
         clone_id: selectedAssistant || undefined,
         room_id: roomId || undefined,
+        timezone: browserTimeZone() || undefined,
       },
       (chunk) => {
         full += chunk;
@@ -196,6 +199,7 @@ export default function Twin() {
               specialist_id: selectedAssistant || undefined,
               lab_turn_id: labTurnId || undefined,
               source_label: sourceLabel || undefined,
+              why: whyCards.length ? whyCards : undefined,
             },
           ],
         }));
@@ -217,6 +221,8 @@ export default function Twin() {
           labTurnId = data.lab_turn_id;
         } else if (eventName === "source" && data?.source_label) {
           sourceLabel = data.source_label;
+        } else if (eventName === "why" && Array.isArray(data?.why)) {
+          whyCards = data.why;
         } else if (eventName === "tool") {
           // Merge start + result rows by id so the chip updates in place
           const idx = toolTrace.findIndex((t) => t.id === data.id);
@@ -456,6 +462,16 @@ export default function Twin() {
                 {watchedSourceLabel(m.source_label) ? (
                   <div className="overline mt-2" data-testid={`twin-source-${i}`}>
                     {watchedSourceLabel(m.source_label)}
+                  </div>
+                ) : null}
+                {m.why?.length ? (
+                  <div className="mt-2 text-sm" data-testid={`twin-why-${i}`}>
+                    <div className="overline mb-1">Why did I say that?</div>
+                    {m.why.map((item) => (
+                      <Link key={item.card_id} to={`/record?card=${item.card_id}`} className="block">
+                        {item.title}
+                      </Link>
+                    ))}
                   </div>
                 ) : null}
                 {m.tool_trace && m.tool_trace.length > 0 && (

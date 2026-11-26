@@ -46,7 +46,7 @@ describe("standing routines helpers", () => {
     expect(routineActionHref({ kind: "morning_brief", action_href: "/reminders" })).toBe("/reminders");
     expect(routineActionHref({ kind: "sealed_letter_nudge" })).toBe("/letters");
     expect(routineActionHref({ kind: "weekly_biographer", action_prompt: "Describe the home" })).toContain(
-      "/interviewer?topic="
+      "/record?topic="
     );
     expect(routineActionHref({ kind: "weekly_biographer", action_prompt: "Describe the home" })).toContain(
       "weekly_biographer"

@@ -90,13 +90,38 @@ async def ollama_chat(
     return text
 
 
+_whisper_model = None
+_whisper_key = ""
+
+
+def whisper_runtime() -> tuple[str, str, str]:
+    """Model size, device, compute. CUDA when the process can see a GPU, else CPU int8."""
+    model = (os.environ.get("WHISPER_MODEL") or os.environ.get("OBSERVER_WHISPER_MODEL") or "base").strip() or "base"
+    device = "cpu"
+    compute = "int8"
+    try:
+        import ctranslate2
+
+        if ctranslate2.get_cuda_device_count() > 0:
+            device = "cuda"
+            compute = "float16"
+    except Exception:
+        device = "cpu"
+        compute = "int8"
+    forced = (os.environ.get("WHISPER_DEVICE") or "").strip().lower()
+    if forced in {"cpu", "cuda"}:
+        device = forced
+        compute = "float16" if forced == "cuda" else "int8"
+    return model, device, compute
+
+
 def transcribe_whisper_bytes(
     raw: bytes,
     *,
     filename: str = "audio.wav",
-    model_size: str = "base",
+    model_size: str = "",
 ) -> str:
-    """Transcribe WAV/PCM bytes with faster-whisper if installed."""
+    """Transcribe WAV/PCM bytes with faster-whisper if installed. Fully local."""
     if not raw:
         return ""
     try:
@@ -104,19 +129,33 @@ def transcribe_whisper_bytes(
     except ImportError as exc:
         raise RuntimeError("faster-whisper not installed on this host") from exc
 
-    device = "cuda"
-    compute = "float16"
+    global _whisper_model, _whisper_key
+    size, device, compute = whisper_runtime()
+    if model_size:
+        size = model_size
+    cache = (os.environ.get("WHISPER_CACHE") or "/var/lib/heirloom/whisper").strip() or "/var/lib/heirloom/whisper"
     try:
-        import torch  # noqa: F401
-
-        if not __import__("torch").cuda.is_available():
-            device = "cpu"
-            compute = "int8"
-    except Exception:
-        device = "cpu"
-        compute = "int8"
-
-    model = WhisperModel(model_size, device=device, compute_type=compute)
+        os.makedirs(cache, exist_ok=True)
+    except OSError:
+        cache = ""
+    key = f"{size}:{device}:{compute}:{cache}"
+    if _whisper_model is None or _whisper_key != key:
+        kwargs = {"device": device, "compute_type": compute}
+        if cache:
+            kwargs["download_root"] = cache
+        try:
+            _whisper_model = WhisperModel(size, **kwargs)
+        except Exception:
+            if device != "cpu":
+                fallback = {"device": "cpu", "compute_type": "int8"}
+                if cache:
+                    fallback["download_root"] = cache
+                _whisper_model = WhisperModel(size, **fallback)
+                device = "cpu"
+            else:
+                raise
+        _whisper_key = key
+    model = _whisper_model
     suffix = ".wav" if filename.lower().endswith(".wav") else ".bin"
     import tempfile
 
@@ -126,6 +165,59 @@ def transcribe_whisper_bytes(
         segments, _info = model.transcribe(tmp.name, beam_size=1, vad_filter=True)
         parts = [seg.text.strip() for seg in segments if seg.text.strip()]
     return " ".join(parts).strip()
+
+
+def embed_model() -> str:
+    return (os.environ.get("OLLAMA_EMBED_MODEL") or "nomic-embed-text").strip() or "nomic-embed-text"
+
+
+_embed_warm = False
+
+
+def embed_timeout() -> float:
+    """Cold nomic-embed-text load is about 16s. Later calls are short."""
+    return 4.0 if _embed_warm else 25.0
+
+
+async def warm_embed_model() -> bool:
+    """Load the embedding model and ask Ollama to keep it resident."""
+    global _embed_warm
+    loaded = await ollama_embed_many(["search_query: ready"], timeout=25.0, keep_alive="30m")
+    _embed_warm = bool(loaded)
+    return _embed_warm
+
+
+async def ollama_embed_many(
+    texts: list[str],
+    *,
+    timeout: float | None = None,
+    keep_alive: str = "30m",
+) -> list[list[float]] | None:
+    """Local embeddings from the box Ollama. None when the model is absent."""
+    rows = [text for text in texts if (text or "").strip()]
+    if not rows or len(rows) != len(texts):
+        return None
+    url = f"{ollama_base_url().rstrip('/')}/api/embed"
+    body = {"model": embed_model(), "input": rows, "keep_alive": keep_alive}
+    if timeout is None:
+        timeout = embed_timeout()
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, json=body)
+        if response.status_code >= 400:
+            return None
+        payload = response.json()
+    except Exception:
+        return None
+    vectors = payload.get("embeddings") if isinstance(payload, dict) else None
+    if not isinstance(vectors, list) or len(vectors) != len(rows):
+        return None
+    cleaned: list[list[float]] = []
+    for vector in vectors:
+        if not isinstance(vector, list) or not vector:
+            return None
+        cleaned.append([float(item) for item in vector])
+    return cleaned
 
 
 async def probe_ollama_models() -> dict[str, Any]:

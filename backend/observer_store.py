@@ -1,11 +1,13 @@
 """Local observer files. Notes and short clips only. Never a raw stream."""
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
 import shutil
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -31,12 +33,17 @@ DEFAULT_DIR = "/var/lib/heirloom/observer"
 DEFAULT_CAP_BYTES = 512 * 1024 * 1024
 DEFAULT_CLIP_TTL_DAYS = 7
 DEFAULT_CLIP_MINUTES = 10
+# Kept so older callers can import it. A score is not approval.
 HIGH_CONFIDENCE = 0.75
 HEARD_TEXT_CAP = 1200
-NOTE_HOURLY_CAP = 40
-NOTE_DAILY_CAP = 80
+NOTE_HOURLY_CAP = 5
+NOTE_DAILY_CAP = 5
 PENDING_RETENTION_DAYS = 21
-PENDING_KEEP_MAX = 240
+PENDING_KEEP_MAX = 40
+OBSERVATION_KEEP_MAX = 400
+OBSERVATION_KEEP_DAYS = 2
+TEXT_CAP_BYTES = 64 * 1024 * 1024
+SIGNAL_FRESH_S = 180
 _HEARD_PREFIX = 48
 _HEARD_JACCARD = 0.82
 _rate_warned = False
@@ -48,8 +55,32 @@ def _flag(name: str, raw: Optional[str] = None) -> bool:
     return (raw or "").strip().lower() in _ON
 
 
+def read_observer_opt_in(root: Optional[Path] = None) -> Optional[bool]:
+    """Live owner wish. ``None`` when the file is absent.
+
+    The API container keeps the env it was created with. The opt-in file is on
+    the shared data volume, so health can see a toggle without a recreate.
+    """
+    folder = root if root is not None else observer_dir()
+    path = Path(folder) / "owner-opt-in.json"
+    if not path.is_file():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8") or "null")
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(loaded, dict) or "enabled" not in loaded:
+        return None
+    return bool(loaded.get("enabled"))
+
+
 def observer_enabled(raw: Optional[str] = None) -> bool:
-    return _flag("HEIRLOOM_OBSERVER", raw)
+    if raw is not None:
+        return _flag("HEIRLOOM_OBSERVER", raw)
+    wished = read_observer_opt_in()
+    if wished is not None:
+        return wished
+    return _flag("HEIRLOOM_OBSERVER", None)
 
 
 def observer_dir(raw: Optional[str] = None) -> Path:
@@ -170,6 +201,24 @@ class ObserverStore:
         self.clips_dir = self.root / "clips"
         self.clip_index = self.clips_dir / "index.jsonl"
         self.digest_dir = self.root / "digests"
+        self._held = False
+
+    @contextmanager
+    def _exclusive(self):
+        """One writer at a time, including the host daemon and the API container."""
+        if self._held:
+            yield
+            return
+        self.root.mkdir(parents=True, exist_ok=True)
+        handle = (self.root / ".store.lock").open("a+")
+        self._held = True
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
+            self._held = False
 
     def read_notes(self) -> list[dict]:
         return _read_jsonl(self.notes_path)
@@ -210,6 +259,10 @@ class ObserverStore:
         The same sentence is not written again while it is still the recent
         picture. Identical notes are also skipped when the draft is built.
         """
+        with self._exclusive():
+            return self._add_observations(rows)
+
+    def _add_observations(self, rows: list[dict]) -> list[dict]:
         self.root.mkdir(parents=True, exist_ok=True)
         recent = _read_jsonl(self.observations_path)[-12:]
         for row in rows:
@@ -246,7 +299,9 @@ class ObserverStore:
             }
             _append_jsonl(self.observations_path, stored)
             recent.append(stored)
-        return self._generate_notes()
+        created = self._generate_notes()
+        self.trim_noise()
+        return created
 
     def add_transcript(self, row: dict) -> dict:
         """Merge one labeled transcript into the timeline and the note memory.
@@ -258,6 +313,10 @@ class ObserverStore:
             return {"stored": False, "reason": "channel"}
         if bool(self.read_state().get("paused")):
             return {"stored": False, "reason": "paused"}
+        with self._exclusive():
+            return self._add_transcript_locked(row, channel)
+
+    def _add_transcript_locked(self, row: dict, channel: str) -> dict:
         self.root.mkdir(parents=True, exist_ok=True)
         moment = str(row.get("ts") or _now().isoformat())
         if row.get("dropped"):
@@ -296,6 +355,7 @@ class ObserverStore:
         )
         note = transcript_note(channel=channel, text=text, created_at=moment)
         result = self._append_note(note)
+        self.trim_noise()
         if result.get("reason") == "rate":
             return {"stored": True, "reason": "rate", "note": None}
         return result
@@ -364,6 +424,10 @@ class ObserverStore:
         return created
 
     def apply_feedback(self, note_id: str, vote: str) -> dict:
+        with self._exclusive():
+            return self._apply_feedback(note_id, vote)
+
+    def _apply_feedback(self, note_id: str, vote: str) -> dict:
         key = (vote or "").strip().lower().replace(" ", "_").replace("'", "")
         aliases = {
             "thats_me": "thats_me",
@@ -455,6 +519,10 @@ class ObserverStore:
 
     def _append_note(self, note: dict) -> dict:
         """Write one note. Heard lines that grow are merged. New notes are rate-limited."""
+        with self._exclusive():
+            return self._append_note_locked(note)
+
+    def _append_note_locked(self, note: dict) -> dict:
         prepared = _prepare_stored_note(note)
         existing = self.read_notes()
         if str(prepared.get("kind") or "") == "heard":
@@ -471,8 +539,10 @@ class ObserverStore:
             return {"stored": False, "reason": "rate", "note": None}
         if not prepared.get("created_at"):
             prepared["created_at"] = moment.isoformat()
+        prepared["status"] = "pending"
         self.root.mkdir(parents=True, exist_ok=True)
         _append_jsonl(self.notes_path, prepared)
+        self.trim_noise(now=moment)
         return {"stored": True, "reason": "", "note": prepared}
 
     def compact_notes(self, *, now: Optional[datetime] = None) -> dict:
@@ -480,6 +550,10 @@ class ObserverStore:
 
         A second run that finds nothing to change does not write another backup.
         """
+        with self._exclusive():
+            return self._compact_notes(now=now)
+
+    def _compact_notes(self, *, now: Optional[datetime] = None) -> dict:
         rows = self.read_notes()
         compacted = compact_note_rows(rows, now=now)
         accepted_ids = {
@@ -548,13 +622,10 @@ class ObserverStore:
         return rows
 
     def background_notes(self, *, audience: str, heir_surface: bool = False) -> list[dict]:
-        """Accepted notes, plus the owner's high-confidence pending notes."""
-        heir = heir_surface or (audience or "").strip().lower() == "heir"
+        """Accepted notes only. A high confidence score is not the owner's approval."""
         picked = []
         for note in self.visible_notes(audience=audience, heir_surface=heir_surface):
             if note["status"] == "accepted":
-                picked.append(note)
-            elif not heir and float(note.get("confidence") or 0) >= HIGH_CONFIDENCE:
                 picked.append(note)
         return picked
 
@@ -656,10 +727,122 @@ class ObserverStore:
             return []
         return [name] if not path.exists() else []
 
-    def _trim_observations(self, keep_lines: int = 2000) -> None:
+    def _trim_observations(self, keep_lines: int = OBSERVATION_KEEP_MAX) -> None:
         rows = _read_jsonl(self.observations_path)
         if len(rows) > keep_lines:
             _rewrite_jsonl(self.observations_path, rows[-keep_lines:])
+
+    def trim_noise(self, *, now: Optional[datetime] = None) -> dict:
+        """Cap captions and pending notes so the tree cannot grow to many GB.
+
+        Accepted notes stay. Age is measured from the newest row, so a replay
+        of an old log is not wiped just because the clock has moved on.
+        The read and the rewrite share the store lock with accept and compact.
+        """
+        with self._exclusive():
+            return self._trim_noise(now=now)
+
+    def _trim_noise(self, *, now: Optional[datetime] = None) -> dict:
+        observations = _read_jsonl(self.observations_path)
+        anchor = _now(now) if now is not None else _newest_moment(observations) or _now()
+        cutoff = anchor - timedelta(days=OBSERVATION_KEEP_DAYS)
+        fresh = []
+        for row in observations:
+            created = _parse_iso(str(row.get("ts") or row.get("created_at") or ""))
+            if created is not None and created < cutoff:
+                continue
+            fresh.append(row)
+        if len(fresh) > OBSERVATION_KEEP_MAX:
+            fresh = fresh[-OBSERVATION_KEEP_MAX:]
+        notes = self._cap_pending(self.read_notes())
+        text_bytes = _jsonl_bytes(fresh) + _jsonl_bytes(notes)
+        removed_observations = len(observations) - len(fresh)
+        while text_bytes > TEXT_CAP_BYTES and fresh:
+            fresh = fresh[1:]
+            removed_observations += 1
+            text_bytes = _jsonl_bytes(fresh) + _jsonl_bytes(notes)
+        dropped = 0
+        if text_bytes > TEXT_CAP_BYTES:
+            notes, dropped = _drop_pending_for_bytes(notes, TEXT_CAP_BYTES, _jsonl_bytes(fresh))
+        self._store_rows(self.observations_path, fresh)
+        if notes != self.read_notes():
+            self._store_rows(self.notes_path, notes)
+        return {
+            "observations": len(fresh),
+            "observations_removed": removed_observations,
+            "pending_removed": dropped,
+            "bytes": _jsonl_bytes(fresh) + _jsonl_bytes(notes),
+        }
+
+    def _cap_pending(self, notes: list[dict]) -> list[dict]:
+        accepted = [note for note in notes if str(note.get("status") or "") == "accepted"]
+        pending = [note for note in notes if str(note.get("status") or "pending") == "pending"]
+        other = [note for note in notes if note not in accepted and note not in pending]
+        pending.sort(key=lambda note: str(note.get("created_at") or ""))
+        if len(pending) > PENDING_KEEP_MAX:
+            pending = pending[-PENDING_KEEP_MAX:]
+        return accepted + other + pending
+
+    def _store_rows(self, path: Path, rows: list[dict]) -> None:
+        if rows:
+            _rewrite_jsonl(path, rows)
+        elif path.is_file():
+            path.unlink()
+
+    def purge_noise(self, *, apply: bool = False, now: Optional[datetime] = None) -> dict:
+        """Count noise notes and captions. Delete them only when ``apply`` is true.
+
+        A dry run only reads. It does not create ``.store.lock``, so a member
+        of the heirloom group can see the counts without root.
+        """
+        del now
+        if not apply:
+            return self._purge_noise(apply=False)
+        try:
+            with self._exclusive():
+                return self._purge_noise(apply=True)
+        except PermissionError as exc:
+            raise PermissionError(
+                "Need root to delete observer notes. Re-run: sudo heirloom-box observer purge --apply"
+            ) from exc
+
+    def _purge_noise(self, *, apply: bool) -> dict:
+        notes = self.read_notes()
+        pending = [note for note in notes if str(note.get("status") or "pending") == "pending"]
+        accepted = [note for note in notes if str(note.get("status") or "") == "accepted"]
+        observations = _read_jsonl(self.observations_path)
+        plan = {
+            "apply": bool(apply),
+            "applied": False,
+            "pending_notes": len(pending),
+            "accepted_notes": len(accepted),
+            "observations": len(observations),
+            "bytes": _jsonl_bytes(notes) + _jsonl_bytes(observations),
+            "backup": "",
+        }
+        if not apply:
+            return plan
+        self.root.mkdir(parents=True, exist_ok=True)
+        stamp = _now().strftime("%Y%m%dT%H%M%SZ")
+        backups: list[str] = []
+        for path in (self.notes_path, self.observations_path):
+            if not path.is_file():
+                continue
+            dest = path.with_name(f"{path.name}.{stamp}.purge.bak")
+            if dest.exists():
+                dest = path.with_name(f"{path.name}.{stamp}-{uuid.uuid4().hex[:6]}.purge.bak")
+            shutil.copy2(path, dest)
+            backups.append(str(dest))
+        if accepted:
+            _rewrite_jsonl(self.notes_path, accepted)
+        elif self.notes_path.is_file():
+            self.notes_path.unlink()
+        if self.observations_path.is_file():
+            self.observations_path.unlink()
+        plan["applied"] = True
+        plan["backup"] = ", ".join(backups)
+        plan["bytes"] = _jsonl_bytes(accepted)
+        return plan
 
     def digest_notes(self, *, now: Optional[datetime] = None) -> list[dict]:
         return [_public_note(note) for note in self.notes_for_day(_day(now))]
@@ -726,8 +909,22 @@ def _screen_mode(raw: Optional[str] = None) -> str:
     return "auto"
 
 
-def status_public(store: Optional[ObserverStore] = None) -> dict:
-    """Shape used by ``GET /api/health`` and ``heirloom-box status``. No secrets."""
+def read_unit_snapshot(store: ObserverStore) -> dict:
+    loaded = _read_json(store.root / "unit.json", {})
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def status_public(
+    store: Optional[ObserverStore] = None,
+    *,
+    now: Optional[datetime] = None,
+    unit: Optional[dict] = None,
+) -> dict:
+    """Shape used by ``GET /api/health`` and ``heirloom-box status``. No secrets.
+
+    ``signal`` is live. A status file older than a few minutes is ``stale``,
+    and a crash-looping unit is ``failing``. Neither is reported as ok.
+    """
     enabled = observer_enabled()
     if store is None:
         store = ObserverStore(observer_dir())
@@ -739,7 +936,7 @@ def status_public(store: Optional[ObserverStore] = None) -> dict:
     paused = bool(state.get("paused")) or bool(status.get("paused")) or bool(shared.get("paused"))
     try:
         used = disk_used(store.root) if enabled else 0
-        notes_today = len(store.notes_for_day(_day())) if enabled else 0
+        notes_today = len(store.notes_for_day(_day(now))) if enabled else 0
     except OSError:
         used = int(status.get("disk_bytes") or 0)
         notes_today = int(status.get("notes_today") or 0)
@@ -749,18 +946,39 @@ def status_public(store: Optional[ObserverStore] = None) -> dict:
     mode = ""
     if enabled:
         mode = recorded_mode if recorded_mode in {"network", "capture", "auto"} else _screen_mode()
+    mtime = None
+    try:
+        if store.status_path.is_file():
+            mtime = store.status_path.stat().st_mtime
+    except OSError:
+        mtime = None
+    recorded = str(status.get("signal") or ("off" if not enabled else "unknown"))
+    snapshot = unit if unit is not None else (read_unit_snapshot(store) if enabled or store.root.joinpath("unit.json").is_file() else {})
+    signal, fresh = honest_signal(
+        recorded,
+        enabled=enabled,
+        moment=_status_moment(status, mtime),
+        now=now,
+        unit=snapshot,
+    )
+    updated = str(status.get("updated_at") or "")
+    if not updated and mtime:
+        updated = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
     return {
         "enabled": enabled,
         "paused": paused if enabled else False,
         "device": str(status.get("device") or ""),
         "source": source,
         "mode": mode,
-        "signal": str(status.get("signal") or ("off" if not enabled else "unknown")),
+        "signal": signal,
+        "fresh": fresh,
+        "updated_at": updated,
         "fps": status.get("fps") or 0,
         "model": str(status.get("model") or ""),
         "notes_today": notes_today,
         "disk_bytes": used,
         "audio": audio,
+        "unit": "failing" if signal == "failing" else str((snapshot or {}).get("active") or ""),
     }
 
 
@@ -925,6 +1143,96 @@ def _squash_pending_heard(pending: list[dict], accepted: list[dict]) -> tuple[li
             continue
         kept.append(prepared)
     return accepted_rows, kept
+
+
+def _jsonl_bytes(rows: list) -> int:
+    total = 0
+    for row in rows:
+        try:
+            total += len(json.dumps(row, ensure_ascii=True, sort_keys=True)) + 1
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def _newest_moment(rows: list[dict]) -> Optional[datetime]:
+    newest: Optional[datetime] = None
+    for row in rows:
+        created = _parse_iso(str(row.get("ts") or row.get("created_at") or ""))
+        if created is None:
+            continue
+        if newest is None or created > newest:
+            newest = created
+    return newest
+
+
+def _drop_pending_for_bytes(notes: list[dict], cap: int, observation_bytes: int) -> tuple[list[dict], int]:
+    accepted = [note for note in notes if str(note.get("status") or "") == "accepted"]
+    pending = [note for note in notes if str(note.get("status") or "pending") == "pending"]
+    other = [note for note in notes if note not in accepted and note not in pending]
+    pending.sort(key=lambda note: str(note.get("created_at") or ""))
+    dropped = 0
+    while observation_bytes + _jsonl_bytes(accepted + other + pending) > cap and pending:
+        pending.pop(0)
+        dropped += 1
+    return accepted + other + pending, dropped
+
+
+def _status_moment(status: dict, mtime: float | None) -> Optional[datetime]:
+    stamp = _parse_iso(str(status.get("updated_at") or ""))
+    if stamp is not None:
+        return stamp
+    if not mtime:
+        return None
+    return datetime.fromtimestamp(mtime, tz=timezone.utc)
+
+
+def unit_is_crash_looping(unit: dict | None, *, now: Optional[datetime] = None) -> bool:
+    """A unit that is still restarting. A high historical count on a running unit is not a loop."""
+    if not isinstance(unit, dict) or not unit:
+        return False
+    moment = _now(now)
+    checked = _parse_iso(str(unit.get("checked_at") or ""))
+    if checked is not None and (moment - checked).total_seconds() > 15 * 60:
+        return False
+    active = str(unit.get("active") or "").lower()
+    result = str(unit.get("result") or "").lower()
+    try:
+        restarts = int(unit.get("n_restarts") or 0)
+    except (TypeError, ValueError):
+        restarts = 0
+    if active == "active":
+        return False
+    if result == "start-limit-hit":
+        return True
+    return restarts >= 5 and active in {"failed", "activating", "auto-restart", "deactivating"}
+
+
+def honest_signal(
+    recorded: str,
+    *,
+    enabled: bool,
+    moment: Optional[datetime],
+    now: Optional[datetime] = None,
+    unit: dict | None = None,
+    fresh_s: int = SIGNAL_FRESH_S,
+) -> tuple[str, bool]:
+    """Live signal. A status file older than ``fresh_s`` is not ok.
+
+    A stopped observer is off. A leftover crash-loop snapshot does not fail
+    the box after the owner has turned the watcher off.
+    """
+    current = _now(now)
+    if not enabled:
+        return "off", False
+    if unit_is_crash_looping(unit, now=current):
+        return "failing", False
+    age_ok = moment is not None and (current - moment).total_seconds() <= fresh_s
+    if not age_ok:
+        if recorded in {"ok", "signal"}:
+            return "stale", False
+        return recorded or "stale", False
+    return recorded or "unknown", True
 
 
 def compact_note_rows(rows: list[dict], *, now: Optional[datetime] = None) -> list[dict]:

@@ -106,7 +106,7 @@ export default function Dashboard() {
             {stats.suggested_topics.map((t) => (
               <Link
                 key={t.key}
-                to={`/interviewer?topic=${encodeURIComponent(t.question)}&key=${t.key}`}
+                to={`/record?topic=${encodeURIComponent(t.question)}&key=${t.key}`}
                 data-testid={`suggested-${t.key}`}
                 className="surface p-6 hover:border-[var(--accent)] transition-colors"
               >

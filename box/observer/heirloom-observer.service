@@ -2,11 +2,17 @@
 Description=Heirloom Observer capture
 After=network-online.target
 Wants=network-online.target
+# A bad start used to restart every 2 seconds for weeks. Stop after a short burst.
+StartLimitIntervalSec=120
+StartLimitBurst=8
 
 [Service]
 Type=simple
 EnvironmentFile=-/var/lib/heirloom/box.env
-# /run/heirloom is the stable parent. The spool lives in the child directory.
+# The spool is the real directory /run/heirloom/observer.
+# /run/heirloom-observer is a symlink to that directory. It is not listed in
+# ReadWritePaths: systemd fails namespace setup (status 226) when that entry
+# is a symlink, and Restart=on-failure then loops forever.
 # Preserving the runtime directory keeps its inode, so box-api-1's bind mount
 # is not left pointing at a directory systemd already deleted.
 ExecStartPre=/bin/mkdir -p /run/heirloom/observer/audio/system /run/heirloom/observer/audio/mic /run/heirloom/observer/screen
@@ -19,7 +25,7 @@ Group=video
 SupplementaryGroups=audio
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/heirloom/observer /run/heirloom /run/heirloom-observer
+ReadWritePaths=/var/lib/heirloom/observer /run/heirloom
 
 [Install]
 WantedBy=multi-user.target

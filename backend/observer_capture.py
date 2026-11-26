@@ -96,6 +96,10 @@ def trim_ram_dir(root: Path, budget_bytes: int) -> int:
     return removed
 
 
+CANONICAL_RAM_DIR = "/run/heirloom/observer"
+COMPAT_RAM_LINK = "/run/heirloom-observer"
+
+
 def assert_ram_dir(path: Path | str) -> Path:
     """Refuse a ring buffer that would land on persistent disk."""
     raw = os.fspath(path)
@@ -105,6 +109,25 @@ def assert_ram_dir(path: Path | str) -> Path:
     if not normalized.startswith(_RAM_ROOTS):
         raise ValueError("observer ring buffer must stay in RAM (/run or /dev/shm)")
     return Path(raw)
+
+
+def canonical_ram_dir(path: Path | str | None = None) -> Path:
+    """The directory the daemon writes. The compat path is only a symlink.
+
+    ``/run/heirloom-observer`` must not be created as a real directory. systemd
+    cannot put a symlink in ``ReadWritePaths``, and that mismatch crash-looped
+    the unit. Callers that still pass the compat path are pointed at the real
+    directory underneath ``/run/heirloom``.
+    """
+    if path is None:
+        path = os.environ.get("OBSERVER_RAM_DIR", "") or CANONICAL_RAM_DIR
+    raw = os.fspath(path).rstrip("/") or CANONICAL_RAM_DIR
+    checked = assert_ram_dir(raw)
+    text = os.fspath(checked).rstrip("/")
+    if text == COMPAT_RAM_LINK or text.startswith(COMPAT_RAM_LINK + "/"):
+        suffix = text[len(COMPAT_RAM_LINK):].lstrip("/")
+        return Path(CANONICAL_RAM_DIR) / suffix if suffix else Path(CANONICAL_RAM_DIR)
+    return checked
 
 
 def sample_interval_s(

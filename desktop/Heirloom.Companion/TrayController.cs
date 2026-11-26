@@ -340,6 +340,9 @@ internal sealed class TrayController : IDisposable
         var open = new MenuItem { Header = "Open Twin" };
         open.Click += (_, _) => OpenTwin();
         menu.Items.Add(open);
+        var record = new MenuItem { Header = "Record a memory" };
+        record.Click += (_, _) => Process.Start(new ProcessStartInfo(BoxLink.RecordMemory(_store.BoxUrl)) { UseShellExecute = true });
+        menu.Items.Add(record);
         var settings = new MenuItem { Header = "Settings" };
         settings.Click += (_, _) => new SettingsWindow(_store).Show();
         menu.Items.Add(settings);
@@ -431,7 +434,7 @@ internal sealed class TrayController : IDisposable
     private async Task<AssistFetch?> FetchAssistAsync(CancellationToken cancellationToken)
     {
         var token = _store.Session();
-        if (string.IsNullOrWhiteSpace(token) || !_snapshot.Reachable)
+        if (string.IsNullOrWhiteSpace(token) || !AssistLive.MayPoll(_snapshot.ObserverEnabled, _snapshot.Reachable))
         {
             return null;
         }
@@ -488,7 +491,7 @@ internal sealed class TrayController : IDisposable
             _store.CaPem,
             token,
             "/api/assist/live/ptt",
-            "{\"held\":true}").ConfigureAwait(true);
+            AssistLiveBodies.Ptt(true)).ConfigureAwait(true);
     }
 
     private async Task SetMutedAsync(bool muted)
@@ -551,7 +554,7 @@ internal sealed class TrayController : IDisposable
             return;
         }
 
-        var json = JsonSerializer.Serialize(new { text = words });
+        var json = AssistLiveBodies.Say(words);
         await BoxClient.PostAssistAsync(
             _store.BoxUrl,
             _store.Pin,
