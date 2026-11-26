@@ -137,22 +137,42 @@ export default function TwinLive() {
   if (error) {
     return (
       <div
-        className="min-h-screen flex items-center justify-center px-6"
+        className="min-h-screen flex items-center justify-center px-6 relative overflow-hidden"
         style={{ background: "var(--bg-base)" }}
       >
-        <div className="max-w-md text-center" data-testid="live-error">
-          <div className="overline mb-3" style={{ color: "var(--text-muted)" }}>
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute left-1/2 top-[38%] -translate-x-1/2 -translate-y-1/2 h-[520px] w-[520px] rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(212,163,115,0.14) 0%, rgba(212,163,115,0.04) 40%, rgba(212,163,115,0) 70%)" }}
+        />
+        <div className="relative max-w-md text-center" data-testid="live-error">
+          <LampMark />
+          <div className="overline mb-3 mt-8" style={{ color: "var(--text-muted)" }}>
             heirloom · live
           </div>
-          <h1 className="font-serif text-3xl mb-3">Nobody home.</h1>
-          <p style={{ color: "var(--text-secondary)" }}>{error}</p>
-          <a
-            href="/"
-            className="inline-block mt-6 text-sm underline"
-            style={{ color: "var(--accent)" }}
-          >
-            Go to Heirloom →
-          </a>
+          <h1 className="font-serif text-4xl mb-3" style={{ color: "var(--text-primary)" }}>Nobody home.</h1>
+          <p className="text-base" style={{ color: "var(--text-secondary)" }}>{error}</p>
+          <p className="text-sm mt-4 leading-relaxed" style={{ color: "var(--text-muted)" }} data-testid="live-error-help">
+            Twin Live is a window onto a twin&apos;s conversations, open only while its owner chooses.
+            This one may be private or paused, or the link may be spelled a little differently.
+          </p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <a
+              href="/"
+              className="inline-flex items-center gap-2 px-5 py-2.5 text-sm rounded-sm"
+              style={{ background: "var(--accent)", color: "var(--text-inverse)" }}
+            >
+              Go to Heirloom →
+            </a>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="px-5 py-2.5 text-sm rounded-sm"
+              style={{ border: "1px solid var(--border-default)", color: "var(--text-secondary)" }}
+            >
+              Try again
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -334,5 +354,24 @@ export default function TwinLive() {
         as a Browser Source in OBS.
       </footer>
     </div>
+  );
+}
+
+/** A small brass lamp, unlit — the same mark the Companion uses in the tray. */
+function LampMark() {
+  return (
+    <svg width="72" height="88" viewBox="0 0 72 88" aria-hidden="true" className="mx-auto" data-testid="live-lamp">
+      <defs>
+        <linearGradient id="lampShade" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stopColor="#e5b98e" />
+          <stop offset="1" stopColor="#b9854f" />
+        </linearGradient>
+      </defs>
+      <path d="M18 34 L28 8 H44 L54 34 Z" fill="url(#lampShade)" opacity="0.9" />
+      <ellipse cx="36" cy="34" rx="18" ry="3" fill="#7a5a36" />
+      <rect x="34" y="37" width="4" height="34" rx="2" fill="#a8a096" opacity="0.55" />
+      <ellipse cx="36" cy="76" rx="16" ry="4" fill="#36322e" />
+      <ellipse cx="36" cy="74" rx="14" ry="3" fill="#a8a096" opacity="0.35" />
+    </svg>
   );
 }

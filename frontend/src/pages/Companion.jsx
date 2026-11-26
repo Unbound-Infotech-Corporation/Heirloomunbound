@@ -135,15 +135,23 @@ export default function Companion() {
   };
 
   return (
-    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-5xl" data-testid="companion-root">
+    <div className="px-4 sm:px-8 lg:px-16 py-12 max-w-5xl mx-auto" data-testid="companion-root">
       <header className="mb-10">
         <div className="overline mb-3">the local companion</div>
         <h1 className="font-serif text-4xl lg:text-5xl font-light tracking-tight">
           Your hands on the machine.
         </h1>
         <p className="mt-3 text-base max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-          Heirloom Unbound on Windows is a native WinUI studio — Adobe chrome, a dedicated Volume Mixer session, local Whisper and Ollama, a vault meant to outlive you. Install sizes: Small 5–12 GB, Medium 40–70 GB, Large 100–160 GB, Dedicated PC 200 GB+ (this machine exists for the twin).
+          Heirloom for Windows lets your twin hear, speak, and lend a hand on your own PC. Everything runs locally, and the vault is built to outlive you.
         </p>
+        <TechDetails testId="companion-tech-hero">
+          <p>
+            A native WinUI studio with its own Volume Mixer session, local Whisper speech-to-text, and local Ollama models.
+          </p>
+          <p>
+            Install sizes: Small 5–12 GB, Medium 40–70 GB, Large 100–160 GB, Dedicated PC 200 GB+ (a machine that exists for the twin).
+          </p>
+        </TechDetails>
       </header>
 
       {/* Setup */}
@@ -154,9 +162,7 @@ export default function Companion() {
           <li>2. On your PC, download <b style={{ color: "var(--text-primary)" }}>Heirloom for Windows (WinUI)</b> and paste the token in Settings. The legacy PySide zip remains available for old installs.</li>
         </ol>
         <p className="text-xs mb-6" style={{ color: "var(--text-muted)" }}>
-          Works on Windows 10 (≥ 1809) and Windows 11. No terminal, no pip, no Python knowledge needed.
-          Prefer the manual route? The <b>Windows package (.zip)</b> ships the same script as separate files
-          you can inspect and run yourself.
+          Works on Windows 10 (1809 or later) and Windows 11. No terminal or Python needed.
         </p>
 
         <div className="flex gap-3">
@@ -288,14 +294,20 @@ export default function Companion() {
                 )}
               </div>
             ))}
-            <p className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>
-              Re-download bakes a fresh zip from <b>this</b> live API (does not show the token again).
-              GitHub can be ahead of Emergent — if the titlebar is not <code>0.5.1</code> with first-run
-              after models (WinUI is primary; PySide zip is legacy), deploy <code>main</code> first.{" "}
-              {buildInfo?.desktop_version
-                ? `This server: desktop ${buildInfo.desktop_version} (${buildInfo.git_sha}).`
-                : "This server does not advertise /api/build yet."}
-            </p>
+            <TechDetails testId="companion-tech-devices">
+              <p>
+                Re-download builds a fresh package from this server. It never shows the token again.
+              </p>
+              <p>
+                Prefer the manual route? The <b>Windows package (.zip)</b> ships the same script as separate files you can inspect and run yourself. The PySide zip is legacy; WinUI is the main app.
+              </p>
+              <p>
+                If the app&apos;s title bar shows an older version than this server, update the server from <code>main</code> first.{" "}
+                {buildInfo?.desktop_version
+                  ? `This server: desktop ${buildInfo.desktop_version} (${buildInfo.git_sha}).`
+                  : "This server does not report its build yet."}
+              </p>
+            </TechDetails>
           </div>
         )}
       </section>
@@ -410,5 +422,18 @@ export default function Companion() {
         )}
       </section>
     </div>
+  );
+}
+
+function TechDetails({ children, testId }) {
+  return (
+    <details className="tech-details mt-4 max-w-2xl" data-testid={testId}>
+      <summary className="text-xs cursor-pointer select-none inline-flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
+        <span className="tech-details-caret" aria-hidden="true">▸</span> Technical details
+      </summary>
+      <div className="mt-3 pl-4 space-y-2 text-xs leading-relaxed border-l" style={{ color: "var(--text-muted)", borderColor: "var(--border-default)" }}>
+        {children}
+      </div>
+    </details>
   );
 }
